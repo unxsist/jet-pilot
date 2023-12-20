@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { injectStrict } from "@/lib/utils";
-import { V1Pod } from "@kubernetes/client-node";
+import { V1Service } from "@kubernetes/client-node";
 import { Kubernetes } from "@/services/Kubernetes";
 import { ref, h } from "vue";
 import { useToast, ToastAction } from "@/components/ui/toast";
@@ -9,23 +9,23 @@ import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 const { context, namespace } = injectStrict(KubeContextStateKey);
 
 import DataTable from "@/components/ui/DataTable.vue";
-import { columns } from "@/components/tables/pods/columns";
+import { columns } from "@/components/tables/services/columns";
 import { useDataRefresher } from "@/composables/refresher";
 
 const { toast } = useToast();
-const pods = ref<V1Pod[]>([]);
+const services = ref<V1Service[]>([]);
 
-async function getPods(refresh: boolean = false) {
+async function getServices(refresh: boolean = false) {
   if (!refresh) {
-    pods.value = [];
+    services.value = [];
   }
 
-  Kubernetes.getPods(
+  Kubernetes.getServices(
     context.value,
     namespace.value === "all" ? "" : namespace.value
   )
-    .then((results: V1Pod[]) => {
-      pods.value = results;
+    .then((results: V1Service[]) => {
+      services.value = results;
     })
     .catch((error) => {
       toast({
@@ -42,12 +42,12 @@ async function getPods(refresh: boolean = false) {
     });
 }
 
-const { startRefreshing, stopRefreshing } = useDataRefresher(getPods, 1000, [
-  context,
-  namespace,
-]);
+const { startRefreshing, stopRefreshing } = useDataRefresher(
+  getServices,
+  1000,
+  [context, namespace]
+);
 </script>
-x
 <template>
-  <DataTable :data="pods" :columns="columns" />
+  <DataTable :data="services" :columns="columns" />
 </template>

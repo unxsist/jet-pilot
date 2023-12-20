@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { injectStrict } from "@/lib/utils";
-import { V1Deployment, V1Pod } from "@kubernetes/client-node";
+import { V1Deployment } from "@kubernetes/client-node";
 import { Kubernetes } from "@/services/Kubernetes";
-import { ref } from "vue";
-import { useToast } from "@/components/ui/toast";
+import { ref, h } from "vue";
+import { useToast, ToastAction } from "@/components/ui/toast";
 
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 const { context, namespace } = injectStrict(KubeContextStateKey);
@@ -32,11 +32,21 @@ async function getDeployments(refresh: boolean = false) {
         title: "An error occured",
         description: error.message,
         variant: "destructive",
+        action: h(
+          ToastAction,
+          { altText: "Retry", onClick: () => startRefreshing() },
+          { default: () => "Retry" }
+        ),
       });
+      stopRefreshing();
     });
 }
 
-useDataRefresher(getDeployments, 1000, [context, namespace]);
+const { startRefreshing, stopRefreshing } = useDataRefresher(
+  getDeployments,
+  1000,
+  [context, namespace]
+);
 </script>
 <template>
   <DataTable :data="deployments" :columns="columns" />

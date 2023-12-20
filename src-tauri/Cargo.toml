@@ -1,14 +1,12 @@
 [package]
-name = "tauri_vue_template"
-version = "0.3.0"
-description = "A Tauri App"
-authors = ["Ville Säävuori"]
+name = "jet_pilot"
+version = "0.0.1"
+description = "JET Pilot - K8s management made easy"
+authors = ["Jeroen Nijhuis"]
 license = "MIT"
-repository = "https://github.com/Uninen/tauri-vue-template"
-default-run = "tauri_vue_template"
+repository = "https://github.com/unxsist/jet-pilot"
+default-run = "jet_pilot"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
 tauri-build = { version = "1.4.0", features = [] }

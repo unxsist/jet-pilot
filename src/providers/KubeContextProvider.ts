@@ -35,9 +35,9 @@ export default {
     provide(KubeContextSetContextKey, setContext);
     provide(KubeContextSetNamespaceKey, setNamespace);
 
-    // Kubernetes.getCurrentContext().then((context) => {
-    //   setContext(context);
-    // });
+    Kubernetes.getCurrentContext().then((context) => {
+      setContext(context);
+    });
   },
   render(): any {
     return this.$slots.default();

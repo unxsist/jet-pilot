@@ -1,13 +1,13 @@
 {
   "package": {
     "productName": "JET Pilot",
-    "version": "0.0.1"
+    "version": "../package.json"
   },
   "build": {
     "distDir": "../dist",
     "devPath": "http://localhost:5173",
-    "beforeDevCommand": "pnpm vite:dev",
-    "beforeBuildCommand": "pnpm vite:build"
+    "beforeDevCommand": "npm run vite:dev",
+    "beforeBuildCommand": "npm run vite:build"
   },
   "tauri": {
     "macOSPrivateApi": true,
@@ -36,6 +36,9 @@
         "icons/128x128@2x.png",
         "icons/icon.icns",
         "icons/icon.ico"
+      ],
+      "resources": [
+        "resources/*"
       ]
     },
     "windows": [

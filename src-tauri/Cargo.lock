@@ -1870,6 +1870,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "jet_pilot"
+version = "0.0.1"
+dependencies = [
+ "fix-path-env",
+ "k8s-openapi",
+ "kube",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-nspanel",
+ "tokio",
+ "uuid",
+ "window-vibrancy",
+]
+
+[[package]]
 name = "jni"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4086,24 +4104,6 @@ dependencies = [
  "quick-xml 0.23.1",
  "strum",
  "windows 0.39.0",
-]
-
-[[package]]
-name = "tauri_vue_template"
-version = "0.3.0"
-dependencies = [
- "fix-path-env",
- "k8s-openapi",
- "kube",
- "portable-pty",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-nspanel",
- "tokio",
- "uuid",
- "window-vibrancy",
 ]
 
 [[package]]

@@ -32,4 +32,6 @@ export function useDataRefresher(
       method(false); // Refresh on dependency change
     });
   });
+
+  return { startRefreshing, stopRefreshing };
 }

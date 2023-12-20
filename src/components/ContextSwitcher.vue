@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { injectStrict } from "@/lib/utils";
 import { ShowSingleCommandKey } from "@/providers/CommandPaletteProvider";
-import { SwitchContext } from "@/command-palette/SwitchContext";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 
 const showSingleCommand = injectStrict(ShowSingleCommandKey);

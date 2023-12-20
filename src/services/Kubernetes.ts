@@ -1,4 +1,9 @@
-import { V1Deployment, V1Namespace, V1Pod } from "@kubernetes/client-node";
+import {
+  V1Deployment,
+  V1Namespace,
+  V1Pod,
+  V1Service,
+} from "@kubernetes/client-node";
 import { invoke } from "@tauri-apps/api/tauri";
 
 export interface KubernetesError {
@@ -52,6 +57,16 @@ export class Kubernetes {
     namespace: string
   ): Promise<V1Deployment[]> {
     return invoke("list_deployments", {
+      context: context,
+      namespace: namespace,
+    });
+  }
+
+  static async getServices(
+    context: string,
+    namespace: string
+  ): Promise<V1Service[]> {
+    return invoke("list_services", {
       context: context,
       namespace: namespace,
     });

@@ -5,7 +5,7 @@ use tauri::api::shell;
 use tauri::{CustomMenuItem, Manager, Menu, Submenu};
 
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::{Namespace, Pod};
+use k8s_openapi::api::core::v1::{Namespace, Pod, Service};
 use kube::api::ListParams;
 use kube::config::{KubeConfigOptions, Kubeconfig, KubeconfigError};
 use kube::{api::Api, Client, Config, Error};
@@ -19,7 +19,6 @@ use std::{
     thread::{self, sleep},
     time::Duration,
 };
-use tauri_nspanel::cocoa::appkit::NSWindowTitleVisibility;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize)]
@@ -93,11 +92,6 @@ async fn list_contexts() -> Result<Vec<String>, SerializableKubeError> {
 
 async fn client_with_context(context: &str) -> Result<Client, SerializableKubeError> {
     if context.to_string() != CURRENT_CONTEXT.lock().unwrap().as_ref().unwrap().clone() {
-        println!(
-            "client_with_context - context changed from {} to {}",
-            CURRENT_CONTEXT.lock().unwrap().as_ref().unwrap().clone(),
-            context
-        );
         let options = KubeConfigOptions {
             context: Some(context.to_string()),
             cluster: None,
@@ -173,6 +167,21 @@ async fn list_deployments(
         .list(&ListParams::default())
         .await
         .map(|deployments| deployments.items)
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn list_services(
+    context: &str,
+    namespace: &str,
+) -> Result<Vec<Service>, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+    let services_api: Api<Service> = Api::namespaced(client, namespace);
+
+    return services_api
+        .list(&ListParams::default())
+        .await
+        .map(|services| services.items)
         .map_err(|err| SerializableKubeError::from(err));
 }
 
@@ -288,41 +297,23 @@ fn main() {
             list_pods,
             get_pod,
             list_deployments,
+            list_services,
             create_tty_session,
             stop_tty_session,
             write_to_pty
         ])
-        .menu(
-            tauri::Menu::os_default("Tauri Vue Template").add_submenu(Submenu::new(
-                "Help",
-                Menu::with_items([CustomMenuItem::new(
-                    "Online Documentation",
-                    "Online Documentation",
-                )
-                .into()]),
-            )),
-        )
-        .on_menu_event(|event| {
-            let event_name = event.menu_item_id();
-            match event_name {
-                "Online Documentation" => {
-                    let url = "https://github.com/Uninen/tauri-vue-template".to_string();
-                    shell::open(&event.window().shell_scope(), url, None).unwrap();
-                }
-                _ => {}
-            }
-        })
         .setup(|_app| {
-            let window = _app.get_window("main").unwrap();
+            let _window = _app.get_window("main").unwrap();
 
             #[cfg(target_os = "macos")]
             {
                 use tauri_nspanel::cocoa;
                 use tauri_nspanel::cocoa::appkit::NSWindow;
+                use tauri_nspanel::cocoa::appkit::NSWindowTitleVisibility;
                 use tauri_nspanel::cocoa::base::BOOL;
 
                 unsafe {
-                    let id = window.ns_window().unwrap() as cocoa::base::id;
+                    let id = _window.ns_window().unwrap() as cocoa::base::id;
                     id.setHasShadow_(BOOL::from(false));
                     id.setTitleVisibility_(NSWindowTitleVisibility::NSWindowTitleHidden);
                 }
@@ -330,11 +321,11 @@ fn main() {
 
             #[cfg(debug_assertions)]
             {
-                window.open_devtools();
+                _window.open_devtools();
             }
 
             Ok(())
         })
         .run(ctx)
-        .expect("error while running tauri application");
+        .expect("Error while starting JET Pilot");
 }

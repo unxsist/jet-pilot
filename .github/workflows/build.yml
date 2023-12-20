@@ -1,0 +1,65 @@
+name: Build
+
+on:
+  workflow_run:
+    workflows: ["Test"]
+    branches: ["main"]
+    types:
+      - completed
+      
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-build:
+    if: github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: true
+      matrix:
+        platform: [macos-latest, ubuntu-latest, windows-latest]
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Rust stable
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev webkit2gtk-4.0 libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install OpenSSL
+        if: matrix.platform == 'windows-latest'
+        run: |
+          choco install openssl
+          mkdir -p "C:\Program Files\OpenSSL\ca"
+          curl -o "C:\Program Files\OpenSSL\ca\cacert.pem" https://curl.se/ca/cacert.pem
+
+      - name: Build Vite + Tauri (MacOS + Linux)
+        if: matrix.platform != 'windows-latest'
+        run: |
+          npm run build
+
+      - name: Build Vite + Tauri (Windows)
+        if: matrix.platform == 'windows-latest'
+        env:
+          OPENSSL_DIR: 'C:\Program Files\OpenSSL'
+          SSL_CERT_FILE: 'C:\Program Files\OpenSSL\ca\cacert.pem'
+          OPENSSL_NO_VENDOR: 1
+        run: |
+          npm run build
