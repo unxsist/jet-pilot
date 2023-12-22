@@ -49,6 +49,8 @@ jobs:
           choco install openssl
           mkdir -p "C:\Program Files\OpenSSL\ca"
           curl -o "C:\Program Files\OpenSSL\ca\cacert.pem" https://curl.se/ca/cacert.pem
+          copy "C:\Program Files\OpenSSL\bin\libcrypto-3-x64.dll" .\src-tauri
+          copy "C:\Program Files\OpenSSL\bin\libssl-3-x64.dll" .\src-tauri
 
       - name: Build Vite + Tauri (MacOS + Linux)
         if: matrix.platform != 'windows-latest'
