@@ -1,7 +1,7 @@
 {
   "name": "jet-pilot",
   "private": true,
-  "version": "0.0.1",
+  "version": "1.0.0",
   "scripts": {
     "dev": "RUST_BACKTRACE=1 concurrently -k \"tauri dev\" \"pnpm devtools\"",
     "build": "tauri build",
