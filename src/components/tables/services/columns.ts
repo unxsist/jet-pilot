@@ -1,3 +1,4 @@
+import { formatDateTimeDifference } from "@/lib/utils";
 import { V1Deployment, V1Service } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
 
@@ -30,11 +31,10 @@ export const columns: ColumnDef<V1Service>[] = [
   },
   {
     header: "Age",
-    accessorFn: (row) => {
-      const date = new Date(row.metadata?.creationTimestamp || "");
-      return `${Math.floor(
-        (Date.now() - date.getTime()) / 1000 / 60 / 60 / 24
-      )}d`;
-    },
+    accessorFn: (row) =>
+      formatDateTimeDifference(
+        row.metadata?.creationTimestamp || new Date(),
+        new Date()
+      ),
   },
 ];

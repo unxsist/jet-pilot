@@ -1,5 +1,6 @@
 import {
   V1Deployment,
+  V1Job,
   V1Namespace,
   V1Pod,
   V1Service,
@@ -67,6 +68,13 @@ export class Kubernetes {
     namespace: string
   ): Promise<V1Service[]> {
     return invoke("list_services", {
+      context: context,
+      namespace: namespace,
+    });
+  }
+
+  static async getJobs(context: string, namespace: string): Promise<V1Job[]> {
+    return invoke("list_jobs", {
       context: context,
       namespace: namespace,
     });

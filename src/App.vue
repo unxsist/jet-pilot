@@ -12,20 +12,20 @@ import CommandPaletteProvider from "./providers/CommandPaletteProvider";
 
 <template>
   <AppLayout class="dark bg-zinc-900 text-sm rounded-lg">
-    <AuthCheck>
-      <template #default>
-        <KubeContextProvider>
-          <CommandPaletteProvider>
-            <Navigation />
-            <RouterViewport />
-            <Toaster />
-            <CommandPalette />
-          </CommandPaletteProvider>
-        </KubeContextProvider>
-      </template>
-      <template #loading>
-        <Loading label="K8s crew, prepare for take-off..." />
-      </template>
-    </AuthCheck>
+    <!-- <AuthCheck> -->
+    <!-- <template #default> -->
+    <KubeContextProvider>
+      <CommandPaletteProvider>
+        <Navigation />
+        <RouterViewport />
+        <Toaster />
+        <CommandPalette />
+      </CommandPaletteProvider>
+    </KubeContextProvider>
+    <!-- </template> -->
+    <!-- <template #loading> -->
+    <!-- <Loading label="K8s crew, prepare for take-off..." /> -->
+    <!-- </template> -->
+    <!-- </AuthCheck> -->
   </AppLayout>
 </template>

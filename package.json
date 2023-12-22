@@ -21,6 +21,7 @@
     "@vueuse/core": "^10.7.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
+    "date-fns": "^3.0.6",
     "radix-vue": "^1.2.5",
     "tailwind-merge": "^2.1.0",
     "tailwindcss-animate": "^1.0.7",

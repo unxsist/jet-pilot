@@ -1,8 +1,8 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::api::shell;
-use tauri::{CustomMenuItem, Manager, Menu, Submenu};
+use k8s_openapi::api::batch::v1::Job;
+use tauri::Manager;
 
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{Namespace, Pod, Service};
@@ -185,6 +185,18 @@ async fn list_services(
         .map_err(|err| SerializableKubeError::from(err));
 }
 
+#[tauri::command]
+async fn list_jobs(context: &str, namespace: &str) -> Result<Vec<Job>, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+    let jobs_api: Api<Job> = Api::namespaced(client, namespace);
+
+    return jobs_api
+        .list(&ListParams::default())
+        .await
+        .map(|jobs| jobs.items)
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
 struct TerminalSession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
 }
@@ -298,6 +310,7 @@ fn main() {
             get_pod,
             list_deployments,
             list_services,
+            list_jobs,
             create_tty_session,
             stop_tty_session,
             write_to_pty

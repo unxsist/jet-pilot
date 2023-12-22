@@ -13,11 +13,15 @@ export function SwitchContext(
     contextCache["contexts"] = contexts;
 
     contexts.map((context) => {
-      Kubernetes.getNamespaces(context).then((namespaces) => {
-        namespaceCache[context] = namespaces.map(
-          (namespace) => namespace.metadata?.name || ""
-        );
-      });
+      Kubernetes.getNamespaces(context)
+        .then((namespaces) => {
+          namespaceCache[context] = namespaces.map(
+            (namespace) => namespace.metadata?.name || ""
+          );
+        })
+        .catch((err) => {
+          namespaceCache[context] = [];
+        });
     });
   });
 
@@ -30,6 +34,15 @@ export function SwitchContext(
         return {
           name: context,
           commands: async () => {
+            if (namespaceCache[context].length === 0) {
+              return [
+                {
+                  name: "No namespaces found",
+                  execute: () => {},
+                },
+              ];
+            }
+
             return namespaceCache[context].map((namespace) => {
               return {
                 name: namespace,

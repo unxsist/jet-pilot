@@ -12,9 +12,6 @@ export const columns: ColumnDef<V1Pod>[] = [
       `${row.status?.containerStatuses?.reduce((acc, curr) => {
         return curr.ready ? acc + 1 : acc;
       }, 0)} / ${row.status?.containerStatuses?.length}`,
-    meta: {
-      class: "text-right",
-    },
   },
   {
     header: "Restarts",
@@ -22,9 +19,6 @@ export const columns: ColumnDef<V1Pod>[] = [
       `${row.status?.containerStatuses?.reduce((acc, curr) => {
         return acc + curr.restartCount;
       }, 0)}`,
-    meta: {
-      class: "text-right",
-    },
   },
   {
     header: "Status",
