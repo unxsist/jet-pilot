@@ -37,6 +37,7 @@ export default {
 
     Kubernetes.getCurrentContext().then((context) => {
       setContext(context);
+      setNamespace("tms");
     });
   },
   render(): any {

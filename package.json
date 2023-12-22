@@ -14,6 +14,7 @@
     "check": "cd src-tauri && cargo check"
   },
   "dependencies": {
+    "@kubernetes-models/istio": "^2.3.0",
     "@kubernetes/client-node": "^0.20.0",
     "@radix-icons/vue": "^1.0.0",
     "@tanstack/vue-table": "^8.11.0",

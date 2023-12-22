@@ -42,6 +42,9 @@ export function formatDateTimeDifference(startDate: Date, endDate: Date) {
     }
   } else if (minutes > 0) {
     formattedDuration += `${minutes}m`;
+    if (seconds > 0) {
+      formattedDuration += `${seconds}s`;
+    }
   } else {
     formattedDuration += `${seconds}s`;
   }

@@ -1,11 +1,13 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use k8s_openapi::api::batch::v1::Job;
+use istio_sdk::networking::v1beta1::virtual_service::VirtualService;
+use k8s_openapi::api::batch::v1::{CronJob, Job};
+use k8s_openapi::api::networking::v1::Ingress;
 use tauri::Manager;
 
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::{Namespace, Pod, Service};
+use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Pod, Secret, Service};
 use kube::api::ListParams;
 use kube::config::{KubeConfigOptions, Kubeconfig, KubeconfigError};
 use kube::{api::Api, Client, Config, Error};
@@ -197,6 +199,81 @@ async fn list_jobs(context: &str, namespace: &str) -> Result<Vec<Job>, Serializa
         .map_err(|err| SerializableKubeError::from(err));
 }
 
+#[tauri::command]
+async fn list_cronjobs(
+    context: &str,
+    namespace: &str,
+) -> Result<Vec<CronJob>, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+    let cronjobs_api: Api<CronJob> = Api::namespaced(client, namespace);
+
+    return cronjobs_api
+        .list(&ListParams::default())
+        .await
+        .map(|cronjobs| cronjobs.items)
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn list_configmaps(
+    context: &str,
+    namespace: &str,
+) -> Result<Vec<ConfigMap>, SerializableKubeError> {
+    let client: Client = client_with_context(context).await?;
+    let configmaps_api: Api<ConfigMap> = Api::namespaced(client, namespace);
+
+    return configmaps_api
+        .list(&ListParams::default())
+        .await
+        .map(|configmaps| configmaps.items)
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn list_secrets(
+    context: &str,
+    namespace: &str,
+) -> Result<Vec<Secret>, SerializableKubeError> {
+    let client: Client = client_with_context(context).await?;
+    let secrets_api: Api<Secret> = Api::namespaced(client, namespace);
+
+    return secrets_api
+        .list(&ListParams::default())
+        .await
+        .map(|secrets| secrets.items)
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn list_virtual_services(
+    context: &str,
+    namespace: &str,
+) -> Result<Vec<VirtualService>, SerializableKubeError> {
+    let client: Client = client_with_context(context).await?;
+    let virtual_services_api: Api<VirtualService> = Api::namespaced(client, namespace);
+
+    return virtual_services_api
+        .list(&ListParams::default())
+        .await
+        .map(|virtual_services| virtual_services.items)
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn list_ingresses(
+    context: &str,
+    namespace: &str,
+) -> Result<Vec<Ingress>, SerializableKubeError> {
+    let client: Client = client_with_context(context).await?;
+    let ingress_api: Api<Ingress> = Api::namespaced(client, namespace);
+
+    return ingress_api
+        .list(&ListParams::default())
+        .await
+        .map(|ingresses| ingresses.items)
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
 struct TerminalSession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
 }
@@ -309,8 +386,13 @@ fn main() {
             list_pods,
             get_pod,
             list_deployments,
-            list_services,
             list_jobs,
+            list_cronjobs,
+            list_configmaps,
+            list_secrets,
+            list_services,
+            list_virtual_services,
+            list_ingresses,
             create_tty_session,
             stop_tty_session,
             write_to_pty

@@ -1,10 +1,15 @@
 import {
+  V1ConfigMap,
+  V1CronJob,
   V1Deployment,
+  V1Ingress,
   V1Job,
   V1Namespace,
   V1Pod,
+  V1Secret,
   V1Service,
 } from "@kubernetes/client-node";
+import { VirtualService } from "@kubernetes-models/istio/networking.istio.io/v1beta1";
 import { invoke } from "@tauri-apps/api/tauri";
 
 export interface KubernetesError {
@@ -63,6 +68,43 @@ export class Kubernetes {
     });
   }
 
+  static async getJobs(context: string, namespace: string): Promise<V1Job[]> {
+    return invoke("list_jobs", {
+      context: context,
+      namespace: namespace,
+    });
+  }
+
+  static async getCronJobs(
+    context: string,
+    namespace: string
+  ): Promise<V1CronJob[]> {
+    return invoke("list_cronjobs", {
+      context: context,
+      namespace: namespace,
+    });
+  }
+
+  static async getConfigMaps(
+    context: string,
+    namespace: string
+  ): Promise<V1ConfigMap[]> {
+    return invoke("list_configmaps", {
+      context: context,
+      namespace: namespace,
+    });
+  }
+
+  static async getSecrets(
+    context: string,
+    namespace: string
+  ): Promise<V1Secret[]> {
+    return invoke("list_secrets", {
+      context: context,
+      namespace: namespace,
+    });
+  }
+
   static async getServices(
     context: string,
     namespace: string
@@ -73,8 +115,21 @@ export class Kubernetes {
     });
   }
 
-  static async getJobs(context: string, namespace: string): Promise<V1Job[]> {
-    return invoke("list_jobs", {
+  static async getVirtualServices(
+    context: string,
+    namespace: string
+  ): Promise<VirtualService[]> {
+    return invoke("list_virtual_services", {
+      context: context,
+      namespace: namespace,
+    });
+  }
+
+  static async getIngresses(
+    context: string,
+    namespace: string
+  ): Promise<V1Ingress[]> {
+    return invoke("list_ingresses", {
       context: context,
       namespace: namespace,
     });

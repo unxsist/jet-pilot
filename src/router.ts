@@ -17,9 +17,34 @@ const routes: Array<RouteRecordRaw> = [
     component: () => import("./views/Jobs.vue"),
   },
   {
+    path: "/cronjobs",
+    name: "CronJobs",
+    component: () => import("./views/CronJobs.vue"),
+  },
+  {
+    path: "/configmaps",
+    name: "ConfigMaps",
+    component: () => import("./views/ConfigMaps.vue"),
+  },
+  {
+    path: "/secrets",
+    name: "Secrets",
+    component: () => import("./views/Secrets.vue"),
+  },
+  {
     path: "/services",
     name: "Services",
     component: () => import("./views/Services.vue"),
+  },
+  {
+    path: "/virtualservices",
+    name: "VirtualServices",
+    component: () => import("./views/VirtualServices.vue"),
+  },
+  {
+    path: "/ingresses",
+    name: "Ingresses",
+    component: () => import("./views/Ingresses.vue"),
   },
 ];
 
