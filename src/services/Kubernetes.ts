@@ -5,6 +5,7 @@ import {
   V1Ingress,
   V1Job,
   V1Namespace,
+  V1PersistentVolumeClaim,
   V1Pod,
   V1Secret,
   V1Service,
@@ -130,6 +131,16 @@ export class Kubernetes {
     namespace: string
   ): Promise<V1Ingress[]> {
     return invoke("list_ingresses", {
+      context: context,
+      namespace: namespace,
+    });
+  }
+
+  static async getPersistentVolumeClaims(
+    context: string,
+    namespace: string
+  ): Promise<V1PersistentVolumeClaim[]> {
+    return invoke("list_persistentvolumeclaims", {
       context: context,
       namespace: namespace,
     });

@@ -7,7 +7,9 @@ use k8s_openapi::api::networking::v1::Ingress;
 use tauri::Manager;
 
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Pod, Secret, Service};
+use k8s_openapi::api::core::v1::{
+    ConfigMap, Namespace, PersistentVolume, PersistentVolumeClaim, Pod, Secret, Service,
+};
 use kube::api::ListParams;
 use kube::config::{KubeConfigOptions, Kubeconfig, KubeconfigError};
 use kube::{api::Api, Client, Config, Error};
@@ -274,6 +276,35 @@ async fn list_ingresses(
         .map_err(|err| SerializableKubeError::from(err));
 }
 
+#[tauri::command]
+async fn list_persistentvolumes(
+    context: &str,
+) -> Result<Vec<PersistentVolume>, SerializableKubeError> {
+    let client: Client = client_with_context(context).await?;
+    let pv_api: Api<PersistentVolume> = Api::all(client);
+
+    return pv_api
+        .list(&ListParams::default())
+        .await
+        .map(|pvs| pvs.items)
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn list_persistentvolumeclaims(
+    context: &str,
+    namespace: &str,
+) -> Result<Vec<PersistentVolumeClaim>, SerializableKubeError> {
+    let client: Client = client_with_context(context).await?;
+    let pvc_api: Api<PersistentVolumeClaim> = Api::namespaced(client, namespace);
+
+    return pvc_api
+        .list(&ListParams::default())
+        .await
+        .map(|pvcs| pvcs.items)
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
 struct TerminalSession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
 }
@@ -393,6 +424,8 @@ fn main() {
             list_services,
             list_virtual_services,
             list_ingresses,
+            list_persistentvolumes,
+            list_persistentvolumeclaims,
             create_tty_session,
             stop_tty_session,
             write_to_pty

@@ -56,7 +56,7 @@ import NavigationItem from "./NavigationItem.vue";
         <NavigationItem
           icon="persistentvolumeclaims"
           title="Persistent Volume Claims"
-          :to="{ name: 'PersistenVolumeClaims' }"
+          :to="{ name: 'PersistentVolumeClaims' }"
         />
       </NavigationGroup>
     </div>

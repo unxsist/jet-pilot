@@ -7,6 +7,8 @@ import {
 } from "@/providers/KubeContextProvider";
 import { provide, reactive, InjectionKey, toRefs, ToRefs } from "vue";
 
+export const RegisterCommandStateKey: InjectionKey<(command: Command) => void> =
+  Symbol("RegisterComand");
 export const CommandPaletteStateKey: InjectionKey<ToRefs<CommandPaletteState>> =
   Symbol("CommandPaletteState");
 export const OpenCommandPaletteKey: InjectionKey<() => void> =
@@ -51,7 +53,7 @@ export default {
     };
 
     const close = () => {
-      if (singleCommand.value) {
+      if (singleCommand.value && state.callStack.size === 1) {
         singleCommand.value = false;
         clearStack();
       }
@@ -95,11 +97,16 @@ export default {
       }
     };
 
+    const registerCommand = (command: Command) => {
+      state.commands.push(command);
+    };
+
     provide(OpenCommandPaletteKey, open);
     provide(CloseCommandPaletteKey, close);
     provide(PushCommandKey, push);
     provide(ClearCommandCallStackKey, clearStack);
     provide(ShowSingleCommandKey, showSingleCommand);
+    provide(RegisterCommandStateKey, registerCommand);
   },
   render(): any {
     return this.$slots.default();
