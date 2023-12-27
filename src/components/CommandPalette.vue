@@ -71,7 +71,7 @@ const executeCommand = (command: Command) => {
     class="fixed w-full h-full py-10 backdrop-blur-xxs"
     @click.self="closeCommandPalette"
   >
-    <CommandDialog :open="open">
+    <CommandDialog :open="open" @update:open="open = false">
       <CommandInput placeholder="Type a command or search..." />
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
