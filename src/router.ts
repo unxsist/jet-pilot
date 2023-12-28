@@ -3,6 +3,28 @@ import { createRouter, createWebHistory, RouteRecordRaw } from "vue-router";
 const routes: Array<RouteRecordRaw> = [
   {
     path: "/",
+    redirect: "/pods",
+  },
+  {
+    path: "/settings",
+    name: "Settings",
+    redirect: "/settings/general",
+    component: () => import("./views/Settings.vue"),
+    children: [
+      {
+        path: "general",
+        name: "SettingsGeneral",
+        component: () => import("./views/settings/General.vue"),
+      },
+      {
+        path: "contexts",
+        name: "SettingsContexts",
+        component: () => import("./views/settings/Contexts.vue"),
+      },
+    ],
+  },
+  {
+    path: "/pods",
     name: "Pods",
     component: () => import("./views/Pods.vue"),
   },

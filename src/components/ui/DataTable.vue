@@ -34,7 +34,11 @@ const table = useVueTable({
         v-for="headerGroup in table.getHeaderGroups()"
         :key="headerGroup.id"
       >
-        <TableHead v-for="header in headerGroup.headers" :key="header.id">
+        <TableHead
+          v-bind:enable-header-drag-region="true"
+          v-for="header in headerGroup.headers"
+          :key="header.id"
+        >
           <FlexRender
             v-if="!header.isPlaceholder"
             :render="header.column.columnDef.header"

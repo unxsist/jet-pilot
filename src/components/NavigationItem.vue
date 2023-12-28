@@ -5,9 +5,6 @@ import { injectStrict } from "@/lib/utils";
 import { RegisterCommandStateKey } from "@/providers/CommandPaletteProvider";
 
 const router = useRouter();
-const active = computed(() => {
-  return router.currentRoute.value.name === props.to.name;
-});
 
 const props = defineProps<{
   icon: string;
@@ -28,15 +25,12 @@ onMounted(() => {
 });
 </script>
 <template>
-  <div
-    :class="{
-      'bg-background border text-primary': active,
-      'border border-transparent': !active,
-    }"
-    class="flex items-center font-semibold rounded-l-lg border-r-0 px-2 py-1 text-[#7a7a7a] cursor-pointer transition-all hover:bg-background hover:text-primary"
-    @click="router.push(props.to)"
+  <router-link
+    :to="props.to"
+    active-class="bg-background border !border-border text-primary"
+    class="border border-transparent flex items-center font-semibold rounded-l-lg border-r-0 px-2 py-1 text-[#7a7a7a] cursor-pointer transition-all hover:bg-background hover:text-primary"
   >
     <NavigationItemIcon :name="props.icon" />
-    <span class="mx-3 truncate" :title="title">{{ title }}</span>
-  </div>
+    <span class="w-[135px] mx-3 truncate" :title="title">{{ title }}</span>
+  </router-link>
 </template>
