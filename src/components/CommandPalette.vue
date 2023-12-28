@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { Command } from "@/command-palette";
 import { useMagicKeys } from "@vueuse/core";
 import { injectStrict } from "@/lib/utils";
+import Loading from "@/assets/icons/loading.svg";
 
 import {
   CommandPaletteStateKey,
   OpenCommandPaletteKey,
   CloseCommandPaletteKey,
   ClearCommandCallStackKey,
-  PushCommandKey,
+  ExecuteCommandKey,
 } from "@/providers/CommandPaletteProvider";
 
 import {
@@ -23,11 +23,13 @@ import {
 const keys = useMagicKeys();
 const cmdK = keys["Cmd+K"];
 
-const { open, commands, callStack } = injectStrict(CommandPaletteStateKey);
+const { open, commands, callStack, loading } = injectStrict(
+  CommandPaletteStateKey
+);
 const openCommandPalette = injectStrict(OpenCommandPaletteKey);
 const closeCommandPalette = injectStrict(CloseCommandPaletteKey);
 const clearCallStack = injectStrict(ClearCommandCallStackKey);
-const pushCommand = injectStrict(PushCommandKey);
+const executeCommand = injectStrict(ExecuteCommandKey);
 
 watch(cmdK, (value) => {
   if (value) {
@@ -52,18 +54,6 @@ watchEffect(() => {
     window.removeEventListener("keydown", handleEscapeKey);
   }
 });
-
-const executeCommand = (command: Command) => {
-  if (command.commands) {
-    command.commands().then((commands: Command[]) => {
-      pushCommand(command, commands);
-    });
-  } else {
-    command.execute();
-    clearCallStack();
-    closeCommandPalette();
-  }
-};
 </script>
 <template>
   <div
@@ -71,8 +61,20 @@ const executeCommand = (command: Command) => {
     class="fixed w-full h-full py-10 backdrop-blur-xxs"
     @click.self="closeCommandPalette"
   >
-    <CommandDialog :open="open" @update:open="open = false">
+    <CommandDialog
+      class="relative"
+      :open="open"
+      @update:open="
+        () => {
+          clearCallStack();
+          closeCommandPalette();
+        }
+      "
+    >
       <CommandInput placeholder="Type a command or search..." />
+      <div v-if="loading" class="absolute top-1.5 right-1.5 z-50 bg-background">
+        <Loading class="z-50 w-7 h-7 animate-spin-fast" />
+      </div>
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup v-if="callStack.size === 0">

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import NavigationItemIcon from "@/components/NavigationItemIcon.vue";
 import { RouteLocationRaw, useRouter } from "vue-router";
+import { injectStrict } from "@/lib/utils";
+import { RegisterCommandStateKey } from "@/providers/CommandPaletteProvider";
 
 const router = useRouter();
 const active = computed(() => {
@@ -12,6 +14,18 @@ const props = defineProps<{
   title: string;
   to: RouteLocationRaw;
 }>();
+
+const registerCommand = injectStrict(RegisterCommandStateKey);
+onMounted(() => {
+  registerCommand({
+    id: crypto.randomUUID(),
+    name: props.title,
+    description: "Navigate to " + props.title,
+    execute: () => {
+      router.push(props.to);
+    },
+  });
+});
 </script>
 <template>
   <div

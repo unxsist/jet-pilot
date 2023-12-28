@@ -1,10 +1,4 @@
 import { Command } from "@/command-palette";
-import { SwitchContext } from "@/command-palette/SwitchContext";
-import { injectStrict } from "@/lib/utils";
-import {
-  KubeContextSetContextKey,
-  KubeContextSetNamespaceKey,
-} from "@/providers/KubeContextProvider";
 import { provide, reactive, InjectionKey, toRefs, ToRefs } from "vue";
 
 export const RegisterCommandStateKey: InjectionKey<(command: Command) => void> =
@@ -16,9 +10,8 @@ export const OpenCommandPaletteKey: InjectionKey<() => void> =
 export const CloseCommandPaletteKey: InjectionKey<() => void> = Symbol(
   "CloseCommandPalette"
 );
-export const PushCommandKey: InjectionKey<
-  (command: Command, options: Command[]) => void
-> = Symbol("PushCommand");
+export const ExecuteCommandKey: InjectionKey<(command: Command) => void> =
+  Symbol("ExecuteCommand");
 export const ClearCommandCallStackKey: InjectionKey<() => void> = Symbol(
   "ClearCommandCallStack"
 );
@@ -29,6 +22,8 @@ export interface CommandPaletteState {
   open: boolean;
   callStack: Map<Command, Command[]>;
   commands: Command[];
+  commandCache: Map<string, Command[]>;
+  loading: boolean;
 }
 
 export default {
@@ -38,12 +33,9 @@ export default {
     const state: CommandPaletteState = reactive({
       open: false,
       callStack: new Map<Command, Command[]>(),
-      commands: [
-        SwitchContext(
-          injectStrict(KubeContextSetContextKey),
-          injectStrict(KubeContextSetNamespaceKey)
-        ),
-      ],
+      commands: [],
+      commandCache: new Map<string, Command[]>(),
+      loading: false,
     });
 
     provide(CommandPaletteStateKey, toRefs(state));
@@ -88,22 +80,44 @@ export default {
         return;
       }
 
-      if (command.commands) {
-        command.commands().then((commands: Command[]) => {
-          push(command, commands);
-          singleCommand.value = true;
-          open();
-        });
-      }
+      singleCommand.value = true;
+      executeCommand(command);
+      open();
     };
 
     const registerCommand = (command: Command) => {
       state.commands.push(command);
     };
 
+    const executeCommand = (command: Command) => {
+      if (command.commands) {
+        state.loading = true;
+
+        if (state.commandCache.has(command.id)) {
+          push(command, state.commandCache.get(command.id) as Command[]);
+        }
+
+        command.commands().then((commands: Command[]) => {
+          state.commandCache.set(command.id, commands);
+
+          if (state.callStack.has(command)) {
+            state.callStack.delete(command);
+          }
+
+          push(command, commands);
+
+          state.loading = false;
+        });
+      } else {
+        command.execute();
+        clearStack();
+        close();
+      }
+    };
+
     provide(OpenCommandPaletteKey, open);
     provide(CloseCommandPaletteKey, close);
-    provide(PushCommandKey, push);
+    provide(ExecuteCommandKey, executeCommand);
     provide(ClearCommandCallStackKey, clearStack);
     provide(ShowSingleCommandKey, showSingleCommand);
     provide(RegisterCommandStateKey, registerCommand);
