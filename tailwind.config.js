@@ -20,6 +20,9 @@ module.exports = {
       },
     },
     extend: {
+      rotate: {
+        270: "270deg",
+      },
       backdropBlur: {
         xxs: "1px",
       },

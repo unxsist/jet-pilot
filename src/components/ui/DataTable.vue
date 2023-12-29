@@ -18,7 +18,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { RowAction } from "../tables/types";
-import { rowActions } from "../tables/pods";
 
 interface DataTableState<T> {
   contextMenuSubject: T | null;
@@ -101,7 +100,7 @@ const table = useVueTable({
           </template>
         </TableBody>
       </ContextMenuTrigger>
-      <ContextMenuContent>
+      <ContextMenuContent v-if="rowActions && rowActions?.length > 0">
         <ContextMenuItem
           v-for="(rowAction, index) in rowActions"
           :key="index"

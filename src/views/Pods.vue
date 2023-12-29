@@ -3,17 +3,43 @@ import { injectStrict } from "@/lib/utils";
 import { V1Pod } from "@kubernetes/client-node";
 import { Kubernetes } from "@/services/Kubernetes";
 import { ref, h } from "vue";
+import { useRouter } from "vue-router";
 import { useToast, ToastAction } from "@/components/ui/toast";
 
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
-const { context, namespace } = injectStrict(KubeContextStateKey);
 
 import DataTable from "@/components/ui/DataTable.vue";
-import { columns, rowActions } from "@/components/tables/pods";
+import { RowAction } from "@/components/tables/types";
+import { columns } from "@/components/tables/pods";
 import { useDataRefresher } from "@/composables/refresher";
 
+const { context, namespace } = injectStrict(KubeContextStateKey);
+
 const { toast } = useToast();
+const router = useRouter();
+
 const pods = ref<V1Pod[]>([]);
+
+const rowActions: RowAction<V1Pod>[] = [
+  {
+    label: "Edit",
+    handler: (row) => {
+      console.log("Edit", row);
+    },
+  },
+  {
+    label: "Describe",
+    handler: (row) => {
+      console.log("Describe", row);
+    },
+  },
+  {
+    label: "Logs",
+    handler: (row) => {
+      router.push({ name: "PodLogs", params: { podName: row.metadata?.name } });
+    },
+  },
+];
 
 async function getPods(refresh: boolean = false) {
   if (!refresh) {
@@ -47,7 +73,7 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(getPods, 1000, [
   namespace,
 ]);
 </script>
-x
+
 <template>
   <DataTable :data="pods" :columns="columns" :row-actions="rowActions" />
 </template>
