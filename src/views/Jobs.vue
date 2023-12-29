@@ -9,7 +9,7 @@ import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 const { context, namespace } = injectStrict(KubeContextStateKey);
 
 import DataTable from "@/components/ui/DataTable.vue";
-import { columns } from "@/components/tables/jobs/columns";
+import { columns } from "@/components/tables/jobs";
 import { useDataRefresher } from "@/composables/refresher";
 
 const { toast } = useToast();
@@ -51,3 +51,4 @@ x
 <template>
   <DataTable :data="jobs" :columns="columns" />
 </template>
+@/components/tables/jobs/jobs

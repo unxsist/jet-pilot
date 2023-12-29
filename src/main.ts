@@ -10,3 +10,11 @@ if (process.env.NODE_ENV === "development") {
 }
 
 createApp(App).use(router).mount("#app");
+
+window.addEventListener("contextmenu", (e) => e.preventDefault());
+
+window.addEventListener("keydown", (e) => {
+  if (e.metaKey && e.key === "r") {
+    window.location.reload();
+  }
+});

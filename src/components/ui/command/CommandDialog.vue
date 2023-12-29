@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DialogRootEmits, DialogRootProps } from "radix-vue";
-import { DialogDescription, useEmitAsProps, VisuallyHidden } from "radix-vue";
+import { DialogDescription, useEmitAsProps } from "radix-vue";
 import Command from "./Command.vue";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
@@ -12,7 +12,7 @@ const emitsAsProps = useEmitAsProps(emits);
 
 <template>
   <Dialog v-bind="{ ...props, ...emitsAsProps }">
-    <DialogContent class="overflow-hidden p-0 shadow-lg">
+    <DialogContent class="p-0 shadow-lg">
       <DialogTitle v-show="false" />
       <DialogDescription v-show="false" />
       <Command

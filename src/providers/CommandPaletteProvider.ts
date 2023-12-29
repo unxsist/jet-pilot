@@ -24,6 +24,7 @@ export interface CommandPaletteState {
   commands: Command[];
   commandCache: Map<string, Command[]>;
   loading: boolean;
+  executionError: string | null;
 }
 
 export default {
@@ -36,6 +37,7 @@ export default {
       commands: [],
       commandCache: new Map<string, Command[]>(),
       loading: false,
+      executionError: null,
     });
 
     provide(CommandPaletteStateKey, toRefs(state));
@@ -97,17 +99,26 @@ export default {
           push(command, state.commandCache.get(command.id) as Command[]);
         }
 
-        command.commands().then((commands: Command[]) => {
-          state.commandCache.set(command.id, commands);
+        command
+          .commands()
+          .then((commands: Command[]) => {
+            state.commandCache.set(command.id, commands);
 
-          if (state.callStack.has(command)) {
-            state.callStack.delete(command);
-          }
+            if (state.callStack.has(command)) {
+              state.callStack.delete(command);
+            }
 
-          push(command, commands);
+            push(command, commands);
 
-          state.loading = false;
-        });
+            state.loading = false;
+          })
+          .catch((error) => {
+            state.loading = false;
+            state.executionError = error.message;
+            setTimeout(() => {
+              state.executionError = null;
+            }, 2500);
+          });
       } else {
         command.execute();
         clearStack();

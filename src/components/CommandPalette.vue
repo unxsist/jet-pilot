@@ -2,6 +2,8 @@
 import { useMagicKeys } from "@vueuse/core";
 import { injectStrict } from "@/lib/utils";
 import Loading from "@/assets/icons/loading.svg";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import Error from "@/assets/icons/Error.svg";
 
 import {
   CommandPaletteStateKey,
@@ -23,7 +25,7 @@ import {
 const keys = useMagicKeys();
 const cmdK = keys["Cmd+K"];
 
-const { open, commands, callStack, loading } = injectStrict(
+const { open, commands, callStack, loading, executionError } = injectStrict(
   CommandPaletteStateKey
 );
 const openCommandPalette = injectStrict(OpenCommandPaletteKey);
@@ -100,6 +102,17 @@ watchEffect(() => {
           </template>
         </CommandGroup>
       </CommandList>
+      <Alert
+        variant="destructive"
+        class="absolute top-full mt-2 bg-background"
+        v-if="executionError"
+      >
+        <Error class="w-4 h-4" />
+        <AlertTitle>Something went wrong!</AlertTitle>
+        <AlertDescription class="text-xs truncate" :title="executionError">{{
+          executionError
+        }}</AlertDescription>
+      </Alert>
     </CommandDialog>
   </div>
 </template>

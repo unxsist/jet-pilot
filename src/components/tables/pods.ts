@@ -1,5 +1,6 @@
 import { V1Pod } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
+import { RowAction } from "@/components/tables/types";
 
 export const columns: ColumnDef<V1Pod>[] = [
   {
@@ -34,5 +35,20 @@ export const columns: ColumnDef<V1Pod>[] = [
   {
     header: "Node",
     accessorKey: "spec.nodeName",
+  },
+];
+
+export const rowActions: RowAction<V1Pod>[] = [
+  {
+    label: "Describe",
+    handler: (row) => {
+      console.log("Describe", row);
+    },
+  },
+  {
+    label: "Logs",
+    handler: (row) => {
+      console.log("Logs", row);
+    },
   },
 ];
