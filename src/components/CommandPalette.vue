@@ -62,7 +62,6 @@ watchEffect(() => {
     @click.self="closeCommandPalette"
   >
     <CommandDialog
-      class="relative"
       :open="open"
       @update:open="
         () => {

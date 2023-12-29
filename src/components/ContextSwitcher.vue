@@ -33,8 +33,18 @@ onMounted(() => {
         commands: async (): Promise<Command[]> => {
           const namespaces = await Kubernetes.getNamespaces(context);
 
-          return namespaces.map(
-            (namespace): Command => ({
+          return [
+            {
+              id: "all-namespaces",
+              name: "All namespaces",
+              description: "Show all namespaces",
+              execute: () => {
+                setContext(context);
+                setNamespace("");
+              },
+            } as Command,
+          ].concat(
+            namespaces.map((namespace) => ({
               id: namespace.metadata?.name || "",
               name: namespace.metadata?.name || "",
               description: "Switch to " + namespace,
@@ -42,7 +52,7 @@ onMounted(() => {
                 setContext(context);
                 setNamespace(namespace.metadata?.name || "");
               },
-            })
+            }))
           );
         },
       }));
@@ -57,7 +67,7 @@ onMounted(() => {
       @click="showSingleCommand('switch-context')"
     >
       <span class="uppercase font-bold mb-1">{{ context }}</span>
-      <span>{{ namespace == "all" ? "All namespaces" : namespace }}</span>
+      <span>{{ namespace == "" ? "All namespaces" : namespace }}</span>
     </button>
   </div>
 </template>

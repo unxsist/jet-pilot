@@ -6,6 +6,7 @@ import RouterViewport from "@/components/RouterViewport.vue";
 import Toaster from "@/components/ui/toast/Toaster.vue";
 import Loading from "@/components/Loading.vue";
 import CommandPalette from "./components/CommandPalette.vue";
+import SettingsContextProvider from "./providers/SettingsContextProvider";
 import KubeContextProvider from "./providers/KubeContextProvider";
 import CommandPaletteProvider from "./providers/CommandPaletteProvider";
 </script>
@@ -14,14 +15,18 @@ import CommandPaletteProvider from "./providers/CommandPaletteProvider";
   <AppLayout class="dark bg-zinc-900 text-sm rounded-lg">
     <!-- <AuthCheck> -->
     <!-- <template #default> -->
-    <KubeContextProvider>
-      <CommandPaletteProvider>
-        <Navigation />
-        <RouterViewport />
-        <Toaster />
-        <CommandPalette />
-      </CommandPaletteProvider>
-    </KubeContextProvider>
+    <Suspense>
+      <SettingsContextProvider>
+        <KubeContextProvider>
+          <CommandPaletteProvider>
+            <Navigation />
+            <RouterViewport />
+            <Toaster />
+            <CommandPalette />
+          </CommandPaletteProvider>
+        </KubeContextProvider>
+      </SettingsContextProvider>
+    </Suspense>
     <!-- </template> -->
     <!-- <template #loading> -->
     <!-- <Loading label="K8s crew, prepare for take-off..." /> -->
