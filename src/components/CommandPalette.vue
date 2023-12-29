@@ -3,7 +3,7 @@ import { useMagicKeys } from "@vueuse/core";
 import { injectStrict } from "@/lib/utils";
 import Loading from "@/assets/icons/loading.svg";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import Error from "@/assets/icons/Error.svg";
+import Error from "@/assets/icons/error.svg";
 
 import {
   CommandPaletteStateKey,
