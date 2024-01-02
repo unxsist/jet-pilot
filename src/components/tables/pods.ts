@@ -30,7 +30,7 @@ export const columns: ColumnDef<V1Pod>[] = [
   },
   {
     header: "IP",
-    accessorKey: "status.podIP",
+    accessorFn: (row) => row.status?.podIP || "",
   },
   {
     header: "Node",

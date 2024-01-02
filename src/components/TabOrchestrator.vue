@@ -1,24 +1,43 @@
 <script setup lang="ts">
+import {
+  TabProviderStateKey,
+  TabProviderCloseTabKey,
+} from "@/providers/TabProvider";
+import { injectStrict } from "@/lib/utils";
 import Expand from "@/assets/icons/expand.svg";
+import Close from "@/assets/icons/close.svg";
+
+const { tabs, activeTabId } = injectStrict(TabProviderStateKey);
+const closeTab = injectStrict(TabProviderCloseTabKey);
 
 const state = reactive({
-  open: false,
+  open: true,
+});
+
+const activeTab = computed(() => {
+  return tabs.value.find((tab) => tab.id === activeTabId.value);
 });
 </script>
 <template>
-  <div class="border-t border-l bg-background">
+  <div class="border-t border-l bg-background" v-if="tabs.length > 0">
     <div class="flex items-center mb-0 text-xs py-1 px-1">
       <div class="flex space-x-3">
         <div
-          class="py-1 px-2 rounded cursor-pointer max-w-[200px] truncate hover:bg-border"
+          class="group relative flex items-center py-1 px-2 rounded cursor-pointer max-w-[200px] truncate hover:bg-border"
+          :class="{
+            'bg-border': activeTabId === tab.id,
+            'text-gray-400': activeTabId !== tab.id,
+          }"
+          v-for="tab in tabs"
+          @click="activeTabId = tab.id"
         >
-          Logs for minikube/default/countdown-b8dz2
-        </div>
-        <div class="py-1 px-2 rounded cursor-pointer hover:bg-border">
-          Tab 2
-        </div>
-        <div class="py-1 px-2 rounded cursor-pointer hover:bg-border">
-          Tab 3
+          <span class="truncate">{{ tab.title }}</span>
+          <div
+            @click="closeTab(tab.id)"
+            class="hidden group-hover:block absolute right-1 p-0.5 rounded-sm bg-opacity-50 bg-white hover:bg-white text-background"
+          >
+            <Close class="h-3" />
+          </div>
         </div>
       </div>
       <div
@@ -31,6 +50,10 @@ const state = reactive({
         />
       </div>
     </div>
-    <div class="" v-show="state.open">Test</div>
+    <div class="p-2" v-show="state.open">
+      <keep-alive>
+        <component :is="activeTab?.component" v-bind="activeTab?.props" />
+      </keep-alive>
+    </div>
   </div>
 </template>

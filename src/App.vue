@@ -9,6 +9,7 @@ import CommandPalette from "./components/CommandPalette.vue";
 import SettingsContextProvider from "./providers/SettingsContextProvider";
 import KubeContextProvider from "./providers/KubeContextProvider";
 import CommandPaletteProvider from "./providers/CommandPaletteProvider";
+import TabProvider from "./providers/TabProvider";
 </script>
 
 <template>
@@ -18,12 +19,14 @@ import CommandPaletteProvider from "./providers/CommandPaletteProvider";
     <Suspense>
       <SettingsContextProvider>
         <KubeContextProvider>
-          <CommandPaletteProvider>
-            <Navigation />
-            <RouterViewport />
-            <Toaster />
-            <CommandPalette />
-          </CommandPaletteProvider>
+          <TabProvider>
+            <CommandPaletteProvider>
+              <Navigation />
+              <RouterViewport />
+              <Toaster />
+              <CommandPalette />
+            </CommandPaletteProvider>
+          </TabProvider>
         </KubeContextProvider>
       </SettingsContextProvider>
     </Suspense>

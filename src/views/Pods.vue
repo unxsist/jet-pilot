@@ -12,8 +12,10 @@ import DataTable from "@/components/ui/DataTable.vue";
 import { RowAction } from "@/components/tables/types";
 import { columns } from "@/components/tables/pods";
 import { useDataRefresher } from "@/composables/refresher";
+import { TabProviderAddTabKey } from "@/providers/TabProvider";
 
 const { context, namespace } = injectStrict(KubeContextStateKey);
+const addTab = injectStrict(TabProviderAddTabKey);
 
 const { toast } = useToast();
 const router = useRouter();
@@ -36,7 +38,16 @@ const rowActions: RowAction<V1Pod>[] = [
   {
     label: "Logs",
     handler: (row) => {
-      router.push({ name: "PodLogs", params: { podName: row.metadata?.name } });
+      addTab(
+        `logs_${row.metadata?.name}`,
+        `Logs for ${row.metadata?.name}`,
+        defineAsyncComponent(() => import("@/views/LogViewer.vue")),
+        {
+          context: context.value,
+          namespace: namespace.value,
+          pod: row.metadata?.name,
+        }
+      );
     },
   },
 ];
