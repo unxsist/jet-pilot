@@ -6,20 +6,85 @@ import {
 import { injectStrict } from "@/lib/utils";
 import Expand from "@/assets/icons/expand.svg";
 import Close from "@/assets/icons/close.svg";
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 
 const { tabs, activeTabId } = injectStrict(TabProviderStateKey);
+const { settings } = injectStrict(SettingsContextStateKey);
 const closeTab = injectStrict(TabProviderCloseTabKey);
 
 const state = reactive({
   open: true,
+  resizing: false,
+  resizeStartPositionY: 0,
+  rerenderKey: 0,
+});
+
+const tabHeight = computed(() => {
+  return settings.value.tabProvider.height >= 30
+    ? settings.value.tabProvider.height
+    : 30;
 });
 
 const activeTab = computed(() => {
   return tabs.value.find((tab) => tab.id === activeTabId.value);
 });
+
+const setActiveTab = (id: string) => {
+  activeTabId.value = id;
+
+  if (!state.open) {
+    state.open = true;
+  }
+};
+
+const onResizeStart = (e: MouseEvent) => {
+  if (!state.open) {
+    return;
+  }
+
+  state.resizing = true;
+  state.resizeStartPositionY = e.clientY;
+
+  window.addEventListener("mousemove", onResizing);
+  window.addEventListener("mouseup", onResizeEnd);
+};
+
+const onResizing = (e: MouseEvent) => {
+  if (!state.resizing) {
+    return;
+  }
+
+  const delta = e.clientY - state.resizeStartPositionY;
+  settings.value.tabProvider.height -= delta;
+  state.resizeStartPositionY = e.clientY;
+};
+
+const onResizeEnd = () => {
+  state.resizing = false;
+  window.removeEventListener("mousemove", onResizing);
+  window.removeEventListener("mouseup", onResizeEnd);
+};
+
+const closeAndSetActiveTab = (id: string) => {
+  const indexOfTab = tabs.value.findIndex((tab) => tab.id === id);
+  closeTab(id);
+
+  if (tabs.value.length > 0) {
+    if (indexOfTab === 0) {
+      setActiveTab(tabs.value[0].id);
+    } else {
+      setActiveTab(tabs.value[indexOfTab - 1].id);
+    }
+  }
+};
 </script>
 <template>
-  <div class="border-t border-l bg-background" v-if="tabs.length > 0">
+  <div class="relative border-t border-l bg-background" v-if="tabs.length > 0">
+    <div
+      class="absolute w-full h-2 border-t border-transparent"
+      :class="{ 'hover:border-white cursor-ns-resize': state.open }"
+      @mousedown="onResizeStart"
+    ></div>
     <div class="flex items-center mb-0 text-xs py-1 px-1">
       <div class="flex space-x-3">
         <div
@@ -29,11 +94,11 @@ const activeTab = computed(() => {
             'text-gray-400': activeTabId !== tab.id,
           }"
           v-for="tab in tabs"
-          @click="activeTabId = tab.id"
+          @click="setActiveTab(tab.id)"
         >
           <span class="truncate">{{ tab.title }}</span>
           <div
-            @click="closeTab(tab.id)"
+            @click="closeAndSetActiveTab(tab.id)"
             class="hidden group-hover:block absolute right-1 p-0.5 rounded-sm bg-opacity-50 bg-white hover:bg-white text-background"
           >
             <Close class="h-3" />
@@ -50,7 +115,11 @@ const activeTab = computed(() => {
         />
       </div>
     </div>
-    <div class="p-2" v-show="state.open">
+    <div
+      class="relative p-2"
+      v-show="state.open"
+      :style="{ height: `${tabHeight}px` }"
+    >
       <keep-alive>
         <component :is="activeTab?.component" v-bind="activeTab?.props" />
       </keep-alive>

@@ -15,6 +15,9 @@ export interface SettingsContextState {
   settings: {
     lastContext: string | null;
     lastNamespace: string | null;
+    tabProvider: {
+      height: number;
+    };
   };
 }
 
@@ -26,6 +29,9 @@ export default {
       settings: {
         lastContext: null,
         lastNamespace: null,
+        tabProvider: {
+          height: 50,
+        },
       },
     });
     provide(SettingsContextStateKey, toRefs(state));
@@ -42,12 +48,13 @@ export default {
       });
     };
 
-    // Load settings
     if (await exists(settingsFile, { dir: BaseDirectory.AppConfig })) {
       const fileContents = await readTextFile(settingsFile, {
         dir: BaseDirectory.AppConfig,
       });
-      state.settings = JSON.parse(fileContents);
+
+      // Merge initial state with file contents
+      state.settings = { ...state.settings, ...JSON.parse(fileContents) };
     }
 
     watch(state, (newState) => {
