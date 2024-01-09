@@ -1,6 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use either::Either;
 use istio_sdk::networking::v1beta1::virtual_service::VirtualService;
 use k8s_openapi::api::batch::v1::{CronJob, Job};
 use k8s_openapi::api::networking::v1::Ingress;
@@ -10,7 +11,7 @@ use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{
     ConfigMap, Namespace, PersistentVolume, PersistentVolumeClaim, Pod, Secret, Service,
 };
-use kube::api::ListParams;
+use kube::api::{DeleteParams, ListParams};
 use kube::config::{KubeConfigOptions, Kubeconfig, KubeconfigError};
 use kube::{api::Api, Client, Config, Error};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
@@ -24,6 +25,12 @@ use std::{
     time::Duration,
 };
 use uuid::Uuid;
+
+#[derive(Serialize)]
+enum DeletionResult {
+    Deleted(String),
+    Pending(String),
+}
 
 #[derive(Debug, Serialize)]
 struct SerializableKubeError {
@@ -157,6 +164,31 @@ async fn get_pod(context: &str, namespace: &str, name: &str) -> Result<Pod, Seri
         .get(name)
         .await
         .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn delete_pod(
+    context: &str,
+    namespace: &str,
+    name: &str,
+    grace_period_seconds: u32,
+) -> Result<DeletionResult, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+    let pod_api: Api<Pod> = Api::namespaced(client, namespace);
+
+    match pod_api
+        .delete(
+            name,
+            &DeleteParams::default().grace_period(grace_period_seconds),
+        )
+        .await
+    {
+        Ok(Either::Left(_pod)) => Ok(DeletionResult::Deleted(name.to_string())),
+        Ok(Either::Right(_status)) => {
+            Ok(DeletionResult::Pending("Deletion in progress".to_string()))
+        }
+        Err(err) => Err(SerializableKubeError::from(err)),
+    }
 }
 
 #[tauri::command]
@@ -416,6 +448,7 @@ fn main() {
             list_namespaces,
             list_pods,
             get_pod,
+            delete_pod,
             list_deployments,
             list_jobs,
             list_cronjobs,

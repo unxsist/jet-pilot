@@ -50,6 +50,30 @@ const rowActions: RowAction<V1Pod>[] = [
       );
     },
   },
+  {
+    label: "Kill",
+    handler: (row) => {
+      Kubernetes.deletePod(
+        context.value,
+        row.metadata?.namespace ?? namespace.value,
+        row.metadata?.name ?? ""
+      )
+        .then(() => {
+          toast({
+            title: "Pod deleted",
+            autoDismiss: true,
+            description: `Pod ${row.metadata?.name} was deleted`,
+          });
+        })
+        .catch((error) => {
+          toast({
+            title: "An error occured",
+            description: error.message,
+            variant: "destructive",
+          });
+        });
+    },
+  },
 ];
 
 async function getPods(refresh: boolean = false) {
@@ -79,6 +103,15 @@ async function getPods(refresh: boolean = false) {
     });
 }
 
+const rowClasses = (row: V1Pod) => {
+  // terminating
+  if (row.metadata?.deletionTimestamp) {
+    return "bg-red-500";
+  }
+
+  return "";
+};
+
 const { startRefreshing, stopRefreshing } = useDataRefresher(getPods, 1000, [
   context,
   namespace,
@@ -86,5 +119,10 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(getPods, 1000, [
 </script>
 
 <template>
-  <DataTable :data="pods" :columns="columns" :row-actions="rowActions" />
+  <DataTable
+    :data="pods"
+    :columns="columns"
+    :row-actions="rowActions"
+    :row-classes="rowClasses"
+  />
 </template>

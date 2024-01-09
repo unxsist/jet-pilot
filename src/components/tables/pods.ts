@@ -1,11 +1,16 @@
 import { V1Pod } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
-import { RowAction } from "@/components/tables/types";
+import { formatDateTimeDifference } from "@/lib/utils";
 
 export const columns: ColumnDef<V1Pod>[] = [
   {
     accessorKey: "metadata.name",
     header: "Name",
+    meta: {
+      class: (row) => {
+        return row.status?.phase === "Pending" ? "text-orange-500" : "";
+      },
+    },
   },
   {
     header: "Ready",
@@ -35,5 +40,13 @@ export const columns: ColumnDef<V1Pod>[] = [
   {
     header: "Node",
     accessorKey: "spec.nodeName",
+  },
+  {
+    header: "Age",
+    accessorFn: (row) =>
+      formatDateTimeDifference(
+        row.metadata?.creationTimestamp || new Date(),
+        new Date()
+      ),
   },
 ];

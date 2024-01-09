@@ -59,6 +59,20 @@ export class Kubernetes {
     });
   }
 
+  static async deletePod(
+    context: string,
+    namespace: string,
+    name: string,
+    gracePeriodSeconds = 0
+  ): Promise<void> {
+    return invoke("delete_pod", {
+      context: context,
+      namespace: namespace,
+      name: name,
+      gracePeriodSeconds: gracePeriodSeconds,
+    });
+  }
+
   static async getDeployments(
     context: string,
     namespace: string

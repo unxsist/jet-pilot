@@ -34,6 +34,7 @@ const setContextMenuSubject = (subject: TData | null) => {
 const props = defineProps<{
   columns: ColumnDef<TData, TValue>[];
   rowActions?: RowAction<TData>[];
+  rowClasses?: (row: TData) => string;
   data: TData[];
 }>();
 
@@ -76,12 +77,13 @@ const table = useVueTable({
               v-for="row in table.getRowModel().rows"
               :key="row.id"
               :data-state="row.getIsSelected() ? 'selected' : undefined"
+              :class="rowClasses?.(row.original)"
               @click.right="setContextMenuSubject(row.original)"
             >
               <TableCell
                 v-for="cell in row.getVisibleCells()"
                 :key="cell.id"
-                :class="cell.column.columnDef.meta?.class"
+                :class="cell.column.columnDef.meta?.class?.(row.original)"
                 class="truncate overflow-hidden"
               >
                 <FlexRender

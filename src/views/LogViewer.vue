@@ -119,7 +119,7 @@ onUnmounted(() => {
       class="absolute bottom-5 right-5 flex justify-end space-x-1 transition-opacity opacity-25 group-hover:opacity-100"
     >
       <Button
-        variant="secondary"
+        :variant="logsSince === age.value ? 'default' : 'secondary'"
         v-for="age in logsSinceOptions"
         :key="age.value"
         size="xs"

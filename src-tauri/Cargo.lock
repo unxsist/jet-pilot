@@ -1886,6 +1886,7 @@ dependencies = [
 name = "jet_pilot"
 version = "0.0.1"
 dependencies = [
+ "either",
  "fix-path-env",
  "istio-sdk",
  "k8s-openapi",
