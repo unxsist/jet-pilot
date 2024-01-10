@@ -34,11 +34,6 @@ jobs:
         with:
           toolchain: stable
 
-      - name: install dependencies (OSX only)
-        if: matrix.platform == 'macos-latest'
-        run: |
-          brew install openssl@1.1 openssl@3
-
       - name: install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-latest'
         run: |
