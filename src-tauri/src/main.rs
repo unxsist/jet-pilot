@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use either::Either;
-use istio_sdk::networking::v1beta1::virtual_service::VirtualService;
+use istio_api_rs::networking::v1beta1::virtual_service::VirtualService;
 use k8s_openapi::api::batch::v1::{CronJob, Job};
 use k8s_openapi::api::networking::v1::Ingress;
 use tauri::Manager;

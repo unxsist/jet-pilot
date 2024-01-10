@@ -22,8 +22,7 @@ import {
   CommandItem,
 } from "@/components/ui/command";
 
-const keys = useMagicKeys();
-const cmdK = keys["Cmd+K"];
+const { Cmd_K, Ctrl_K } = useMagicKeys();
 
 const { open, commands, callStack, loading, executionError } = injectStrict(
   CommandPaletteStateKey
@@ -33,8 +32,8 @@ const closeCommandPalette = injectStrict(CloseCommandPaletteKey);
 const clearCallStack = injectStrict(ClearCommandCallStackKey);
 const executeCommand = injectStrict(ExecuteCommandKey);
 
-watch(cmdK, (value) => {
-  if (value) {
+watch([Cmd_K, Ctrl_K], ([mac, win]) => {
+  if (mac || win) {
     if (!open.value) {
       openCommandPalette();
     } else {
