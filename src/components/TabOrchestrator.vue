@@ -97,6 +97,7 @@ const closeAndSetActiveTab = (id: string) => {
           }"
           v-for="tab in tabs"
           @click="setActiveTab(tab.id)"
+          :title="tab.title"
         >
           <span class="truncate">{{ tab.title }}</span>
           <div
