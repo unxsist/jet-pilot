@@ -32,23 +32,37 @@ const rowActions: RowAction<V1Pod>[] = [
   {
     label: "Describe",
     handler: (row) => {
-      console.log("Describe", row);
+      addTab(
+        `describe_${row.metadata?.name}`,
+        `Describe ${row.metadata?.name}`,
+        defineAsyncComponent(() => import("@/views/Describe.vue")),
+        {
+          context: context.value,
+          namespace: namespace.value,
+          object: `pods/${row.metadata?.name}`,
+        }
+      );
     },
   },
   {
     label: "Shell",
-    handler: (row) => {
-      console.log(row);
-      addTab(
-        `shell_${row.metadata?.name}`,
-        `Shell for ${row.metadata?.name}`,
-        defineAsyncComponent(() => import("@/views/Shell.vue")),
-        {
-          context: context.value,
-          namespace: namespace.value,
-          pod: row,
-        }
-      );
+    options: (row) => {
+      return (row.status?.containerStatuses || []).map((container) => ({
+        label: container.name,
+        handler: () => {
+          addTab(
+            `shell_${row.metadata?.name}_${container.name}`,
+            `>_ ${row.metadata?.name}/${container.name}`,
+            defineAsyncComponent(() => import("@/views/Shell.vue")),
+            {
+              context: context.value,
+              namespace: namespace.value,
+              pod: row,
+              container: container,
+            }
+          );
+        },
+      }));
     },
   },
   {

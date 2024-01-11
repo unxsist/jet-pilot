@@ -7,6 +7,9 @@ import {
   ContextMenuTrigger,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSub,
+  ContextMenuSubTrigger,
+  ContextMenuSubContent,
 } from "@/components/ui/context-menu";
 
 import {
@@ -103,12 +106,26 @@ const table = useVueTable({
         </TableBody>
       </ContextMenuTrigger>
       <ContextMenuContent v-if="rowActions && rowActions?.length > 0">
-        <ContextMenuItem
-          v-for="(rowAction, index) in rowActions"
-          :key="index"
-          @select="rowAction.handler(state.contextMenuSubject as TData)"
-          >{{ rowAction.label }}</ContextMenuItem
-        >
+        <template v-for="(rowAction, index) in rowActions" :key="index">
+          <ContextMenuItem
+            v-if="!rowAction.options"
+            @select="rowAction.handler(state.contextMenuSubject as TData)"
+            >{{ rowAction.label }}</ContextMenuItem
+          >
+          <ContextMenuSub v-else>
+            <ContextMenuSubTrigger>
+              {{ rowAction.label }}
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              <ContextMenuItem
+                v-for="(option, optionIndex) in rowAction.options(state.contextMenuSubject as TData)"
+                :key="optionIndex"
+                @select="option.handler(state.contextMenuSubject as TData)"
+                >{{ option.label }}</ContextMenuItem
+              >
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        </template>
       </ContextMenuContent>
     </ContextMenu>
   </Table>
