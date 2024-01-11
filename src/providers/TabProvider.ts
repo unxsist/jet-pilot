@@ -11,13 +11,20 @@ import {
 export const TabProviderStateKey: InjectionKey<ToRefs<TabProviderState>> =
   Symbol("TabProviderState");
 export const TabProviderAddTabKey: InjectionKey<
-  (id: string, title: string, component: any, props?: any) => void
+  (
+    id: string,
+    title: string,
+    component: any,
+    props?: any,
+    icon?: string
+  ) => void
 > = Symbol("TabProviderAddTab");
 export const TabProviderCloseTabKey: InjectionKey<(id: string) => void> =
   Symbol("TabProviderCloseTab");
 
 export interface Tab {
   id: string;
+  icon: string;
   title: string;
   component: any;
   props?: any;
@@ -37,7 +44,13 @@ export default {
 
     provide(TabProviderStateKey, toRefs(state));
 
-    const addTab = (id: string, title: string, component: any, props?: any) => {
+    const addTab = (
+      id: string,
+      title: string,
+      component: any,
+      props?: any,
+      icon: string = "tab"
+    ) => {
       if (state.tabs.find((tab) => tab.id === id)) {
         state.activeTabId = id;
         return;
@@ -45,6 +58,7 @@ export default {
 
       state.tabs.push({
         id,
+        icon,
         title,
         component: shallowRef(component),
         props,

@@ -4,6 +4,7 @@ import {
   TabProviderCloseTabKey,
 } from "@/providers/TabProvider";
 import { injectStrict } from "@/lib/utils";
+import TabIcon from "@/components/TabIcon.vue";
 import Expand from "@/assets/icons/expand.svg";
 import Close from "@/assets/icons/close.svg";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
@@ -99,6 +100,7 @@ const closeAndSetActiveTab = (id: string) => {
           @click="setActiveTab(tab.id)"
           :title="tab.title"
         >
+          <tab-icon :name="tab.icon" class="mr-1" />
           <span class="truncate">{{ tab.title }}</span>
           <div
             @click="closeAndSetActiveTab(tab.id)"

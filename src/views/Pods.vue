@@ -28,13 +28,14 @@ const rowActions: RowAction<V1Pod>[] = [
     handler: (row) => {
       addTab(
         `edit_${row.metadata?.name}`,
-        `Edit ${row.metadata?.name}`,
+        `${row.metadata?.name}`,
         defineAsyncComponent(() => import("@/views/ObjectEditor.vue")),
         {
           context: context.value,
           namespace: namespace.value,
           object: `pods/${row.metadata?.name}`,
-        }
+        },
+        "edit"
       );
     },
   },
@@ -43,13 +44,14 @@ const rowActions: RowAction<V1Pod>[] = [
     handler: (row) => {
       addTab(
         `describe_${row.metadata?.name}`,
-        `Describe ${row.metadata?.name}`,
+        `${row.metadata?.name}`,
         defineAsyncComponent(() => import("@/views/Describe.vue")),
         {
           context: context.value,
           namespace: namespace.value,
           object: `pods/${row.metadata?.name}`,
-        }
+        },
+        "describe"
       );
     },
   },
@@ -61,14 +63,15 @@ const rowActions: RowAction<V1Pod>[] = [
         handler: () => {
           addTab(
             `shell_${row.metadata?.name}_${container.name}`,
-            `>_ ${row.metadata?.name}/${container.name}`,
+            `${row.metadata?.name}/${container.name}`,
             defineAsyncComponent(() => import("@/views/Shell.vue")),
             {
               context: context.value,
               namespace: namespace.value,
               pod: row,
               container: container,
-            }
+            },
+            "shell"
           );
         },
       }));
@@ -79,13 +82,14 @@ const rowActions: RowAction<V1Pod>[] = [
     handler: (row) => {
       addTab(
         `logs_${row.metadata?.name}`,
-        `Logs for ${row.metadata?.name}`,
+        `${row.metadata?.name}`,
         defineAsyncComponent(() => import("@/views/LogViewer.vue")),
         {
           context: context.value,
           namespace: namespace.value,
           pod: row.metadata?.name,
-        }
+        },
+        "logs"
       );
     },
   },
