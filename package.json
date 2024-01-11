@@ -16,6 +16,7 @@
   "dependencies": {
     "@kubernetes-models/istio": "^2.3.0",
     "@kubernetes/client-node": "^0.20.0",
+    "@monaco-editor/loader": "^1.4.0",
     "@radix-icons/vue": "^1.0.0",
     "@tanstack/vue-table": "^8.11.0",
     "@tauri-apps/api": "1.4.0",
@@ -23,6 +24,8 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "date-fns": "^3.0.6",
+    "monaco-editor": "^0.45.0",
+    "monaco-languageclient": "^7.3.0",
     "radix-vue": "^1.2.7",
     "tailwind-merge": "^2.1.0",
     "tailwindcss-animate": "^1.0.7",

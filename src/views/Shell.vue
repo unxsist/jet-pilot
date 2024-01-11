@@ -30,7 +30,7 @@ const openTerminal = () => {
   invoke<string>("create_tty_session", {
     initCommand: [
       "kubectl",
-      "exec",
+      "edit",
       "--tty",
       "--stdin",
       props.pod.metadata?.name as string,

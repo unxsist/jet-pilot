@@ -26,7 +26,16 @@ const rowActions: RowAction<V1Pod>[] = [
   {
     label: "Edit",
     handler: (row) => {
-      console.log("Edit", row);
+      addTab(
+        `edit_${row.metadata?.name}`,
+        `Edit ${row.metadata?.name}`,
+        defineAsyncComponent(() => import("@/views/ObjectEditor.vue")),
+        {
+          context: context.value,
+          namespace: namespace.value,
+          object: `pods/${row.metadata?.name}`,
+        }
+      );
     },
   },
   {
