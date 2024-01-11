@@ -57,6 +57,8 @@ const onResizing = (e: MouseEvent) => {
   const delta = e.clientY - state.resizeStartPositionY;
   settings.value.tabProvider.height -= delta;
   state.resizeStartPositionY = e.clientY;
+
+  window.dispatchEvent(new Event("TabOrchestrator_Resized"));
 };
 
 const onResizeEnd = () => {

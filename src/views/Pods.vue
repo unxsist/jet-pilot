@@ -36,6 +36,22 @@ const rowActions: RowAction<V1Pod>[] = [
     },
   },
   {
+    label: "Shell",
+    handler: (row) => {
+      console.log(row);
+      addTab(
+        `shell_${row.metadata?.name}`,
+        `Shell for ${row.metadata?.name}`,
+        defineAsyncComponent(() => import("@/views/Shell.vue")),
+        {
+          context: context.value,
+          namespace: namespace.value,
+          pod: row,
+        }
+      );
+    },
+  },
+  {
     label: "Logs",
     handler: (row) => {
       addTab(

@@ -10,7 +10,7 @@ const props = defineProps<{
 
 const logContainer = ref<HTMLPreElement | null>(null);
 const logs = ref<string>("");
-const logsSince = ref<string>("30m");
+const logsSince = ref<string>("5m");
 let logProcess: Child | null = null;
 
 const logsSinceOptions = [
