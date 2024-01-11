@@ -4,7 +4,7 @@ import "xterm/css/xterm.css";
 import { FitAddon } from "xterm-addon-fit";
 import { invoke } from "@tauri-apps/api/tauri";
 import { Event, listen } from "@tauri-apps/api/event";
-import { V1Pod } from "@kubernetes/client-node";
+import { V1Container, V1Pod } from "@kubernetes/client-node";
 
 let terminal: Terminal;
 let fitAddon: FitAddon;
@@ -15,7 +15,7 @@ const props = defineProps<{
   context: string;
   namespace: string;
   pod: V1Pod;
-  initCommand: string;
+  container?: V1Container;
 }>();
 
 const writeToTerminal = (ev: Event<string>) => {
@@ -39,7 +39,9 @@ const openTerminal = () => {
       "--namespace",
       props.namespace,
       "-c",
-      props.pod.spec?.containers?.[0].name as string,
+      props.container
+        ? props.container.name
+        : (props.pod.spec?.containers?.[0].name as string),
       "--",
       "/bin/bash",
     ],
@@ -78,12 +80,14 @@ onMounted(() => {
   openTerminal();
 
   window.addEventListener("TabOrchestrator_Resized", resize);
+  window.addEventListener("resize", resize);
 });
 
 onUnmounted(() => {
   kill();
 
   window.removeEventListener("TabOrchestrator_Resized", resize);
+  window.removeEventListener("resize", resize);
 });
 </script>
 
