@@ -59,6 +59,21 @@ export class Kubernetes {
     });
   }
 
+  static async replaceObject(
+    context: string,
+    namespace: string,
+    type: string,
+    name: string,
+    object: unknown
+  ): Promise<V1Pod> {
+    return invoke(`replace_${type.toLowerCase()}`, {
+      context: context,
+      namespace: namespace,
+      name: name,
+      object,
+    });
+  }
+
   static async deletePod(
     context: string,
     namespace: string,

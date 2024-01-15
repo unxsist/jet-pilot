@@ -5,7 +5,8 @@ import { Command } from "@tauri-apps/api/shell";
 const props = defineProps<{
   context: string;
   namespace: string;
-  object: string;
+  type: string;
+  name: string;
 }>();
 
 const describeContents = ref<string>("");
@@ -13,7 +14,7 @@ const describeContents = ref<string>("");
 onMounted(() => {
   const command = new Command("kubectl", [
     "describe",
-    props.object,
+    `${props.type}/${props.name}`,
     "--context",
     props.context,
     "--namespace",

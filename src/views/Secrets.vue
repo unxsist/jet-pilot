@@ -15,6 +15,14 @@ import { useDataRefresher } from "@/composables/refresher";
 const { toast } = useToast();
 const secrets = ref<V1Secret[]>([]);
 
+import { RowAction, getDefaultActions } from "@/components/tables/types";
+import { TabProviderAddTabKey } from "@/providers/TabProvider";
+const addTab = injectStrict(TabProviderAddTabKey);
+
+const rowActions: RowAction<V1Secret>[] = [
+  ...getDefaultActions<V1Secret>(addTab, context.value),
+];
+
 async function getConfigMaps(refresh: boolean = false) {
   if (!refresh) {
     secrets.value = [];
@@ -50,6 +58,5 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(
 </script>
 x
 <template>
-  <DataTable :data="secrets" :columns="columns" />
+  <DataTable :data="secrets" :columns="columns" :row-actions="rowActions" />
 </template>
-@/components/tables/secrets/secrets

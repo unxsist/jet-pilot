@@ -2,6 +2,7 @@
 import {
   TabProviderStateKey,
   TabProviderCloseTabKey,
+  TabClosedEvent,
 } from "@/providers/TabProvider";
 import { injectStrict } from "@/lib/utils";
 import TabIcon from "@/components/TabIcon.vue";
@@ -68,7 +69,18 @@ const onResizeEnd = () => {
   window.removeEventListener("mouseup", onResizeEnd);
 };
 
-const closeAndSetActiveTab = (id: string) => {
+const closeAndSetActiveTab = (id: string, force = false) => {
+  const canClose = window.dispatchEvent(
+    new CustomEvent<TabClosedEvent>("TabOrchestrator_TabClosed", {
+      cancelable: true,
+      detail: { id },
+    })
+  );
+
+  if (!canClose && !force) {
+    return;
+  }
+
   const indexOfTab = tabs.value.findIndex((tab) => tab.id === id);
   closeTab(id);
 
@@ -126,7 +138,12 @@ const closeAndSetActiveTab = (id: string) => {
       :style="{ height: `${tabHeight}px` }"
     >
       <keep-alive>
-        <component :is="activeTab?.component" v-bind="activeTab?.props" />
+        <component
+          :is="activeTab?.component"
+          v-bind="activeTab?.props"
+          :tabId="activeTab?.id"
+          @forceClose="closeAndSetActiveTab(activeTab!.id, true)"
+        />
       </keep-alive>
     </div>
   </div>

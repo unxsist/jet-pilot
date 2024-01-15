@@ -15,6 +15,14 @@ import { useDataRefresher } from "@/composables/refresher";
 const { toast } = useToast();
 const jobs = ref<V1Job[]>([]);
 
+import { RowAction, getDefaultActions } from "@/components/tables/types";
+import { TabProviderAddTabKey } from "@/providers/TabProvider";
+const addTab = injectStrict(TabProviderAddTabKey);
+
+const rowActions: RowAction<V1Job>[] = [
+  ...getDefaultActions<V1Job>(addTab, context.value),
+];
+
 async function getJobs(refresh: boolean = false) {
   if (!refresh) {
     jobs.value = [];
@@ -49,6 +57,5 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(getJobs, 1000, [
 </script>
 x
 <template>
-  <DataTable :data="jobs" :columns="columns" />
+  <DataTable :data="jobs" :columns="columns" :row-actions="rowActions" />
 </template>
-@/components/tables/jobs/jobs

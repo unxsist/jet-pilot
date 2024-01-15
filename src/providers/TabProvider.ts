@@ -22,6 +22,10 @@ export const TabProviderAddTabKey: InjectionKey<
 export const TabProviderCloseTabKey: InjectionKey<(id: string) => void> =
   Symbol("TabProviderCloseTab");
 
+export type TabClosedEvent = {
+  id: string;
+};
+
 export interface Tab {
   id: string;
   icon: string;

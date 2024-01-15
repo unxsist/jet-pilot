@@ -8,12 +8,20 @@ import { useToast, ToastAction } from "@/components/ui/toast";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 const { context, namespace } = injectStrict(KubeContextStateKey);
 
+import { TabProviderAddTabKey } from "@/providers/TabProvider";
+const addTab = injectStrict(TabProviderAddTabKey);
+
 import DataTable from "@/components/ui/DataTable.vue";
+import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { columns } from "@/components/tables/deployments";
 import { useDataRefresher } from "@/composables/refresher";
 
 const { toast } = useToast();
 const deployments = ref<V1Deployment[]>([]);
+
+const rowActions: RowAction<V1Deployment>[] = [
+  ...getDefaultActions<V1Deployment>(addTab, context.value),
+];
 
 async function getDeployments(refresh: boolean = false) {
   if (!refresh) {
@@ -49,6 +57,5 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(
 );
 </script>
 <template>
-  <DataTable :data="deployments" :columns="columns" />
+  <DataTable :data="deployments" :columns="columns" :row-actions="rowActions" />
 </template>
-@/components/tables/deployments/deployments

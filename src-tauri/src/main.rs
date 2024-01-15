@@ -42,6 +42,8 @@ struct SerializableKubeError {
 
 impl From<Error> for SerializableKubeError {
     fn from(error: Error) -> Self {
+        println!("Error: {:?}", error);
+
         match error {
             Error::Api(api_error) => {
                 let code = api_error.code;
@@ -337,6 +339,176 @@ async fn list_persistentvolumeclaims(
         .map_err(|err| SerializableKubeError::from(err));
 }
 
+#[tauri::command]
+async fn replace_pod(
+    context: &str,
+    namespace: &str,
+    name: &str,
+    object: Pod,
+) -> Result<Pod, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+    let pod_api: Api<Pod> = Api::namespaced(client, namespace);
+
+    return pod_api
+        .replace(name, &Default::default(), &object)
+        .await
+        .map(|pod| pod.clone())
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn replace_deployment(
+    context: &str,
+    namespace: &str,
+    name: &str,
+    object: Deployment,
+) -> Result<Deployment, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+    let deployment_api: Api<Deployment> = Api::namespaced(client, namespace);
+
+    return deployment_api
+        .replace(name, &Default::default(), &object)
+        .await
+        .map(|deployment| deployment.clone())
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn replace_job(
+    context: &str,
+    namespace: &str,
+    name: &str,
+    object: Job,
+) -> Result<Job, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+    let job_api: Api<Job> = Api::namespaced(client, namespace);
+
+    return job_api
+        .replace(name, &Default::default(), &object)
+        .await
+        .map(|job| job.clone())
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn replace_cronjob(
+    context: &str,
+    namespace: &str,
+    name: &str,
+    object: CronJob,
+) -> Result<CronJob, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+    let cronjob_api: Api<CronJob> = Api::namespaced(client, namespace);
+
+    return cronjob_api
+        .replace(name, &Default::default(), &object)
+        .await
+        .map(|cronjob| cronjob.clone())
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn replace_configmap(
+    context: &str,
+    namespace: &str,
+    name: &str,
+    object: ConfigMap,
+) -> Result<ConfigMap, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+    let configmap_api: Api<ConfigMap> = Api::namespaced(client, namespace);
+
+    return configmap_api
+        .replace(name, &Default::default(), &object)
+        .await
+        .map(|configmap| configmap.clone())
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn replace_secret(
+    context: &str,
+    namespace: &str,
+    name: &str,
+    object: Secret,
+) -> Result<Secret, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+    let secret_api: Api<Secret> = Api::namespaced(client, namespace);
+
+    return secret_api
+        .replace(name, &Default::default(), &object)
+        .await
+        .map(|secret| secret.clone())
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn replace_service(
+    context: &str,
+    namespace: &str,
+    name: &str,
+    object: Service,
+) -> Result<Service, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+    let service_api: Api<Service> = Api::namespaced(client, namespace);
+
+    return service_api
+        .replace(name, &Default::default(), &object)
+        .await
+        .map(|service| service.clone())
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn replace_virtualservice(
+    context: &str,
+    namespace: &str,
+    name: &str,
+    object: VirtualService,
+) -> Result<VirtualService, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+    let virtualservice_api: Api<VirtualService> = Api::namespaced(client, namespace);
+
+    return virtualservice_api
+        .replace(name, &Default::default(), &object)
+        .await
+        .map(|virtualservice| virtualservice.clone())
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn replace_ingress(
+    context: &str,
+    namespace: &str,
+    name: &str,
+    object: Ingress,
+) -> Result<Ingress, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+    let ingress_api: Api<Ingress> = Api::namespaced(client, namespace);
+
+    return ingress_api
+        .replace(name, &Default::default(), &object)
+        .await
+        .map(|ingress| ingress.clone())
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn replace_persistentvolumeclaim(
+    context: &str,
+    namespace: &str,
+    name: &str,
+    object: PersistentVolumeClaim,
+) -> Result<PersistentVolumeClaim, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+    let pvc_api: Api<PersistentVolumeClaim> = Api::namespaced(client, namespace);
+
+    return pvc_api
+        .replace(name, &Default::default(), &object)
+        .await
+        .map(|pvc: PersistentVolumeClaim| pvc.clone())
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
 struct TerminalSession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
 }
@@ -459,6 +631,16 @@ fn main() {
             list_ingresses,
             list_persistentvolumes,
             list_persistentvolumeclaims,
+            replace_pod,
+            replace_deployment,
+            replace_job,
+            replace_cronjob,
+            replace_configmap,
+            replace_secret,
+            replace_service,
+            replace_virtualservice,
+            replace_ingress,
+            replace_persistentvolumeclaim,
             create_tty_session,
             stop_tty_session,
             write_to_pty

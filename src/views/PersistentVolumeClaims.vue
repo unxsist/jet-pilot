@@ -15,6 +15,14 @@ import { useDataRefresher } from "@/composables/refresher";
 const { toast } = useToast();
 const pvcs = ref<V1PersistentVolumeClaim[]>([]);
 
+import { RowAction, getDefaultActions } from "@/components/tables/types";
+import { TabProviderAddTabKey } from "@/providers/TabProvider";
+const addTab = injectStrict(TabProviderAddTabKey);
+
+const rowActions: RowAction<V1PersistentVolumeClaim>[] = [
+  ...getDefaultActions<V1PersistentVolumeClaim>(addTab, context.value),
+];
+
 async function getPersistentVolumeClaims(refresh: boolean = false) {
   if (!refresh) {
     pvcs.value = [];
@@ -50,6 +58,5 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(
 </script>
 x
 <template>
-  <DataTable :data="pvcs" :columns="columns" />
+  <DataTable :data="pvcs" :columns="columns" :row-actions="rowActions" />
 </template>
-@/components/tables/persistentvolumeclaims/persistentvolumeclaims

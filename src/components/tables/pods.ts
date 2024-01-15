@@ -7,7 +7,7 @@ export const columns: ColumnDef<V1Pod>[] = [
     accessorKey: "metadata.name",
     header: "Name",
     meta: {
-      class: (row) => {
+      class: (row: V1Pod) => {
         return row.status?.phase === "Pending" ? "text-orange-500" : "";
       },
     },

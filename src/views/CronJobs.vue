@@ -15,6 +15,14 @@ import { useDataRefresher } from "@/composables/refresher";
 const { toast } = useToast();
 const cronjobs = ref<V1CronJob[]>([]);
 
+import { RowAction, getDefaultActions } from "@/components/tables/types";
+import { TabProviderAddTabKey } from "@/providers/TabProvider";
+const addTab = injectStrict(TabProviderAddTabKey);
+
+const rowActions: RowAction<V1CronJob>[] = [
+  ...getDefaultActions<V1CronJob>(addTab, context.value),
+];
+
 async function getCronJobs(refresh: boolean = false) {
   if (!refresh) {
     cronjobs.value = [];
@@ -50,6 +58,5 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(
 </script>
 x
 <template>
-  <DataTable :data="cronjobs" :columns="columns" />
+  <DataTable :data="cronjobs" :columns="columns" :row-actions="rowActions" />
 </template>
-@/components/tables/cronjobs/cronjobs

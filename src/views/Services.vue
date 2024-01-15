@@ -15,6 +15,14 @@ import { useDataRefresher } from "@/composables/refresher";
 const { toast } = useToast();
 const services = ref<V1Service[]>([]);
 
+import { RowAction, getDefaultActions } from "@/components/tables/types";
+import { TabProviderAddTabKey } from "@/providers/TabProvider";
+const addTab = injectStrict(TabProviderAddTabKey);
+
+const rowActions: RowAction<V1Service>[] = [
+  ...getDefaultActions<V1Service>(addTab, context.value),
+];
+
 async function getServices(refresh: boolean = false) {
   if (!refresh) {
     services.value = [];
@@ -49,6 +57,5 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(
 );
 </script>
 <template>
-  <DataTable :data="services" :columns="columns" />
+  <DataTable :data="services" :columns="columns" :row-actions="rowActions" />
 </template>
-@/components/tables/services/services

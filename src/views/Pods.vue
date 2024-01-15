@@ -9,7 +9,7 @@ import { useToast, ToastAction } from "@/components/ui/toast";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 
 import DataTable from "@/components/ui/DataTable.vue";
-import { RowAction } from "@/components/tables/types";
+import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { columns } from "@/components/tables/pods";
 import { useDataRefresher } from "@/composables/refresher";
 import { TabProviderAddTabKey } from "@/providers/TabProvider";
@@ -18,43 +18,11 @@ const { context, namespace } = injectStrict(KubeContextStateKey);
 const addTab = injectStrict(TabProviderAddTabKey);
 
 const { toast } = useToast();
-const router = useRouter();
 
 const pods = ref<V1Pod[]>([]);
 
 const rowActions: RowAction<V1Pod>[] = [
-  {
-    label: "Edit",
-    handler: (row) => {
-      addTab(
-        `edit_${row.metadata?.name}`,
-        `${row.metadata?.name}`,
-        defineAsyncComponent(() => import("@/views/ObjectEditor.vue")),
-        {
-          context: context.value,
-          namespace: namespace.value,
-          object: `pods/${row.metadata?.name}`,
-        },
-        "edit"
-      );
-    },
-  },
-  {
-    label: "Describe",
-    handler: (row) => {
-      addTab(
-        `describe_${row.metadata?.name}`,
-        `${row.metadata?.name}`,
-        defineAsyncComponent(() => import("@/views/Describe.vue")),
-        {
-          context: context.value,
-          namespace: namespace.value,
-          object: `pods/${row.metadata?.name}`,
-        },
-        "describe"
-      );
-    },
-  },
+  ...getDefaultActions<V1Pod>(addTab, context.value),
   {
     label: "Shell",
     options: (row) => {
@@ -67,7 +35,7 @@ const rowActions: RowAction<V1Pod>[] = [
             defineAsyncComponent(() => import("@/views/Shell.vue")),
             {
               context: context.value,
-              namespace: namespace.value,
+              namespace: row.metadata?.namespace ?? namespace.value,
               pod: row,
               container: container,
             },
@@ -86,7 +54,7 @@ const rowActions: RowAction<V1Pod>[] = [
         defineAsyncComponent(() => import("@/views/LogViewer.vue")),
         {
           context: context.value,
-          namespace: namespace.value,
+          namespace: row.metadata?.namespace ?? namespace.value,
           pod: row.metadata?.name,
         },
         "logs"
@@ -147,7 +115,6 @@ async function getPods(refresh: boolean = false) {
 }
 
 const rowClasses = (row: V1Pod) => {
-  // terminating
   if (row.metadata?.deletionTimestamp) {
     return "bg-red-500";
   }

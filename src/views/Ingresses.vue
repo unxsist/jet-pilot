@@ -15,6 +15,14 @@ import { useDataRefresher } from "@/composables/refresher";
 const { toast } = useToast();
 const ingresses = ref<V1Ingress[]>([]);
 
+import { RowAction, getDefaultActions } from "@/components/tables/types";
+import { TabProviderAddTabKey } from "@/providers/TabProvider";
+const addTab = injectStrict(TabProviderAddTabKey);
+
+const rowActions: RowAction<V1Ingress>[] = [
+  ...getDefaultActions<V1Ingress>(addTab, context.value),
+];
+
 async function getIngresses(refresh: boolean = false) {
   if (!refresh) {
     ingresses.value = [];
@@ -49,6 +57,5 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(
 );
 </script>
 <template>
-  <DataTable :data="ingresses" :columns="columns" />
+  <DataTable :data="ingresses" :columns="columns" :row-actions="rowActions" />
 </template>
-@/components/tables/ingresses/ingresses
