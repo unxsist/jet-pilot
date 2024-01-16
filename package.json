@@ -27,6 +27,7 @@
     "js-yaml": "^4.1.0",
     "monaco-editor": "^0.45.0",
     "monaco-languageclient": "^7.3.0",
+    "pluralize": "^8.0.0",
     "radix-vue": "^1.2.7",
     "tailwind-merge": "^2.1.0",
     "tailwindcss-animate": "^1.0.7",

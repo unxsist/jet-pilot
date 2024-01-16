@@ -5,6 +5,7 @@ use either::Either;
 use istio_api_rs::networking::v1beta1::virtual_service::VirtualService;
 use k8s_openapi::api::batch::v1::{CronJob, Job};
 use k8s_openapi::api::networking::v1::Ingress;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::{APIGroup, APIResource};
 use tauri::Manager;
 
 use k8s_openapi::api::apps::v1::Deployment;
@@ -509,6 +510,56 @@ async fn replace_persistentvolumeclaim(
         .map_err(|err| SerializableKubeError::from(err));
 }
 
+#[tauri::command]
+async fn get_core_api_versions(context: &str) -> Result<Vec<String>, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+
+    return client
+        .list_core_api_versions()
+        .await
+        .map(|api_versions| api_versions.versions)
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn get_core_api_resources(
+    context: &str,
+    core_api_version: &str,
+) -> Result<Vec<APIResource>, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+
+    return client
+        .list_core_api_resources(core_api_version)
+        .await
+        .map(|api_resources| api_resources.resources)
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn get_api_groups(context: &str) -> Result<Vec<APIGroup>, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+
+    return client
+        .list_api_groups()
+        .await
+        .map(|api_groups| api_groups.groups)
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn get_api_group_resources(
+    context: &str,
+    api_group_version: &str,
+) -> Result<Vec<APIResource>, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+
+    return client
+        .list_api_group_resources(api_group_version)
+        .await
+        .map(|api_resources| api_resources.resources)
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
 struct TerminalSession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
 }
@@ -618,6 +669,10 @@ fn main() {
             list_contexts,
             get_current_context,
             list_namespaces,
+            get_core_api_versions,
+            get_core_api_resources,
+            get_api_groups,
+            get_api_group_resources,
             list_pods,
             get_pod,
             delete_pod,

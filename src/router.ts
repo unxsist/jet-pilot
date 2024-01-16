@@ -73,6 +73,11 @@ const routes: Array<RouteRecordRaw> = [
     name: "PersistentVolumeClaims",
     component: () => import("./views/PersistentVolumeClaims.vue"),
   },
+  {
+    path: "/:pathMatch(.*)*",
+    name: "GenericResource",
+    component: () => import("./views/GenericResource.vue"),
+  },
 ];
 
 const router = createRouter({

@@ -1,4 +1,6 @@
 import {
+  V1APIGroup,
+  V1APIResource,
   V1ConfigMap,
   V1CronJob,
   V1Deployment,
@@ -31,6 +33,34 @@ export class Kubernetes {
 
   static async getNamespaces(context: string): Promise<V1Namespace[]> {
     return invoke("list_namespaces", { context: context });
+  }
+
+  static async getCoreApiVersions(context: string): Promise<string[]> {
+    return invoke("get_core_api_versions", { context: context });
+  }
+
+  static async getCoreApiResources(
+    context: string,
+    core_api_version: string
+  ): Promise<V1APIResource[]> {
+    return invoke("get_core_api_resources", {
+      context: context,
+      coreApiVersion: core_api_version,
+    });
+  }
+
+  static async getApiGroups(context: string): Promise<V1APIGroup[]> {
+    return invoke("get_api_groups", { context: context });
+  }
+
+  static async getApiGroupResources(
+    context: string,
+    api_group_version: string
+  ): Promise<V1APIResource[]> {
+    return invoke("get_api_group_resources", {
+      context: context,
+      apiGroupVersion: api_group_version,
+    });
   }
 
   static async getPods(
