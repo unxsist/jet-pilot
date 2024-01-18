@@ -13,45 +13,45 @@ const { context } = injectStrict(KubeContextStateKey);
 
 interface NavigationGroup {
   title: string;
-  coreResources: string[];
+  coreResourceKinds: string[];
   apiGroupResources: string[];
 }
 
 const navigationGroups: NavigationGroup[] = [
   {
     title: "Workloads",
-    coreResources: ["pods"],
+    coreResourceKinds: ["Pod"],
     apiGroupResources: ["apps", "batch"],
   },
   {
     title: "Config",
-    coreResources: ["configmaps", "resourcequotas", "secrets"],
-    apiGroupResources: [""],
-  },
-  {
-    title: "Network",
-    coreResources: ["endpoints", "services", "endpointslices"],
-    apiGroupResources: ["networking.k8s.io"],
-  },
-  {
-    title: "Storage",
-    coreResources: ["persistentvolumeclaims"],
-    apiGroupResources: ["storage.k8s.io"],
-  },
-  {
-    title: "Scaling",
-    coreResources: [],
-    apiGroupResources: ["autoscaling"],
-  },
-  {
-    title: "Policies",
-    coreResources: ["poddisruptionbudgets", "limitranges"],
+    coreResourceKinds: ["ConfigMap", "ResourceQuota", "Secret"],
     apiGroupResources: [],
   },
   {
+    title: "Network",
+    coreResourceKinds: ["Endpoints", "Service"],
+    apiGroupResources: ["networking.*"],
+  },
+  {
+    title: "Storage",
+    coreResourceKinds: ["PersistentVolumeClaim"],
+    apiGroupResources: ["storage.*"],
+  },
+  {
+    title: "Scaling",
+    coreResourceKinds: [],
+    apiGroupResources: ["autoscaling.*"],
+  },
+  {
+    title: "Policies",
+    coreResourceKinds: ["LimitRange"],
+    apiGroupResources: ["policy.*", "policies.*"],
+  },
+  {
     title: "Access Control",
-    coreResources: ["serviceaccounts"],
-    apiGroupResources: ["rbac.authorization.k8s.io"],
+    coreResourceKinds: ["ServiceAccount", "Role", "RoleBinding"],
+    apiGroupResources: [".*authorization.*"],
   },
 ];
 
@@ -60,22 +60,48 @@ const clusterResources = ref<Map<string, V1APIResource[]>>(new Map());
 const getCoreResourcesForGroup = (group: NavigationGroup) => {
   return Array.from(clusterResources.value.values())
     .flat()
-    .filter((resource) => group.coreResources.includes(resource.name));
+    .filter((resource) => group.coreResourceKinds.includes(resource.kind))
+    .filter((resource) => !resource.name.includes("/"));
 };
 
 const getApiResourcesForGroup = (group: NavigationGroup) => {
   return Array.from(clusterResources.value.keys())
-    .filter((key) => group.apiGroupResources.includes(key))
+    .filter((key) => {
+      return group.apiGroupResources.some((group) => {
+        return key.match(group);
+      });
+    })
     .map((key) => clusterResources.value.get(key)!)
     .flat()
-    .filter((resource) => resource.singularName !== "");
+    .filter((resource) => !resource.name.includes("/"));
+};
+
+const getOtherResources = () => {
+  return Array.from(clusterResources.value.keys())
+    .filter((key) => {
+      return !navigationGroups.some((group) => {
+        return group.apiGroupResources.some((group) => {
+          return key.match(group);
+        });
+      });
+    })
+    .map((key) => clusterResources.value.get(key)!)
+    .flat()
+    .filter((resource) => !resource.name.includes("/"))
+    .filter(
+      (resource) =>
+        !navigationGroups.some((group) => {
+          return group.coreResourceKinds.includes(resource.kind);
+        })
+    );
 };
 
 const formatResourceKind = (kind: string) => {
   return pluralize(kind);
 };
 
-onMounted(() => {
+const fetchResources = () => {
+  clusterResources.value.clear();
   Kubernetes.getCoreApiVersions(context.value).then((results) => {
     results.forEach((version) => {
       Kubernetes.getCoreApiResources(context.value, version).then(
@@ -110,6 +136,14 @@ onMounted(() => {
     .catch((error) => {
       console.error(error);
     });
+};
+
+onMounted(() => {
+  fetchResources();
+});
+
+watch(context, () => {
+  fetchResources();
 });
 </script>
 
@@ -120,57 +154,6 @@ onMounted(() => {
       <ContextSwitcher class="mt-[30px]" />
       <div class="flex w-full flex-grow flex-shrink overflow-hidden">
         <ScrollArea class="w-full mt-0 mb-0">
-          <!-- <NavigationGroup title="Workloads">
-            <NavigationItem icon="pods" title="Pods" :to="{ name: 'Pods' }" />
-            <NavigationItem
-              icon="deployments"
-              title="Deployments"
-              :to="{ name: 'Deployments' }"
-            />
-            <NavigationItem icon="jobs" title="Jobs" :to="{ name: 'Jobs' }" />
-            <NavigationItem
-              icon="cronjobs"
-              title="Cron Jobs"
-              :to="{ name: 'CronJobs' }"
-            />
-          </NavigationGroup>
-          <NavigationGroup title="Configuration">
-            <NavigationItem
-              icon="configmaps"
-              title="Config Maps"
-              :to="{ name: 'ConfigMaps' }"
-            />
-            <NavigationItem
-              icon="secrets"
-              title="Secrets"
-              :to="{ name: 'Secrets' }"
-            />
-          </NavigationGroup>
-          <NavigationGroup title="Network">
-            <NavigationItem
-              icon="services"
-              title="Services"
-              :to="{ name: 'Services' }"
-            />
-            <NavigationItem
-              icon="virtualservices"
-              title="Virtual Services"
-              :to="{ name: 'VirtualServices' }"
-            />
-            <NavigationItem
-              icon="ingresses"
-              title="Ingresses"
-              :to="{ name: 'Ingresses' }"
-            />
-          </NavigationGroup>
-          <NavigationGroup title="Storage">
-            <NavigationItem
-              icon="persistentvolumeclaims"
-              title="Persistent Volume Claims"
-              :to="{ name: 'PersistentVolumeClaims' }"
-            />
-          </NavigationGroup>
-          <NavigationGroup title="Custom Resources"> </NavigationGroup> -->
           <NavigationGroup
             v-for="group in navigationGroups"
             :key="group.title"
@@ -190,6 +173,18 @@ onMounted(() => {
               icon="pods"
               :title="formatResourceKind(resource.kind)"
               v-for="resource in getApiResourcesForGroup(group)"
+              :key="resource.name"
+              :to="{
+                path: `/${resource.name}`,
+                query: { resource: resource.name },
+              }"
+            />
+          </NavigationGroup>
+          <NavigationGroup title="Other">
+            <NavigationItem
+              icon="pods"
+              :title="formatResourceKind(resource.kind)"
+              v-for="resource in getOtherResources()"
               :key="resource.name"
               :to="{
                 path: `/${resource.name}`,

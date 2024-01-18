@@ -13,6 +13,14 @@ const { context, namespace } = injectStrict(KubeContextStateKey);
 
 const resourceData = ref<any>([]);
 
+import { RowAction, getDefaultActions } from "@/components/tables/types";
+import { TabProviderAddTabKey } from "@/providers/TabProvider";
+const addTab = injectStrict(TabProviderAddTabKey);
+
+const rowActions: RowAction<any>[] = [
+  ...getDefaultActions<any>(addTab, context.value),
+];
+
 onBeforeRouteUpdate((to, from, next) => {
   killWatchCommand();
   initiateWatchCommand(to.query.resource as string);
@@ -68,14 +76,12 @@ const initiateWatchCommand = (resource: string) => {
   command.spawn().then((child) => {
     process = child;
   });
-  console.log("spawned");
 };
 
 const killWatchCommand = () => {
   if (process) {
     process.kill();
     process = null;
-    console.log("killed");
   }
 };
 
@@ -91,7 +97,7 @@ onUnmounted(() => {
   <DataTable
     :data="resourceData"
     :columns="columns"
-    :row-actions="[]"
+    :row-actions="rowActions"
     :key="resourceData.length"
   />
 </template>

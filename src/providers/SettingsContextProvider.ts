@@ -18,6 +18,7 @@ export interface SettingsContextState {
     tabProvider: {
       height: number;
     };
+    collapsedNavigationGroups: string[];
   };
 }
 
@@ -32,6 +33,7 @@ export default {
         tabProvider: {
           height: 50,
         },
+        collapsedNavigationGroups: [],
       },
     });
     provide(SettingsContextStateKey, toRefs(state));

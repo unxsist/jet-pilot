@@ -1,9 +1,29 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import ArrowDownIcon from "@/assets/icons/arrow_down.svg";
-defineProps<{ title: string }>();
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+import { injectStrict } from "@/lib/utils";
 
-const collapsed = ref(false);
+const props = defineProps<{ title: string }>();
+
+const { settings } = injectStrict(SettingsContextStateKey);
+const collapsed = ref(
+  settings.value.collapsedNavigationGroups.includes(props.title)
+);
+
+watch(
+  () => collapsed.value,
+  (collapsed) => {
+    if (collapsed) {
+      settings.value.collapsedNavigationGroups.push(props.title);
+    } else {
+      settings.value.collapsedNavigationGroups =
+        settings.value.collapsedNavigationGroups.filter(
+          (title) => title !== props.title
+        );
+    }
+  }
+);
 </script>
 <template>
   <div>
