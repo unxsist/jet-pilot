@@ -18,7 +18,7 @@ import { TabProviderAddTabKey } from "@/providers/TabProvider";
 const addTab = injectStrict(TabProviderAddTabKey);
 
 const rowActions: RowAction<any>[] = [
-  ...getDefaultActions<any>(addTab, context.value),
+  ...getDefaultActions<any>(addTab, context.value, true),
 ];
 
 onBeforeRouteUpdate((to, from, next) => {

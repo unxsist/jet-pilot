@@ -2,7 +2,10 @@
 import NavigationItemIcon from "@/components/NavigationItemIcon.vue";
 import { RouteLocationRaw, useRouter } from "vue-router";
 import { injectStrict } from "@/lib/utils";
-import { RegisterCommandStateKey } from "@/providers/CommandPaletteProvider";
+import {
+  RegisterCommandStateKey,
+  UnregisterCommandStateKey,
+} from "@/providers/CommandPaletteProvider";
 
 const router = useRouter();
 
@@ -13,15 +16,20 @@ const props = defineProps<{
 }>();
 
 const registerCommand = injectStrict(RegisterCommandStateKey);
-onMounted(() => {
-  registerCommand({
-    id: crypto.randomUUID(),
-    name: props.title,
-    description: "Navigate to " + props.title,
-    execute: () => {
-      router.push(props.to);
-    },
-  });
+const unregisterCommand = injectStrict(UnregisterCommandStateKey);
+
+const commandId = crypto.randomUUID();
+registerCommand({
+  id: commandId,
+  name: props.title,
+  description: "Navigate to " + props.title,
+  execute: () => {
+    router.push(props.to);
+  },
+});
+
+onUnmounted(() => {
+  unregisterCommand(commandId);
 });
 </script>
 <template>

@@ -19,7 +19,8 @@ export type RowAction<T> = WithOptions<T> | WithHandler<T>;
 
 export function getDefaultActions<T extends KubernetesObject | VirtualService>(
   addTab: any,
-  context: string
+  context: string,
+  isGenericResource: boolean = false
 ): RowAction<T>[] {
   return [
     {
@@ -34,6 +35,7 @@ export function getDefaultActions<T extends KubernetesObject | VirtualService>(
             namespace: row.metadata?.namespace,
             type: row.kind,
             name: row.metadata?.name,
+            useKubeCtl: isGenericResource,
           },
           "edit"
         );

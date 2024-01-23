@@ -39,7 +39,7 @@ watch(
         <ArrowDownIcon class="w-5" />
       </div>
     </div>
-    <div v-if="!collapsed" class="mb-5 space-y-1">
+    <div v-show="!collapsed" class="mb-5 space-y-1">
       <slot />
     </div>
   </div>

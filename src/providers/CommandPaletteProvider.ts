@@ -3,6 +3,8 @@ import { provide, reactive, InjectionKey, toRefs, ToRefs } from "vue";
 
 export const RegisterCommandStateKey: InjectionKey<(command: Command) => void> =
   Symbol("RegisterComand");
+export const UnregisterCommandStateKey: InjectionKey<(id: string) => void> =
+  Symbol("UnregisterCommand");
 export const CommandPaletteStateKey: InjectionKey<ToRefs<CommandPaletteState>> =
   Symbol("CommandPaletteState");
 export const OpenCommandPaletteKey: InjectionKey<() => void> =
@@ -91,6 +93,20 @@ export default {
       state.commands.push(command);
     };
 
+    const unregisterCommand = (commandId: string) => {
+      const command = state.commands.find(
+        (command) => command.id === commandId
+      );
+
+      if (!command) {
+        return;
+      }
+
+      state.commands = state.commands.filter(
+        (command) => command.id !== commandId
+      );
+    };
+
     const executeCommand = (command: Command) => {
       if (command.commands) {
         state.loading = true;
@@ -132,6 +148,7 @@ export default {
     provide(ClearCommandCallStackKey, clearStack);
     provide(ShowSingleCommandKey, showSingleCommand);
     provide(RegisterCommandStateKey, registerCommand);
+    provide(UnregisterCommandStateKey, unregisterCommand);
   },
   render(): any {
     return this.$slots.default();

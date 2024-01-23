@@ -14,7 +14,8 @@
     "allowlist": {
       "all": true,
       "fs": {
-        "scope": ["$APPCONFIG/", "$APPCONFIG/*"]
+        "all": true, 
+        "scope": ["$APPCONFIG/", "$APPCONFIG/*", "$TEMP/", "$TEMP/*", "$TEMP/*/**", "$TEMP/**"]
       },
       "shell": {
         "scope": [

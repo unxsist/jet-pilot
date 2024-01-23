@@ -2,6 +2,8 @@
 import { getCurrentInstance } from "vue";
 import Loading from "@/components/Loading.vue";
 import { Command } from "@tauri-apps/api/shell";
+import { writeFile, removeFile, BaseDirectory } from "@tauri-apps/api/fs";
+import { tempdir } from "@tauri-apps/api/os";
 import loader from "@monaco-editor/loader";
 import Theme from "@/components/monaco/themes/BrillianceBlack";
 import { Button } from "@/components/ui/button";
@@ -24,6 +26,7 @@ const props = defineProps<{
   namespace: string;
   type: string;
   name: string;
+  useKubeCtl: boolean;
 }>();
 
 const editorElement = ref<HTMLElement | null>(null);
@@ -99,24 +102,60 @@ const onClose = () => {
 };
 
 const onSave = () => {
-  Kubernetes.replaceObject(
-    props.context,
-    props.namespace,
-    props.type,
-    props.name,
-    yaml.load(editContents.value)
-  )
-    .then((result) => {
-      onClose();
-    })
-    .catch((error) => {
-      console.log(error);
-      toast({
-        title: "An error occured",
-        description: error.message,
-        variant: "destructive",
+  if (!props.useKubeCtl) {
+    Kubernetes.replaceObject(
+      props.context,
+      props.namespace,
+      props.type,
+      props.name,
+      yaml.load(editContents.value)
+    )
+      .then((result) => {
+        onClose();
+      })
+      .catch((error) => {
+        console.log(error);
+        toast({
+          title: "An error occured",
+          description: error.message,
+          variant: "destructive",
+        });
       });
-    });
+  } else {
+    const filename = `${props.name}-${crypto.randomUUID()}.yaml`;
+    writeFile(filename, editContents.value, { dir: BaseDirectory.Temp }).then(
+      async () => {
+        const tempDir = await tempdir();
+
+        const command = new Command("kubectl", [
+          "replace",
+          "--context",
+          props.context,
+          "--namespace",
+          props.namespace,
+          "-f",
+          `${tempDir}${filename}`,
+        ]);
+
+        command.stdout.on("data", (data) => {
+          console.log(data);
+        });
+
+        command.stderr.on("data", (error) => {
+          console.log(error);
+        });
+
+        command.on("close", ({ code }) => {
+          if (code === 0) {
+            removeFile(filename, { dir: BaseDirectory.Temp });
+            onClose();
+          }
+        });
+
+        command.spawn();
+      }
+    );
+  }
 };
 
 onUnmounted(() => {

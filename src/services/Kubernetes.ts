@@ -1,4 +1,5 @@
 import {
+  KubernetesObject,
   V1APIGroup,
   V1APIResource,
   V1ConfigMap,
@@ -95,13 +96,13 @@ export class Kubernetes {
     type: string,
     name: string,
     object: unknown
-  ): Promise<V1Pod> {
+  ): Promise<KubernetesObject> {
     return invoke(`replace_${type.toLowerCase()}`, {
       context: context,
       namespace: namespace,
       name: name,
       object,
-    });
+    }) as Promise<KubernetesObject>;
   }
 
   static async deletePod(
