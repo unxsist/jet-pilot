@@ -64,6 +64,7 @@ watchEffect(() => {
   >
     <CommandDialog
       :open="open"
+      ref="commandDialog"
       @update:open="
         () => {
           clearCallStack();
@@ -79,11 +80,14 @@ watchEffect(() => {
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup v-if="callStack.size === 0">
           <template v-for="(command, index) in commands" :key="index">
-            <CommandItem
-              :value="command.name"
-              @select="executeCommand(command)"
-              >{{ command.name }}</CommandItem
-            >
+            <CommandItem :value="command" @select="executeCommand(command)">
+              <div class="flex flex-col space-y-1">
+                <span class="block">{{ command.name }}</span>
+                <span class="block text-muted-foreground text-xs">{{
+                  command.description
+                }}</span>
+              </div>
+            </CommandItem>
           </template>
         </CommandGroup>
         <CommandGroup title="Command" v-else>
@@ -93,11 +97,9 @@ watchEffect(() => {
             )"
             :key="index"
           >
-            <CommandItem
-              :value="command.name"
-              @select="executeCommand(command)"
-              >{{ command.name }}</CommandItem
-            >
+            <CommandItem :value="command" @select="executeCommand(command)">{{
+              command.name
+            }}</CommandItem>
           </template>
         </CommandGroup>
       </CommandList>

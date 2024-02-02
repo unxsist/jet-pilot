@@ -5,13 +5,14 @@ import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { injectStrict } from "@/lib/utils";
 import { onMounted } from "vue";
 import DataTable from "@/components/ui/DataTable.vue";
+import DataTableManager from "@/components/ui/DataTableManager.vue";
 import { columns } from "@/components/tables/generic";
 
 let process: Child | null = null;
 const route = useRoute();
 const { context, namespace } = injectStrict(KubeContextStateKey);
 
-const resourceData = ref<any>([]);
+const resourceData = ref<object[]>([]);
 
 import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { TabProviderAddTabKey } from "@/providers/TabProvider";
@@ -45,7 +46,6 @@ const initiateWatchCommand = (resource: string) => {
   if (namespace.value) {
     args.push("--namespace", namespace.value);
   }
-  console.log(args);
 
   const command = new Command("kubectl", args);
   command.stdout.on("data", (data) => {
@@ -94,10 +94,16 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <DataTable
+  <DataTableManager
+    :default-columns="columns"
     :data="resourceData"
-    :columns="columns"
-    :row-actions="rowActions"
-    :key="resourceData.length"
-  />
+    v-slot="{ availableColumns }"
+  >
+    <DataTable
+      :data="resourceData"
+      :columns="availableColumns"
+      :row-actions="rowActions"
+      :key="resourceData.length"
+    />
+  </DataTableManager>
 </template>

@@ -73,6 +73,7 @@ const getApiResourcesForGroup = (group: NavigationGroup) => {
     })
     .map((key) => clusterResources.value.get(key)!)
     .flat()
+    .filter((resource) => !group.coreResourceKinds.includes(resource.kind))
     .filter((resource) => !resource.name.includes("/"));
 };
 
@@ -93,6 +94,13 @@ const getOtherResources = () => {
         !navigationGroups.some((group) => {
           return group.coreResourceKinds.includes(resource.kind);
         })
+    )
+    .filter(
+      (resource, index, self) =>
+        index ===
+        self.findIndex(
+          (t) => t.kind === resource.kind && t.name === resource.name
+        )
     );
 };
 

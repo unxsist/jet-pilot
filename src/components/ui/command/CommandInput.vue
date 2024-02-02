@@ -1,15 +1,21 @@
 <script setup lang="ts">
-import { MagnifyingGlassIcon } from '@radix-icons/vue'
-import { ComboboxInput, type ComboboxInputProps } from 'radix-vue'
-import { cn } from '@/lib/utils'
+import { MagnifyingGlassIcon } from "@radix-icons/vue";
+import { ComboboxInput, type ComboboxInputProps } from "radix-vue";
+import { cn } from "@/lib/utils";
 
-const props = defineProps<ComboboxInputProps>()
+const props = defineProps<ComboboxInputProps>();
+
+const refocus = (e: FocusEvent) => {
+  e.preventDefault();
+  e.stopPropagation();
+  (e.target as HTMLElement).focus();
+};
 </script>
 
 <script lang="ts">
 export default {
   inheritAttrs: false,
-}
+};
 </script>
 
 <template>
@@ -18,7 +24,17 @@ export default {
     <ComboboxInput
       v-bind="{ ...props, ...$attrs }"
       auto-focus
-      :class="cn('flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50', $attrs.class ?? '')"
+      autocomplete="off"
+      autocorrect="off"
+      autocapitalize="off"
+      spellcheck="false"
+      @focusout="refocus"
+      :class="
+        cn(
+          'flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50',
+          $attrs.class ?? ''
+        )
+      "
     />
   </div>
 </template>

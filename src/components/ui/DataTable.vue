@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="TData, TValue">
-import type { ColumnDef } from "@tanstack/vue-table";
+import type { ColumnDef, InitialTableState } from "@tanstack/vue-table";
 import { UnwrapRef } from "vue";
 import { FlexRender, getCoreRowModel, useVueTable } from "@tanstack/vue-table";
 import {
@@ -39,6 +39,9 @@ const props = defineProps<{
   rowActions?: RowAction<TData>[];
   rowClasses?: (row: TData) => string;
   data: TData[];
+  visibleColumns?: {
+    [key: string]: boolean;
+  };
 }>();
 
 const table = useVueTable({
@@ -48,30 +51,55 @@ const table = useVueTable({
   get columns() {
     return props.columns;
   },
+  initialState: {
+    columnVisibility: props.visibleColumns,
+  },
   getCoreRowModel: getCoreRowModel(),
 });
 </script>
 
 <template>
   <Table class="w-full">
-    <TableHeader>
-      <TableRow
-        v-for="headerGroup in table.getHeaderGroups()"
-        :key="headerGroup.id"
-      >
-        <TableHead
-          v-bind:enable-header-drag-region="true"
-          v-for="header in headerGroup.headers"
-          :key="header.id"
-        >
-          <FlexRender
-            v-if="!header.isPlaceholder"
-            :render="header.column.columnDef.header"
-            :props="header.getContext()"
-          />
-        </TableHead>
-      </TableRow>
-    </TableHeader>
+    <ContextMenu>
+      <ContextMenuTrigger as-child>
+        <TableHeader>
+          <TableRow
+            v-for="headerGroup in table.getHeaderGroups()"
+            :key="headerGroup.id"
+          >
+            <TableHead
+              v-bind:enable-header-drag-region="true"
+              v-for="header in headerGroup.headers"
+              :key="header.id"
+            >
+              <FlexRender
+                v-if="!header.isPlaceholder"
+                :render="header.column.columnDef.header"
+                :props="header.getContext()"
+              />
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>Columns</ContextMenuSubTrigger>
+          <ContextMenuSubContent>
+            <ContextMenuItem
+              v-for="column in table.getAllColumns()"
+              :key="column.id"
+              @select="
+                table.setColumnVisibility({
+                  [column.id]: !column.getIsVisible(),
+                })
+              "
+            >
+              {{ column.columnDef.header }}
+            </ContextMenuItem>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+      </ContextMenuContent>
+    </ContextMenu>
     <ContextMenu>
       <ContextMenuTrigger as-child>
         <TableBody>
