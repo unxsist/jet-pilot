@@ -5,11 +5,15 @@ import { FitAddon } from "xterm-addon-fit";
 import { invoke } from "@tauri-apps/api/tauri";
 import { Event, listen } from "@tauri-apps/api/event";
 import { V1Container, V1Pod } from "@kubernetes/client-node";
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+import { injectStrict } from "@/lib/utils";
 
 let terminal: Terminal;
 let fitAddon: FitAddon;
 const terminalElement = ref<HTMLDivElement | null>(null);
 const ttySessionId = ref<string | null>(null);
+
+const { settings } = injectStrict(SettingsContextStateKey);
 
 const props = defineProps<{
   context: string;
@@ -43,7 +47,7 @@ const openTerminal = () => {
         ? props.container.name
         : (props.pod.spec?.containers?.[0].name as string),
       "--",
-      "/bin/bash",
+      settings.value.shell.executable,
     ],
   }).then((sid: string) => {
     ttySessionId.value = sid;

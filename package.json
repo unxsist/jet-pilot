@@ -20,7 +20,8 @@
     "@radix-icons/vue": "^1.0.0",
     "@tanstack/vue-table": "^8.11.0",
     "@tauri-apps/api": "1.4.0",
-    "@vueuse/core": "^10.7.0",
+    "@vee-validate/zod": "^4.12.5",
+    "@vueuse/core": "^10.7.2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "date-fns": "^3.0.6",
@@ -32,11 +33,13 @@
     "radix-vue": "^1.2.7",
     "tailwind-merge": "^2.1.0",
     "tailwindcss-animate": "^1.0.7",
+    "vee-validate": "^4.12.5",
     "vite-svg-loader": "^5.1.0",
     "vue": "3.4.7",
     "vue-router": "^4.2.5",
     "xterm": "^5.3.0",
-    "xterm-addon-fit": "^0.8.0"
+    "xterm-addon-fit": "^0.8.0",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@semantic-release/git": "^10.0.1",

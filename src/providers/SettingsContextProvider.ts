@@ -18,6 +18,9 @@ export interface SettingsContextState {
     tabProvider: {
       height: number;
     };
+    shell: {
+      executable: string;
+    };
     collapsedNavigationGroups: string[];
   };
 }
@@ -32,6 +35,9 @@ export default {
         lastNamespace: null,
         tabProvider: {
           height: 50,
+        },
+        shell: { 
+          executable: "/bin/sh",
         },
         collapsedNavigationGroups: [],
       },
