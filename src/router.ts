@@ -27,6 +27,9 @@ const routes: Array<RouteRecordRaw> = [
     path: "/pods",
     name: "Pods",
     component: () => import("./views/Pods.vue"),
+    meta: {
+      requiresContext: true
+    }
   },
   {
     path: "/deployments",

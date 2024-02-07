@@ -7,6 +7,7 @@ import {
   ContextMenuTrigger,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuCheckboxItem,
   ContextMenuSub,
   ContextMenuSubTrigger,
   ContextMenuSubContent,
@@ -85,7 +86,7 @@ const table = useVueTable({
         <ContextMenuSub>
           <ContextMenuSubTrigger>Columns</ContextMenuSubTrigger>
           <ContextMenuSubContent>
-            <ContextMenuItem
+            <ContextMenuCheckboxItem :checked="column.getIsVisible()"
               v-for="column in table.getAllColumns()"
               :key="column.id"
               @select="
@@ -95,7 +96,7 @@ const table = useVueTable({
               "
             >
               {{ column.columnDef.header }}
-            </ContextMenuItem>
+            </ContextMenuCheckboxItem>
           </ContextMenuSubContent>
         </ContextMenuSub>
       </ContextMenuContent>

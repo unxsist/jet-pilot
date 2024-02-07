@@ -109,6 +109,10 @@ const formatResourceKind = (kind: string) => {
 };
 
 const fetchResources = () => {
+  if (context.value === '') {
+    return;
+  }
+
   clusterResources.value.clear();
   Kubernetes.getCoreApiVersions(context.value).then((results) => {
     results.forEach((version) => {
