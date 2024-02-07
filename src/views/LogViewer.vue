@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Button } from "@/components/ui/button";
 import { Child, Command } from "@tauri-apps/api/shell";
+import { useVirtualList } from "@vueuse/core";
 
 const props = defineProps<{
   context: string;
@@ -9,9 +10,11 @@ const props = defineProps<{
 }>();
 
 const logContainer = ref<HTMLPreElement | null>(null);
-const logs = ref<string>("");
+const logs = ref<string[]>([]);
 const logsSince = ref<string>("5m");
 let logProcess: Child | null = null;
+
+const { list, containerProps, wrapperProps, scrollTo } = useVirtualList(logs, {itemHeight: 10});
 
 const logsSinceOptions = [
   {
@@ -67,24 +70,27 @@ const initCommand = computed(() => {
 const initLogOutput = async () => {
   killProcess();
 
-  logs.value = "";
+  logs.value = [];
 
   const command = new Command("kubectl", initCommand.value);
 
   command.stdout.on("data", (data) => {
-    logs.value += data + "\n";
+    logs.value.push(data);
 
-    if (logContainer.value) {
-      logContainer.value.scrollTop = logContainer.value.scrollHeight;
-    }
+
+    scrollTo(logs.value.length - 1);
+    // if (logContainer.value) {
+    //   logContainer.value.scrollTop = logContainer.value.scrollHeight;
+    // }
   });
 
   command.stderr.on("data", (data) => {
-    logs.value += data + "\n";
+    logs.value.push(data);
 
-    if (logContainer.value) {
-      logContainer.value.scrollTop = logContainer.value.scrollHeight;
-    }
+    scrollTo(logs.value.length - 1);
+    // if (logContainer.value) {
+    //   logContainer.value.scrollTop = logContainer.value.scrollHeight;
+    // }
   });
 
   const child = await command.spawn();
@@ -112,9 +118,11 @@ onUnmounted(() => {
 </script>
 <template>
   <div class="group relative flex flex-col h-full w-full">
-    <pre class="flex-grow w-full overflow-auto" ref="logContainer">{{
-      logs
-    }}</pre>
+    <div v-bind="containerProps">
+      <pre class="flex-grow w-full" ref="logContainer" v-bind="wrapperProps">
+          <span v-for="logline in list" :key="logline.index">{{ logline.data }}</span>
+      </pre>
+    </div>
     <div
       class="absolute bottom-5 right-5 flex justify-end space-x-1 transition-opacity opacity-25 group-hover:opacity-100"
     >
