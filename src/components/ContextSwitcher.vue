@@ -58,6 +58,35 @@ onMounted(() => {
       }));
     },
   });
+
+  registerCommand({
+    name: "Switch namespace",
+    description: "Switch the current namespace",
+    id: "switch-namespace",
+    commands: async (): Promise<Command[]> => {
+      const namespaces = await Kubernetes.getNamespaces(context.value);
+
+      return [
+        {
+          id: "all-namespaces",
+          name: "All namespaces",
+          description: "Show all namespaces",
+          execute: () => {
+            setNamespace("");
+          },
+        } as Command,
+      ].concat(
+        namespaces.map((namespace) => ({
+          id: namespace.metadata?.name || "",
+          name: namespace.metadata?.name || "",
+          description: "Switch to " + namespace,
+          execute: () => {
+            setNamespace(namespace.metadata?.name || "");
+          },
+        }))
+      );
+    },
+  });
 });
 </script>
 <template>
