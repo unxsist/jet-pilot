@@ -21,6 +21,22 @@ const deployments = ref<V1Deployment[]>([]);
 
 const rowActions: RowAction<V1Deployment>[] = [
   ...getDefaultActions<V1Deployment>(addTab, context.value),
+    {
+    label: "Logs",
+    handler: (row) => {
+      addTab(
+        `logs_${row.metadata?.name}`,
+        `${row.metadata?.name}`,
+        defineAsyncComponent(() => import("@/views/LogViewer.vue")),
+        {
+          context: context.value,
+          namespace: row.metadata?.namespace ?? namespace.value,
+          object: `deployment/${row.metadata?.name}`,
+        },
+        "logs"
+      );
+    },
+  },
 ];
 
 async function getDeployments(refresh: boolean = false) {

@@ -1,20 +1,47 @@
 <script setup lang="ts">
 import { Button } from "@/components/ui/button";
 import { Child, Command } from "@tauri-apps/api/shell";
-import { useVirtualList } from "@vueuse/core";
+import { useMagicKeys, useVirtualList } from "@vueuse/core";
+import { Input } from "@/components/ui/input";
 
 const props = defineProps<{
   context: string;
   namespace: string;
-  pod: string;
+  object: string;
 }>();
 
+const search = ref(false);
+const searchInput = ref<typeof Input | null>(null);
+const searchQuery = ref("");
+const autoScroll = ref(true);
 const logContainer = ref<HTMLPreElement | null>(null);
 const logs = ref<string[]>([]);
 const logsSince = ref<string>("5m");
 let logProcess: Child | null = null;
 
-const { list, containerProps, wrapperProps, scrollTo } = useVirtualList(logs, {itemHeight: 10});
+const { Cmd_F, Ctrl_F, Escape } = useMagicKeys();
+
+watch([Cmd_F, Ctrl_F, Escape], ([mac, win, esc]) => {
+  if (mac || win) {
+    search.value = !search.value;
+
+    if (search.value) {
+      searchInput.value?.focus(); 
+    }
+  } 
+
+  if (esc) {
+    search.value = false;
+  }
+});
+
+const filteredLogs = computed(() => {
+  return logs.value.filter((log) => {
+    return log.includes(searchQuery.value);
+  });
+});
+
+const { list, containerProps, wrapperProps, scrollTo } = useVirtualList(filteredLogs, {itemHeight: 10});
 
 const logsSinceOptions = [
   {
@@ -62,7 +89,7 @@ const initCommand = computed(() => {
 
   initCommandArgs.push("--follow");
 
-  initCommandArgs.push(props.pod);
+  initCommandArgs.push(props.object);
 
   return initCommandArgs;
 });
@@ -77,20 +104,17 @@ const initLogOutput = async () => {
   command.stdout.on("data", (data) => {
     logs.value.push(data);
 
-
-    scrollTo(logs.value.length - 1);
-    // if (logContainer.value) {
-    //   logContainer.value.scrollTop = logContainer.value.scrollHeight;
-    // }
+    if (autoScroll.value) {
+      scrollTo(logs.value.length - 1);
+    }
   });
 
   command.stderr.on("data", (data) => {
     logs.value.push(data);
 
-    scrollTo(logs.value.length - 1);
-    // if (logContainer.value) {
-    //   logContainer.value.scrollTop = logContainer.value.scrollHeight;
-    // }
+    if (autoScroll.value) {
+      scrollTo(logs.value.length - 1);
+    }
   });
 
   const child = await command.spawn();
@@ -115,10 +139,19 @@ onMounted(() => {
 onUnmounted(() => {
   killProcess();
 });
+
+const onWheel = (e: WheelEvent) => {
+  if (e.deltaY < 0) {
+    autoScroll.value = false;
+  }
+};
 </script>
 <template>
   <div class="group relative flex flex-col h-full w-full">
-    <div v-bind="containerProps">
+    <div class="absolute top-0 right-0 w-full max-w-sm" v-show="search">
+      <Input ref="searchInput" class="bg-background" v-model="searchQuery" placeholder="Search logs..." />
+    </div>
+    <div v-bind="containerProps" v-on:wheel="onWheel">
       <pre class="flex-grow w-full" ref="logContainer" v-bind="wrapperProps">
           <span v-for="logline in list" :key="logline.index">{{ logline.data }}</span>
       </pre>
@@ -126,6 +159,8 @@ onUnmounted(() => {
     <div
       class="absolute bottom-5 right-5 flex justify-end space-x-1 transition-opacity opacity-25 group-hover:opacity-100"
     >
+      <Button v-if="!autoScroll" size="xs" @click="autoScroll = !autoScroll">
+        Auto scroll</Button>
       <Button
         :variant="logsSince === age.value ? 'default' : 'secondary'"
         v-for="age in logsSinceOptions"

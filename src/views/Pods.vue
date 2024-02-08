@@ -55,7 +55,7 @@ const rowActions: RowAction<V1Pod>[] = [
         {
           context: context.value,
           namespace: row.metadata?.namespace ?? namespace.value,
-          pod: row.metadata?.name,
+          object: row.metadata?.name,
         },
         "logs"
       );
