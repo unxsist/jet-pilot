@@ -2,6 +2,7 @@ type BaseCommand = {
   id: string;
   name: string;
   description?: string;
+  keywords?: string[];
 };
 
 type ExecutableCommand = {

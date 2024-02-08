@@ -23,6 +23,7 @@ onMounted(() => {
     id: "switch-context",
     name: "Switch context",
     description: "Switch the current context",
+    keywords: ["ctx", "context"],
     commands: async (): Promise<Command[]> => {
       const contexts = await Kubernetes.getContexts();
 
@@ -63,6 +64,7 @@ onMounted(() => {
     name: "Switch namespace",
     description: "Switch the current namespace",
     id: "switch-namespace",
+    keywords: ["ns", "namespace"],
     commands: async (): Promise<Command[]> => {
       const namespaces = await Kubernetes.getNamespaces(context.value);
 
@@ -95,8 +97,12 @@ onMounted(() => {
       class="flex flex-col w-full text-xs border rounded-lg p-2 text-left hover:bg-background"
       @click="showSingleCommand('switch-context')"
     >
-      <span class="uppercase font-bold mb-1">{{ context || "No context" }}</span>
-      <span v-if="context">{{ namespace == "" ? "All namespaces" : namespace }}</span>
+      <span class="uppercase font-bold mb-1">{{
+        context || "No context"
+      }}</span>
+      <span v-if="context">{{
+        namespace == "" ? "All namespaces" : namespace
+      }}</span>
       <span v-else>Click here to set context</span>
     </button>
   </div>

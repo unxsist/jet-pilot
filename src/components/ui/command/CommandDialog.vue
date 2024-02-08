@@ -14,7 +14,14 @@ const emitsAsProps = useEmitAsProps(emits);
 const filter = (list: Command[], query: string): Command[] => {
   const fuse = new Fuse(list, {
     threshold: 0.3,
-    keys: ["name", "description"],
+    keys: [
+      {
+        name: "keywords",
+        weight: 2,
+      },
+      "name",
+      "description",
+    ],
   });
   return fuse.search(query).map((result) => result.item);
 };
