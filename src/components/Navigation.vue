@@ -9,7 +9,7 @@ import { injectStrict } from "@/lib/utils";
 import { V1APIResource } from "@kubernetes/client-node";
 import pluralize from "pluralize";
 
-const { context } = injectStrict(KubeContextStateKey);
+const { context, namespace} = injectStrict(KubeContextStateKey);
 
 interface NavigationGroup {
   title: string;
@@ -50,7 +50,7 @@ const navigationGroups: NavigationGroup[] = [
   },
   {
     title: "Access Control",
-    coreResourceKinds: ["ServiceAccount", "Role", "RoleBinding"],
+    coreResourceKinds: ["ServiceAccount", "Role", "RoleBinding", "ClusterRoleBinding", "ClusterRole"],
     apiGroupResources: [".*authorization.*"],
   },
 ];
@@ -108,6 +108,14 @@ const formatResourceKind = (kind: string) => {
   return pluralize(kind);
 };
 
+const filterNamespaced = (resource: V1APIResource) => {
+  if(namespace.value === "") {
+    return true
+  }
+
+  return resource.namespaced
+}
+
 const fetchResources = () => {
   if (context.value === '') {
     return;
@@ -120,7 +128,7 @@ const fetchResources = () => {
         (resources) => {
           clusterResources.value.set(
             version,
-            resources.filter((r) => r.namespaced)
+            resources.filter(filterNamespaced)
           );
         }
       );
@@ -137,7 +145,7 @@ const fetchResources = () => {
           .then((resources) => {
             clusterResources.value.set(
               group.name,
-              resources.filter((r) => r.namespaced)
+              resources.filter(filterNamespaced)
             );
           })
           .catch((error) => {
@@ -154,7 +162,7 @@ onMounted(() => {
   fetchResources();
 });
 
-watch(context, () => {
+watch([context, namespace], () => {
   fetchResources();
 });
 </script>
