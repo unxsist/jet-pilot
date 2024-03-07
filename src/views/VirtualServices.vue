@@ -19,8 +19,11 @@ import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { TabProviderAddTabKey } from "@/providers/TabProvider";
 const addTab = injectStrict(TabProviderAddTabKey);
 
+import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
+const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
+
 const rowActions: RowAction<VirtualService>[] = [
-  ...getDefaultActions<VirtualService>(addTab, context.value),
+  ...getDefaultActions<VirtualService>(addTab, spawnDialog, context.value),
 ];
 
 async function getVirtualServices(refresh: boolean = false) {

@@ -1,3 +1,5 @@
+import { BaseDialogInterface } from "@/providers/DialogProvider";
+import { Command } from "@tauri-apps/api/shell";
 import { VirtualService } from "@kubernetes-models/istio/networking.istio.io/v1beta1";
 import { KubernetesObject } from "@kubernetes/client-node";
 
@@ -19,8 +21,9 @@ export type RowAction<T> = WithOptions<T> | WithHandler<T>;
 
 export function getDefaultActions<T extends KubernetesObject | VirtualService>(
   addTab: any,
+  spawnDialog: any,
   context: string,
-  isGenericResource: boolean = false
+  isGenericResource = false
 ): RowAction<T>[] {
   return [
     {
@@ -56,6 +59,47 @@ export function getDefaultActions<T extends KubernetesObject | VirtualService>(
           },
           "describe"
         );
+      },
+    },
+    {
+      label: "Delete",
+      handler: (row) => {
+        const dialog: BaseDialogInterface = {
+          title: "Delete",
+          message: `Are you sure you want to delete ${row.metadata?.name}?`,
+          buttons: [
+            {
+              label: "Cancel",
+              handler: (dialog) => {
+                dialog.close();
+              },
+            },
+            {
+              label: "Delete",
+              handler: (dialog) => {
+                const command = new Command("kubectl", [
+                  "delete",
+                  `${row.kind}/${row.metadata?.name}`,
+                  "--context",
+                  context,
+                  "--namespace",
+                  row.metadata?.namespace || "",
+                ]);
+
+                command.stderr.on("data", (error: string) => {
+                  console.log(error);
+                });
+
+                command.on("close", () => {
+                  dialog.close();
+                });
+
+                command.spawn();
+              },
+            },
+          ],
+        };
+        spawnDialog(dialog);
       },
     },
   ];

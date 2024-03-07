@@ -19,8 +19,11 @@ import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { TabProviderAddTabKey } from "@/providers/TabProvider";
 const addTab = injectStrict(TabProviderAddTabKey);
 
+import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
+const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
+
 const rowActions: RowAction<V1Secret>[] = [
-  ...getDefaultActions<V1Secret>(addTab, context.value),
+  ...getDefaultActions<V1Secret>(addTab, spawnDialog, context.value),
 ];
 
 async function getConfigMaps(refresh: boolean = false) {

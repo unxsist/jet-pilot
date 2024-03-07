@@ -19,8 +19,11 @@ import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { TabProviderAddTabKey } from "@/providers/TabProvider";
 const addTab = injectStrict(TabProviderAddTabKey);
 
+import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
+const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
+
 const rowActions: RowAction<V1CronJob>[] = [
-  ...getDefaultActions<V1CronJob>(addTab, context.value),
+  ...getDefaultActions<V1CronJob>(addTab, spawnDialog, context.value),
 ];
 
 async function getCronJobs(refresh: boolean = false) {

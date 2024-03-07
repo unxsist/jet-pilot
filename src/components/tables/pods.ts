@@ -28,7 +28,13 @@ export const columns: ColumnDef<V1Pod>[] = [
   },
   {
     header: "Status",
-    accessorFn: (row) => row.status?.phase,
+    accessorFn: (row) => {
+      if (row.metadata?.deletionTimestamp) {
+        return "Terminating";
+      }
+
+      return row.status?.phase;
+    },
   },
   {
     header: "CPU",

@@ -11,6 +11,9 @@ const { context, namespace } = injectStrict(KubeContextStateKey);
 import { TabProviderAddTabKey } from "@/providers/TabProvider";
 const addTab = injectStrict(TabProviderAddTabKey);
 
+import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
+const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
+
 import DataTable from "@/components/ui/DataTable.vue";
 import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { columns } from "@/components/tables/deployments";
@@ -20,8 +23,8 @@ const { toast } = useToast();
 const deployments = ref<V1Deployment[]>([]);
 
 const rowActions: RowAction<V1Deployment>[] = [
-  ...getDefaultActions<V1Deployment>(addTab, context.value),
-    {
+  ...getDefaultActions<V1Deployment>(addTab, spawnDialog, context.value),
+  {
     label: "Logs",
     handler: (row) => {
       addTab(

@@ -17,12 +17,15 @@ import { TabProviderAddTabKey } from "@/providers/TabProvider";
 const { context, namespace } = injectStrict(KubeContextStateKey);
 const addTab = injectStrict(TabProviderAddTabKey);
 
+import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
+const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
+
 const { toast } = useToast();
 
 const pods = ref<V1Pod[]>([]);
 
 const rowActions: RowAction<V1Pod>[] = [
-  ...getDefaultActions<V1Pod>(addTab, context.value),
+  ...getDefaultActions<V1Pod>(addTab, spawnDialog, context.value),
   {
     label: "Shell",
     options: (row) => {

@@ -19,8 +19,15 @@ import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { TabProviderAddTabKey } from "@/providers/TabProvider";
 const addTab = injectStrict(TabProviderAddTabKey);
 
+import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
+const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
+
 const rowActions: RowAction<V1PersistentVolumeClaim>[] = [
-  ...getDefaultActions<V1PersistentVolumeClaim>(addTab, context.value),
+  ...getDefaultActions<V1PersistentVolumeClaim>(
+    addTab,
+    spawnDialog,
+    context.value
+  ),
 ];
 
 async function getPersistentVolumeClaims(refresh: boolean = false) {

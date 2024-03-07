@@ -19,8 +19,11 @@ import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { TabProviderAddTabKey } from "@/providers/TabProvider";
 const addTab = injectStrict(TabProviderAddTabKey);
 
+import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
+const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
+
 const rowActions: RowAction<V1Service>[] = [
-  ...getDefaultActions<V1Service>(addTab, context.value),
+  ...getDefaultActions<V1Service>(addTab, spawnDialog, context.value),
 ];
 
 async function getServices(refresh: boolean = false) {
