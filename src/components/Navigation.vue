@@ -3,12 +3,20 @@ import ContextSwitcher from "./ContextSwitcher.vue";
 import NavigationGroup from "./NavigationGroup.vue";
 import NavigationItem from "./NavigationItem.vue";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
 import { Kubernetes } from "@/services/Kubernetes";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { injectStrict } from "@/lib/utils";
 import { V1APIResource } from "@kubernetes/client-node";
 import pluralize from "pluralize";
+import { platform as getPlatform } from "@tauri-apps/api/os";
+import { getCurrent as getWindow } from "@tauri-apps/api/window"
+import { exit } from '@tauri-apps/api/process';
+import CloseIcon from "@/assets/icons/close.svg";
+import FullScreenIcon from "@/assets/icons/full_screen.svg";
+import MinimizeIcon from "@/assets/icons/minimize.svg";
 
+const targetPlatform = ref<string>("");
 const { context, namespace} = injectStrict(KubeContextStateKey);
 
 interface NavigationGroup {
@@ -158,8 +166,33 @@ const fetchResources = () => {
     });
 };
 
+const maxOrUnmaximize = () => {
+  const window = getWindow();
+ 
+  window.isMaximized().then((maximized) => {
+    if (maximized) {
+      window.unmaximize();
+    } else {
+      window.maximize();
+    }
+  });
+};
+
+const minimize = () => {
+  const window = getWindow();
+  window.minimize();
+};
+
+const quit = () => {
+  exit(0);
+};
+
 onMounted(() => {
   fetchResources();
+
+  getPlatform().then((platform) => {
+    targetPlatform.value = platform;
+  });
 });
 
 watch([context, namespace], () => {
@@ -169,9 +202,20 @@ watch([context, namespace], () => {
 
 <template>
   <div class="flex flex-col flex-shrink-0 relative min-w-[200px] max-w-[200px]">
-    <div class="absolute w-full h-[40px]" data-tauri-drag-region></div>
+    <div v-if="targetPlatform == 'win32'" class="p-2 pb-0 -mb-1 space-x-2" data-tauri-drag-region>
+      <Button size="xs" @click="quit">
+        <CloseIcon class="h-3 text-white" />
+      </Button>
+      <Button size="xs" @click="maxOrUnmaximize">
+        <FullScreenIcon class="h-3 text-white" />
+      </Button>
+      <Button size="xs" @click="minimize">
+        <MinimizeIcon class="h-3 text-white" />
+      </Button>
+    </div>
+    <div class="absolute w-full h-[40px]" v-else data-tauri-drag-region></div>
     <div class="flex flex-col flex-grow min-h-screen max-h-screen p-2 pr-0">
-      <ContextSwitcher class="mt-[30px]" />
+      <ContextSwitcher :class="{ 'mt-[30px]': targetPlatform !== 'win32'}" />
       <div class="flex w-full flex-grow flex-shrink overflow-hidden">
         <ScrollArea class="w-full mt-0 mb-0">
           <NavigationGroup

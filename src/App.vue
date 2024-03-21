@@ -13,7 +13,7 @@ import DialogHandler from "./components/DialogHandler.vue";
 </script>
 
 <template>
-  <AppLayout class="dark bg-zinc-900 text-sm rounded-lg">
+  <AppLayout class="dark bg-zinc-900 text-sm rounded-lg overflow-hidden">
     <Suspense>
       <SettingsContextProvider>
         <KubeContextProvider>
