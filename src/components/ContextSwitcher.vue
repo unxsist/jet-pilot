@@ -11,12 +11,14 @@ import {
 } from "@/providers/KubeContextProvider";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { Kubernetes } from "@/services/Kubernetes";
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 
 const showSingleCommand = injectStrict(ShowSingleCommandKey);
 const registerCommand = injectStrict(RegisterCommandStateKey);
 const { context, namespace } = injectStrict(KubeContextStateKey);
 const setContext = injectStrict(KubeContextSetContextKey);
 const setNamespace = injectStrict(KubeContextSetNamespaceKey);
+const { settings } = injectStrict(SettingsContextStateKey);
 
 onMounted(() => {
   registerCommand({
@@ -32,7 +34,23 @@ onMounted(() => {
         name: context,
         description: "Switch to " + context,
         commands: async (): Promise<Command[]> => {
-          const namespaces = await Kubernetes.getNamespaces(context);
+          const clusterSettings = settings.value.contextSettings.find(
+            (c) => c.context === context
+          );
+
+          let namespaces = [];
+
+          if (
+            clusterSettings &&
+            clusterSettings.namespaces &&
+            clusterSettings.namespaces.length > 0
+          ) {
+            namespaces = clusterSettings.namespaces;
+          } else {
+            namespaces = await (
+              await Kubernetes.getNamespaces(context)
+            ).map((ns) => ns.metadata?.name || "");
+          }
 
           return [
             {
@@ -46,12 +64,12 @@ onMounted(() => {
             } as Command,
           ].concat(
             namespaces.map((namespace) => ({
-              id: namespace.metadata?.name || "",
-              name: namespace.metadata?.name || "",
+              id: namespace || "",
+              name: namespace || "",
               description: "Switch to " + namespace,
               execute: () => {
                 setContext(context);
-                setNamespace(namespace.metadata?.name || "");
+                setNamespace(namespace || "");
               },
             }))
           );
@@ -66,7 +84,23 @@ onMounted(() => {
     id: "switch-namespace",
     keywords: ["ns", "namespace"],
     commands: async (): Promise<Command[]> => {
-      const namespaces = await Kubernetes.getNamespaces(context.value);
+      const clusterSettings = settings.value.contextSettings.find(
+        (c) => c.context === context.value
+      );
+
+      let namespaces = [];
+
+      if (
+        clusterSettings &&
+        clusterSettings.namespaces &&
+        clusterSettings.namespaces.length > 0
+      ) {
+        namespaces = clusterSettings.namespaces;
+      } else {
+        namespaces = await (
+          await Kubernetes.getNamespaces(context.value)
+        ).map((ns) => ns.metadata?.name || "");
+      }
 
       return [
         {
@@ -79,11 +113,11 @@ onMounted(() => {
         } as Command,
       ].concat(
         namespaces.map((namespace) => ({
-          id: namespace.metadata?.name || "",
-          name: namespace.metadata?.name || "",
+          id: namespace || "",
+          name: namespace || "",
           description: "Switch to " + namespace,
           execute: () => {
-            setNamespace(namespace.metadata?.name || "");
+            setNamespace(namespace || "");
           },
         }))
       );

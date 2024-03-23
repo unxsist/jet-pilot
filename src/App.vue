@@ -10,6 +10,7 @@ import CommandPaletteProvider from "./providers/CommandPaletteProvider";
 import TabProvider from "./providers/TabProvider";
 import DialogProvider from "./providers/DialogProvider";
 import DialogHandler from "./components/DialogHandler.vue";
+import Settings from "./views/Settings.vue";
 </script>
 
 <template>

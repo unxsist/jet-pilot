@@ -13,7 +13,7 @@ import Navigation from "@/components/settings/Navigation.vue";
       <aside class="w-[150px]">
         <Navigation />
       </aside>
-      <div class="flex-1 lg:max-w-2xl">
+      <div class="flex-1 max-w-full">
         <div class="space-y-6"><router-view /></div>
       </div>
     </div>

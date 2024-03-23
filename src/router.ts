@@ -17,9 +17,9 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import("./views/settings/General.vue"),
       },
       {
-        path: "contexts",
-        name: "SettingsContexts",
-        component: () => import("./views/settings/Contexts.vue"),
+        path: "clusters",
+        name: "SettingsClusters",
+        component: () => import("./views/settings/Clusters.vue"),
       },
     ],
   },
@@ -28,8 +28,8 @@ const routes: Array<RouteRecordRaw> = [
     name: "Pods",
     component: () => import("./views/Pods.vue"),
     meta: {
-      requiresContext: true
-    }
+      requiresContext: true,
+    },
   },
   {
     path: "/deployments",

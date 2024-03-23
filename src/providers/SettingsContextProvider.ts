@@ -11,6 +11,11 @@ export const SettingsContextStateKey: InjectionKey<
   ToRefs<SettingsContextState>
 > = Symbol("SettingsContextState");
 
+export interface ContextSettings {
+  context: string;
+  namespaces: string[];
+}
+
 export interface SettingsContextState {
   settings: {
     lastContext: string | null;
@@ -21,6 +26,7 @@ export interface SettingsContextState {
     shell: {
       executable: string;
     };
+    contextSettings: ContextSettings[];
     collapsedNavigationGroups: string[];
   };
 }
@@ -36,9 +42,10 @@ export default {
         tabProvider: {
           height: 50,
         },
-        shell: { 
+        shell: {
           executable: "/bin/sh",
         },
+        contextSettings: [],
         collapsedNavigationGroups: [],
       },
     });
@@ -66,6 +73,7 @@ export default {
     }
 
     watch(state, (newState) => {
+      console.log("Settings changed...", newState);
       save();
     });
   },
