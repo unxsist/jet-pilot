@@ -4,6 +4,7 @@ import { resolve } from "path";
 import AutoImport from "unplugin-auto-import/vite";
 import { defineConfig } from "vite";
 import svgLoader from "vite-svg-loader";
+import VueDevTools from "vite-plugin-vue-devtools";
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -18,6 +19,7 @@ export default defineConfig({
         filepath: resolve(__dirname, ".eslintrc-auto-import.json"),
       },
     }),
+    VueDevTools(),
   ],
   resolve: {
     alias: {
