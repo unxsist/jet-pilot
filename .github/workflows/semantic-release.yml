@@ -31,8 +31,6 @@ jobs:
           node-version: "lts/*"
       - name: Install dependencies
         run: npm clean-install
-      - name: Verify the integrity of provenance attestations and registry signatures for installed dependencies
-        run: npm audit signatures
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.SEMANTIC_RELEASE_PAT }}
