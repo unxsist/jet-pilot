@@ -10,11 +10,12 @@ import CommandPaletteProvider from "./providers/CommandPaletteProvider";
 import TabProvider from "./providers/TabProvider";
 import DialogProvider from "./providers/DialogProvider";
 import DialogHandler from "./components/DialogHandler.vue";
-import Settings from "./views/Settings.vue";
 </script>
 
 <template>
-  <AppLayout class="dark bg-zinc-900 text-sm rounded-lg overflow-hidden">
+  <AppLayout
+    class="bg-accent text-sm rounded-lg border border-border overflow-hidden"
+  >
     <Suspense>
       <SettingsContextProvider>
         <KubeContextProvider>

@@ -4,8 +4,9 @@ import Loading from "@/components/Loading.vue";
 import { Command } from "@tauri-apps/api/shell";
 import { writeFile, removeFile, BaseDirectory } from "@tauri-apps/api/fs";
 import { tempdir } from "@tauri-apps/api/os";
-import loader from "@monaco-editor/loader";
-import Theme from "@/components/monaco/themes/BrillianceBlack";
+import loader, { Monaco } from "@monaco-editor/loader";
+import LightTheme from "@/components/monaco/themes/GithubLight";
+import DarkTheme from "@/components/monaco/themes/BrillianceBlack";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -20,6 +21,12 @@ import {
 import { Kubernetes } from "@/services/Kubernetes";
 import yaml from "js-yaml";
 import { useToast } from "@/components/ui/toast";
+import { useColorMode } from "@vueuse/core";
+
+const colorMode = useColorMode();
+watch(colorMode, (value) => {
+  monacoEditor?.editor.setTheme(value);
+});
 
 const props = defineProps<{
   context: string;
@@ -29,6 +36,7 @@ const props = defineProps<{
   useKubeCtl: boolean;
 }>();
 
+let monacoEditor: Monaco | null = null;
 const editorElement = ref<HTMLElement | null>(null);
 const originalContents = ref<string>("");
 const editContents = ref<string>("");
@@ -74,15 +82,17 @@ onMounted(() => {
       editContents.value = stdOutData;
 
       loader.init().then((monaco) => {
+        monacoEditor = monaco;
         const model = monaco.editor.createModel(editContents.value, "yaml");
         model.onDidChangeContent(() => {
           editContents.value = model.getValue();
         });
 
-        monaco.editor.defineTheme("BrillianceBlack", Theme);
+        monaco.editor.defineTheme("light", LightTheme);
+        monaco.editor.defineTheme("dark", DarkTheme);
         monaco.editor.create(editorElement.value!, {
           model,
-          theme: "BrillianceBlack",
+          theme: colorMode.value,
           automaticLayout: true,
           minimap: {
             enabled: false,

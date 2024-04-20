@@ -7,6 +7,16 @@ import { Event, listen } from "@tauri-apps/api/event";
 import { V1Container, V1Pod } from "@kubernetes/client-node";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
+import { useColorMode } from "@vueuse/core";
+const colorMode = useColorMode();
+
+watch(colorMode, (value) => {
+  terminal.options.theme = {
+    background: value === "dark" ? "#000000" : "#ffffff",
+    foreground: value === "dark" ? "#ffffff" : "#000000",
+    cursor: value === "dark" ? "#ffffff" : "#000000",
+  };
+});
 
 let terminal: Terminal;
 let fitAddon: FitAddon;
@@ -59,8 +69,9 @@ const openTerminal = () => {
       fontSize: 14,
       fontFamily: "monospace",
       theme: {
-        background: "#000000",
-        foreground: "#ffffff",
+        background: colorMode.value === "dark" ? "#000000" : "#ffffff",
+        foreground: colorMode.value === "dark" ? "#ffffff" : "#000000",
+        cursor: colorMode.value === "dark" ? "#ffffff" : "#000000",
       },
     });
 

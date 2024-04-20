@@ -116,7 +116,7 @@ const closeAndSetActiveTab = (id: string, force = false) => {
           <span class="truncate">{{ tab.title }}</span>
           <div
             @click="closeAndSetActiveTab(tab.id)"
-            class="hidden group-hover:block absolute right-1 p-0.5 rounded-sm bg-opacity-50 bg-white hover:bg-white text-background"
+            class="hidden group-hover:block absolute right-1 p-0.5 rounded-sm bg-opacity-50 bg-accent hover:bg-accent text-foreground"
           >
             <Close class="h-3" />
           </div>

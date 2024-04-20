@@ -16,7 +16,8 @@ const props = defineProps<{
       :class="
         cn(
           'w-full text-left justify-start',
-          !isActive && 'bg-transparent hover:bg-muted'
+          !isActive &&
+            'bg-background text-foreground hover:bg-muted shadow-none'
         )
       "
     >

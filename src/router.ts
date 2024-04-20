@@ -17,6 +17,11 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import("./views/settings/General.vue"),
       },
       {
+        path: "appearance",
+        name: "SettingsAppearance",
+        component: () => import("./views/settings/Appearance.vue"),
+      },
+      {
         path: "clusters",
         name: "SettingsClusters",
         component: () => import("./views/settings/Clusters.vue"),

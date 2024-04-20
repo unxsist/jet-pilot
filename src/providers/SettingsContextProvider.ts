@@ -28,6 +28,9 @@ export interface SettingsContextState {
     };
     contextSettings: ContextSettings[];
     collapsedNavigationGroups: string[];
+    appearance: {
+      colorScheme: "auto" | "light" | "dark";
+    };
   };
 }
 
@@ -47,6 +50,9 @@ export default {
         },
         contextSettings: [],
         collapsedNavigationGroups: [],
+        appearance: {
+          colorScheme: "auto",
+        },
       },
     });
     provide(SettingsContextStateKey, toRefs(state));

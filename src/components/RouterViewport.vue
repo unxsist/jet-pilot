@@ -12,7 +12,7 @@ const route = useRoute();
 <template>
   <div class="flex flex-col max-h-screen relative router-viewport">
     <ScrollArea
-      class="w-full flex flex-grow border-l border-[#232323] bg-[#0f0f0f]"
+      class="w-full flex flex-grow border-l border-border bg-background"
     >
       <NoContext v-if="route.meta.requiresContext && context == ''" />
       <router-view v-else />
