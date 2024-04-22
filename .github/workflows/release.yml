@@ -24,7 +24,7 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 18
-          cache: 'npm'
+          cache: "npm"
 
       - name: Install dependencies
         run: npm install
@@ -51,6 +51,8 @@ jobs:
 
       - name: Build Vite + Tauri (MacOS + Linux)
         if: matrix.platform != 'windows-latest'
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         run: npm run build
 
       - name: Build Vite + Tauri (Windows)
@@ -59,6 +61,7 @@ jobs:
           OPENSSL_DIR: 'C:\Program Files\OpenSSL'
           SSL_CERT_FILE: 'C:\Program Files\OpenSSL\ca\cacert.pem'
           OPENSSL_NO_VENDOR: 1
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         run: npm run build
 
       - name: Create release (MacOS + Linux)
@@ -66,10 +69,11 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         with:
           tagName: v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version
-          releaseName: 'v__VERSION__'
-          releaseBody: 'See the assets to download and install this version.'
+          releaseName: "v__VERSION__"
+          releaseBody: "See the assets to download and install this version."
           releaseDraft: true
           prerelease: false
           tauriScript: ./node_modules/.bin/tauri
@@ -82,10 +86,11 @@ jobs:
           SSL_CERT_FILE: 'C:\Program Files\OpenSSL\ca\cacert.pem'
           OPENSSL_NO_VENDOR: 1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         with:
           tagName: v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version
-          releaseName: 'v__VERSION__'
-          releaseBody: 'See the assets to download and install this version.'
+          releaseName: "v__VERSION__"
+          releaseBody: "See the assets to download and install this version."
           releaseDraft: true
           prerelease: false
           tauriScript: ./node_modules/.bin/tauri

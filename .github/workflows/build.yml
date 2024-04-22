@@ -6,7 +6,7 @@ on:
     branches: ["main"]
     types:
       - completed
-      
+
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
@@ -27,8 +27,8 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 18
-          cache: 'npm'
-      
+          cache: "npm"
+
       - name: Install dependencies
         run: npm install
 
@@ -54,12 +54,15 @@ jobs:
 
       - name: Build Vite + Tauri (MacOS + Linux)
         if: matrix.platform != 'windows-latest'
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         run: |
           npm run build
 
       - name: Build Vite + Tauri (Windows)
         if: matrix.platform == 'windows-latest'
         env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           OPENSSL_DIR: 'C:\Program Files\OpenSSL'
           SSL_CERT_FILE: 'C:\Program Files\OpenSSL\ca\cacert.pem'
           OPENSSL_NO_VENDOR: 1
