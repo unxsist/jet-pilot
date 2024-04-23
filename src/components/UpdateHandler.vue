@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import { marked } from "marked";
+
 import {
   checkUpdate,
   installUpdate,
@@ -8,6 +10,7 @@ import { relaunch } from "@tauri-apps/api/process";
 import { listen } from "@tauri-apps/api/event";
 
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +30,10 @@ const updateInfo = ref<UpdateResult | null>(null);
 const isUpdating = ref(false);
 const restart = ref(false);
 const closeable = ref(true);
+
+const mdRenderer = new marked.Renderer();
+mdRenderer.link = (href, title, text) =>
+  `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`;
 
 async function checkForUpdates(forced = false) {
   updateInfo.value = await checkUpdate();
@@ -90,8 +97,14 @@ listen("check_for_updates", () => {
           </DialogHeader>
         </div>
         <div class="text-sm">
-          <b>Release Notes:</b>
-          <p>{{ updateInfo.manifest?.body }}</p>
+          <div
+            class="max-h-[100px] overflow-scroll release-notes"
+            v-html="
+              marked.parse(updateInfo.manifest?.body, {
+                renderer: mdRenderer,
+              })
+            "
+          ></div>
         </div>
         <DialogFooter>
           <Button variant="outline" @click="open = !open">Skip for now</Button>
@@ -144,3 +157,15 @@ listen("check_for_updates", () => {
     </DialogContent>
   </Dialog>
 </template>
+
+<style lang="postcss">
+.release-notes {
+  h2 {
+    @apply hidden;
+  }
+
+  h3 {
+    @apply font-bold my-2;
+  }
+}
+</style>
