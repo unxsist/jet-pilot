@@ -106,4 +106,5 @@ jobs:
         with:
           workflow: deploy.yml
           repo: unxsist/jet-pilot-docs
+          ref: main
           token: "${{ secrets.SEMANTIC_RELEASE_PAT }}"
