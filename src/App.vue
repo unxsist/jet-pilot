@@ -11,6 +11,11 @@ import CommandPaletteProvider from "./providers/CommandPaletteProvider";
 import TabProvider from "./providers/TabProvider";
 import DialogProvider from "./providers/DialogProvider";
 import DialogHandler from "./components/DialogHandler.vue";
+
+import { checkUpdate } from "@tauri-apps/api/updater";
+checkUpdate().then((update) => {
+  console.log(update);
+});
 </script>
 
 <template>

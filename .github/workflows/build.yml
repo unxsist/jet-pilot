@@ -21,7 +21,7 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Use Node.js
         uses: actions/setup-node@v3
@@ -36,6 +36,11 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-latest'
@@ -52,19 +57,16 @@ jobs:
           copy "C:\Program Files\OpenSSL\bin\libcrypto-3-x64.dll" .\src-tauri
           copy "C:\Program Files\OpenSSL\bin\libssl-3-x64.dll" .\src-tauri
 
-      - name: Build Vite + Tauri (MacOS + Linux)
-        if: matrix.platform != 'windows-latest'
-        env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+      - name: Set Windows Env Vars
         run: |
-          npm run build
+          if [ "${{ matrix.platform }}" = "windows-latest" ]; then
+            echo "export OPENSSL_DIR='C:\Program Files\OpenSSL'" >> $GITHUB_ENV
+            echo "export SSL_CERT_FILE='C:\Program Files\OpenSSL\ca\cacert.pem'" >> $GITHUB_ENV
+            echo "export OPENSSL_NO_VENDOR=1" >> $GITHUB_ENV
+          fi
 
-      - name: Build Vite + Tauri (Windows)
-        if: matrix.platform == 'windows-latest'
+      - name: Build Vite + Tauri
         env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          OPENSSL_DIR: 'C:\Program Files\OpenSSL'
-          SSL_CERT_FILE: 'C:\Program Files\OpenSSL\ca\cacert.pem'
-          OPENSSL_NO_VENDOR: 1
         run: |
           npm run build

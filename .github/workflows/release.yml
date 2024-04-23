@@ -14,11 +14,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, ubuntu-latest, windows-latest]
+        settings:
+          - platform: "macos-latest"
+            args: "--target aarch64-apple-darwin"
+          - platform: "macos-latest"
+            args: "--target x86_64-apple-darwin"
+          - platform: "ubuntu-latest"
+            args: ""
+          - platform: "windows-latest"
+            args: ""
 
-    runs-on: ${{ matrix.platform }}
+    runs-on: ${{ matrix.settings.platform }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Use Node.js
         uses: actions/setup-node@v3
@@ -26,22 +34,14 @@ jobs:
           node-version: 18
           cache: "npm"
 
-      - name: Install dependencies
-        run: npm install
-
-      - name: install Rust stable
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-
       - name: install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-latest'
+        if: matrix.settings.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev webkit2gtk-4.0 libappindicator3-dev librsvg2-dev patchelf
 
       - name: Install OpenSSL (Windows only)
-        if: matrix.platform == 'windows-latest'
+        if: matrix.settings.platform == 'windows-latest'
         run: |
           choco install openssl
           mkdir -p "C:\Program Files\OpenSSL\ca"
@@ -49,23 +49,28 @@ jobs:
           copy "C:\Program Files\OpenSSL\bin\libcrypto-3-x64.dll" .\src-tauri
           copy "C:\Program Files\OpenSSL\bin\libssl-3-x64.dll" .\src-tauri
 
-      - name: Build Vite + Tauri (MacOS + Linux)
-        if: matrix.platform != 'windows-latest'
-        env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-        run: npm run build
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      - name: Build Vite + Tauri (Windows)
-        if: matrix.platform == 'windows-latest'
-        env:
-          OPENSSL_DIR: 'C:\Program Files\OpenSSL'
-          SSL_CERT_FILE: 'C:\Program Files\OpenSSL\ca\cacert.pem'
-          OPENSSL_NO_VENDOR: 1
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-        run: npm run build
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
 
-      - name: Create release (MacOS + Linux)
-        if: matrix.platform != 'windows-latest'
+      - name: Install dependencies
+        run: npm install
+
+      - name: Set Windows Env Vars
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            echo "export OPENSSL_DIR='C:\Program Files\OpenSSL'" >> $GITHUB_ENV
+            echo "export SSL_CERT_FILE='C:\Program Files\OpenSSL\ca\cacert.pem'" >> $GITHUB_ENV
+            echo "export OPENSSL_NO_VENDOR=1" >> $GITHUB_ENV
+          fi
+
+      - name: Create release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -77,20 +82,4 @@ jobs:
           releaseDraft: true
           prerelease: false
           tauriScript: ./node_modules/.bin/tauri
-
-      - name: Create release (Windows)
-        if: matrix.platform == 'windows-latest'
-        uses: tauri-apps/tauri-action@v0
-        env:
-          OPENSSL_DIR: 'C:\Program Files\OpenSSL'
-          SSL_CERT_FILE: 'C:\Program Files\OpenSSL\ca\cacert.pem'
-          OPENSSL_NO_VENDOR: 1
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-        with:
-          tagName: v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version
-          releaseName: "v__VERSION__"
-          releaseBody: "See the assets to download and install this version."
-          releaseDraft: true
-          prerelease: false
-          tauriScript: ./node_modules/.bin/tauri
+          args: ${{ matrix.settings.args }}
