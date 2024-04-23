@@ -30,6 +30,7 @@ export interface CommandPaletteState {
 }
 
 export default {
+  name: "CommandPaletteProvider",
   setup() {
     const singleCommand = ref(false);
 

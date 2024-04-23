@@ -6,7 +6,7 @@ use istio_api_rs::networking::v1beta1::virtual_service::VirtualService;
 use k8s_openapi::api::batch::v1::{CronJob, Job};
 use k8s_openapi::api::networking::v1::Ingress;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{APIGroup, APIResource};
-use tauri::Manager;
+use tauri::{AboutMetadata, CustomMenuItem, Manager, Menu, Submenu};
 
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{
@@ -40,6 +40,9 @@ struct SerializableKubeError {
     reason: Option<String>,
     details: Option<String>,
 }
+
+#[derive(Clone, serde::Serialize)]
+struct CheckForUpdatesPayload {}
 
 impl From<Error> for SerializableKubeError {
     fn from(error: Error) -> Self {
@@ -663,8 +666,36 @@ fn write_to_pty(session_id: &str, data: &str) {
 fn main() {
     let _ = fix_path_env::fix();
 
+    let metadata = AboutMetadata::new()
+        .authors(vec!["@unxsist".to_string()])
+        .website(String::from("https://www.jet-pilot.app"))
+        .license(String::from("MIT"));
+
+    let submenu = Submenu::new(
+        "JET Pilot", 
+        Menu::new()
+            .add_native_item(
+                tauri::MenuItem::About(
+                    String::from("JET Pilot"), 
+                    metadata                
+                )
+            )
+            .add_item(CustomMenuItem::new("check_for_updates", "Check for Updates..."))
+            .add_native_item(tauri::MenuItem::Separator)
+            .add_native_item(tauri::MenuItem::Quit));
+    let menu = Menu::new().add_submenu(submenu);
+
     let ctx = tauri::generate_context!();
     tauri::Builder::default()
+        .menu(menu)
+        .on_menu_event(|event| {
+            match event.menu_item_id() {
+                "check_for_updates" => {
+                    event.window().emit("check_for_updates", CheckForUpdatesPayload {}).unwrap();
+                }
+                _ => {}
+              }
+        })
         .invoke_handler(tauri::generate_handler![
             list_contexts,
             get_current_context,

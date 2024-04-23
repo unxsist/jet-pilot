@@ -1,6 +1,15 @@
 <script setup lang="ts">
+import { getVersion } from "@tauri-apps/api/app";
 import { Separator } from "@/components/ui/separator";
 import Navigation from "@/components/settings/Navigation.vue";
+
+const appVersion = ref("");
+
+onMounted(() => {
+  getVersion().then((version) => {
+    appVersion.value = version;
+  });
+});
 </script>
 <template>
   <div class="space-y-6 p-10 pb-16">
@@ -16,6 +25,9 @@ import Navigation from "@/components/settings/Navigation.vue";
       <div class="flex-1 max-w-full">
         <div class="space-y-6"><router-view /></div>
       </div>
+    </div>
+    <div class="text-xs text-muted-foreground absolute right-5 bottom-5">
+      JET Pilot version: {{ appVersion }}
     </div>
   </div>
 </template>

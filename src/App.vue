@@ -11,11 +11,7 @@ import CommandPaletteProvider from "./providers/CommandPaletteProvider";
 import TabProvider from "./providers/TabProvider";
 import DialogProvider from "./providers/DialogProvider";
 import DialogHandler from "./components/DialogHandler.vue";
-
-import { checkUpdate } from "@tauri-apps/api/updater";
-checkUpdate().then((update) => {
-  console.log(update);
-});
+import UpdateHandler from "./components/UpdateHandler.vue";
 </script>
 
 <template>
@@ -34,6 +30,7 @@ checkUpdate().then((update) => {
                   <Toaster />
                   <CommandPalette />
                   <DialogHandler />
+                  <UpdateHandler />
                 </DialogProvider>
               </CommandPaletteProvider>
             </TabProvider>

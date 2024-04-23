@@ -40,6 +40,7 @@ export interface TabProviderState {
 }
 
 export default {
+  name: "TabProvider",
   setup() {
     const state: TabProviderState = reactive({
       tabs: [],

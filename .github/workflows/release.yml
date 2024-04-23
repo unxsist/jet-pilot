@@ -69,6 +69,20 @@ jobs:
           echo "SSL_CERT_FILE='C:\Program Files\OpenSSL\ca\cacert.pem'" >> $env:GITHUB_ENV
           echo "OPENSSL_NO_VENDOR=1" >> $env:GITHUB_ENV
 
+      - name: Fetch release notes
+        uses: actions/github-script@v7
+        id: release_notes
+        with:
+          result-encoding: string
+          script: |
+            const packageVersion = require('./package.json').version;
+            const { data: release } = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag: `v${packageVersion}`
+            });
+            return release.body;
+
       - name: Create release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -77,8 +91,19 @@ jobs:
         with:
           tagName: v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version
           releaseName: "v__VERSION__"
-          releaseBody: "See the assets to download and install this version."
+          releaseBody: "${{steps.release_notes.outputs.result}}"
           releaseDraft: true
           prerelease: false
           tauriScript: ./node_modules/.bin/tauri
           args: ${{ matrix.settings.args }}
+
+  publish_update_manifest:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoke JET Pilot Docs deployment
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: deploy.yml
+          repo: unxsist/jet-pilot-docs
+          token: "${{ secrets.SEMANTIC_RELEASE_PAT }}"

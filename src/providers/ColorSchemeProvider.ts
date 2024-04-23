@@ -3,6 +3,7 @@ import { useColorMode } from "@vueuse/core";
 import { injectStrict } from "@/lib/utils";
 
 export default {
+  name: "ColorSchemeProvider",
   async setup() {
     const { settings } = injectStrict(SettingsContextStateKey);
     const colorMode = useColorMode();

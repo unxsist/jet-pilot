@@ -11,7 +11,12 @@ import {
 import { Cross2Icon } from "@radix-icons/vue";
 import { cn } from "@/lib/utils";
 
-const props = defineProps<DialogContentProps & { class?: string }>();
+const props = withDefaults(
+  defineProps<DialogContentProps & { class?: string; closeable?: boolean }>(),
+  {
+    closeable: true,
+  }
+);
 const emits = defineEmits<DialogContentEmits>();
 
 const emitsAsProps = useEmitAsProps(emits);
@@ -34,6 +39,7 @@ const emitsAsProps = useEmitAsProps(emits);
       <slot />
 
       <DialogClose
+        v-if="closeable !== false"
         class="absolute top-2.5 right-2.5 p-0.5 transition-colors rounded-md hover:bg-secondary"
       >
         <Cross2Icon class="w-4 h-4" />

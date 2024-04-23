@@ -18,6 +18,7 @@ export interface KubeContextState {
 }
 
 export default {
+  name: "KubeContextProvider",
   setup() {
     const { settings } = injectStrict(SettingsContextStateKey);
 

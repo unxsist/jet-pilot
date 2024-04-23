@@ -31,10 +31,14 @@ export interface SettingsContextState {
     appearance: {
       colorScheme: "auto" | "light" | "dark";
     };
+    updates: {
+      checkOnStartup: boolean;
+    };
   };
 }
 
 export default {
+  name: "SettingsContextProvider",
   async setup() {
     const settingsFile = "settings.json";
 
@@ -52,6 +56,9 @@ export default {
         collapsedNavigationGroups: [],
         appearance: {
           colorScheme: "auto",
+        },
+        updates: {
+          checkOnStartup: true,
         },
       },
     });

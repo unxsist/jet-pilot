@@ -27,6 +27,7 @@ export interface DialogProviderState {
 }
 
 export default {
+  name: "DialogProvider",
   setup() {
     const state: DialogProviderState = reactive({
       dialog: null,
