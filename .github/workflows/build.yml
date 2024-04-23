@@ -58,12 +58,11 @@ jobs:
           copy "C:\Program Files\OpenSSL\bin\libssl-3-x64.dll" .\src-tauri
 
       - name: Set Windows Env Vars
+        if: matrix.platform == 'windows-latest'
         run: |
-          if [ "${{ matrix.platform }}" = "windows-latest" ]; then
-            echo "export OPENSSL_DIR='C:\Program Files\OpenSSL'" >> $GITHUB_ENV
-            echo "export SSL_CERT_FILE='C:\Program Files\OpenSSL\ca\cacert.pem'" >> $GITHUB_ENV
-            echo "export OPENSSL_NO_VENDOR=1" >> $GITHUB_ENV
-          fi
+          echo "OPENSSL_DIR='C:\Program Files\OpenSSL'" >> $env:GITHUB_ENV
+          echo "SSL_CERT_FILE='C:\Program Files\OpenSSL\ca\cacert.pem'" >> $env:GITHUB_ENV
+          echo "OPENSSL_NO_VENDOR=1" >> $env:GITHUB_ENV
 
       - name: Build Vite + Tauri
         env:
