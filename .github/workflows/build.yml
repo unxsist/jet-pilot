@@ -51,7 +51,7 @@ jobs:
       - name: Install OpenSSL
         if: matrix.platform == 'windows-latest'
         run: |
-          choco install openssl
+          choco install openssl --execution-timeout 7200
           mkdir -p "C:\Program Files\OpenSSL\ca"
           curl -o "C:\Program Files\OpenSSL\ca\cacert.pem" https://curl.se/ca/cacert.pem
           copy "C:\Program Files\OpenSSL\bin\libcrypto-3-x64.dll" .\src-tauri
