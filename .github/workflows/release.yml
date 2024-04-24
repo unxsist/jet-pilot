@@ -17,7 +17,7 @@ jobs:
         settings:
           - platform: "macos-latest"
             args: "--target aarch64-apple-darwin"
-          - platform: "macos-latest"
+          - platform: "macos-13" # Force x86_64 build on macOS 13, as the tauri github action uses process.arch to come up with the right signature filename
             args: "--target x86_64-apple-darwin"
           - platform: "ubuntu-latest"
             args: ""
