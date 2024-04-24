@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ColumnDef } from "@tanstack/vue-table";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
