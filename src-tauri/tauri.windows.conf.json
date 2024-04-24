@@ -1,16 +1,13 @@
 {
-    "tauri": {
-        "bundle": {
-            "resources": [
-                "libcrypto-3-x64.dll",
-                "libssl-3-x64.dll"
-            ]
-        },
-        "windows": [
-            {
-              "title": "JET Pilot",
-              "decorations": false
-            }
-        ]
-    }
+  "tauri": {
+    "bundle": {
+      "resources": ["libcrypto-1_1-x64.dll", "libssl-1_1-x64.dll"]
+    },
+    "windows": [
+      {
+        "title": "JET Pilot",
+        "decorations": false
+      }
+    ]
+  }
 }
