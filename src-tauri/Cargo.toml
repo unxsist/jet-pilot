@@ -14,7 +14,7 @@ tauri-build = { version = "1.4.0", features = [] }
 [dependencies]
 serde_json = "1.0.100"
 serde = { version = "1.0.167", features = ["derive"] }
-tauri = { version = "1.4.1", features = [ "updater", "macos-private-api", "api-all"] }
+tauri = { version = "1.6.2", features = [ "updater", "macos-private-api", "api-all"] }
 tokio = "1.29.1"
 kube = { version = "0.87.2" }
 k8s-openapi = { version = "0.20.0", features = ["v1_26"] }
