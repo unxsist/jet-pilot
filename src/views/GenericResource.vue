@@ -48,6 +48,8 @@ const initiateWatchCommand = (resource: string) => {
 
   if (namespace.value) {
     args.push("--namespace", namespace.value);
+  } else {
+    args.push("--all-namespaces");
   }
 
   const command = new Command("kubectl", args);
