@@ -84,7 +84,9 @@ jobs:
 
       - name: Write Private API key to file (OSX)
         if: matrix.settings.platform == 'macos-latest' || matrix.settings.platform == 'macos-13'
-        run: echo "${{ secrets.APPLE_PRIVATE_API_KEY_CONTENTS }}" > apple_private_api_key.p8
+        run: |
+          echo "${{ secrets.APPLE_PRIVATE_API_KEY_CONTENTS }}" > $HOME/apple_private_api_key.p8
+          echo "APPLE_API_KEY_PATH=$HOME/apple_private_api_key.p8" >> $GITHUB_ENV
 
       - name: Create release
         uses: tauri-apps/tauri-action@v0
@@ -96,7 +98,6 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPEL_API_KEY_PATH: apple_private_api_key.p8
         with:
           tagName: v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version
           releaseName: "v__VERSION__"
