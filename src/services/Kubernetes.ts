@@ -15,6 +15,7 @@ import {
 } from "@kubernetes/client-node";
 import { VirtualService } from "@kubernetes-models/istio/networking.istio.io/v1beta1";
 import { invoke } from "@tauri-apps/api/tauri";
+import { Child, Command } from "@tauri-apps/api/shell";
 
 export interface KubernetesError {
   message: string;
@@ -24,6 +25,54 @@ export interface KubernetesError {
 }
 
 export class Kubernetes {
+  static async getAuthErrorHandler(
+    context: string,
+    errorMessage: string
+  ): Promise<{
+    canHandle: boolean;
+    callback: (authCompletedCallback?: () => void) => void;
+  }> {
+    // AWS SSO
+    if (
+      errorMessage.includes("AWS_PROFILE") &&
+      errorMessage.includes("Error loading SSO Token")
+    ) {
+      const context_auth_info = (await invoke("get_context_auth_info", {
+        context: context,
+      })) as any;
+
+      let aws_profile = null;
+      try {
+        aws_profile = context_auth_info.user.exec.env.find(
+          (env: any) => env.name === "AWS_PROFILE"
+        ).value;
+      } catch {}
+
+      return {
+        canHandle: aws_profile !== null,
+        callback: async (authCompletedCallback?) => {
+          const command = new Command("aws", [
+            "sso",
+            "login",
+            "--profile",
+            aws_profile,
+          ]);
+          command.addListener("close", async () => {
+            authCompletedCallback?.();
+          });
+          await command.spawn();
+        },
+      };
+    }
+
+    return {
+      canHandle: false,
+      callback: () => {
+        console.log("void");
+      },
+    };
+  }
+
   static async getCurrentContext(): Promise<string> {
     return invoke("get_current_context", {});
   }

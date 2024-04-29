@@ -14,6 +14,8 @@ export const CloseCommandPaletteKey: InjectionKey<() => void> = Symbol(
 );
 export const ExecuteCommandKey: InjectionKey<(command: Command) => void> =
   Symbol("ExecuteCommand");
+export const RerunLastCommandKey: InjectionKey<() => void> =
+  Symbol("ExecuteCommand");
 export const ClearCommandCallStackKey: InjectionKey<() => void> = Symbol(
   "ClearCommandCallStack"
 );
@@ -143,9 +145,23 @@ export default {
       }
     };
 
+    const rerunLastCommand = () => {
+      const lastCommand = Array.from(state.callStack.keys())[
+        state.callStack.size - 1
+      ];
+
+      if (!lastCommand) {
+        return;
+      }
+
+      pop();
+      executeCommand(lastCommand);
+    };
+
     provide(OpenCommandPaletteKey, open);
     provide(CloseCommandPaletteKey, close);
     provide(ExecuteCommandKey, executeCommand);
+    provide(RerunLastCommandKey, rerunLastCommand);
     provide(ClearCommandCallStackKey, clearStack);
     provide(ShowSingleCommandKey, showSingleCommand);
     provide(RegisterCommandStateKey, registerCommand);

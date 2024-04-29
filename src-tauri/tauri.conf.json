@@ -36,6 +36,11 @@
             "name": "kubectl",
             "cmd": "kubectl",
             "args": true
+          },
+          {
+            "name": "aws",
+            "cmd": "aws",
+            "args": true
           }
         ]
       }

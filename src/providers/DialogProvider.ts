@@ -1,14 +1,16 @@
 import { ToRefs } from "vue";
+import { buttonVariants } from "@/components/ui/button";
 
 export const DialogProviderStateKey: InjectionKey<ToRefs<DialogProviderState>> =
   Symbol("DialogProviderState");
 
 export const DialogProviderSpawnDialogKey: InjectionKey<
-  (dialog: DialogInterface) => void
+  (dialog: BaseDialogInterface) => void
 > = Symbol("DialogProviderSpawnDialog");
 
 export interface DialogButtonInterface {
   label: string;
+  variant?: NonNullable<Parameters<typeof buttonVariants>[0]>["variant"];
   handler: (dialog: DialogInterface) => void;
 }
 

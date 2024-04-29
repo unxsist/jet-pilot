@@ -13,7 +13,7 @@ use k8s_openapi::api::core::v1::{
     ConfigMap, Namespace, PersistentVolume, PersistentVolumeClaim, Pod, Secret, Service,
 };
 use kube::api::{DeleteParams, ListParams};
-use kube::config::{KubeConfigOptions, Kubeconfig, KubeconfigError};
+use kube::config::{KubeConfigOptions, Kubeconfig, KubeconfigError, NamedAuthInfo};
 use kube::{api::Api, Client, Config, Error};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::Serialize;
@@ -105,6 +105,36 @@ async fn list_contexts() -> Result<Vec<String>, SerializableKubeError> {
             return Ok(name);
         })
         .collect()
+}
+
+#[tauri::command]
+async fn get_context_auth_info(context: &str) -> Result<NamedAuthInfo, SerializableKubeError> {
+    let config = Kubeconfig::read().map_err(|err| SerializableKubeError::from(err))?;
+
+    let context_auth_info = config
+        .contexts
+        .iter()
+        .find(|c| c.name == context)
+        .map(|c| c.clone().context.unwrap().user.clone())
+        .ok_or(SerializableKubeError {
+            message: "Context not found".to_string(),
+            code: None,
+            reason: None,
+            details: None,
+        })?;
+
+    let auth_info = config
+        .auth_infos
+        .iter()
+        .find(|a| a.name == context_auth_info)
+        .ok_or(SerializableKubeError {
+            message: "Auth info not found".to_string(),
+            code: None,
+            reason: None,
+            details: None,
+        })?;
+
+    return Ok(auth_info.clone());
 }
 
 async fn client_with_context(context: &str) -> Result<Client, SerializableKubeError> {
@@ -663,7 +693,7 @@ fn write_to_pty(session_id: &str, data: &str) {
     }
 }
 
-fn main() {
+fn main() { 
     let _ = fix_path_env::fix();
 
     let metadata = AboutMetadata::new()
@@ -698,6 +728,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             list_contexts,
+            get_context_auth_info,
             get_current_context,
             list_namespaces,
             get_core_api_versions,

@@ -21,20 +21,20 @@ import UpdateHandler from "./components/UpdateHandler.vue";
     <Suspense>
       <SettingsContextProvider>
         <ColorSchemeProvider>
-          <KubeContextProvider>
-            <TabProvider>
-              <CommandPaletteProvider>
-                <DialogProvider>
+          <DialogProvider>
+            <KubeContextProvider>
+              <TabProvider>
+                <CommandPaletteProvider>
                   <Navigation />
                   <RouterViewport />
                   <Toaster />
                   <CommandPalette />
                   <DialogHandler />
                   <UpdateHandler />
-                </DialogProvider>
-              </CommandPaletteProvider>
-            </TabProvider>
-          </KubeContextProvider>
+                </CommandPaletteProvider>
+              </TabProvider>
+            </KubeContextProvider>
+          </DialogProvider>
         </ColorSchemeProvider>
       </SettingsContextProvider>
     </Suspense>

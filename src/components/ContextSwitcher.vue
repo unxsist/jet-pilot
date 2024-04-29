@@ -4,6 +4,8 @@ import { injectStrict } from "@/lib/utils";
 import {
   ShowSingleCommandKey,
   RegisterCommandStateKey,
+  CloseCommandPaletteKey,
+  RerunLastCommandKey,
 } from "@/providers/CommandPaletteProvider";
 import {
   KubeContextSetContextKey,
@@ -12,13 +14,17 @@ import {
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { Kubernetes } from "@/services/Kubernetes";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 
 const showSingleCommand = injectStrict(ShowSingleCommandKey);
 const registerCommand = injectStrict(RegisterCommandStateKey);
+const closeCommandPalette = injectStrict(CloseCommandPaletteKey);
+const rerunLastCommand = injectStrict(RerunLastCommandKey);
 const { context, namespace } = injectStrict(KubeContextStateKey);
 const setContext = injectStrict(KubeContextSetContextKey);
 const setNamespace = injectStrict(KubeContextSetNamespaceKey);
 const { settings } = injectStrict(SettingsContextStateKey);
+const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
 onMounted(() => {
   registerCommand({
@@ -38,7 +44,7 @@ onMounted(() => {
             (c) => c.context === context
           );
 
-          let namespaces = [];
+          let namespaces: string[] = [];
 
           if (
             clusterSettings &&
@@ -47,9 +53,49 @@ onMounted(() => {
           ) {
             namespaces = clusterSettings.namespaces;
           } else {
-            namespaces = await (
-              await Kubernetes.getNamespaces(context)
-            ).map((ns) => ns.metadata?.name || "");
+            try {
+              const contextNamespaces = await Kubernetes.getNamespaces(context);
+              namespaces = contextNamespaces.map(
+                (ns) => ns.metadata?.name || ""
+              );
+            } catch (e: any) {
+              const authErrorHandler = await Kubernetes.getAuthErrorHandler(
+                context,
+                e.message
+              );
+
+              if (authErrorHandler.canHandle) {
+                spawnDialog({
+                  title: "SSO Session expired",
+                  message:
+                    "Failed to authenticate as the SSO session has expired. Please login again.",
+                  buttons: [
+                    {
+                      label: "Close",
+                      variant: "ghost",
+                      handler: (dialog) => {
+                        dialog.close();
+                        closeCommandPalette();
+                      },
+                    },
+                    {
+                      label: "Login with SSO",
+                      handler: (dialog) => {
+                        dialog.buttons = [];
+                        dialog.title = "Awaiting SSO login";
+                        dialog.message = "Please wait while we redirect you.";
+                        authErrorHandler.callback(() => {
+                          dialog.close();
+                          rerunLastCommand();
+                        });
+                      },
+                    },
+                  ],
+                });
+              } else {
+                throw e;
+              }
+            }
           }
 
           return [
