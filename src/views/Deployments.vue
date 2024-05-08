@@ -11,7 +11,10 @@ const { context, namespace } = injectStrict(KubeContextStateKey);
 import { TabProviderAddTabKey } from "@/providers/TabProvider";
 const addTab = injectStrict(TabProviderAddTabKey);
 
-import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
+import {
+  BaseDialogInterface,
+  DialogProviderSpawnDialogKey,
+} from "@/providers/DialogProvider";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
 import DataTable from "@/components/ui/DataTable.vue";
@@ -38,6 +41,46 @@ const rowActions: RowAction<V1Deployment>[] = [
         },
         "logs"
       );
+    },
+  },
+  {
+    label: "Restart",
+    handler: (row) => {
+      const dialog: BaseDialogInterface = {
+        title: "Restart deployment",
+        message: `Are you sure you want to restart deployment ${row.metadata?.name}?`,
+        buttons: [
+          {
+            label: "Cancel",
+            variant: "ghost",
+            handler: (dialog) => {
+              dialog.close();
+            },
+          },
+          {
+            label: "Restart",
+            handler: (dialog) => {
+              Kubernetes.restartDeployment(
+                context.value,
+                namespace.value === "all" ? "" : namespace.value,
+                row.metadata?.name || ""
+              )
+                .then(() => {
+                  dialog.close();
+                })
+                .catch((error) => {
+                  dialog.close();
+                  toast({
+                    title: "An error occured",
+                    description: error.message,
+                    variant: "destructive",
+                  });
+                });
+            },
+          },
+        ],
+      };
+      spawnDialog(dialog);
     },
   },
 ];
