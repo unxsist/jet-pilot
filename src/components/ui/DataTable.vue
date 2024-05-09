@@ -72,6 +72,7 @@ const table = useVueTable({
               v-bind:enable-header-drag-region="true"
               v-for="header in headerGroup.headers"
               :key="header.id"
+              :style="{ width: `${header.getSize()}px` }"
             >
               <FlexRender
                 v-if="!header.isPlaceholder"
@@ -86,7 +87,8 @@ const table = useVueTable({
         <ContextMenuSub>
           <ContextMenuSubTrigger>Columns</ContextMenuSubTrigger>
           <ContextMenuSubContent>
-            <ContextMenuCheckboxItem :checked="column.getIsVisible()"
+            <ContextMenuCheckboxItem
+              :checked="column.getIsVisible()"
               v-for="column in table.getAllColumns()"
               :key="column.id"
               @select="

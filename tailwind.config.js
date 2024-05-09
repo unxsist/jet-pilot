@@ -20,6 +20,9 @@ module.exports = {
       },
     },
     extend: {
+      fontSize: {
+        xxs: ".625rem",
+      },
       rotate: {
         270: "270deg",
       },

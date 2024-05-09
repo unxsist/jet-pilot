@@ -1,5 +1,6 @@
 import {
   KubernetesObject,
+  PodMetric,
   V1APIGroup,
   V1APIResource,
   V1ConfigMap,
@@ -15,7 +16,7 @@ import {
 } from "@kubernetes/client-node";
 import { VirtualService } from "@kubernetes-models/istio/networking.istio.io/v1beta1";
 import { invoke } from "@tauri-apps/api/tauri";
-import { Child, Command } from "@tauri-apps/api/shell";
+import { Command } from "@tauri-apps/api/shell";
 
 export interface KubernetesError {
   message: string;
@@ -127,6 +128,16 @@ export class Kubernetes {
     });
   }
 
+  static async getPodMetrics(
+    context: string,
+    namespace: string
+  ): Promise<PodMetric[]> {
+    return invoke("get_pod_metrics", {
+      context: context,
+      namespace: namespace,
+    });
+  }
+
   static async getPod(
     context: string,
     namespace: string,
@@ -175,6 +186,18 @@ export class Kubernetes {
     return invoke("list_deployments", {
       context: context,
       namespace: namespace,
+    });
+  }
+
+  static async restartDeployment(
+    context: string,
+    namespace: string,
+    name: string
+  ): Promise<boolean> {
+    return invoke("restart_deployment", {
+      context: context,
+      namespace: namespace,
+      name: name,
     });
   }
 

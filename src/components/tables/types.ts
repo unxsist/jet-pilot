@@ -90,11 +90,8 @@ export function getDefaultActions<T extends KubernetesObject | VirtualService>(
                   console.log(error);
                 });
 
-                command.on("close", () => {
-                  dialog.close();
-                });
-
                 command.spawn();
+                dialog.close();
               },
             },
           ],

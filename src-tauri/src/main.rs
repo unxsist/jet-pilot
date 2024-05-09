@@ -3,6 +3,7 @@
 
 use either::Either;
 use istio_api_rs::networking::v1beta1::virtual_service::VirtualService;
+use k8s_metrics::v1beta1::PodMetrics;
 use k8s_openapi::api::batch::v1::{CronJob, Job};
 use k8s_openapi::api::networking::v1::Ingress;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{APIGroup, APIResource};
@@ -191,6 +192,19 @@ async fn list_pods(
         .map_err(|err| SerializableKubeError::from(err));
 }
 
+
+#[tauri::command]
+async fn get_pod_metrics(context: &str, namespace: &str) -> Result<Vec<PodMetrics>, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+    let metrics_api : Api<PodMetrics> = Api::namespaced(client, namespace);
+
+    return metrics_api
+        .list(&ListParams::default())
+        .await
+        .map(|metrics| metrics.items)
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
 #[tauri::command]
 async fn get_pod(context: &str, namespace: &str, name: &str) -> Result<Pod, SerializableKubeError> {
     let client = client_with_context(context).await?;
@@ -239,6 +253,22 @@ async fn list_deployments(
         .list(&ListParams::default())
         .await
         .map(|deployments| deployments.items)
+        .map_err(|err| SerializableKubeError::from(err));
+}
+
+#[tauri::command]
+async fn restart_deployment(
+    context: &str,
+    namespace: &str,
+    name: &str,
+) -> Result<bool, SerializableKubeError> {
+    let client = client_with_context(context).await?;
+    let deployment_api: Api<Deployment> = Api::namespaced(client, namespace);
+
+    return deployment_api
+        .restart(name)
+        .await
+        .map(|_deployment| true)
         .map_err(|err| SerializableKubeError::from(err));
 }
 
@@ -739,6 +769,7 @@ fn main() {
             get_pod,
             delete_pod,
             list_deployments,
+            restart_deployment,
             list_jobs,
             list_cronjobs,
             list_configmaps,
@@ -758,6 +789,7 @@ fn main() {
             replace_virtualservice,
             replace_ingress,
             replace_persistentvolumeclaim,
+            get_pod_metrics,
             create_tty_session,
             stop_tty_session,
             write_to_pty

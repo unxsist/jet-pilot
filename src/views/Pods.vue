@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { injectStrict } from "@/lib/utils";
-import { V1Pod } from "@kubernetes/client-node";
+import { PodMetric, V1Pod } from "@kubernetes/client-node";
 import { Kubernetes } from "@/services/Kubernetes";
 import { ref, h } from "vue";
-import { useRouter } from "vue-router";
 import { useToast, ToastAction } from "@/components/ui/toast";
 
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
@@ -22,7 +21,8 @@ const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
 const { toast } = useToast();
 
-const pods = ref<V1Pod[]>([]);
+const pods = ref<V1Pod & { metrics: PodMetric[] }[]>([]);
+const metrics = ref<Array<PodMetric[]>>([]);
 
 const rowActions: RowAction<V1Pod>[] = [
   ...getDefaultActions<V1Pod>(addTab, spawnDialog, context.value),
@@ -95,17 +95,20 @@ async function getPods(refresh: boolean = false) {
     pods.value = [];
   }
 
-  Kubernetes.getPods(
-    context.value,
-    namespace.value === "all" ? "" : namespace.value
-  )
-    .then((results: V1Pod[]) => {
-      pods.value = results;
-    })
-    .catch((error) => {
+  Promise.allSettled([
+    Kubernetes.getPods(
+      context.value,
+      namespace.value === "all" ? "" : namespace.value
+    ),
+    Kubernetes.getPodMetrics(
+      context.value,
+      namespace.value === "all" ? "" : namespace.value
+    ),
+  ]).then((results) => {
+    if (results[0].status === "rejected") {
       toast({
         title: "An error occured",
-        description: error.message,
+        description: results[0].reason.message,
         variant: "destructive",
         action: h(
           ToastAction,
@@ -114,7 +117,33 @@ async function getPods(refresh: boolean = false) {
         ),
       });
       stopRefreshing();
-    });
+
+      return;
+    }
+
+    pods.value = results[0].value.map((pod) => ({
+      ...pod,
+      metrics: [],
+    }));
+
+    if (results[1].status === "fulfilled") {
+      metrics.value.push(results[1].value);
+      if (metrics.value.length > 20) {
+        metrics.value.shift();
+      }
+
+      metrics.value.forEach((metric) => {
+        pods.value.forEach((pod) => {
+          const podMetric = metric.find(
+            (m) => m.metadata?.name === pod.metadata?.name
+          );
+          if (podMetric) {
+            pod.metrics.push(podMetric);
+          }
+        });
+      });
+    }
+  });
 }
 
 const rowClasses = (row: V1Pod) => {

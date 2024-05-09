@@ -1,8 +1,9 @@
-import { V1Pod } from "@kubernetes/client-node";
+import { PodMetric, V1Pod } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
 import { formatDateTimeDifference } from "@/lib/utils";
+import PodUsageChart from "../ui/PodUsageChart.vue";
 
-export const columns: ColumnDef<V1Pod>[] = [
+export const columns: ColumnDef<V1Pod & { metrics: PodMetric[] }>[] = [
   {
     accessorKey: "metadata.name",
     header: "Name",
@@ -37,7 +38,11 @@ export const columns: ColumnDef<V1Pod>[] = [
     },
   },
   {
-    header: "CPU",
+    header: "Usage",
+    size: 100,
+    cell: ({ row }) => {
+      return h(PodUsageChart, { pod: row.original });
+    },
   },
   {
     header: "IP",

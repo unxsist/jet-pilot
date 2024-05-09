@@ -1514,6 +1514,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "go-parse-duration"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "558b88954871f5e5b2af0e62e2e176c8bde7a6c2c4ed41b13d138d96da2e2cbd"
+
+[[package]]
 name = "gobject-sys"
 version = "0.15.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1966,6 +1972,7 @@ dependencies = [
  "either",
  "fix-path-env",
  "istio-api-rs",
+ "k8s-metrics",
  "k8s-openapi",
  "kube",
  "portable-pty",
@@ -2036,6 +2043,18 @@ dependencies = [
  "pest_derive",
  "regex",
  "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "k8s-metrics"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f233f3178d1ad8363e6fe593a5c3fed7a894387ff75f27d91acce4121364bdce"
+dependencies = [
+ "go-parse-duration",
+ "k8s-openapi",
+ "serde",
  "thiserror",
 ]
 
