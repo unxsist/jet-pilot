@@ -7,11 +7,14 @@ import { useToast, ToastAction } from "@/components/ui/toast";
 
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 
-import DataTable from "@/components/ui/DataTable.vue";
+import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { columns } from "@/components/tables/pods";
 import { useDataRefresher } from "@/composables/refresher";
 import { TabProviderAddTabKey } from "@/providers/TabProvider";
+
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+const { settings } = injectStrict(SettingsContextStateKey);
 
 const { context, namespace } = injectStrict(KubeContextStateKey);
 const addTab = injectStrict(TabProviderAddTabKey);
@@ -54,7 +57,7 @@ const rowActions: RowAction<V1Pod>[] = [
       addTab(
         `logs_${row.metadata?.name}`,
         `${row.metadata?.name}`,
-        defineAsyncComponent(() => import("@/views/LogViewer.vue")),
+        defineAsyncComponent(() => import("@/views/StructuredLogViewer.vue")),
         {
           context: context.value,
           namespace: row.metadata?.namespace ?? namespace.value,
@@ -166,5 +169,6 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(getPods, 1000, [
     :columns="columns"
     :row-actions="rowActions"
     :row-classes="rowClasses"
+    :estimated-row-height="41"
   />
 </template>

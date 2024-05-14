@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { injectStrict } from "@/lib/utils";
-import { V1Job, V1Pod } from "@kubernetes/client-node";
+import { V1Job } from "@kubernetes/client-node";
 import { Kubernetes } from "@/services/Kubernetes";
 import { ref, h } from "vue";
 import { useToast, ToastAction } from "@/components/ui/toast";
@@ -8,7 +8,7 @@ import { useToast, ToastAction } from "@/components/ui/toast";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 const { context, namespace } = injectStrict(KubeContextStateKey);
 
-import DataTable from "@/components/ui/DataTable.vue";
+import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { columns } from "@/components/tables/jobs";
 import { useDataRefresher } from "@/composables/refresher";
 

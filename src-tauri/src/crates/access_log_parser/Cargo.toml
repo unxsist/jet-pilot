@@ -1,0 +1,23 @@
+[package]
+name = "access_log_parser"
+version = "0.8.0"
+authors = ["Daniel Mikusa <dmikusa@vmware.com>"]
+edition = "2018"
+description = "A library of Rust parsers for reading access logs in a strongly-typed way"
+repository = "https://github.com/dmikusa-pivotal/access_log_parser"
+readme = "README.md"
+license = "Apache-2.0"
+keywords = ["access", "logs", "parse"]
+categories = ["parsing", "parser-implementations"]
+
+[dependencies]
+nom = "7.1"
+http = "1.0"
+thiserror = "1.0"
+serde = { version = "1.0.203", features = ["derive"] }
+http-serde = "2.1.1"
+
+[dependencies.chrono]
+version = "0.4"
+default-features = false
+features = ["clock"]

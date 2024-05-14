@@ -4,7 +4,7 @@ import { Command, Child } from "@tauri-apps/api/shell";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { injectStrict } from "@/lib/utils";
 import { onMounted } from "vue";
-import DataTable from "@/components/ui/DataTable.vue";
+import DataTable from "@/components/ui/VirtualDataTable.vue";
 import DataTableManager from "@/components/ui/DataTableManager.vue";
 import { columns } from "@/components/tables/generic";
 

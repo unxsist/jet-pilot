@@ -8,7 +8,7 @@ import { useToast, ToastAction } from "@/components/ui/toast";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 const { context, namespace } = injectStrict(KubeContextStateKey);
 
-import DataTable from "@/components/ui/DataTable.vue";
+import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { columns } from "@/components/tables/ingresses";
 import { useDataRefresher } from "@/composables/refresher";
 

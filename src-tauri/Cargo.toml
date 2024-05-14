@@ -21,9 +21,10 @@ k8s-openapi = { version = "0.20.0", features = ["v1_26"] }
 istio-api-rs = { version = "0.7.0", features = ["v1_20"] }
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs", branch = "dev" }
 portable-pty = "0.8.1"
-uuid = "1.4.1"
+uuid = { version = "1.4.1", features = ["serde"] }
 either = "1.9.0"
 k8s-metrics = "0.14.0"
+access_log_parser = { version = "0.8.0", path = "src/crates/access_log_parser" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel" }

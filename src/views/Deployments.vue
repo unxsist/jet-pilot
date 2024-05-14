@@ -8,6 +8,9 @@ import { useToast, ToastAction } from "@/components/ui/toast";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 const { context, namespace } = injectStrict(KubeContextStateKey);
 
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+const { settings } = injectStrict(SettingsContextStateKey);
+
 import { TabProviderAddTabKey } from "@/providers/TabProvider";
 const addTab = injectStrict(TabProviderAddTabKey);
 
@@ -17,7 +20,7 @@ import {
 } from "@/providers/DialogProvider";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
-import DataTable from "@/components/ui/DataTable.vue";
+import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { columns } from "@/components/tables/deployments";
 import { useDataRefresher } from "@/composables/refresher";
@@ -33,7 +36,14 @@ const rowActions: RowAction<V1Deployment>[] = [
       addTab(
         `logs_${row.metadata?.name}`,
         `${row.metadata?.name}`,
-        defineAsyncComponent(() => import("@/views/LogViewer.vue")),
+        defineAsyncComponent(
+          () =>
+            import(
+              settings.value.structuredLogViewer.enabled
+                ? "@/views/StructuredLogViewer.vue"
+                : "@/views/LogViewer.vue"
+            )
+        ),
         {
           context: context.value,
           namespace: row.metadata?.namespace ?? namespace.value,

@@ -10,18 +10,16 @@
       // ideally you should also configure a `problemMatcher`
       // see https://code.visualstudio.com/docs/editor/tasks#_can-a-background-task-be-used-as-a-prelaunchtask-in-launchjson
       "isBackground": true,
-      // Why do I get "command not found" when running a task?
-      // see https://code.visualstudio.com/docs/editor/tasks#_why-do-i-get-command-not-found-when-running-a-task
-      // or https://stackoverflow.com/a/70243581
-      "command": "pnpm",
-      "args": ["vite:dev"]
+      // change this to your `beforeDevCommand`:
+      "command": "npm",
+      "args": ["run", "vite:dev"]
     },
     {
       "label": "ui:build",
       "type": "shell",
       // change this to your `beforeBuildCommand`:
-      "command": "pnpm",
-      "args": ["build"]
+      "command": "npm",
+      "args": ["run", "vite:build"]
     }
   ]
 }

@@ -5,9 +5,7 @@ const props = defineProps<{ class?: string }>();
 </script>
 
 <template>
-  <div class="w-full">
-    <table :class="cn('w-full caption-bottom text-sm', props.class)">
-      <slot />
-    </table>
-  </div>
+  <table :class="cn('w-full caption-bottom text-sm', props.class)">
+    <slot />
+  </table>
 </template>
