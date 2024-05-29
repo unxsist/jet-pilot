@@ -107,21 +107,56 @@ async function getPods(refresh: boolean = false) {
       context.value,
       namespace.value === "all" ? "" : namespace.value
     ),
-  ]).then((results) => {
+  ]).then(async (results) => {
     if (results[0].status === "rejected") {
-      toast({
-        title: "An error occured",
-        description: results[0].reason.message,
-        variant: "destructive",
-        action: h(
-          ToastAction,
-          { altText: "Retry", onClick: () => startRefreshing() },
-          { default: () => "Retry" }
-        ),
-      });
-      stopRefreshing();
+      const authErrorHandler = await Kubernetes.getAuthErrorHandler(
+        context.value,
+        results[0].reason.message
+      );
 
-      return;
+      if (authErrorHandler.canHandle) {
+        stopRefreshing();
+        spawnDialog({
+          title: "SSO Session expired",
+          message:
+            "Failed to authenticate as the SSO session has expired. Please login again.",
+          buttons: [
+            {
+              label: "Close",
+              variant: "ghost",
+              handler: (dialog) => {
+                dialog.close();
+              },
+            },
+            {
+              label: "Login with SSO",
+              handler: (dialog) => {
+                dialog.buttons = [];
+                dialog.title = "Awaiting SSO login";
+                dialog.message = "Please wait while we redirect you.";
+                authErrorHandler.callback(() => {
+                  dialog.close();
+                  startRefreshing();
+                });
+              },
+            },
+          ],
+        });
+      } else {
+        toast({
+          title: "An error occured",
+          description: results[0].reason.message,
+          variant: "destructive",
+          action: h(
+            ToastAction,
+            { altText: "Retry", onClick: () => startRefreshing() },
+            { default: () => "Retry" }
+          ),
+        });
+        stopRefreshing();
+
+        return;
+      }
     }
 
     pods.value = results[0].value.map((pod) => ({

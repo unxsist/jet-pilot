@@ -36,14 +36,7 @@ const rowActions: RowAction<V1Deployment>[] = [
       addTab(
         `logs_${row.metadata?.name}`,
         `${row.metadata?.name}`,
-        defineAsyncComponent(
-          () =>
-            import(
-              settings.value.structuredLogViewer.enabled
-                ? "@/views/StructuredLogViewer.vue"
-                : "@/views/LogViewer.vue"
-            )
-        ),
+        defineAsyncComponent(() => import("@/views/StructuredLogViewer.vue")),
         {
           context: context.value,
           namespace: row.metadata?.namespace ?? namespace.value,
