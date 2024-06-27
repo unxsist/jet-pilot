@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/form";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import KubeConfigListBox from "@/views/settings/general/KubeConfigListBox.vue";
 
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
@@ -64,6 +65,13 @@ const { settings } = injectStrict(SettingsContextStateKey);
           <FormMessage />
         </FormItem>
       </FormField>
+    </div>
+    <div>
+      <h2 class="font-medium text-base">Kubeconfigs</h2>
+      <p class="text-sm text-muted-foreground mb-4">
+        If you have additional kubeconfig files, you can specify these here.
+      </p>
+      <KubeConfigListBox v-model="settings.kubeConfigs" />
     </div>
   </div>
 </template>

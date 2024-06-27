@@ -6,6 +6,7 @@ import {
   writeTextFile,
   readTextFile,
 } from "@tauri-apps/api/fs";
+import { homeDir } from "@tauri-apps/api/path";
 
 export const SettingsContextStateKey: InjectionKey<
   ToRefs<SettingsContextState>
@@ -26,6 +27,7 @@ export interface SettingsContextState {
     shell: {
       executable: string;
     };
+    kubeConfigs: string[];
     contextSettings: ContextSettings[];
     collapsedNavigationGroups: string[];
     appearance: {
@@ -52,6 +54,7 @@ export default {
         shell: {
           executable: "/bin/sh",
         },
+        kubeConfigs: [],
         contextSettings: [],
         collapsedNavigationGroups: [],
         appearance: {
@@ -89,6 +92,11 @@ export default {
       console.log("Settings changed...", newState);
       save();
     });
+
+    if (state.settings.kubeConfigs.length === 0) {
+      const home = await homeDir();
+      state.settings.kubeConfigs.push(`${home}.kube/config`);
+    }
   },
   render(): any {
     return this.$slots.default();
