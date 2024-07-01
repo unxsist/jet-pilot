@@ -19,6 +19,7 @@ export interface ContextSettings {
 
 export interface SettingsContextState {
   settings: {
+    lastKubeConfig: string | null;
     lastContext: string | null;
     lastNamespace: string | null;
     tabProvider: {
@@ -46,6 +47,7 @@ export default {
 
     const state: SettingsContextState = reactive({
       settings: {
+        lastKubeConfig: null,
         lastContext: null,
         lastNamespace: null,
         tabProvider: {
@@ -96,6 +98,7 @@ export default {
     if (state.settings.kubeConfigs.length === 0) {
       const home = await homeDir();
       state.settings.kubeConfigs.push(`${home}.kube/config`);
+      console.log("Kube configs", state.settings.kubeConfigs);
     }
   },
   render(): any {

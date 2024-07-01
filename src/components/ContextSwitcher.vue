@@ -33,15 +33,24 @@ onMounted(() => {
     description: "Switch the current context",
     keywords: ["ctx", "context"],
     commands: async (): Promise<Command[]> => {
-      const contexts = await Kubernetes.getContexts();
+      const contexts: { context: string; kubeConfig: string }[] = [];
+      for (const kubeConfig of settings.value.kubeConfigs) {
+        await Kubernetes.setCurrentKubeConfig(kubeConfig);
+        const ctx = await Kubernetes.getContexts();
+        contexts.push(
+          ...ctx.map((ctx) => {
+            return { context: ctx, kubeConfig: kubeConfig };
+          })
+        );
+      }
 
       return contexts.map((context) => ({
-        id: context,
-        name: context,
+        id: context.context,
+        name: context.context,
         description: "Switch to " + context,
         commands: async (): Promise<Command[]> => {
           const clusterSettings = settings.value.contextSettings.find(
-            (c) => c.context === context
+            (c) => c.context === context.context
           );
 
           let namespaces: string[] = [];
@@ -54,13 +63,16 @@ onMounted(() => {
             namespaces = clusterSettings.namespaces;
           } else {
             try {
-              const contextNamespaces = await Kubernetes.getNamespaces(context);
+              const contextNamespaces = await Kubernetes.getNamespaces(
+                context.context,
+                context.kubeConfig
+              );
               namespaces = contextNamespaces.map(
                 (ns) => ns.metadata?.name || ""
               );
             } catch (e: any) {
               const authErrorHandler = await Kubernetes.getAuthErrorHandler(
-                context,
+                context.context,
                 e.message
               );
 
@@ -103,7 +115,8 @@ onMounted(() => {
               id: "all-namespaces",
               name: "All namespaces",
               description: "Show all namespaces",
-              execute: () => {
+              execute: async () => {
+                await Kubernetes.setCurrentKubeConfig(context.kubeConfig);
                 setContext(context);
                 setNamespace("");
               },
@@ -113,7 +126,8 @@ onMounted(() => {
               id: namespace || "",
               name: namespace || "",
               description: "Switch to " + namespace,
-              execute: () => {
+              execute: async () => {
+                await Kubernetes.setCurrentKubeConfig(context.kubeConfig);
                 setContext(context);
                 setNamespace(namespace || "");
               },

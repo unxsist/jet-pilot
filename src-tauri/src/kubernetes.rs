@@ -71,6 +71,7 @@ pub mod client {
     }
 
     static CURRENT_CONTEXT: Mutex<Option<String>> = Mutex::new(Some(String::new()));
+    static CURRENT_KUBECONFIG: Mutex<Option<String>> = Mutex::new(None);
     static CLIENT: Mutex<Option<Client>> = Mutex::new(None);
 
     #[tauri::command]
@@ -82,7 +83,9 @@ pub mod client {
 
     #[tauri::command]
     pub async fn list_contexts() -> Result<Vec<String>, SerializableKubeError> {
-        let config = Kubeconfig::read().map_err(|err| SerializableKubeError::from(err))?;
+        let config = Kubeconfig::read_from(
+            CURRENT_KUBECONFIG.lock().unwrap().as_ref().unwrap().as_str(),
+        ).map_err(|err| SerializableKubeError::from(err))?;
 
         config
             .contexts
@@ -96,7 +99,9 @@ pub mod client {
 
     #[tauri::command]
     pub async fn get_context_auth_info(context: &str) -> Result<NamedAuthInfo, SerializableKubeError> {
-        let config = Kubeconfig::read().map_err(|err| SerializableKubeError::from(err))?;
+        let config = Kubeconfig::read_from(
+            CURRENT_KUBECONFIG.lock().unwrap().as_ref().unwrap().as_str()
+        ).map_err(|err| SerializableKubeError::from(err))?;
 
         let context_auth_info = config
             .contexts
@@ -124,6 +129,23 @@ pub mod client {
         return Ok(auth_info.clone());
     }
 
+    async fn one_off_client_with_context(context: &str, kube_config: &str) -> Result<Client, SerializableKubeError> {
+        let options = KubeConfigOptions {
+            context: Some(context.to_string()),
+            cluster: None,
+            user: None,
+        };
+
+        let kubeconfig = Kubeconfig::read_from(kube_config.to_string()).map_err(|err| SerializableKubeError::from(err))?;
+        let client_config = Config::from_custom_kubeconfig(kubeconfig, &options)
+            .await
+            .map_err(|err| SerializableKubeError::from(err))?;
+
+        let client = Client::try_from(client_config).map_err(|err| SerializableKubeError::from(err))?;
+
+        return Ok(client);
+    }
+
     async fn client_with_context(context: &str) -> Result<Client, SerializableKubeError> {
         if context.to_string() != CURRENT_CONTEXT.lock().unwrap().as_ref().unwrap().clone() {
             let options = KubeConfigOptions {
@@ -132,9 +154,20 @@ pub mod client {
                 user: None,
             };
 
-            let client_config = Config::from_kubeconfig(&options)
-                .await
-                .map_err(|err| SerializableKubeError::from(err))?;
+            let current_kubeconfig = CURRENT_KUBECONFIG.lock().unwrap().clone();
+            let client_config = match current_kubeconfig {
+                Some(kubeconfig) if !kubeconfig.is_empty() => {
+                    let kubeconfig = Kubeconfig::read_from(kubeconfig.clone()).map_err(|err| SerializableKubeError::from(err))?;
+                    Config::from_custom_kubeconfig(kubeconfig, &options)
+                        .await
+                        .map_err(|err| SerializableKubeError::from(err))?
+                },
+                _ => {
+                    Config::from_kubeconfig(&options)
+                        .await
+                        .map_err(|err| SerializableKubeError::from(err))?
+                },
+            };
 
             let client =
                 Client::try_from(client_config).map_err(|err| SerializableKubeError::from(err))?;
@@ -147,8 +180,14 @@ pub mod client {
     }
 
     #[tauri::command]
-    pub async fn list_namespaces(context: &str) -> Result<Vec<Namespace>, SerializableKubeError> {
-        let client = client_with_context(context).await?;
+    pub async fn set_current_kubeconfig(kube_config: &str) -> Result<(), SerializableKubeError> {
+        CURRENT_KUBECONFIG.lock().unwrap().replace(kube_config.to_string());
+        return Ok(());
+    }
+
+    #[tauri::command]
+    pub async fn list_namespaces(context: &str, kube_config: &str) -> Result<Vec<Namespace>, SerializableKubeError> {
+        let client = one_off_client_with_context(context, kube_config).await?;
         let namespace_api: Api<Namespace> = Api::all(client);
 
         return namespace_api

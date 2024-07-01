@@ -6,8 +6,9 @@ import { injectStrict } from "@/lib/utils";
 export const KubeContextStateKey: InjectionKey<ToRefs<KubeContextState>> =
   Symbol("KubeContextState");
 
-export const KubeContextSetContextKey: InjectionKey<(context: string) => void> =
-  Symbol("KubeContextSetContext");
+export const KubeContextSetContextKey: InjectionKey<
+  (context: { context: string; kubeConfig: string }) => void
+> = Symbol("KubeContextSetContext");
 export const KubeContextSetNamespaceKey: InjectionKey<
   (namespace: string) => void
 > = Symbol("KubeContextSetNamespace");
@@ -29,9 +30,12 @@ export default {
 
     provide(KubeContextStateKey, toRefs(state));
 
-    const setContext = (context: string) => {
-      state.context = context;
-      settings.value.lastContext = context;
+    const setContext = (context: { context: string; kubeConfig: string }) => {
+      Kubernetes.setCurrentKubeConfig(context.kubeConfig);
+      settings.value.lastKubeConfig = context.kubeConfig;
+
+      state.context = context.context;
+      settings.value.lastContext = context.context;
     };
 
     const setNamespace = (namespace: string) => {
@@ -44,9 +48,14 @@ export default {
 
     if (state.context.length === 0) {
       Kubernetes.getCurrentContext().then((context) => {
-        setContext(context);
+        setContext({
+          context,
+          kubeConfig: settings.value.lastKubeConfig || "",
+        });
         setNamespace("");
       });
+    } else {
+      Kubernetes.setCurrentKubeConfig(settings.value.lastKubeConfig || "");
     }
   },
   render(): any {

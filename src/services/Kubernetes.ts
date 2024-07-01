@@ -79,12 +79,22 @@ export class Kubernetes {
     return invoke("get_current_context", {});
   }
 
-  static async getContexts(): Promise<string[]> {
-    return invoke("list_contexts", {});
+  static async setCurrentKubeConfig(kubeConfig: string): Promise<void> {
+    return invoke("set_current_kubeconfig", { kubeConfig: kubeConfig });
   }
 
-  static async getNamespaces(context: string): Promise<V1Namespace[]> {
-    return invoke("list_namespaces", { context: context });
+  static async getContexts(): Promise<string[]> {
+    return invoke("list_contexts");
+  }
+
+  static async getNamespaces(
+    context: string,
+    kubeConfig: string
+  ): Promise<V1Namespace[]> {
+    return invoke("list_namespaces", {
+      context: context,
+      kubeConfig: kubeConfig,
+    });
   }
 
   static async getCoreApiVersions(context: string): Promise<string[]> {

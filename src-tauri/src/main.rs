@@ -44,6 +44,7 @@ fn main() {
               }
         })
         .invoke_handler(tauri::generate_handler![
+            kubernetes::client::set_current_kubeconfig,
             kubernetes::client::list_contexts,
             kubernetes::client::get_context_auth_info,
             kubernetes::client::get_current_context,
