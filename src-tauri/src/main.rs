@@ -1,7 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::{AboutMetadata, CustomMenuItem, Manager, Menu, Submenu};
+use tauri::{AboutMetadata, CustomMenuItem, Manager, Menu, Submenu, MenuEntry, MenuItem};
 
 mod kubernetes;
 mod shell;
@@ -30,7 +30,26 @@ fn main() {
             .add_item(CustomMenuItem::new("check_for_updates", "Check for Updates..."))
             .add_native_item(tauri::MenuItem::Separator)
             .add_native_item(tauri::MenuItem::Quit));
-    let menu = Menu::new().add_submenu(submenu);
+
+    let copyPasteMenu = Submenu::new(
+        "Edit",
+        Menu::with_items([
+            MenuItem::Undo.into(),
+            MenuItem::Redo.into(),
+            MenuItem::Separator.into(),
+            MenuItem::Cut.into(),
+            MenuItem::Copy.into(),
+            MenuItem::Paste.into(),
+            MenuItem::Separator.into(),
+            MenuItem::SelectAll.into(),
+        ]),
+    );
+    let mut menu = Menu::new().add_submenu(submenu);
+
+    #[cfg(target_os = "macos")]
+    {
+        menu = menu.add_submenu(copyPasteMenu);
+    }
 
     let ctx = tauri::generate_context!();
     tauri::Builder::default()
