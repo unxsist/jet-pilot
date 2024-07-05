@@ -10,14 +10,14 @@ import { injectStrict } from "@/lib/utils";
 import { V1APIResource } from "@kubernetes/client-node";
 import pluralize from "pluralize";
 import { platform as getPlatform } from "@tauri-apps/api/os";
-import { getCurrent as getWindow } from "@tauri-apps/api/window"
-import { exit } from '@tauri-apps/api/process';
+import { getCurrent as getWindow } from "@tauri-apps/api/window";
+import { exit } from "@tauri-apps/api/process";
 import CloseIcon from "@/assets/icons/close.svg";
 import FullScreenIcon from "@/assets/icons/full_screen.svg";
 import MinimizeIcon from "@/assets/icons/minimize.svg";
 
 const targetPlatform = ref<string>("");
-const { context, namespace} = injectStrict(KubeContextStateKey);
+const { context, namespace } = injectStrict(KubeContextStateKey);
 
 interface NavigationGroup {
   title: string;
@@ -58,7 +58,13 @@ const navigationGroups: NavigationGroup[] = [
   },
   {
     title: "Access Control",
-    coreResourceKinds: ["ServiceAccount", "Role", "RoleBinding", "ClusterRoleBinding", "ClusterRole"],
+    coreResourceKinds: [
+      "ServiceAccount",
+      "Role",
+      "RoleBinding",
+      "ClusterRoleBinding",
+      "ClusterRole",
+    ],
     apiGroupResources: [".*authorization.*"],
   },
 ];
@@ -117,15 +123,15 @@ const formatResourceKind = (kind: string) => {
 };
 
 const filterNamespaced = (resource: V1APIResource) => {
-  if(namespace.value === "") {
-    return true
+  if (namespace.value === "") {
+    return true;
   }
 
-  return resource.namespaced
-}
+  return resource.namespaced;
+};
 
 const fetchResources = () => {
-  if (context.value === '') {
+  if (context.value === "") {
     return;
   }
 
@@ -168,7 +174,7 @@ const fetchResources = () => {
 
 const maxOrUnmaximize = () => {
   const window = getWindow();
- 
+
   window.isMaximized().then((maximized) => {
     if (maximized) {
       window.unmaximize();
@@ -202,7 +208,11 @@ watch([context, namespace], () => {
 
 <template>
   <div class="flex flex-col flex-shrink-0 relative min-w-[200px] max-w-[200px]">
-    <div v-if="targetPlatform == 'win32'" class="p-2 pb-0 -mb-1 space-x-2" data-tauri-drag-region>
+    <div
+      v-if="targetPlatform == 'win32'"
+      class="p-2 pb-0 -mb-1 space-x-2"
+      data-tauri-drag-region
+    >
       <Button size="xs" @click="quit">
         <CloseIcon class="h-3 text-white" />
       </Button>
@@ -215,7 +225,7 @@ watch([context, namespace], () => {
     </div>
     <div class="absolute w-full h-[40px]" v-else data-tauri-drag-region></div>
     <div class="flex flex-col flex-grow min-h-screen max-h-screen p-2 pr-0">
-      <ContextSwitcher :class="{ 'mt-[30px]': targetPlatform !== 'win32'}" />
+      <ContextSwitcher :class="{ 'mt-[30px]': targetPlatform !== 'win32' }" />
       <div class="flex w-full flex-grow flex-shrink overflow-hidden">
         <ScrollArea class="w-full mt-0 mb-0">
           <NavigationGroup
@@ -252,7 +262,7 @@ watch([context, namespace], () => {
               :key="resource.name"
               :to="{
                 path: `/${resource.name}`,
-                query: { resource: resource.name },
+                query: { resource: resource.kind },
               }"
             />
           </NavigationGroup>
