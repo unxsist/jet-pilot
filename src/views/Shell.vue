@@ -28,6 +28,7 @@ const { settings } = injectStrict(SettingsContextStateKey);
 const props = defineProps<{
   context: string;
   namespace: string;
+  kubeConfig: string;
   pod: V1Pod;
   container?: V1Container;
 }>();
@@ -52,6 +53,8 @@ const openTerminal = () => {
       props.context,
       "--namespace",
       props.namespace,
+      "--kubeconfig",
+      props.kubeConfig,
       "-c",
       props.container
         ? props.container.name

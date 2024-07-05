@@ -5,6 +5,7 @@ import { Command } from "@tauri-apps/api/shell";
 const props = defineProps<{
   context: string;
   namespace: string;
+  kubeConfig: string;
   type: string;
   name: string;
 }>();
@@ -19,6 +20,8 @@ onMounted(() => {
     props.context,
     "--namespace",
     props.namespace,
+    "--kubeconfig",
+    props.kubeConfig,
   ]);
 
   let stdOutData = "";

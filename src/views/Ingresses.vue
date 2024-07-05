@@ -6,7 +6,7 @@ import { ref, h } from "vue";
 import { useToast, ToastAction } from "@/components/ui/toast";
 
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
-const { context, namespace } = injectStrict(KubeContextStateKey);
+const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
 
 import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { columns } from "@/components/tables/ingresses";
@@ -23,7 +23,12 @@ import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
 const rowActions: RowAction<V1Ingress>[] = [
-  ...getDefaultActions<V1Ingress>(addTab, spawnDialog, context.value),
+  ...getDefaultActions<V1Ingress>(
+    addTab,
+    spawnDialog,
+    context.value,
+    kubeConfig.value
+  ),
 ];
 
 async function getIngresses(refresh: boolean = false) {

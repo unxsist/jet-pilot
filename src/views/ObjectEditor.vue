@@ -31,6 +31,7 @@ watch(colorMode, (value) => {
 const props = defineProps<{
   context: string;
   namespace: string;
+  kubeConfig: string;
   type: string;
   name: string;
   useKubeCtl: boolean;
@@ -69,6 +70,8 @@ onMounted(() => {
     props.namespace,
     "-o",
     "yaml",
+    "--kubeconfig",
+    props.kubeConfig,
   ]);
 
   let stdOutData = "";
@@ -145,6 +148,8 @@ const onSave = () => {
           props.namespace,
           "-f",
           `${tempDir}${filename}`,
+          "--kubeconfig",
+          props.kubeConfig,
         ]);
 
         command.stdout.on("data", (data) => {

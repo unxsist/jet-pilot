@@ -6,7 +6,7 @@ import { ref, h } from "vue";
 import { useToast, ToastAction } from "@/components/ui/toast";
 
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
-const { context, namespace } = injectStrict(KubeContextStateKey);
+const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
 
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 const { settings } = injectStrict(SettingsContextStateKey);
@@ -29,7 +29,12 @@ const { toast } = useToast();
 const deployments = ref<V1Deployment[]>([]);
 
 const rowActions: RowAction<V1Deployment>[] = [
-  ...getDefaultActions<V1Deployment>(addTab, spawnDialog, context.value),
+  ...getDefaultActions<V1Deployment>(
+    addTab,
+    spawnDialog,
+    context.value,
+    kubeConfig.value
+  ),
   {
     label: "Logs",
     handler: (row) => {
@@ -40,6 +45,7 @@ const rowActions: RowAction<V1Deployment>[] = [
         {
           context: context.value,
           namespace: row.metadata?.namespace ?? namespace.value,
+          kubeConfig: kubeConfig.value,
           object: `deployment/${row.metadata?.name}`,
         },
         "logs"

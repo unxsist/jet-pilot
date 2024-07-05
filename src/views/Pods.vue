@@ -16,7 +16,7 @@ import { TabProviderAddTabKey } from "@/providers/TabProvider";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 const { settings } = injectStrict(SettingsContextStateKey);
 
-const { context, namespace } = injectStrict(KubeContextStateKey);
+const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
 const addTab = injectStrict(TabProviderAddTabKey);
 
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
@@ -28,7 +28,12 @@ const pods = ref<V1Pod & { metrics: PodMetric[] }[]>([]);
 const metrics = ref<Array<PodMetric[]>>([]);
 
 const rowActions: RowAction<V1Pod>[] = [
-  ...getDefaultActions<V1Pod>(addTab, spawnDialog, context.value),
+  ...getDefaultActions<V1Pod>(
+    addTab,
+    spawnDialog,
+    context.value,
+    kubeConfig.value
+  ),
   {
     label: "Shell",
     options: (row) => {
@@ -61,6 +66,7 @@ const rowActions: RowAction<V1Pod>[] = [
         {
           context: context.value,
           namespace: row.metadata?.namespace ?? namespace.value,
+          kubeConfig: kubeConfig.value,
           object: row.metadata?.name,
         },
         "logs"

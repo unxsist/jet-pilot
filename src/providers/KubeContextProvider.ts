@@ -16,6 +16,7 @@ export const KubeContextSetNamespaceKey: InjectionKey<
 export interface KubeContextState {
   context: string;
   namespace: string | "all";
+  kubeConfig: string;
 }
 
 export default {
@@ -26,6 +27,7 @@ export default {
     const state: KubeContextState = reactive({
       context: settings.value.lastContext || "",
       namespace: settings.value.lastNamespace || "",
+      kubeConfig: settings.value.lastKubeConfig || "",
     });
 
     provide(KubeContextStateKey, toRefs(state));
@@ -34,6 +36,7 @@ export default {
       Kubernetes.setCurrentKubeConfig(context.kubeConfig);
       settings.value.lastKubeConfig = context.kubeConfig;
 
+      state.kubeConfig = context.kubeConfig;
       state.context = context.context;
       settings.value.lastContext = context.context;
     };
@@ -55,6 +58,7 @@ export default {
         setNamespace("");
       });
     } else {
+      state.kubeConfig = settings.value.lastKubeConfig || "";
       Kubernetes.setCurrentKubeConfig(settings.value.lastKubeConfig || "");
     }
   },

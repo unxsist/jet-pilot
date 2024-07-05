@@ -19,7 +19,7 @@ let logProcess: Child | null = null;
 
 const autoScroll = ref(true);
 const liveTail = ref(true);
-const currentSince = ref<string>("5m");
+const currentSince = ref<string>("1h");
 
 const logsSinceOptions = ["1m", "5m", "15m", "30m", "1h"];
 
@@ -28,6 +28,7 @@ const logData = ref<any[]>([]);
 const props = defineProps<{
   context: string;
   namespace: string;
+  kubeConfig: string;
   object: string;
 }>();
 
@@ -39,6 +40,8 @@ const initCommand = computed(() => {
     "--namespace",
     props.namespace,
     "--timestamps",
+    "--kubeconfig",
+    props.kubeConfig,
   ];
 
   if (liveTail.value) {
@@ -85,6 +88,7 @@ const repurposeLoggingSession = async () => {
   await invoke("repurpose_structured_logging_session", {
     sessionId: sessionId.value,
   });
+  logData.value = [];
 };
 
 const killProcess = async () => {

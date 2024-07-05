@@ -10,7 +10,7 @@ import { columns } from "@/components/tables/generic";
 
 let process: Child | null = null;
 const route = useRoute();
-const { context, namespace } = injectStrict(KubeContextStateKey);
+const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
 
 const resourceData = ref<object[]>([]);
 
@@ -22,7 +22,13 @@ import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
 const rowActions: RowAction<any>[] = [
-  ...getDefaultActions<any>(addTab, spawnDialog, context.value, true),
+  ...getDefaultActions<any>(
+    addTab,
+    spawnDialog,
+    context.value,
+    kubeConfig.value,
+    true
+  ),
 ];
 
 onBeforeRouteUpdate((to, from, next) => {
@@ -44,6 +50,8 @@ const initiateWatchCommand = (resource: string) => {
     "--output-watch-events=true",
     "-o",
     "json",
+    "--kubeconfig",
+    kubeConfig.value,
   ];
 
   if (namespace.value) {

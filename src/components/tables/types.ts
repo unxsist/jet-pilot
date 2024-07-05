@@ -23,6 +23,7 @@ export function getDefaultActions<T extends KubernetesObject | VirtualService>(
   addTab: any,
   spawnDialog: any,
   context: string,
+  kubeConfig: string,
   isGenericResource = false
 ): RowAction<T>[] {
   return [
@@ -36,6 +37,7 @@ export function getDefaultActions<T extends KubernetesObject | VirtualService>(
           {
             context: context,
             namespace: row.metadata?.namespace,
+            kubeConfig: kubeConfig,
             type: row.kind,
             name: row.metadata?.name,
             useKubeCtl: isGenericResource,
@@ -54,6 +56,7 @@ export function getDefaultActions<T extends KubernetesObject | VirtualService>(
           {
             context: context,
             namespace: row.metadata?.namespace,
+            kubeConfig: kubeConfig,
             type: row.kind,
             name: row.metadata?.name,
           },
@@ -84,6 +87,8 @@ export function getDefaultActions<T extends KubernetesObject | VirtualService>(
                   context,
                   "--namespace",
                   row.metadata?.namespace || "",
+                  "--kubeconfig",
+                  kubeConfig,
                 ]);
 
                 command.stderr.on("data", (error: string) => {
