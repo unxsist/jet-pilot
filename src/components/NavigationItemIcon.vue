@@ -8,8 +8,11 @@ const props = defineProps({
   },
 });
 
-const icon = defineAsyncComponent(
-  () => import(`@/assets/icons/${props.name}.svg`)
+// refactor to if import fails, default back to default import
+const icon = defineAsyncComponent(() =>
+  import(`@/assets/icons/${props.name}.svg`).catch(
+    () => import("@/assets/icons/k8s.svg")
+  )
 );
 </script>
 

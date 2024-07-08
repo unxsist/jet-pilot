@@ -17,6 +17,7 @@ export interface KubeContextState {
   context: string;
   namespace: string | "all";
   kubeConfig: string;
+  authenticated: boolean;
 }
 
 export default {
@@ -28,6 +29,7 @@ export default {
       context: settings.value.lastContext || "",
       namespace: settings.value.lastNamespace || "",
       kubeConfig: settings.value.lastKubeConfig || "",
+      authenticated: true,
     });
 
     provide(KubeContextStateKey, toRefs(state));

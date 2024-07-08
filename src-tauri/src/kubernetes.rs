@@ -98,9 +98,9 @@ pub mod client {
     }
 
     #[tauri::command]
-    pub async fn get_context_auth_info(context: &str) -> Result<NamedAuthInfo, SerializableKubeError> {
+    pub async fn get_context_auth_info(context: &str, kube_config: &str) -> Result<NamedAuthInfo, SerializableKubeError> {
         let config = Kubeconfig::read_from(
-            CURRENT_KUBECONFIG.lock().unwrap().as_ref().unwrap().as_str()
+            kube_config.to_string(),
         ).map_err(|err| SerializableKubeError::from(err))?;
 
         let context_auth_info = config

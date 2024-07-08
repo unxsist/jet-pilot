@@ -17,7 +17,11 @@ import FullScreenIcon from "@/assets/icons/full_screen.svg";
 import MinimizeIcon from "@/assets/icons/minimize.svg";
 
 const targetPlatform = ref<string>("");
-const { context, namespace } = injectStrict(KubeContextStateKey);
+const {
+  context,
+  namespace,
+  authenticated: clusterAuthenticated,
+} = injectStrict(KubeContextStateKey);
 
 interface NavigationGroup {
   title: string;
@@ -201,7 +205,7 @@ onMounted(() => {
   });
 });
 
-watch([context, namespace], () => {
+watch([context, namespace, clusterAuthenticated], () => {
   fetchResources();
 });
 </script>
@@ -234,7 +238,7 @@ watch([context, namespace], () => {
             :title="group.title"
           >
             <NavigationItem
-              icon="pods"
+              :icon="formatResourceKind(resource.kind).toLowerCase()"
               :title="formatResourceKind(resource.kind)"
               v-for="resource in getCoreResourcesForGroup(group)"
               :key="resource.name"
@@ -244,7 +248,7 @@ watch([context, namespace], () => {
               }"
             />
             <NavigationItem
-              icon="pods"
+              :icon="formatResourceKind(resource.kind).toLowerCase()"
               :title="formatResourceKind(resource.kind)"
               v-for="resource in getApiResourcesForGroup(group)"
               :key="resource.name"
@@ -256,7 +260,7 @@ watch([context, namespace], () => {
           </NavigationGroup>
           <NavigationGroup title="Other">
             <NavigationItem
-              icon="pods"
+              :icon="formatResourceKind(resource.kind).toLowerCase()"
               :title="formatResourceKind(resource.kind)"
               v-for="resource in getOtherResources()"
               :key="resource.name"

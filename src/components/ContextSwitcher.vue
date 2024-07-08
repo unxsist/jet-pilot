@@ -20,7 +20,12 @@ const showSingleCommand = injectStrict(ShowSingleCommandKey);
 const registerCommand = injectStrict(RegisterCommandStateKey);
 const closeCommandPalette = injectStrict(CloseCommandPaletteKey);
 const rerunLastCommand = injectStrict(RerunLastCommandKey);
-const { context, namespace } = injectStrict(KubeContextStateKey);
+// import authenticated as clusterAuthenticated
+const {
+  context,
+  namespace,
+  authenticated: clusterAuthenticated,
+} = injectStrict(KubeContextStateKey);
 const setContext = injectStrict(KubeContextSetContextKey);
 const setNamespace = injectStrict(KubeContextSetNamespaceKey);
 const { settings } = injectStrict(SettingsContextStateKey);
@@ -73,10 +78,12 @@ onMounted(() => {
             } catch (e: any) {
               const authErrorHandler = await Kubernetes.getAuthErrorHandler(
                 context.context,
+                context.kubeConfig,
                 e.message
               );
 
               if (authErrorHandler.canHandle) {
+                clusterAuthenticated.value = false;
                 spawnDialog({
                   title: "SSO Session expired",
                   message:
@@ -98,6 +105,7 @@ onMounted(() => {
                         dialog.message = "Please wait while we redirect you.";
                         authErrorHandler.callback(() => {
                           dialog.close();
+                          clusterAuthenticated.value = true;
                           rerunLastCommand();
                         });
                       },

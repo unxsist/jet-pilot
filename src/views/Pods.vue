@@ -16,7 +16,12 @@ import { TabProviderAddTabKey } from "@/providers/TabProvider";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 const { settings } = injectStrict(SettingsContextStateKey);
 
-const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
+const {
+  context,
+  namespace,
+  kubeConfig,
+  authenticated: clusterAuthenticated,
+} = injectStrict(KubeContextStateKey);
 const addTab = injectStrict(TabProviderAddTabKey);
 
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
@@ -117,10 +122,12 @@ async function getPods(refresh: boolean = false) {
     if (results[0].status === "rejected") {
       const authErrorHandler = await Kubernetes.getAuthErrorHandler(
         context.value,
+        kubeConfig.value,
         results[0].reason.message
       );
 
       if (authErrorHandler.canHandle) {
+        clusterAuthenticated.value = false;
         stopRefreshing();
         spawnDialog({
           title: "SSO Session expired",
@@ -142,6 +149,7 @@ async function getPods(refresh: boolean = false) {
                 dialog.message = "Please wait while we redirect you.";
                 authErrorHandler.callback(() => {
                   dialog.close();
+                  clusterAuthenticated.value = true;
                   startRefreshing();
                 });
               },

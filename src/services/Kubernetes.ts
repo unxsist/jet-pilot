@@ -28,6 +28,7 @@ export interface KubernetesError {
 export class Kubernetes {
   static async getAuthErrorHandler(
     context: string,
+    kubeConfig: string,
     errorMessage: string
   ): Promise<{
     canHandle: boolean;
@@ -41,6 +42,7 @@ export class Kubernetes {
     ) {
       const context_auth_info = (await invoke("get_context_auth_info", {
         context: context,
+        kubeConfig: kubeConfig,
       })) as any;
 
       let aws_profile = null;
