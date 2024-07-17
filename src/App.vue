@@ -5,6 +5,7 @@ import RouterViewport from "@/components/RouterViewport.vue";
 import Toaster from "@/components/ui/toast/Toaster.vue";
 import CommandPalette from "./components/CommandPalette.vue";
 import SettingsContextProvider from "./providers/SettingsContextProvider";
+import GlobalShortcutProvider from "./providers/GlobalShortcutProvider";
 import ColorSchemeProvider from "./providers/ColorSchemeProvider";
 import KubeContextProvider from "./providers/KubeContextProvider";
 import CommandPaletteProvider from "./providers/CommandPaletteProvider";
@@ -20,22 +21,24 @@ import UpdateHandler from "./components/UpdateHandler.vue";
   >
     <Suspense>
       <SettingsContextProvider>
-        <ColorSchemeProvider>
-          <DialogProvider>
-            <KubeContextProvider>
-              <TabProvider>
-                <CommandPaletteProvider>
-                  <Navigation />
-                  <RouterViewport />
-                  <Toaster />
-                  <CommandPalette />
-                  <DialogHandler />
-                  <UpdateHandler />
-                </CommandPaletteProvider>
-              </TabProvider>
-            </KubeContextProvider>
-          </DialogProvider>
-        </ColorSchemeProvider>
+        <GlobalShortcutProvider>
+          <ColorSchemeProvider>
+            <DialogProvider>
+              <KubeContextProvider>
+                <TabProvider>
+                  <CommandPaletteProvider>
+                    <Navigation />
+                    <RouterViewport />
+                    <Toaster />
+                    <CommandPalette />
+                    <DialogHandler />
+                    <UpdateHandler />
+                  </CommandPaletteProvider>
+                </TabProvider>
+              </KubeContextProvider>
+            </DialogProvider>
+          </ColorSchemeProvider>
+        </GlobalShortcutProvider>
       </SettingsContextProvider>
     </Suspense>
   </AppLayout>

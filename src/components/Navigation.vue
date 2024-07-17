@@ -6,6 +6,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Kubernetes } from "@/services/Kubernetes";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+import { GlobalShortcutRegisterShortcutsKey } from "@/providers/GlobalShortcutProvider";
 import { injectStrict } from "@/lib/utils";
 import { V1APIResource } from "@kubernetes/client-node";
 import pluralize from "pluralize";
@@ -22,6 +24,8 @@ const {
   namespace,
   authenticated: clusterAuthenticated,
 } = injectStrict(KubeContextStateKey);
+const { settings } = injectStrict(SettingsContextStateKey);
+const refreshShortcuts = injectStrict(GlobalShortcutRegisterShortcutsKey);
 
 interface NavigationGroup {
   title: string;
@@ -74,6 +78,12 @@ const navigationGroups: NavigationGroup[] = [
 ];
 
 const clusterResources = ref<Map<string, V1APIResource[]>>(new Map());
+
+const getResourceByName = (resource: string) => {
+  return Array.from(clusterResources.value.values())
+    .flat()
+    .find((r) => r.name === resource);
+};
 
 const getCoreResourcesForGroup = (group: NavigationGroup) => {
   return Array.from(clusterResources.value.values())
@@ -197,6 +207,22 @@ const quit = () => {
   exit(0);
 };
 
+const isPinned = (resource: string) => {
+  return settings.value.pinnedResources.some((r) => r.name === resource);
+};
+
+const pinResource = async (resource: { name: string; kind: string }) => {
+  settings.value.pinnedResources.push(resource);
+  refreshShortcuts();
+};
+
+const unpinResource = (resource: { name: string; kind: string }) => {
+  settings.value.pinnedResources = settings.value.pinnedResources.filter(
+    (r) => r.name !== resource.name
+  );
+  refreshShortcuts();
+};
+
 onMounted(() => {
   fetchResources();
 
@@ -232,43 +258,82 @@ watch([context, namespace, clusterAuthenticated], () => {
       <ContextSwitcher :class="{ 'mt-[30px]': targetPlatform !== 'win32' }" />
       <div class="flex w-full flex-grow flex-shrink overflow-hidden">
         <ScrollArea class="w-full mt-0 mb-0">
+          <div><!-- Empty div to fix width and truncation --></div>
+          <NavigationGroup
+            v-if="settings.pinnedResources.length > 0"
+            title="Pinned"
+          >
+            <template v-for="(resource, index) in settings.pinnedResources">
+              <NavigationItem
+                v-if="getResourceByName(resource.name)"
+                :key="resource.name"
+                :icon="formatResourceKind(resource.kind).toLowerCase()"
+                :pinned="true"
+                :title="formatResourceKind(resource.kind)"
+                :shortcut="index > 8 ? undefined : index + 1"
+                :to="{
+                  path: `/${resource.name}`,
+                  query: { resource: resource.name },
+                }"
+                @unpinned="unpinResource(resource)"
+              />
+            </template>
+          </NavigationGroup>
           <NavigationGroup
             v-for="group in navigationGroups"
             :key="group.title"
             :title="group.title"
           >
-            <NavigationItem
-              :icon="formatResourceKind(resource.kind).toLowerCase()"
-              :title="formatResourceKind(resource.kind)"
+            <template
               v-for="resource in getCoreResourcesForGroup(group)"
               :key="resource.name"
-              :to="{
-                path: `/${resource.name}`,
-                query: { resource: resource.name },
-              }"
-            />
-            <NavigationItem
-              :icon="formatResourceKind(resource.kind).toLowerCase()"
-              :title="formatResourceKind(resource.kind)"
+            >
+              <NavigationItem
+                v-if="!isPinned(resource.name)"
+                :icon="formatResourceKind(resource.kind).toLowerCase()"
+                :title="formatResourceKind(resource.kind)"
+                :to="{
+                  path: `/${resource.name}`,
+                  query: { resource: resource.name },
+                }"
+                @pinned="pinResource(resource)"
+                @unpinned="unpinResource(resource)"
+              />
+            </template>
+            <template
               v-for="resource in getApiResourcesForGroup(group)"
               :key="resource.name"
-              :to="{
-                path: `/${resource.name}`,
-                query: { resource: resource.name },
-              }"
-            />
+            >
+              <NavigationItem
+                v-if="!isPinned(resource.name)"
+                :icon="formatResourceKind(resource.kind).toLowerCase()"
+                :title="formatResourceKind(resource.kind)"
+                :to="{
+                  path: `/${resource.name}`,
+                  query: { resource: resource.name },
+                }"
+                @pinned="pinResource(resource)"
+                @unpinned="unpinResource(resource)"
+              />
+            </template>
           </NavigationGroup>
           <NavigationGroup title="Other">
-            <NavigationItem
-              :icon="formatResourceKind(resource.kind).toLowerCase()"
-              :title="formatResourceKind(resource.kind)"
+            <template
               v-for="resource in getOtherResources()"
               :key="resource.name"
-              :to="{
-                path: `/${resource.name}`,
-                query: { resource: resource.kind },
-              }"
-            />
+            >
+              <NavigationItem
+                v-if="!isPinned(resource.name)"
+                :icon="formatResourceKind(resource.kind).toLowerCase()"
+                :title="formatResourceKind(resource.kind)"
+                :to="{
+                  path: `/${resource.name}`,
+                  query: { resource: resource.kind },
+                }"
+                @pinned="pinResource(resource)"
+                @unpinned="unpinResource(resource)"
+              />
+            </template>
           </NavigationGroup>
         </ScrollArea>
       </div>

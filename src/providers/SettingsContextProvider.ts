@@ -31,6 +31,7 @@ export interface SettingsContextState {
     kubeConfigs: string[];
     contextSettings: ContextSettings[];
     collapsedNavigationGroups: string[];
+    pinnedResources: { name: string; kind: string }[];
     appearance: {
       colorScheme: "auto" | "light" | "dark";
     };
@@ -59,6 +60,7 @@ export default {
         kubeConfigs: [],
         contextSettings: [],
         collapsedNavigationGroups: [],
+        pinnedResources: [],
         appearance: {
           colorScheme: "auto",
         },
