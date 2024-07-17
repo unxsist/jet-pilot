@@ -20,7 +20,7 @@ const showSingleCommand = injectStrict(ShowSingleCommandKey);
 const registerCommand = injectStrict(RegisterCommandStateKey);
 const closeCommandPalette = injectStrict(CloseCommandPaletteKey);
 const rerunLastCommand = injectStrict(RerunLastCommandKey);
-// import authenticated as clusterAuthenticated
+
 const {
   context,
   namespace,
@@ -30,6 +30,10 @@ const setContext = injectStrict(KubeContextSetContextKey);
 const setNamespace = injectStrict(KubeContextSetNamespaceKey);
 const { settings } = injectStrict(SettingsContextStateKey);
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
+
+const needsMarquee = ref(false);
+const marqueeContainer = ref<HTMLDivElement | null>();
+const marqueeText = ref<HTMLDivElement | null>();
 
 onMounted(() => {
   registerCommand({
@@ -191,6 +195,18 @@ onMounted(() => {
       );
     },
   });
+
+  setInterval(() => {
+    if (
+      marqueeContainer.value &&
+      marqueeText.value &&
+      marqueeText.value.offsetWidth > marqueeContainer.value.offsetWidth
+    ) {
+      needsMarquee.value = true;
+    } else {
+      needsMarquee.value = false;
+    }
+  }, 1000);
 });
 </script>
 <template>
@@ -199,9 +215,19 @@ onMounted(() => {
       class="flex flex-col w-full text-xs border rounded-lg p-2 text-left hover:bg-background"
       @click="showSingleCommand('switch-context')"
     >
-      <span class="uppercase font-bold mb-1">{{
-        context || "No context"
-      }}</span>
+      <div
+        ref="marqueeContainer"
+        class="overflow-hidden whitespace-nowrap uppercase font-bold mb-1 w-full"
+        :title="context"
+      >
+        <div
+          ref="marqueeText"
+          class="inline-block"
+          :class="{ marquee: needsMarquee }"
+        >
+          {{ context || "No context" }}
+        </div>
+      </div>
       <span v-if="context">{{
         namespace == "" ? "All namespaces" : namespace
       }}</span>
@@ -209,3 +235,42 @@ onMounted(() => {
     </button>
   </div>
 </template>
+
+<style scoped>
+.marquee-container {
+  overflow: hidden;
+  white-space: nowrap;
+  /* width: 100%; */
+}
+
+.marquee {
+  display: inline-block;
+  /* transform: translateX(0%);
+  margin-left: 0%; */
+  animation: marquee 30s linear infinite;
+  animation-delay: 0s, 5;
+}
+
+@keyframes marquee {
+  0% {
+    transform: translateX(0%);
+    margin-left: 0%;
+  }
+  25% {
+    transform: translateX(-100%);
+    margin-left: 100%;
+  }
+  50% {
+    transform: translateX(-100%);
+    margin-left: 100%;
+  }
+  75% {
+    transform: translateX(0%);
+    margin-left: 0%;
+  }
+  100% {
+    transform: translateX(0%);
+    margin-left: 0%;
+  }
+}
+</style>
