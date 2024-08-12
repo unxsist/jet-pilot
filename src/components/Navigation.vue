@@ -11,14 +11,14 @@ import { GlobalShortcutRegisterShortcutsKey } from "@/providers/GlobalShortcutPr
 import { injectStrict } from "@/lib/utils";
 import { V1APIResource } from "@kubernetes/client-node";
 import pluralize from "pluralize";
-import { platform as getPlatform } from "@tauri-apps/api/os";
+import { type as getOsType } from "@tauri-apps/api/os";
 import { getCurrent as getWindow } from "@tauri-apps/api/window";
 import { exit } from "@tauri-apps/api/process";
 import CloseIcon from "@/assets/icons/close.svg";
 import FullScreenIcon from "@/assets/icons/full_screen.svg";
 import MinimizeIcon from "@/assets/icons/minimize.svg";
 
-const targetPlatform = ref<string>("");
+const targetOs = ref<string>("");
 const {
   context,
   namespace,
@@ -226,8 +226,8 @@ const unpinResource = (resource: { name: string; kind: string }) => {
 onMounted(() => {
   fetchResources();
 
-  getPlatform().then((platform) => {
-    targetPlatform.value = platform;
+  getOsType().then((os) => {
+    targetOs.value = os;
   });
 });
 
@@ -239,7 +239,7 @@ watch([context, namespace, clusterAuthenticated], () => {
 <template>
   <div class="flex flex-col flex-shrink-0 relative min-w-[200px] max-w-[200px]">
     <div
-      v-if="targetPlatform == 'win32'"
+      v-if="targetOs !== 'Darwin'"
       class="p-2 pb-0 -mb-1 space-x-2"
       data-tauri-drag-region
     >
@@ -255,7 +255,7 @@ watch([context, namespace, clusterAuthenticated], () => {
     </div>
     <div class="absolute w-full h-[40px]" v-else data-tauri-drag-region></div>
     <div class="flex flex-col flex-grow min-h-screen max-h-screen p-2 pr-0">
-      <ContextSwitcher :class="{ 'mt-[30px]': targetPlatform !== 'win32' }" />
+      <ContextSwitcher :class="{ 'mt-[30px]': targetOs === 'Darwin' }" />
       <div class="flex w-full flex-grow flex-shrink overflow-hidden">
         <ScrollArea class="w-full mt-0 mb-0">
           <div><!-- Empty div to fix width and truncation --></div>

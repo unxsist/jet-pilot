@@ -1,0 +1,11 @@
+{
+  "tauri": {
+    "windows": [
+      {
+        "title": "JET Pilot",
+        "decorations": false,
+        "transparent": true
+      }
+    ]
+  }
+}

@@ -12,8 +12,14 @@ struct CheckForUpdatesPayload {}
 
 fn main() { 
     let _ = fix_path_env::fix();
+    
+    let ctx = tauri::generate_context!();
 
-    let metadata = AboutMetadata::new()
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(target_os = "macos")]
+    {
+        let metadata = AboutMetadata::new()
         .authors(vec!["@unxsist".to_string()])
         .website(String::from("https://www.jet-pilot.app"))
         .license(String::from("MIT"));
@@ -45,24 +51,19 @@ fn main() {
         ]),
     );
     let mut menu = Menu::new().add_submenu(submenu);
+    menu = menu.add_submenu(copyPasteMenu);
 
-    #[cfg(target_os = "macos")]
-    {
-        menu = menu.add_submenu(copyPasteMenu);
-    }
-
-    let ctx = tauri::generate_context!();
-    tauri::Builder::default()
-        .menu(menu)
-        .on_menu_event(|event| {
+        builder = builder.menu(menu).on_menu_event(|event| {
             match event.menu_item_id() {
                 "check_for_updates" => {
                     event.window().emit("check_for_updates", CheckForUpdatesPayload {}).unwrap();
                 }
                 _ => {}
-              }
-        })
-        .invoke_handler(tauri::generate_handler![
+            }
+        });
+    }
+
+    builder.invoke_handler(tauri::generate_handler![
             kubernetes::client::set_current_kubeconfig,
             kubernetes::client::list_contexts,
             kubernetes::client::get_context_auth_info,
