@@ -13,11 +13,21 @@ import TabProvider from "./providers/TabProvider";
 import DialogProvider from "./providers/DialogProvider";
 import DialogHandler from "./components/DialogHandler.vue";
 import UpdateHandler from "./components/UpdateHandler.vue";
+import { type as getOsType } from "@tauri-apps/api/os";
+
+const osType = ref('');
+
+onMounted(() => {
+  getOsType().then(os => {
+    osType.value = os;
+  })
+})
 </script>
 
 <template>
   <AppLayout
     class="bg-accent text-sm rounded-lg border border-border overflow-hidden"
+    :class="`os:${osType}`"
   >
     <Suspense>
       <SettingsContextProvider>

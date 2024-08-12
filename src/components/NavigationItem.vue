@@ -19,10 +19,12 @@ const props = withDefaults(
     title: string;
     to: RouteLocationRaw;
     pinned?: boolean;
+    canPin?: boolean;
     shortcut?: number | undefined;
   }>(),
   {
     pinned: false,
+    canPin: true,
     shortcut: undefined,
   }
 );
@@ -67,7 +69,7 @@ onUnmounted(() => {
         </span>
       </span>
     </div>
-    <div class="hidden group-hover/main:block">
+    <div class="hidden group-hover/main:block" v-if="canPin">
       <div
         class="group/pin"
         @click.prevent="$emit(pinned ? 'unpinned' : 'pinned')"
