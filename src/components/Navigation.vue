@@ -337,7 +337,10 @@ watch([context, namespace, clusterAuthenticated], () => {
           </NavigationGroup>
         </ScrollArea>
       </div>
-      <div navigation-settings class="flex-shrink-0 border-t -ml-2 pl-2 pt-2 mb-0">
+      <div
+        navigation-settings
+        class="flex-shrink-0 border-t -ml-2 pl-2 pt-2 mb-0"
+      >
         <NavigationItem
           icon="settings"
           title="Settings"

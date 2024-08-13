@@ -1,6 +1,5 @@
 pub mod client {
     use either::Either;
-    use istio_api_rs::networking::v1beta1::virtual_service::VirtualService;
     use k8s_metrics::v1beta1::PodMetrics;
     use k8s_openapi::api::batch::v1::{CronJob, Job};
     use k8s_openapi::api::networking::v1::Ingress;
@@ -371,21 +370,6 @@ pub mod client {
     }
 
     #[tauri::command]
-    pub async fn list_virtual_services(
-        context: &str,
-        namespace: &str,
-    ) -> Result<Vec<VirtualService>, SerializableKubeError> {
-        let client: Client = client_with_context(context).await?;
-        let virtual_services_api: Api<VirtualService> = Api::namespaced(client, namespace);
-
-        return virtual_services_api
-            .list(&ListParams::default())
-            .await
-            .map(|virtual_services| virtual_services.items)
-            .map_err(|err| SerializableKubeError::from(err));
-    }
-
-    #[tauri::command]
     pub async fn list_ingresses(
         context: &str,
         namespace: &str,
@@ -545,23 +529,6 @@ pub mod client {
             .replace(name, &Default::default(), &object)
             .await
             .map(|service| service.clone())
-            .map_err(|err| SerializableKubeError::from(err));
-    }
-
-    #[tauri::command]
-    pub async fn replace_virtualservice(
-        context: &str,
-        namespace: &str,
-        name: &str,
-        object: VirtualService,
-    ) -> Result<VirtualService, SerializableKubeError> {
-        let client = client_with_context(context).await?;
-        let virtualservice_api: Api<VirtualService> = Api::namespaced(client, namespace);
-
-        return virtualservice_api
-            .replace(name, &Default::default(), &object)
-            .await
-            .map(|virtualservice| virtualservice.clone())
             .map_err(|err| SerializableKubeError::from(err));
     }
 

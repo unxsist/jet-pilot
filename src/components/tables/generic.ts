@@ -1,4 +1,3 @@
-import { V1Pod } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
 import { formatDateTimeDifference } from "@/lib/utils";
 

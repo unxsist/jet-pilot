@@ -6,11 +6,21 @@ import { injectStrict } from "@/lib/utils";
 import { onMounted } from "vue";
 import DataTable from "@/components/ui/VirtualDataTable.vue";
 import DataTableManager from "@/components/ui/DataTableManager.vue";
-import { columns } from "@/components/tables/generic";
+import { ColumnDef } from "@tanstack/vue-table";
+import { columns as defaultGenericColumns } from "@/components/tables/generic";
 
 let process: Child | null = null;
 const route = useRoute();
 const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
+
+const props = withDefaults(
+  defineProps<{
+    columns: ColumnDef<any>[];
+  }>(),
+  {
+    columns: defaultGenericColumns,
+  }
+);
 
 const resourceData = ref<object[]>([]);
 

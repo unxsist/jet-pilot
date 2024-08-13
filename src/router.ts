@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from "vue-router";
+import ColumnDefinitions from "@/components/tables/ColumnDefinitions";
 
 const routes: Array<RouteRecordRaw> = [
   {
@@ -69,7 +70,10 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: "/virtualservices",
     name: "VirtualServices",
-    component: () => import("./views/VirtualServices.vue"),
+    component: () => import("./views/GenericResource.vue"),
+    props: {
+      columns: ColumnDefinitions.VirtualServices,
+    },
   },
   {
     path: "/ingresses",
