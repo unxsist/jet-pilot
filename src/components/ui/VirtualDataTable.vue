@@ -4,6 +4,7 @@ import { UnwrapRef } from "vue";
 import {
   FlexRender,
   getCoreRowModel,
+  getSortedRowModel,
   useVueTable,
   SortingState,
 } from "@tanstack/vue-table";
@@ -71,7 +72,8 @@ const table = useVueTable({
     columnVisibility: props.visibleColumns,
   },
   getCoreRowModel: getCoreRowModel(),
-  manualSorting: true,
+  getSortedRowModel: getSortedRowModel(),
+  manualSorting: false,
   state: {
     get sorting() {
       return sorting.value;

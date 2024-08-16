@@ -12,7 +12,7 @@
   "tauri": {
     "updater": {
       "active": true,
-      "endpoints": ["https://www.jet-pilot.app/latest.json"],
+      "endpoints": ["https://updates.jet-pilot.app/latest.json"],
       "dialog": false,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVDNUVCM0NBRDZFNzFFOEIKUldTTEh1Zld5ck5lWEx6MEdwZXp4cHBReDR6dUtac3pNUm9GbUxvcFhKS28wOTJQL1BqNkFiN2EK"
     },
