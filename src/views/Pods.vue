@@ -50,6 +50,7 @@ const rowActions: RowAction<V1Pod>[] = [
             `${row.metadata?.name}/${container.name}`,
             defineAsyncComponent(() => import("@/views/Shell.vue")),
             {
+              kubeConfig: kubeConfig.value,
               context: context.value,
               namespace: row.metadata?.namespace ?? namespace.value,
               pod: row,
