@@ -8,6 +8,7 @@ import SettingsContextProvider from "./providers/SettingsContextProvider";
 import GlobalShortcutProvider from "./providers/GlobalShortcutProvider";
 import ColorSchemeProvider from "./providers/ColorSchemeProvider";
 import KubeContextProvider from "./providers/KubeContextProvider";
+import PortForwardingProvider from "./providers/PortForwardingProvider";
 import CommandPaletteProvider from "./providers/CommandPaletteProvider";
 import TabProvider from "./providers/TabProvider";
 import DialogProvider from "./providers/DialogProvider";
@@ -15,13 +16,13 @@ import DialogHandler from "./components/DialogHandler.vue";
 import UpdateHandler from "./components/UpdateHandler.vue";
 import { type as getOsType } from "@tauri-apps/api/os";
 
-const osType = ref('');
+const osType = ref("");
 
 onMounted(() => {
-  getOsType().then(os => {
+  getOsType().then((os) => {
     osType.value = os;
-  })
-})
+  });
+});
 </script>
 
 <template>
@@ -35,16 +36,18 @@ onMounted(() => {
           <ColorSchemeProvider>
             <DialogProvider>
               <KubeContextProvider>
-                <TabProvider>
-                  <CommandPaletteProvider>
-                    <Navigation />
-                    <RouterViewport />
-                    <Toaster />
-                    <CommandPalette />
-                    <DialogHandler />
-                    <UpdateHandler />
-                  </CommandPaletteProvider>
-                </TabProvider>
+                <PortForwardingProvider>
+                  <TabProvider>
+                    <CommandPaletteProvider>
+                      <Navigation />
+                      <RouterViewport />
+                      <Toaster />
+                      <CommandPalette />
+                      <DialogHandler />
+                      <UpdateHandler />
+                    </CommandPaletteProvider>
+                  </TabProvider>
+                </PortForwardingProvider>
               </KubeContextProvider>
             </DialogProvider>
           </ColorSchemeProvider>

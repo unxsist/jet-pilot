@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import ContextSwitcher from "./ContextSwitcher.vue";
+import PortForwardingManager from "./PortForwardingManager.vue";
 import NavigationGroup from "./NavigationGroup.vue";
 import NavigationItem from "./NavigationItem.vue";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -256,6 +257,7 @@ watch([context, namespace, clusterAuthenticated], () => {
     <div class="absolute w-full h-[40px]" v-else data-tauri-drag-region></div>
     <div class="flex flex-col flex-grow min-h-screen max-h-screen p-2 pr-0">
       <ContextSwitcher :class="{ 'mt-[30px]': targetOs === 'Darwin' }" />
+      <PortForwardingManager />
       <div class="flex w-full flex-grow flex-shrink overflow-hidden">
         <ScrollArea class="w-full mt-0 mb-0">
           <div><!-- Empty div to fix width and truncation --></div>

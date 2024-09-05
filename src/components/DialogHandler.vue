@@ -24,7 +24,13 @@ const { dialog } = injectStrict(DialogProviderStateKey);
           {{ dialog.message }}
         </AlertDialogDescription>
       </AlertDialogHeader>
-      <AlertDialogFooter v-if="dialog.buttons.length > 0">
+      <component
+        :is="dialog.component"
+        v-if="dialog.component"
+        v-bind="dialog.props"
+        @close-dialog="dialog.close"
+      />
+      <AlertDialogFooter v-if="dialog.buttons && dialog.buttons.length > 0">
         <Button
           v-for="(button, index) in dialog.buttons"
           :key="index"

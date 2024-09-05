@@ -40,6 +40,7 @@
     "vue": "3.4.7",
     "vue-command-palette": "^0.2.3",
     "vue-router": "^4.2.5",
+    "vue3-lottie": "^3.3.1",
     "xterm": "^5.3.0",
     "xterm-addon-fit": "^0.8.0",
     "zod": "^3.22.4"

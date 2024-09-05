@@ -53,6 +53,25 @@ const rowActions: RowAction<V1Deployment>[] = [
     },
   },
   {
+    label: "Port Forward",
+    handler: (row) => {
+      spawnDialog({
+        title: "Port Forward",
+        message: "Forward ports from the pod to your local machine",
+        component: defineAsyncComponent(
+          () => import("@/views/dialogs/PortForward.vue")
+        ),
+        props: {
+          context: context.value,
+          namespace: row.metadata?.namespace ?? namespace.value,
+          kubeConfig: kubeConfig.value,
+          object: row,
+        },
+        buttons: [],
+      });
+    },
+  },
+  {
     label: "Restart",
     handler: (row) => {
       const dialog: BaseDialogInterface = {

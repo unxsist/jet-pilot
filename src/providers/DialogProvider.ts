@@ -1,4 +1,4 @@
-import { ToRefs } from "vue";
+import { Component, ToRefs } from "vue";
 import { buttonVariants } from "@/components/ui/button";
 
 export const DialogProviderStateKey: InjectionKey<ToRefs<DialogProviderState>> =
@@ -17,7 +17,9 @@ export interface DialogButtonInterface {
 export interface BaseDialogInterface {
   title: string;
   message: string;
-  buttons: DialogButtonInterface[];
+  component?: any;
+  props?: any;
+  buttons?: DialogButtonInterface[];
 }
 
 export interface DialogInterface extends BaseDialogInterface {
