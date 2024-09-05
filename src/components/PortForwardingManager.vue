@@ -34,7 +34,7 @@ const openInBrowser = (portForwarding: ActivePortForwarding) => {
     <Dialog>
       <DialogTrigger as-child>
         <button
-          class="relative overflow-hidden flex justify-center flex-col w-full text-xs bg-orange-500 rounded-lg p-2 text-left hover:bg-orange-600"
+          class="text-foreground relative overflow-hidden flex justify-center flex-col w-full text-xs bg-orange-500 rounded-lg p-2 text-left hover:bg-orange-600"
         >
           <span
             >{{ activePortForwardings.length }} Active Port Forwarding{{

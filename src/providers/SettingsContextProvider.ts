@@ -37,6 +37,7 @@ export interface SettingsContextState {
     };
     updates: {
       checkOnStartup: boolean;
+      whatsNew: string | null;
     };
   };
 }
@@ -66,6 +67,7 @@ export default {
         },
         updates: {
           checkOnStartup: true,
+          whatsNew: null,
         },
       },
     });

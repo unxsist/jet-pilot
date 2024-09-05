@@ -14,6 +14,7 @@ import TabProvider from "./providers/TabProvider";
 import DialogProvider from "./providers/DialogProvider";
 import DialogHandler from "./components/DialogHandler.vue";
 import UpdateHandler from "./components/UpdateHandler.vue";
+import WhatsNew from "./components/WhatsNew.vue";
 import { type as getOsType } from "@tauri-apps/api/os";
 
 const osType = ref("");
@@ -45,6 +46,7 @@ onMounted(() => {
                       <CommandPalette />
                       <DialogHandler />
                       <UpdateHandler />
+                      <WhatsNew />
                     </CommandPaletteProvider>
                   </TabProvider>
                 </PortForwardingProvider>
