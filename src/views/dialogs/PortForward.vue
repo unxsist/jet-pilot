@@ -61,7 +61,10 @@ const containersWithPorts = computed(() => {
       .map((container) => {
         return {
           name: props.object.metadata?.name,
-          ports: container.ports?.map((port) => port.containerPort) ?? [],
+          ports:
+            container.ports
+              ?.filter((port) => port.protocol === "TCP")
+              .map((port) => port.containerPort) ?? [],
         };
       });
   }
@@ -72,7 +75,10 @@ const containersWithPorts = computed(() => {
       .map((container) => {
         return {
           name: props.object.metadata?.name,
-          ports: container.ports?.map((port) => port.containerPort) ?? [],
+          ports:
+            container.ports
+              ?.filter((port) => port.protocol === "TCP")
+              .map((port) => port.containerPort) ?? [],
         };
       });
   }
@@ -81,7 +87,10 @@ const containersWithPorts = computed(() => {
     return [
       {
         name: props.object.metadata?.name,
-        ports: props.object.spec?.ports?.map((port) => port.port) ?? [],
+        ports:
+          props.object.spec?.ports
+            ?.filter((port) => port.protocol === "TCP")
+            .map((port) => port.port) ?? [],
       },
     ];
   }
