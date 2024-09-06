@@ -30,7 +30,7 @@ watch(colorMode, (value) => {
 
 const props = defineProps<{
   context: string;
-  namespace: string;
+  namespace?: string;
   kubeConfig: string;
   type: string;
   name: string;
@@ -61,18 +61,22 @@ const handleCloseEvent = (e: Event) => {
 };
 
 onMounted(() => {
-  const command = new Command("kubectl", [
+  const args = [
     "get",
     `${props.type}/${props.name}`,
     "--context",
     props.context,
-    "--namespace",
-    props.namespace,
     "-o",
     "yaml",
     "--kubeconfig",
     props.kubeConfig,
-  ]);
+  ];
+
+  if (props.namespace) {
+    args.push("--namespace", props.namespace);
+  }
+
+  const command = new Command("kubectl", args);
 
   let stdOutData = "";
   command.stdout.on("data", (data) => {

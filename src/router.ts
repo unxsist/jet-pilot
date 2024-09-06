@@ -30,6 +30,14 @@ const routes: Array<RouteRecordRaw> = [
     ],
   },
   {
+    path: "/nodes",
+    name: "Nodes",
+    component: () => import("./views/GenericResource.vue"),
+    props: {
+      columns: ColumnDefinitions.Nodes,
+    },
+  },
+  {
     path: "/pods",
     name: "Pods",
     component: () => import("./views/Pods.vue"),

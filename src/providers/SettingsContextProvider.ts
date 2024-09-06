@@ -95,14 +95,12 @@ export default {
     }
 
     watch(state, (newState) => {
-      console.log("Settings changed...", newState);
       save();
     });
 
     if (state.settings.kubeConfigs.length === 0) {
       const home = await homeDir();
       state.settings.kubeConfigs.push(`${home}.kube/config`);
-      console.log("Kube configs", state.settings.kubeConfigs);
     }
   },
   render(): any {

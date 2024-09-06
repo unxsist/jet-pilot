@@ -36,6 +36,11 @@ interface NavigationGroup {
 
 const navigationGroups: NavigationGroup[] = [
   {
+    title: "Cluster",
+    coreResourceKinds: ["Namespace", "Node", "CustomResourceDefinition"],
+    apiGroupResources: [],
+  },
+  {
     title: "Workloads",
     coreResourceKinds: ["Pod"],
     apiGroupResources: ["apps", "batch"],
@@ -281,44 +286,48 @@ watch([context, namespace, clusterAuthenticated], () => {
               />
             </template>
           </NavigationGroup>
-          <NavigationGroup
-            v-for="group in navigationGroups"
-            :key="group.title"
-            :title="group.title"
-          >
-            <template
-              v-for="resource in getCoreResourcesForGroup(group)"
-              :key="resource.name"
+          <template v-for="group in navigationGroups" :key="group.title">
+            <NavigationGroup
+              :title="group.title"
+              v-if="
+                getCoreResourcesForGroup(group).length > 0 ||
+                getApiResourcesForGroup(group).length > 0
+              "
             >
-              <NavigationItem
-                v-if="!isPinned(resource.name)"
-                :icon="formatResourceKind(resource.kind).toLowerCase()"
-                :title="formatResourceKind(resource.kind)"
-                :to="{
-                  path: `/${resource.name}`,
-                  query: { resource: resource.name },
-                }"
-                @pinned="pinResource(resource)"
-                @unpinned="unpinResource(resource)"
-              />
-            </template>
-            <template
-              v-for="resource in getApiResourcesForGroup(group)"
-              :key="resource.name"
-            >
-              <NavigationItem
-                v-if="!isPinned(resource.name)"
-                :icon="formatResourceKind(resource.kind).toLowerCase()"
-                :title="formatResourceKind(resource.kind)"
-                :to="{
-                  path: `/${resource.name}`,
-                  query: { resource: resource.name },
-                }"
-                @pinned="pinResource(resource)"
-                @unpinned="unpinResource(resource)"
-              />
-            </template>
-          </NavigationGroup>
+              <template
+                v-for="resource in getCoreResourcesForGroup(group)"
+                :key="resource.name"
+              >
+                <NavigationItem
+                  v-if="!isPinned(resource.name)"
+                  :icon="formatResourceKind(resource.kind).toLowerCase()"
+                  :title="formatResourceKind(resource.kind)"
+                  :to="{
+                    path: `/${resource.name}`,
+                    query: { resource: resource.name },
+                  }"
+                  @pinned="pinResource(resource)"
+                  @unpinned="unpinResource(resource)"
+                />
+              </template>
+              <template
+                v-for="resource in getApiResourcesForGroup(group)"
+                :key="resource.name"
+              >
+                <NavigationItem
+                  v-if="!isPinned(resource.name)"
+                  :icon="formatResourceKind(resource.kind).toLowerCase()"
+                  :title="formatResourceKind(resource.kind)"
+                  :to="{
+                    path: `/${resource.name}`,
+                    query: { resource: resource.name },
+                  }"
+                  @pinned="pinResource(resource)"
+                  @unpinned="unpinResource(resource)"
+                />
+              </template>
+            </NavigationGroup>
+          </template>
           <NavigationGroup title="Other">
             <template
               v-for="resource in getOtherResources()"

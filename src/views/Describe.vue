@@ -4,7 +4,7 @@ import { Command } from "@tauri-apps/api/shell";
 
 const props = defineProps<{
   context: string;
-  namespace: string;
+  namespace?: string;
   kubeConfig: string;
   type: string;
   name: string;
@@ -13,16 +13,20 @@ const props = defineProps<{
 const describeContents = ref<string>("");
 
 onMounted(() => {
-  const command = new Command("kubectl", [
+  const args = [
     "describe",
     `${props.type}/${props.name}`,
     "--context",
     props.context,
-    "--namespace",
-    props.namespace,
     "--kubeconfig",
     props.kubeConfig,
-  ]);
+  ];
+
+  if (props.namespace) {
+    args.push("--namespace", props.namespace);
+  }
+
+  const command = new Command("kubectl", args);
 
   let stdOutData = "";
   command.stdout.on("data", (data) => {
