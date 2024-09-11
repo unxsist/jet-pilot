@@ -4,7 +4,7 @@ import { VirtualService } from "@kubernetes-models/istio/networking.istio.io/v1b
 import { KubernetesObject } from "@kubernetes/client-node";
 
 export interface BaseRowAction<T> {
-  label: string;
+  label: string | ((row: T) => string);
 }
 
 export interface WithOptions<T> extends BaseRowAction<T> {

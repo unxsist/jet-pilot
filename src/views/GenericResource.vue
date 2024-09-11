@@ -5,7 +5,6 @@ import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { injectStrict } from "@/lib/utils";
 import { onMounted } from "vue";
 import DataTable from "@/components/ui/VirtualDataTable.vue";
-import DataTableManager from "@/components/ui/DataTableManager.vue";
 import { ColumnDef } from "@tanstack/vue-table";
 import { columns as defaultGenericColumns } from "@/components/tables/generic";
 
@@ -13,9 +12,11 @@ let process: Child | null = null;
 const route = useRoute();
 const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
 
+const actions = ref(null);
+
 const props = withDefaults(
   defineProps<{
-    columns: ColumnDef<any>[];
+    columns?: ColumnDef<any>[];
   }>(),
   {
     columns: defaultGenericColumns,
@@ -31,19 +32,41 @@ const addTab = injectStrict(TabProviderAddTabKey);
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
-const rowActions: RowAction<any>[] = [
-  ...getDefaultActions<any>(
-    addTab,
-    spawnDialog,
-    context.value,
-    kubeConfig.value,
-    true
-  ),
-];
+const rowActions = ref<RowAction<any>[]>([]);
 
-onBeforeRouteUpdate((to, from, next) => {
+const initRowActions = async (resource: string) => {
+  try {
+    actions.value = null;
+    actions.value = await import(`@/actions/${resource}.ts`);
+
+    rowActions.value = [
+      ...getDefaultActions<any>(
+        addTab,
+        spawnDialog,
+        context.value,
+        kubeConfig.value,
+        true
+      ),
+      ...(actions.value
+        ? actions.value.actions(
+            addTab,
+            spawnDialog,
+            context.value,
+            kubeConfig.value
+          )
+        : []),
+    ];
+  } catch (e) {
+    console.log(e);
+  }
+};
+
+onBeforeRouteUpdate(async (to, from, next) => {
   killWatchCommand();
   initiateWatchCommand(to.query.resource as string);
+
+  console.log(to.params.pathMatch);
+  await initRowActions(to.params.pathMatch[0]);
 
   next();
 });
@@ -110,6 +133,7 @@ const killWatchCommand = () => {
 
 onMounted(() => {
   initiateWatchCommand(route.query.resource as string);
+  initRowActions();
 });
 
 onUnmounted(() => {
@@ -117,16 +141,10 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <DataTableManager
-    :default-columns="columns"
+  <DataTable
     :data="resourceData"
-    v-slot="{ availableColumns }"
-  >
-    <DataTable
-      :data="resourceData"
-      :columns="availableColumns"
-      :row-actions="rowActions"
-      :key="resourceData.length"
-    />
-  </DataTableManager>
+    :columns="columns"
+    :row-actions="rowActions"
+    :key="resourceData.length"
+  />
 </template>

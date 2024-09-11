@@ -266,7 +266,11 @@ const after = computed(() => {
               <ContextMenuItem
                 v-if="!rowAction.options"
                 @select="rowAction.handler(state.contextMenuSubject as TData)"
-                >{{ rowAction.label }}</ContextMenuItem
+                >{{
+                  typeof rowAction.label === "function"
+                    ? rowAction.label(state.contextMenuSubject as TData)
+                    : rowAction.label
+                }}</ContextMenuItem
               >
               <ContextMenuSub v-else>
                 <ContextMenuSubTrigger>

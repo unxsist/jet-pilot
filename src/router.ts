@@ -29,14 +29,15 @@ const routes: Array<RouteRecordRaw> = [
       },
     ],
   },
-  {
-    path: "/nodes",
-    name: "Nodes",
-    component: () => import("./views/GenericResource.vue"),
-    props: {
-      columns: ColumnDefinitions.Nodes,
-    },
-  },
+  // {
+  //   path: "/nodes",
+  //   name: "Nodes",
+  //   component: () => import("./views/GenericResource.vue"),
+  //   props: {
+  //     columns: ColumnDefinitions.Nodes,
+  //     actions: (await import("./actions/nodes")).actions,
+  //   },
+  // },
   {
     path: "/pods",
     name: "Pods",

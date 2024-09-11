@@ -17,7 +17,6 @@ export const columns: ColumnDef<V1Node>[] = [
   {
     header: "Roles",
     accessorFn: (row) => {
-      console.log(row.metadata?.labels);
       const roles = Object.keys(row.metadata?.labels || {}).filter((key) =>
         key.startsWith("node-role.kubernetes.io/")
       );
@@ -31,6 +30,10 @@ export const columns: ColumnDef<V1Node>[] = [
   {
     header: "Status",
     accessorFn: (row) => {
+      if (row.spec?.taints?.find((t) => t.effect === "NoSchedule")) {
+        return "SchedulingDisabled";
+      }
+
       return (
         row.status?.conditions?.[row.status?.conditions.length - 1]?.type ||
         "Unknown"
