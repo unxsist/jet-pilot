@@ -61,7 +61,7 @@ onUnmounted(() => {
     <div class="block h-full group-hover/main:hidden">
       <span
         v-if="props.shortcut"
-        class="text-xxs text-[#7a7a7a] whitespace-nowrap"
+        class="text-xxs leading-none text-[#7a7a7a] whitespace-nowrap"
       >
         <span>
           {{ os === "Darwin" ? "⌘" : "Ctrl" }}{{ os === "Windows_NT" ? "+" : ""

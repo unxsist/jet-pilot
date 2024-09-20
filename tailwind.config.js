@@ -86,6 +86,10 @@ module.exports = {
           from: { height: "var(--radix-collapsible-content-height)" },
           to: { height: 0 },
         },
+        "pulse-highlight": {
+          "0%": { backgroundColor: "hsla(var(--primary) / 0%)" },
+          "50%": { backgroundColor: "hsl(var(--primary))" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -93,6 +97,7 @@ module.exports = {
         "collapsible-down": "collapsible-down 0.2s ease-in-out",
         "collapsible-up": "collapsible-up 0.2s ease-in-out",
         "spin-fast": "spin .5s linear infinite",
+        "pulse-highlight-once": "pulse-highlight .5s 2 linear",
       },
     },
   },

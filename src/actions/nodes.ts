@@ -3,10 +3,12 @@ import { RowAction } from "@/components/tables/types";
 import { BaseDialogInterface } from "@/providers/DialogProvider";
 import { Command } from "@tauri-apps/api/shell";
 import { useToast } from "@/components/ui/toast";
+import { Router } from "vue-router";
 
 export function actions<T extends V1Node>(
   addTab: any,
   spawnDialog: any,
+  router: Router,
   context: string,
   kubeConfig: string
 ): RowAction<T>[] {

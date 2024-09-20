@@ -1,9 +1,14 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { differenceInSeconds } from "date-fns";
+import pluralize from "pluralize";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+export function formatResourceKind(kind: string) {
+  return pluralize(kind);
 }
 
 export function injectStrict<T>(key: InjectionKey<T>, fallback?: T) {

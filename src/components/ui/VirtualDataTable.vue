@@ -70,6 +70,12 @@ const table = useVueTable({
   },
   initialState: {
     columnVisibility: props.visibleColumns,
+    sorting: [
+      {
+        id: "Name",
+        desc: true,
+      },
+    ],
   },
   getCoreRowModel: getCoreRowModel(),
   getSortedRowModel: getSortedRowModel(),
@@ -83,6 +89,11 @@ const table = useVueTable({
     sorting.value =
       typeof newSorting === "function" ? newSorting(sorting.value) : newSorting;
     emit("sortingChange", sorting.value);
+  },
+  defaultColumn: {
+    minSize: 0,
+    size: Number.MAX_SAFE_INTEGER,
+    maxSize: Number.MAX_SAFE_INTEGER,
   },
 });
 
@@ -147,10 +158,15 @@ const after = computed(() => {
                 :key="headerGroup.id"
               >
                 <TableHead
-                  v-bind:enable-header-drag-region="true"
                   v-for="header in headerGroup.headers"
                   :key="header.id"
-                  :style="{ width: `${header.getSize()}px` }"
+                  v-bind:enable-header-drag-region="true"
+                  :style="{
+                    width:
+                      header.getSize() === Number.MAX_SAFE_INTEGER
+                        ? 'auto'
+                        : `${header.getSize()}px`,
+                  }"
                   :sticky="stickyHeaders === true"
                   :class="
                     header.column.getCanSort()
@@ -183,9 +199,9 @@ const after = computed(() => {
               <ContextMenuSubTrigger>Columns</ContextMenuSubTrigger>
               <ContextMenuSubContent>
                 <ContextMenuCheckboxItem
-                  :checked="column.getIsVisible()"
                   v-for="column in table.getAllColumns()"
                   :key="column.id"
+                  :checked="column.getIsVisible()"
                   @select="
                     table.setColumnVisibility({
                       [column.id]: !column.getIsVisible(),
@@ -238,6 +254,13 @@ const after = computed(() => {
                       )
                     "
                     class="truncate overflow-hidden"
+                    :columnDef="cell.column.columnDef"
+                    :style="{
+                      maxWidth:
+                        cell.column.getSize() === Number.MAX_SAFE_INTEGER
+                          ? 'auto'
+                          : `${cell.column.columnDef.size}px`,
+                    }"
                   >
                     <FlexRender
                       :render="cell.column.columnDef.cell"

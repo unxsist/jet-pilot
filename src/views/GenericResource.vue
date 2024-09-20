@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useRoute, onBeforeRouteUpdate } from "vue-router";
+import { useRoute, useRouter, onBeforeRouteUpdate } from "vue-router";
 import { Command, Child } from "@tauri-apps/api/shell";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { injectStrict } from "@/lib/utils";
@@ -10,19 +10,10 @@ import { columns as defaultGenericColumns } from "@/components/tables/generic";
 
 let process: Child | null = null;
 const route = useRoute();
+const router = useRouter();
 const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
 
 const actions = ref(null);
-
-const props = withDefaults(
-  defineProps<{
-    columns?: ColumnDef<any>[];
-  }>(),
-  {
-    columns: defaultGenericColumns,
-  }
-);
-
 const resourceData = ref<object[]>([]);
 
 import { RowAction, getDefaultActions } from "@/components/tables/types";
@@ -32,13 +23,22 @@ const addTab = injectStrict(TabProviderAddTabKey);
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
+const columns = ref<ColumnDef<any>[]>([]);
 const rowActions = ref<RowAction<any>[]>([]);
+
+const initColumns = async (resource: string) => {
+  try {
+    columns.value = defaultGenericColumns;
+
+    const customColumns = await import(`@/components/tables/${resource}.ts`);
+    columns.value = customColumns.columns;
+  } catch (e) {
+    console.log(e);
+  }
+};
 
 const initRowActions = async (resource: string) => {
   try {
-    actions.value = null;
-    actions.value = await import(`@/actions/${resource}.ts`);
-
     rowActions.value = [
       ...getDefaultActions<any>(
         addTab,
@@ -47,10 +47,18 @@ const initRowActions = async (resource: string) => {
         kubeConfig.value,
         true
       ),
+    ];
+
+    actions.value = null;
+    actions.value = await import(`@/actions/${resource}.ts`);
+
+    rowActions.value = [
+      ...rowActions.value,
       ...(actions.value
         ? actions.value.actions(
             addTab,
             spawnDialog,
+            router,
             context.value,
             kubeConfig.value
           )
@@ -61,12 +69,22 @@ const initRowActions = async (resource: string) => {
   }
 };
 
+const rowClasses = (row: any) => {
+  if (route.query.uid) {
+    return row.metadata.uid === route.query.uid
+      ? "animate-pulse-highlight-once"
+      : "";
+  }
+
+  return "";
+};
+
 onBeforeRouteUpdate(async (to, from, next) => {
   killWatchCommand();
   initiateWatchCommand(to.query.resource as string);
 
-  console.log(to.params.pathMatch);
-  await initRowActions(to.params.pathMatch[0]);
+  await initColumns(to.query.resource as string);
+  await initRowActions(to.query.resource as string);
 
   next();
 });
@@ -132,8 +150,10 @@ const killWatchCommand = () => {
 };
 
 onMounted(() => {
+  console.log(route.query.resource);
   initiateWatchCommand(route.query.resource as string);
-  initRowActions();
+  initColumns(route.query.resource as string);
+  initRowActions(route.query.resource as string);
 });
 
 onUnmounted(() => {
@@ -142,9 +162,10 @@ onUnmounted(() => {
 </script>
 <template>
   <DataTable
+    :key="`${route.query.resource}-${resourceData.length}`"
     :data="resourceData"
     :columns="columns"
     :row-actions="rowActions"
-    :key="resourceData.length"
+    :row-classes="rowClasses"
   />
 </template>

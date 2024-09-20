@@ -11,13 +11,13 @@ import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { GlobalShortcutRegisterShortcutsKey } from "@/providers/GlobalShortcutProvider";
 import { injectStrict } from "@/lib/utils";
 import { V1APIResource } from "@kubernetes/client-node";
-import pluralize from "pluralize";
 import { type as getOsType } from "@tauri-apps/api/os";
 import { getCurrent as getWindow } from "@tauri-apps/api/window";
 import { exit } from "@tauri-apps/api/process";
 import CloseIcon from "@/assets/icons/close.svg";
 import FullScreenIcon from "@/assets/icons/full_screen.svg";
 import MinimizeIcon from "@/assets/icons/minimize.svg";
+import { formatResourceKind } from "@/lib/utils";
 
 const targetOs = ref<string>("");
 const {
@@ -37,7 +37,12 @@ interface NavigationGroup {
 const navigationGroups: NavigationGroup[] = [
   {
     title: "Cluster",
-    coreResourceKinds: ["Namespace", "Node", "CustomResourceDefinition"],
+    coreResourceKinds: [
+      "Event",
+      "Namespace",
+      "Node",
+      "CustomResourceDefinition",
+    ],
     apiGroupResources: [],
   },
   {
@@ -95,7 +100,14 @@ const getCoreResourcesForGroup = (group: NavigationGroup) => {
   return Array.from(clusterResources.value.values())
     .flat()
     .filter((resource) => group.coreResourceKinds.includes(resource.kind))
-    .filter((resource) => !resource.name.includes("/"));
+    .filter((resource) => !resource.name.includes("/"))
+    .filter(
+      (resource, index, self) =>
+        index ===
+        self.findIndex(
+          (t) => t.kind === resource.kind && t.name === resource.name
+        )
+    );
 };
 
 const getApiResourcesForGroup = (group: NavigationGroup) => {
@@ -136,10 +148,6 @@ const getOtherResources = () => {
           (t) => t.kind === resource.kind && t.name === resource.name
         )
     );
-};
-
-const formatResourceKind = (kind: string) => {
-  return pluralize(kind);
 };
 
 const filterNamespaced = (resource: V1APIResource) => {
@@ -279,8 +287,10 @@ watch([context, namespace, clusterAuthenticated], () => {
                 :title="formatResourceKind(resource.kind)"
                 :shortcut="index > 8 ? undefined : index + 1"
                 :to="{
-                  path: `/${resource.name}`,
-                  query: { resource: resource.name },
+                  path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
+                  query: {
+                    resource: formatResourceKind(resource.kind).toLowerCase(),
+                  },
                 }"
                 @unpinned="unpinResource(resource)"
               />
@@ -303,8 +313,10 @@ watch([context, namespace, clusterAuthenticated], () => {
                   :icon="formatResourceKind(resource.kind).toLowerCase()"
                   :title="formatResourceKind(resource.kind)"
                   :to="{
-                    path: `/${resource.name}`,
-                    query: { resource: resource.name },
+                    path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
+                    query: {
+                      resource: formatResourceKind(resource.kind).toLowerCase(),
+                    },
                   }"
                   @pinned="pinResource(resource)"
                   @unpinned="unpinResource(resource)"
@@ -319,8 +331,10 @@ watch([context, namespace, clusterAuthenticated], () => {
                   :icon="formatResourceKind(resource.kind).toLowerCase()"
                   :title="formatResourceKind(resource.kind)"
                   :to="{
-                    path: `/${resource.name}`,
-                    query: { resource: resource.name },
+                    path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
+                    query: {
+                      resource: formatResourceKind(resource.kind).toLowerCase(),
+                    },
                   }"
                   @pinned="pinResource(resource)"
                   @unpinned="unpinResource(resource)"
@@ -338,8 +352,10 @@ watch([context, namespace, clusterAuthenticated], () => {
                 :icon="formatResourceKind(resource.kind).toLowerCase()"
                 :title="formatResourceKind(resource.kind)"
                 :to="{
-                  path: `/${resource.name}`,
-                  query: { resource: resource.kind },
+                  path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
+                  query: {
+                    resource: formatResourceKind(resource.kind).toLowerCase(),
+                  },
                 }"
                 @pinned="pinResource(resource)"
                 @unpinned="unpinResource(resource)"
