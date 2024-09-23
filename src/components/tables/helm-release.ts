@@ -50,5 +50,11 @@ export const columns: ColumnDef<any>[] = [
         parseJSON(row.updated) || new Date(),
         new Date()
       ),
+    sortingFn: (a, b) => {
+      return (
+        parseJSON(a.original.updated).getTime() -
+        parseJSON(b.original.updated).getTime()
+      );
+    },
   },
 ];
