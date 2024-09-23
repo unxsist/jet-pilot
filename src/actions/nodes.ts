@@ -59,7 +59,6 @@ export function actions<T extends V1Node>(
         spawnDialog(dialog);
       },
     },
-    // drain node
     {
       label: "Drain",
       handler: (row: T) => {

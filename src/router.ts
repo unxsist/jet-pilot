@@ -86,6 +86,11 @@ const routes: Array<RouteRecordRaw> = [
     component: () => import("./views/PersistentVolumeClaims.vue"),
   },
   {
+    path: "/helm-:pathMatch(.*)*",
+    name: "HelmCharts",
+    component: () => import("./views/HelmResource.vue"),
+  },
+  {
     path: "/:pathMatch(.*)*",
     name: "GenericResource",
     component: () => import("./views/GenericResource.vue"),

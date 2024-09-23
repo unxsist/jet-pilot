@@ -41,6 +41,11 @@
             "name": "aws",
             "cmd": "aws",
             "args": true
+          },
+          {
+            "name": "helm",
+            "cmd": "helm",
+            "args": true
           }
         ]
       }

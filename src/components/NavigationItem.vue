@@ -21,11 +21,13 @@ const props = withDefaults(
     pinned?: boolean;
     canPin?: boolean;
     shortcut?: number | undefined;
+    customCommandTitle?: string;
   }>(),
   {
     pinned: false,
     canPin: true,
     shortcut: undefined,
+    customCommandTitle: undefined,
   }
 );
 
@@ -35,8 +37,11 @@ const unregisterCommand = injectStrict(UnregisterCommandStateKey);
 const commandId = crypto.randomUUID();
 registerCommand({
   id: commandId,
-  name: props.title,
-  description: "Navigate to " + props.title,
+  name: props.customCommandTitle ? props.customCommandTitle : props.title,
+  description:
+    "Navigate to " + props.customCommandTitle
+      ? props.customCommandTitle
+      : props.title,
   execute: () => {
     router.push(props.to);
   },

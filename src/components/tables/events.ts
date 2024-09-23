@@ -1,5 +1,7 @@
 import { ColumnDef } from "@tanstack/vue-table";
 import { formatDateTimeDifference } from "@/lib/utils";
+import { RouterLink } from "vue-router";
+import { formatResourceKind } from "@/lib/utils";
 
 export const columns: ColumnDef<any>[] = [
   {
@@ -17,9 +19,27 @@ export const columns: ColumnDef<any>[] = [
   },
   {
     header: "Object",
-    accessorFn: (row) => {
-      const obj = row.involvedObject;
-      return `${obj.kind}/${obj.name}`;
+    cell: ({ row }) => {
+      return h(
+        RouterLink,
+        {
+          class: "text-primary",
+          to: {
+            path: `/${formatResourceKind(
+              row.original.involvedObject.kind as string
+            ).toLowerCase()}`,
+            query: {
+              resource: formatResourceKind(
+                row.original.involvedObject.kind as string
+              ),
+              uid: row.original.involvedObject.uid,
+            },
+          },
+        },
+        [
+          `${row.original.involvedObject.kind}/${row.original.involvedObject.name}`,
+        ]
+      );
     },
   },
   {

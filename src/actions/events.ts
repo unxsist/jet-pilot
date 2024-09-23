@@ -14,7 +14,6 @@ export function actions<T extends CoreV1Event>(
     {
       label: "Go to object",
       handler: (row: T) => {
-        console.log(router);
         router.push({
           path: `/${formatResourceKind(
             row.involvedObject.kind as string

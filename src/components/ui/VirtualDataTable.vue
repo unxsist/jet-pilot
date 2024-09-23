@@ -286,28 +286,34 @@ const after = computed(() => {
           </ContextMenuTrigger>
           <ContextMenuContent v-if="rowActions && rowActions?.length > 0">
             <template v-for="(rowAction, index) in rowActions" :key="index">
-              <ContextMenuItem
-                v-if="!rowAction.options"
-                @select="rowAction.handler(state.contextMenuSubject as TData)"
-                >{{
-                  typeof rowAction.label === "function"
-                    ? rowAction.label(state.contextMenuSubject as TData)
-                    : rowAction.label
-                }}</ContextMenuItem
-              >
-              <ContextMenuSub v-else>
-                <ContextMenuSubTrigger>
-                  {{ rowAction.label }}
-                </ContextMenuSubTrigger>
-                <ContextMenuSubContent>
-                  <ContextMenuItem
-                    v-for="(option, optionIndex) in rowAction.options(state.contextMenuSubject as TData)"
-                    :key="optionIndex"
-                    @select="option.handler(state.contextMenuSubject as TData)"
-                    >{{ option.label }}</ContextMenuItem
-                  >
-                </ContextMenuSubContent>
-              </ContextMenuSub>
+              <template v-if="!rowAction.options">
+                <ContextMenuItem
+                  v-if="rowAction.isAvailable ? rowAction.isAvailable(state.contextMenuSubject as TData) : true"
+                  @select="rowAction.handler(state.contextMenuSubject as TData)"
+                  >{{
+                    typeof rowAction.label === "function"
+                      ? rowAction.label(state.contextMenuSubject as TData)
+                      : rowAction.label
+                  }}</ContextMenuItem
+                >
+              </template>
+              <template v-else>
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>
+                    {{ rowAction.label }}
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent>
+                    <ContextMenuItem
+                      v-for="(option, optionIndex) in rowAction.options(state.contextMenuSubject as TData)"
+                      :key="optionIndex"
+                      @select="
+                        option.handler(state.contextMenuSubject as TData)
+                      "
+                      >{{ option.label }}</ContextMenuItem
+                    >
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+              </template>
             </template>
           </ContextMenuContent>
         </ContextMenu>

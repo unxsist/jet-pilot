@@ -8,13 +8,13 @@ import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { ColumnDef } from "@tanstack/vue-table";
 import { columns as defaultGenericColumns } from "@/components/tables/generic";
 
-let process: Child | null = null;
 const route = useRoute();
 const router = useRouter();
 const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
 
 const actions = ref(null);
 const resourceData = ref<object[]>([]);
+const refreshIntervalRef = ref<NodeJS.Timer | null>(null);
 
 import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { TabProviderAddTabKey } from "@/providers/TabProvider";
@@ -30,7 +30,9 @@ const initColumns = async (resource: string) => {
   try {
     columns.value = defaultGenericColumns;
 
-    const customColumns = await import(`@/components/tables/${resource}.ts`);
+    const customColumns = await import(
+      `@/components/tables/helm-${resource}.ts`
+    );
     columns.value = customColumns.columns;
   } catch (e) {
     console.log(e);
@@ -39,18 +41,10 @@ const initColumns = async (resource: string) => {
 
 const initRowActions = async (resource: string) => {
   try {
-    rowActions.value = [
-      ...getDefaultActions<any>(
-        addTab,
-        spawnDialog,
-        context.value,
-        kubeConfig.value,
-        true
-      ),
-    ];
+    rowActions.value = [];
 
     actions.value = null;
-    actions.value = await import(`@/actions/${resource}.ts`);
+    actions.value = await import(`@/actions/helm-${resource}.ts`);
 
     rowActions.value = [
       ...rowActions.value,
@@ -80,83 +74,80 @@ const rowClasses = (row: any) => {
 };
 
 onBeforeRouteUpdate(async (to, from, next) => {
-  killWatchCommand();
-  initiateWatchCommand(to.query.resource as string);
+  if (refreshIntervalRef.value) {
+    clearInterval(refreshIntervalRef.value);
+  }
 
+  initiateHelmWatcher(to.query.resource as string);
   await initColumns(to.query.resource as string);
   await initRowActions(to.query.resource as string);
 
   next();
 });
 
-const initiateWatchCommand = (resource: string) => {
+const initiateHelmWatcher = (resource: string) => {
   resourceData.value = [];
 
-  let args = [
-    "get",
-    resource,
-    "--context",
-    context.value,
-    "-w",
-    "--output-watch-events=true",
-    "-o",
-    "json",
-    "--kubeconfig",
-    kubeConfig.value,
-  ];
+  fetchHelmResource(resource);
+  refreshIntervalRef.value = setInterval(async () => {
+    fetchHelmResource(resource);
+  }, 2500);
+};
+
+const fetchHelmResource = (resource: string) => {
+  const args =
+    resource === "release"
+      ? [
+          "list",
+          "--kube-context",
+          context.value,
+          "-o",
+          "json",
+          "--kubeconfig",
+          kubeConfig.value,
+        ]
+      : [
+          "search",
+          "repo",
+          "--kube-context",
+          context.value,
+          "-o",
+          "json",
+          "--kubeconfig",
+          kubeConfig.value,
+        ];
 
   if (namespace.value) {
     args.push("--namespace", namespace.value);
-  } else {
+  } else if (resource === "release") {
     args.push("--all-namespaces");
   }
 
-  const command = new Command("kubectl", args);
+  const command = new Command("helm", args);
   command.stdout.on("data", (data) => {
-    const watchEvent = JSON.parse(data) as {
-      type: string;
-      object: any;
-    };
+    const parsedData = JSON.parse(data);
 
-    if (watchEvent.type === "ADDED") {
-      resourceData.value.push(watchEvent.object);
-    } else if (watchEvent.type === "DELETED") {
-      resourceData.value = resourceData.value.filter(
-        (item: any) => item.metadata.uid !== watchEvent.object.metadata.uid
-      );
-    } else if (watchEvent.type === "MODIFIED") {
-      resourceData.value = resourceData.value.map((item: any) =>
-        item.metadata.uid === watchEvent.object.metadata.uid
-          ? watchEvent.object
-          : item
-      );
-    }
+    resourceData.value = parsedData;
   });
 
   command.stderr.on("data", (data) => {
-    console.log(data);
+    console.error(data);
   });
 
-  command.spawn().then((child) => {
-    process = child;
-  });
-};
-
-const killWatchCommand = () => {
-  if (process) {
-    process.kill();
-    process = null;
-  }
+  command.spawn();
 };
 
 onMounted(() => {
-  initiateWatchCommand(route.query.resource as string);
   initColumns(route.query.resource as string);
   initRowActions(route.query.resource as string);
+
+  initiateHelmWatcher(route.query.resource as string);
 });
 
 onUnmounted(() => {
-  killWatchCommand();
+  if (refreshIntervalRef.value) {
+    clearInterval(refreshIntervalRef.value);
+  }
 });
 </script>
 <template>

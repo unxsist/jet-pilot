@@ -19,6 +19,10 @@ export function injectStrict<T>(key: InjectionKey<T>, fallback?: T) {
   return resolved;
 }
 
+export function formatDateTime(date: Date) {
+  return date.toLocaleString();
+}
+
 export function formatDateTimeDifference(startDate: Date, endDate: Date) {
   let remainingSeconds = differenceInSeconds(endDate, startDate);
 

@@ -342,6 +342,22 @@ watch([context, namespace, clusterAuthenticated], () => {
               </template>
             </NavigationGroup>
           </template>
+          <NavigationGroup title="Helm">
+            <NavigationItem
+              icon="helm"
+              title="Charts"
+              custom-command-title="Helm Charts"
+              :to="{ path: '/helm-charts', query: { resource: 'chart' } }"
+              :can-pin="false"
+            />
+            <NavigationItem
+              icon="helm"
+              title="Releases"
+              custom-command-title="Helm Releases"
+              :to="{ path: '/helm-releases', query: { resource: 'release' } }"
+              :can-pin="false"
+            />
+          </NavigationGroup>
           <NavigationGroup title="Other">
             <template
               v-for="resource in getOtherResources()"
