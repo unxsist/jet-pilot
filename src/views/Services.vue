@@ -50,6 +50,18 @@ const rowActions: RowAction<V1Service>[] = [
   },
 ];
 
+import { useRoute } from "vue-router";
+const route = useRoute();
+const rowClasses = (row: any) => {
+  if (route.query.uid) {
+    return row.metadata.uid === route.query.uid
+      ? "animate-pulse-highlight-once"
+      : "";
+  }
+
+  return "";
+};
+
 async function getServices(refresh: boolean = false) {
   if (!refresh) {
     services.value = [];
@@ -84,5 +96,10 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(
 );
 </script>
 <template>
-  <DataTable :data="services" :columns="columns" :row-actions="rowActions" />
+  <DataTable
+    :data="services"
+    :columns="columns"
+    :row-actions="rowActions"
+    :row-classes="rowClasses"
+  />
 </template>

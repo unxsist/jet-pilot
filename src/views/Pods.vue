@@ -25,6 +25,10 @@ const {
 const addTab = injectStrict(TabProviderAddTabKey);
 
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
+import { useRoute } from "vue-router";
+
+const route = useRoute();
+
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
 const { toast } = useToast();
@@ -219,6 +223,12 @@ async function getPods(refresh: boolean = false) {
 }
 
 const rowClasses = (row: V1Pod) => {
+  if (route.query.uid) {
+    return row.metadata?.uid === route.query.uid
+      ? "animate-pulse-highlight-once"
+      : "";
+  }
+
   if (row.metadata?.deletionTimestamp) {
     return "bg-red-500";
   }

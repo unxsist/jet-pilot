@@ -31,6 +31,18 @@ const rowActions: RowAction<V1ConfigMap>[] = [
   ),
 ];
 
+import { useRoute } from "vue-router";
+const route = useRoute();
+const rowClasses = (row: any) => {
+  if (route.query.uid) {
+    return row.metadata.uid === route.query.uid
+      ? "animate-pulse-highlight-once"
+      : "";
+  }
+
+  return "";
+};
+
 async function getConfigMaps(refresh: boolean = false) {
   if (!refresh) {
     configmaps.value = [];
@@ -66,5 +78,10 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(
 </script>
 x
 <template>
-  <DataTable :data="configmaps" :columns="columns" :row-actions="rowActions" />
+  <DataTable
+    :data="configmaps"
+    :columns="columns"
+    :row-actions="rowActions"
+    :row-classes="rowClasses"
+  />
 </template>

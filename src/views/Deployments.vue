@@ -113,6 +113,18 @@ const rowActions: RowAction<V1Deployment>[] = [
   },
 ];
 
+import { useRoute } from "vue-router";
+const route = useRoute();
+const rowClasses = (row: any) => {
+  if (route.query.uid) {
+    return row.metadata.uid === route.query.uid
+      ? "animate-pulse-highlight-once"
+      : "";
+  }
+
+  return "";
+};
+
 async function getDeployments(refresh: boolean = false) {
   if (!refresh) {
     deployments.value = [];
@@ -147,5 +159,10 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(
 );
 </script>
 <template>
-  <DataTable :data="deployments" :columns="columns" :row-actions="rowActions" />
+  <DataTable
+    :data="deployments"
+    :columns="columns"
+    :row-actions="rowActions"
+    :row-classes="rowClasses"
+  />
 </template>

@@ -31,6 +31,18 @@ const rowActions: RowAction<V1PersistentVolumeClaim>[] = [
   ),
 ];
 
+import { useRoute } from "vue-router";
+const route = useRoute();
+const rowClasses = (row: any) => {
+  if (route.query.uid) {
+    return row.metadata.uid === route.query.uid
+      ? "animate-pulse-highlight-once"
+      : "";
+  }
+
+  return "";
+};
+
 async function getPersistentVolumeClaims(refresh: boolean = false) {
   if (!refresh) {
     pvcs.value = [];
@@ -66,5 +78,10 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(
 </script>
 x
 <template>
-  <DataTable :data="pvcs" :columns="columns" :row-actions="rowActions" />
+  <DataTable
+    :data="pvcs"
+    :columns="columns"
+    :row-actions="rowActions"
+    :row-classes="rowClasses"
+  />
 </template>

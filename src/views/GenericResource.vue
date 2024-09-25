@@ -25,6 +25,8 @@ const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
 const columns = ref<ColumnDef<any>[]>([]);
 const rowActions = ref<RowAction<any>[]>([]);
+const intervalRef = ref<NodeJS.Timer | null>(null);
+const refreshKey = ref<number>(0);
 
 const initColumns = async (resource: string) => {
   try {
@@ -153,15 +155,25 @@ onMounted(() => {
   initiateWatchCommand(route.query.resource as string);
   initColumns(route.query.resource as string);
   initRowActions(route.query.resource as string);
+
+  intervalRef.value = setInterval(() => {
+    if (refreshKey.value !== resourceData.value.length) {
+      refreshKey.value = resourceData.value.length;
+    }
+  }, 250);
 });
 
 onUnmounted(() => {
   killWatchCommand();
+
+  if (intervalRef.value) {
+    clearInterval(intervalRef.value);
+  }
 });
 </script>
 <template>
   <DataTable
-    :key="`${route.query.resource}-${resourceData.length}`"
+    :key="`${route.query.resource}-${refreshKey}`"
     :data="resourceData"
     :columns="columns"
     :row-actions="rowActions"

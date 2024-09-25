@@ -31,6 +31,18 @@ const rowActions: RowAction<V1Job>[] = [
   ),
 ];
 
+import { useRoute } from "vue-router";
+const route = useRoute();
+const rowClasses = (row: any) => {
+  if (route.query.uid) {
+    return row.metadata.uid === route.query.uid
+      ? "animate-pulse-highlight-once"
+      : "";
+  }
+
+  return "";
+};
+
 async function getJobs(refresh: boolean = false) {
   if (!refresh) {
     jobs.value = [];
@@ -65,5 +77,10 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(getJobs, 1000, [
 </script>
 x
 <template>
-  <DataTable :data="jobs" :columns="columns" :row-actions="rowActions" />
+  <DataTable
+    :data="jobs"
+    :columns="columns"
+    :row-actions="rowActions"
+    :row-classes="rowClasses"
+  />
 </template>

@@ -31,6 +31,18 @@ const rowActions: RowAction<V1Ingress>[] = [
   ),
 ];
 
+import { useRoute } from "vue-router";
+const route = useRoute();
+const rowClasses = (row: any) => {
+  if (route.query.uid) {
+    return row.metadata.uid === route.query.uid
+      ? "animate-pulse-highlight-once"
+      : "";
+  }
+
+  return "";
+};
+
 async function getIngresses(refresh: boolean = false) {
   if (!refresh) {
     ingresses.value = [];
@@ -65,5 +77,10 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(
 );
 </script>
 <template>
-  <DataTable :data="ingresses" :columns="columns" :row-actions="rowActions" />
+  <DataTable
+    :data="ingresses"
+    :columns="columns"
+    :row-actions="rowActions"
+    :row-classes="rowClasses"
+  />
 </template>

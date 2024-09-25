@@ -36,7 +36,7 @@ export const columns: ColumnDef<any>[] = [
             },
           },
         },
-        [
+        () => [
           `${row.original.involvedObject.kind}/${row.original.involvedObject.name}`,
         ]
       );

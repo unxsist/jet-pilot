@@ -31,6 +31,18 @@ const rowActions: RowAction<VirtualService>[] = [
   ),
 ];
 
+import { useRoute } from "vue-router";
+const route = useRoute();
+const rowClasses = (row: any) => {
+  if (route.query.uid) {
+    return row.metadata.uid === route.query.uid
+      ? "animate-pulse-highlight-once"
+      : "";
+  }
+
+  return "";
+};
+
 async function getVirtualServices(refresh: boolean = false) {
   if (!refresh) {
     virtualServices.value = [];
@@ -69,5 +81,6 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(
     :data="virtualServices"
     :columns="columns"
     :row-actions="rowActions"
+    :row-classes="rowClasses"
   />
 </template>
