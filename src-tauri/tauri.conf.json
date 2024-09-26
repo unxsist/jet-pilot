@@ -65,8 +65,8 @@
     "windows": [
       {
         "title": "JET Pilot",
-        "width": 800,
-        "height": 600,
+        "width": 1120,
+        "height": 820,
         "resizable": true,
         "fullscreen": false,
         "decorations": true,
