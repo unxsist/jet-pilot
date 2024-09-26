@@ -24,6 +24,7 @@ const rerunLastCommand = injectStrict(RerunLastCommandKey);
 const {
   context,
   namespace,
+  kubeConfig,
   authenticated: clusterAuthenticated,
 } = injectStrict(KubeContextStateKey);
 const setContext = injectStrict(KubeContextSetContextKey);
@@ -170,7 +171,7 @@ onMounted(() => {
         namespaces = clusterSettings.namespaces;
       } else {
         namespaces = await (
-          await Kubernetes.getNamespaces(context.value)
+          await Kubernetes.getNamespaces(context.value, kubeConfig.value)
         ).map((ns) => ns.metadata?.name || "");
       }
 
