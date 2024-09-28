@@ -4,6 +4,7 @@ import { V1Deployment } from "@kubernetes/client-node";
 import { Kubernetes } from "@/services/Kubernetes";
 import { ref, h } from "vue";
 import { useToast, ToastAction } from "@/components/ui/toast";
+import { useRoute, useRouter } from "vue-router";
 
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
@@ -22,8 +23,11 @@ const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
 import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { RowAction, getDefaultActions } from "@/components/tables/types";
+import { actions as scalableActions } from "@/actions/scalables";
 import { columns } from "@/components/tables/deployments";
 import { useDataRefresher } from "@/composables/refresher";
+
+const router = useRouter();
 
 const { toast } = useToast();
 const deployments = ref<V1Deployment[]>([]);
@@ -111,9 +115,15 @@ const rowActions: RowAction<V1Deployment>[] = [
       spawnDialog(dialog);
     },
   },
+  ...scalableActions(
+    addTab,
+    spawnDialog,
+    router,
+    context.value,
+    kubeConfig.value
+  ),
 ];
 
-import { useRoute } from "vue-router";
 const route = useRoute();
 const rowClasses = (row: any) => {
   if (route.query.uid) {
