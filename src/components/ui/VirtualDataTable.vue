@@ -183,10 +183,10 @@ const after = computed(() => {
                     />
                     <div class="ml-2">
                       <span v-if="header.column.getIsSorted() === 'asc'">
-                        <SortAscendingIcon class="w-4 h-4" />
+                        <SortDescendingIcon class="w-4 h-4" />
                       </span>
                       <span v-else-if="header.column.getIsSorted() === 'desc'">
-                        <SortDescendingIcon class="w-4 h-4" />
+                        <SortAscendingIcon class="w-4 h-4" />
                       </span>
                     </div>
                   </div>
