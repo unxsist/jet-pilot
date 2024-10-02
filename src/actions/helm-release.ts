@@ -57,6 +57,8 @@ export function actions(
                 const command = new Command("helm", [
                   "delete",
                   row.name,
+                  "--kube-context",
+                  context,
                   "--namespace",
                   row.namespace,
                   "--kubeconfig",
