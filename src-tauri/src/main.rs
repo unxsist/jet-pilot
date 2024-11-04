@@ -78,6 +78,7 @@ fn main() {
             kubernetes::client::delete_pod,
             kubernetes::client::list_deployments,
             kubernetes::client::restart_deployment,
+            kubernetes::client::restart_statefulset,
             kubernetes::client::list_jobs,
             kubernetes::client::list_cronjobs,
             kubernetes::client::list_configmaps,

@@ -4,7 +4,7 @@ pub mod client {
     use k8s_openapi::api::batch::v1::{CronJob, Job};
     use k8s_openapi::api::networking::v1::Ingress;
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::{APIGroup, APIResource};
-    use k8s_openapi::api::apps::v1::Deployment;
+    use k8s_openapi::api::apps::v1::{Deployment, ReplicaSet, StatefulSet};
     use k8s_openapi::api::core::v1::{
         ConfigMap, Namespace, PersistentVolume, PersistentVolumeClaim, Pod, Secret, Service,
     };
@@ -294,6 +294,22 @@ pub mod client {
             .restart(name)
             .await
             .map(|_deployment| true)
+            .map_err(|err| SerializableKubeError::from(err));
+    }
+
+    #[tauri::command]
+    pub async fn restart_statefulset(
+        context: &str,
+        namespace: &str,
+        name: &str,
+    ) -> Result<bool, SerializableKubeError> {
+        let client = client_with_context(context).await?;
+        let statefulset_api: Api<StatefulSet> = Api::namespaced(client, namespace);
+
+        return statefulset_api
+            .restart(name)
+            .await
+            .map(|_replicaset| true)
             .map_err(|err| SerializableKubeError::from(err));
     }
 

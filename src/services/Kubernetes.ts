@@ -214,6 +214,18 @@ export class Kubernetes {
     });
   }
 
+  static async restartStatefulset(
+    context: string,
+    namespace: string,
+    name: string
+  ): Promise<boolean> {
+    return invoke("restart_statefulset", {
+      context: context,
+      namespace: namespace,
+      name: name,
+    });
+  }
+
   static async getJobs(context: string, namespace: string): Promise<V1Job[]> {
     return invoke("list_jobs", {
       context: context,
