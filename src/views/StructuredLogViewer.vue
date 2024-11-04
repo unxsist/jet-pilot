@@ -345,7 +345,7 @@ onUnmounted(() => {
       <DataTable
         :columns="datatableColumns"
         :data="logData"
-        :row-classes="() => 'font-mono text-xs'"
+        :row-classes="() => 'font-mono text-xs select-text'"
         :estimated-row-height="33"
         :auto-scroll="autoScroll"
         sticky-headers
