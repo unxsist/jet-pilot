@@ -302,4 +302,16 @@ export class Kubernetes {
       namespace: namespace,
     });
   }
+
+  static async triggerCronJob(
+    context: string,
+    namespace: string,
+    name: string
+  ): Promise<boolean> {
+    return invoke("trigger_cronjob", {
+      context: context,
+      namespace: namespace,
+      name: name,
+    });
+  }
 }

@@ -8,9 +8,10 @@ pub mod client {
     };
     use k8s_openapi::api::networking::v1::Ingress;
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::{APIGroup, APIResource};
-    use kube::api::{DeleteParams, ListParams};
+    use kube::api::{DeleteParams, ListParams, ObjectMeta, PostParams};
     use kube::config::{KubeConfigOptions, Kubeconfig, KubeconfigError, NamedAuthInfo};
     use kube::{api::Api, Client, Config, Error};
+    use rand::distributions::DistString;
     use serde::Serialize;
     use std::sync::Mutex;
 
@@ -656,6 +657,50 @@ pub mod client {
             .list_api_group_resources(api_group_version)
             .await
             .map(|api_resources| api_resources.resources)
+            .map_err(|err| SerializableKubeError::from(err));
+    }
+
+    #[tauri::command]
+    pub async fn trigger_cronjob(
+        context: &str,
+        namespace: &str,
+        name: &str,
+    ) -> Result<Job, SerializableKubeError> {
+        let mut client = client_with_context(context).await?;
+
+        let cronjob_api: Api<CronJob> = Api::namespaced(client, namespace);
+        let selected_cronjob = cronjob_api.get(name).await?;
+        let Some(cronjob_spec) = selected_cronjob.spec else {
+            return Err(SerializableKubeError {
+                message: "Failed to get cron job spec".into(),
+                code: None,
+                reason: None,
+                details: None,
+            });
+        };
+
+        let job_spec = cronjob_spec.job_template.spec;
+        let jobname = {
+            let ext = rand::distributions::Alphanumeric.sample_string(&mut rand::thread_rng(), 3);
+            format!("{}-manual-{}", name, ext.to_lowercase())
+        };
+
+        let manual_job = Job {
+            metadata: ObjectMeta {
+                name: Some(jobname),
+                namespace: Some(namespace.into()),
+                ..Default::default()
+            },
+            spec: job_spec,
+            status: None,
+        };
+
+        client = cronjob_api.into_client();
+        let job_api: Api<Job> = Api::namespaced(client, namespace);
+
+        return job_api
+            .create(&PostParams::default(), &manual_job)
+            .await
             .map_err(|err| SerializableKubeError::from(err));
     }
 }
