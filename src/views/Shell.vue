@@ -2,7 +2,7 @@
 import { Terminal } from "xterm";
 import "xterm/css/xterm.css";
 import { FitAddon } from "xterm-addon-fit";
-import { invoke } from "@tauri-apps/api/tauri";
+import { invoke } from "@tauri-apps/api/core";
 import { Event, listen } from "@tauri-apps/api/event";
 import { V1Container, V1Pod } from "@kubernetes/client-node";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";

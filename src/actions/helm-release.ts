@@ -1,7 +1,7 @@
 import { RowAction } from "@/components/tables/types";
 import { Router } from "vue-router";
 import { DialogInterface } from "@/providers/DialogProvider";
-import { Command } from "@tauri-apps/api/shell";
+import { Command } from "@tauri-apps/plugin-shell";
 import { useToast } from "@/components/ui/toast";
 
 export function actions(
@@ -54,7 +54,7 @@ export function actions(
               handler: (dialog: DialogInterface) => {
                 const { toast } = useToast();
 
-                const command = new Command("helm", [
+                const command = Command.create("helm", [
                   "delete",
                   row.name,
                   "--kube-context",

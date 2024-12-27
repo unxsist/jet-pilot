@@ -1,7 +1,7 @@
 import { V1Node } from "@kubernetes/client-node";
 import { RowAction } from "@/components/tables/types";
 import { BaseDialogInterface } from "@/providers/DialogProvider";
-import { Command } from "@tauri-apps/api/shell";
+import { Command } from "@tauri-apps/plugin-shell";
 import { useToast } from "@/components/ui/toast";
 import { Router } from "vue-router";
 
@@ -37,7 +37,7 @@ export function actions<T extends V1Node>(
             {
               label: isCordoned(row) ? "Uncordon" : "Cordon",
               handler: (dialog) => {
-                const command = new Command("kubectl", [
+                const command = Command.create("kubectl", [
                   isCordoned(row) ? "uncordon" : "cordon",
                   `${row.metadata?.name}`,
                   "--context",
@@ -75,7 +75,7 @@ export function actions<T extends V1Node>(
             {
               label: "Drain",
               handler: (dialog) => {
-                const command = new Command("kubectl", [
+                const command = Command.create("kubectl", [
                   "drain",
                   `${row.metadata?.name}`,
                   "--force",

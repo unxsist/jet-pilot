@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import Loading from "@/components/Loading.vue";
-import { Command } from "@tauri-apps/api/shell";
+import { Command } from "@tauri-apps/plugin-shell";
 
 const props = defineProps<{
   context: string;
@@ -26,7 +26,7 @@ onMounted(() => {
     args.push("--namespace", props.namespace);
   }
 
-  const command = new Command("kubectl", args);
+  const command = Command.create("kubectl", args);
 
   let stdOutData = "";
   command.stdout.on("data", (data) => {

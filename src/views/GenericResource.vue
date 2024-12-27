@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRoute, useRouter, onBeforeRouteUpdate } from "vue-router";
-import { Command, Child } from "@tauri-apps/api/shell";
+import { Command, Child } from "@tauri-apps/plugin-shell";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { injectStrict } from "@/lib/utils";
 import { onMounted } from "vue";
@@ -113,7 +113,7 @@ const initiateWatchCommand = (resource: string) => {
     args.push("--all-namespaces");
   }
 
-  const command = new Command("kubectl", args);
+  const command = Command.create("kubectl", args);
   command.stdout.on("data", (data) => {
     const watchEvent = JSON.parse(data) as {
       type: string;

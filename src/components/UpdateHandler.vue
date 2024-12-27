@@ -1,16 +1,11 @@
 <script lang="ts" setup>
 import { marked } from "marked";
 
-import {
-  checkUpdate,
-  installUpdate,
-  UpdateResult,
-} from "@tauri-apps/api/updater";
-import { relaunch } from "@tauri-apps/api/process";
+import { check, Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { listen } from "@tauri-apps/api/event";
 
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
   DialogContent,
@@ -26,7 +21,7 @@ import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 const { settings } = injectStrict(SettingsContextStateKey);
 const open = ref(false);
 const isLatest = ref(true);
-const updateInfo = ref<UpdateResult | null>(null);
+const updateInfo = ref<Update | null>(null);
 const isUpdating = ref(false);
 const restart = ref(false);
 const closeable = ref(true);
@@ -36,9 +31,9 @@ mdRenderer.link = (href, title, text) =>
   `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`;
 
 async function checkForUpdates(forced = false) {
-  updateInfo.value = await checkUpdate();
+  updateInfo.value = await check();
 
-  if (updateInfo.value.shouldUpdate) {
+  if (updateInfo.value?.available) {
     open.value = true;
     isLatest.value = false;
   } else {
@@ -51,10 +46,10 @@ async function checkForUpdates(forced = false) {
 }
 
 async function updateApp() {
-  if (updateInfo.value?.shouldUpdate) {
+  if (updateInfo.value?.available) {
     closeable.value = false;
     isUpdating.value = true;
-    await installUpdate();
+    await updateInfo.value.downloadAndInstall();
     isUpdating.value = false;
     restart.value = true;
   }
@@ -87,9 +82,7 @@ listen("check_for_updates", () => {
           <img :src="Logo" alt="JET Pilot" class="w-16 mr-4" />
           <DialogHeader>
             <DialogTitle
-              >Update available - v{{
-                updateInfo.manifest?.version
-              }}</DialogTitle
+              >Update available - v{{ updateInfo.version }}</DialogTitle
             >
             <DialogDescription>
               A new version of JET Pilot is available.
@@ -100,7 +93,7 @@ listen("check_for_updates", () => {
           <div
             class="max-h-[100px] overflow-scroll release-notes"
             v-html="
-              marked.parse(updateInfo.manifest?.body, {
+              marked.parse(updateInfo.body ?? '', {
                 renderer: mdRenderer,
               })
             "
@@ -130,9 +123,7 @@ listen("check_for_updates", () => {
           <img :src="Logo" alt="JET Pilot" class="w-16 mr-4" />
           <DialogHeader>
             <DialogTitle
-              >Updating JET Pilot to v{{
-                updateInfo.manifest?.version
-              }}</DialogTitle
+              >Updating JET Pilot to v{{ updateInfo.version }}</DialogTitle
             >
             <DialogDescription>
               Please wait while JET Pilot is being updated.

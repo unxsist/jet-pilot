@@ -11,7 +11,10 @@ const emits = defineEmits<DialogRootEmits>();
 
 const emitsAsProps = useEmitAsProps(emits);
 
-const filter = (list: Command[], query: string): Command[] => {
+const filter = (
+  list: (typeof Command)[],
+  query: string
+): (typeof Command)[] => {
   const fuse = new Fuse(list, {
     threshold: 0.3,
     keys: [

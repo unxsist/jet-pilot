@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { getCurrentInstance } from "vue";
 import Loading from "@/components/Loading.vue";
-import { Command } from "@tauri-apps/api/shell";
-import { writeFile, removeFile, BaseDirectory } from "@tauri-apps/api/fs";
-import { tempdir } from "@tauri-apps/api/os";
+import { Command } from "@tauri-apps/plugin-shell";
+import { writeTextFile, remove, BaseDirectory } from "@tauri-apps/plugin-fs";
+import { tempDir } from "@tauri-apps/api/path";
 import loader, { Monaco } from "@monaco-editor/loader";
 import LightTheme from "@/components/monaco/themes/GithubLight";
 import DarkTheme from "@/components/monaco/themes/BrillianceBlack";
@@ -76,7 +76,7 @@ onMounted(() => {
     args.push("--namespace", props.namespace);
   }
 
-  const command = new Command("kubectl", args);
+  const command = Command.create("kubectl", args);
 
   let stdOutData = "";
   command.stdout.on("data", (data) => {
@@ -140,40 +140,40 @@ const onSave = () => {
       });
   } else {
     const filename = `${props.name}-${crypto.randomUUID()}.yaml`;
-    writeFile(filename, editContents.value, { dir: BaseDirectory.Temp }).then(
-      async () => {
-        const tempDir = await tempdir();
+    writeTextFile(filename, editContents.value, {
+      baseDir: BaseDirectory.Temp,
+    }).then(async () => {
+      const tempDirectory = await tempDir();
 
-        const command = new Command("kubectl", [
-          "replace",
-          "--context",
-          props.context,
-          "--namespace",
-          props.namespace,
-          "-f",
-          `${tempDir}${filename}`,
-          "--kubeconfig",
-          props.kubeConfig,
-        ]);
+      const command = Command.create("kubectl", [
+        "replace",
+        "--context",
+        props.context,
+        "--namespace",
+        props.namespace,
+        "-f",
+        `${tempDirectory}${filename}`,
+        "--kubeconfig",
+        props.kubeConfig,
+      ]);
 
-        command.stdout.on("data", (data) => {
-          console.log(data);
-        });
+      command.stdout.on("data", (data) => {
+        console.log(data);
+      });
 
-        command.stderr.on("data", (error) => {
-          console.log(error);
-        });
+      command.stderr.on("data", (error) => {
+        console.log(error);
+      });
 
-        command.on("close", ({ code }) => {
-          if (code === 0) {
-            removeFile(filename, { dir: BaseDirectory.Temp });
-            onClose();
-          }
-        });
+      command.on("close", ({ code }) => {
+        if (code === 0) {
+          remove(filename, { baseDir: BaseDirectory.Temp });
+          onClose();
+        }
+      });
 
-        command.spawn();
-      }
-    );
+      command.spawn();
+    });
   }
 };
 

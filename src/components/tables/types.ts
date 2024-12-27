@@ -1,5 +1,5 @@
 import { BaseDialogInterface } from "@/providers/DialogProvider";
-import { Command } from "@tauri-apps/api/shell";
+import { Command } from "@tauri-apps/plugin-shell";
 import { VirtualService } from "@kubernetes-models/istio/networking.istio.io/v1beta1";
 import { KubernetesObject } from "@kubernetes/client-node";
 
@@ -81,7 +81,7 @@ export function getDefaultActions<T extends KubernetesObject | VirtualService>(
             {
               label: "Delete",
               handler: (dialog) => {
-                const command = new Command("kubectl", [
+                const command = Command.create("kubectl", [
                   "delete",
                   `${row.kind}/${row.metadata?.name}`,
                   "--context",

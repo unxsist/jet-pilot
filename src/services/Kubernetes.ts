@@ -15,8 +15,8 @@ import {
   V1Service,
 } from "@kubernetes/client-node";
 import { VirtualService } from "@kubernetes-models/istio/networking.istio.io/v1beta1";
-import { invoke } from "@tauri-apps/api/tauri";
-import { Command } from "@tauri-apps/api/shell";
+import { invoke } from "@tauri-apps/api/core";
+import { Command } from "@tauri-apps/plugin-shell";
 
 export interface KubernetesError {
   message: string;
@@ -55,7 +55,7 @@ export class Kubernetes {
       return {
         canHandle: aws_profile !== null,
         callback: async (authCompletedCallback?) => {
-          const command = new Command("aws", [
+          const command = Command.create("aws", [
             "sso",
             "login",
             "--profile",

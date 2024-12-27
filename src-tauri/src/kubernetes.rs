@@ -1,20 +1,18 @@
 pub mod client {
     use either::Either;
     use k8s_metrics::v1beta1::PodMetrics;
-    use k8s_openapi::api::batch::v1::{CronJob, Job};
-    use k8s_openapi::api::networking::v1::Ingress;
-    use k8s_openapi::apimachinery::pkg::apis::meta::v1::{APIGroup, APIResource};
     use k8s_openapi::api::apps::v1::{Deployment, ReplicaSet, StatefulSet};
+    use k8s_openapi::api::batch::v1::{CronJob, Job};
     use k8s_openapi::api::core::v1::{
         ConfigMap, Namespace, PersistentVolume, PersistentVolumeClaim, Pod, Secret, Service,
     };
+    use k8s_openapi::api::networking::v1::Ingress;
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::{APIGroup, APIResource};
     use kube::api::{DeleteParams, ListParams};
     use kube::config::{KubeConfigOptions, Kubeconfig, KubeconfigError, NamedAuthInfo};
     use kube::{api::Api, Client, Config, Error};
     use serde::Serialize;
-    use std::
-        sync::Mutex
-    ;
+    use std::sync::Mutex;
 
     #[derive(Serialize)]
     pub enum DeletionResult {
@@ -83,8 +81,14 @@ pub mod client {
     #[tauri::command]
     pub async fn list_contexts() -> Result<Vec<String>, SerializableKubeError> {
         let config = Kubeconfig::read_from(
-            CURRENT_KUBECONFIG.lock().unwrap().as_ref().unwrap().as_str(),
-        ).map_err(|err| SerializableKubeError::from(err))?;
+            CURRENT_KUBECONFIG
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .as_str(),
+        )
+        .map_err(|err| SerializableKubeError::from(err))?;
 
         config
             .contexts
@@ -97,10 +101,12 @@ pub mod client {
     }
 
     #[tauri::command]
-    pub async fn get_context_auth_info(context: &str, kube_config: &str) -> Result<NamedAuthInfo, SerializableKubeError> {
-        let config = Kubeconfig::read_from(
-            kube_config.to_string(),
-        ).map_err(|err| SerializableKubeError::from(err))?;
+    pub async fn get_context_auth_info(
+        context: &str,
+        kube_config: &str,
+    ) -> Result<NamedAuthInfo, SerializableKubeError> {
+        let config = Kubeconfig::read_from(kube_config.to_string())
+            .map_err(|err| SerializableKubeError::from(err))?;
 
         let context_auth_info = config
             .contexts
@@ -128,19 +134,24 @@ pub mod client {
         return Ok(auth_info.clone());
     }
 
-    async fn one_off_client_with_context(context: &str, kube_config: &str) -> Result<Client, SerializableKubeError> {
+    async fn one_off_client_with_context(
+        context: &str,
+        kube_config: &str,
+    ) -> Result<Client, SerializableKubeError> {
         let options = KubeConfigOptions {
             context: Some(context.to_string()),
             cluster: None,
             user: None,
         };
 
-        let kubeconfig = Kubeconfig::read_from(kube_config.to_string()).map_err(|err| SerializableKubeError::from(err))?;
+        let kubeconfig = Kubeconfig::read_from(kube_config.to_string())
+            .map_err(|err| SerializableKubeError::from(err))?;
         let client_config = Config::from_custom_kubeconfig(kubeconfig, &options)
             .await
             .map_err(|err| SerializableKubeError::from(err))?;
 
-        let client = Client::try_from(client_config).map_err(|err| SerializableKubeError::from(err))?;
+        let client =
+            Client::try_from(client_config).map_err(|err| SerializableKubeError::from(err))?;
 
         return Ok(client);
     }
@@ -156,16 +167,15 @@ pub mod client {
             let current_kubeconfig = CURRENT_KUBECONFIG.lock().unwrap().clone();
             let client_config = match current_kubeconfig {
                 Some(kubeconfig) if !kubeconfig.is_empty() => {
-                    let kubeconfig = Kubeconfig::read_from(kubeconfig.clone()).map_err(|err| SerializableKubeError::from(err))?;
+                    let kubeconfig = Kubeconfig::read_from(kubeconfig.clone())
+                        .map_err(|err| SerializableKubeError::from(err))?;
                     Config::from_custom_kubeconfig(kubeconfig, &options)
                         .await
                         .map_err(|err| SerializableKubeError::from(err))?
-                },
-                _ => {
-                    Config::from_kubeconfig(&options)
-                        .await
-                        .map_err(|err| SerializableKubeError::from(err))?
-                },
+                }
+                _ => Config::from_kubeconfig(&options)
+                    .await
+                    .map_err(|err| SerializableKubeError::from(err))?,
             };
 
             let client =
@@ -180,12 +190,18 @@ pub mod client {
 
     #[tauri::command]
     pub async fn set_current_kubeconfig(kube_config: &str) -> Result<(), SerializableKubeError> {
-        CURRENT_KUBECONFIG.lock().unwrap().replace(kube_config.to_string());
+        CURRENT_KUBECONFIG
+            .lock()
+            .unwrap()
+            .replace(kube_config.to_string());
         return Ok(());
     }
 
     #[tauri::command]
-    pub async fn list_namespaces(context: &str, kube_config: &str) -> Result<Vec<Namespace>, SerializableKubeError> {
+    pub async fn list_namespaces(
+        context: &str,
+        kube_config: &str,
+    ) -> Result<Vec<Namespace>, SerializableKubeError> {
         let client = one_off_client_with_context(context, kube_config).await?;
         let namespace_api: Api<Namespace> = Api::all(client);
 
@@ -217,11 +233,13 @@ pub mod client {
             .map_err(|err| SerializableKubeError::from(err));
     }
 
-
     #[tauri::command]
-    pub async fn get_pod_metrics(context: &str, namespace: &str) -> Result<Vec<PodMetrics>, SerializableKubeError> {
+    pub async fn get_pod_metrics(
+        context: &str,
+        namespace: &str,
+    ) -> Result<Vec<PodMetrics>, SerializableKubeError> {
         let client = client_with_context(context).await?;
-        let metrics_api : Api<PodMetrics> = Api::namespaced(client, namespace);
+        let metrics_api: Api<PodMetrics> = Api::namespaced(client, namespace);
 
         return metrics_api
             .list(&ListParams::default())
@@ -231,7 +249,11 @@ pub mod client {
     }
 
     #[tauri::command]
-    pub async fn get_pod(context: &str, namespace: &str, name: &str) -> Result<Pod, SerializableKubeError> {
+    pub async fn get_pod(
+        context: &str,
+        namespace: &str,
+        name: &str,
+    ) -> Result<Pod, SerializableKubeError> {
         let client = client_with_context(context).await?;
         let pod_api: Api<Pod> = Api::namespaced(client, namespace);
 
@@ -329,7 +351,10 @@ pub mod client {
     }
 
     #[tauri::command]
-    pub async fn list_jobs(context: &str, namespace: &str) -> Result<Vec<Job>, SerializableKubeError> {
+    pub async fn list_jobs(
+        context: &str,
+        namespace: &str,
+    ) -> Result<Vec<Job>, SerializableKubeError> {
         let client = client_with_context(context).await?;
         let jobs_api: Api<Job> = Api::namespaced(client, namespace);
 
@@ -583,7 +608,9 @@ pub mod client {
     }
 
     #[tauri::command]
-    pub async fn get_core_api_versions(context: &str) -> Result<Vec<String>, SerializableKubeError> {
+    pub async fn get_core_api_versions(
+        context: &str,
+    ) -> Result<Vec<String>, SerializableKubeError> {
         let client = client_with_context(context).await?;
 
         return client

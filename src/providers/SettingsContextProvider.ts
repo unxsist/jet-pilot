@@ -2,10 +2,10 @@ import { watch, provide, reactive, InjectionKey, toRefs, ToRefs } from "vue";
 import {
   BaseDirectory,
   exists,
-  createDir,
+  mkdir,
   writeTextFile,
   readTextFile,
-} from "@tauri-apps/api/fs";
+} from "@tauri-apps/plugin-fs";
 import { homeDir } from "@tauri-apps/api/path";
 
 export const SettingsContextStateKey: InjectionKey<
@@ -74,20 +74,20 @@ export default {
     provide(SettingsContextStateKey, toRefs(state));
 
     const save = async () => {
-      if (!(await exists(settingsFile, { dir: BaseDirectory.AppConfig }))) {
-        if (!(await exists("", { dir: BaseDirectory.AppConfig }))) {
-          await createDir("", { dir: BaseDirectory.AppConfig });
+      if (!(await exists(settingsFile, { baseDir: BaseDirectory.AppConfig }))) {
+        if (!(await exists("", { baseDir: BaseDirectory.AppConfig }))) {
+          await mkdir("", { baseDir: BaseDirectory.AppConfig });
         }
       }
 
       await writeTextFile(settingsFile, JSON.stringify(state.settings), {
-        dir: BaseDirectory.AppConfig,
+        baseDir: BaseDirectory.AppConfig,
       });
     };
 
-    if (await exists(settingsFile, { dir: BaseDirectory.AppConfig })) {
+    if (await exists(settingsFile, { baseDir: BaseDirectory.AppConfig })) {
       const fileContents = await readTextFile(settingsFile, {
-        dir: BaseDirectory.AppConfig,
+        baseDir: BaseDirectory.AppConfig,
       });
 
       // Merge initial state with file contents

@@ -15,15 +15,9 @@ import DialogProvider from "./providers/DialogProvider";
 import DialogHandler from "./components/DialogHandler.vue";
 import UpdateHandler from "./components/UpdateHandler.vue";
 import WhatsNew from "./components/WhatsNew.vue";
-import { type as getOsType } from "@tauri-apps/api/os";
+import { type as getOsType } from "@tauri-apps/plugin-os";
 
-const osType = ref("");
-
-onMounted(() => {
-  getOsType().then((os) => {
-    osType.value = os;
-  });
-});
+const osType = ref(getOsType());
 </script>
 
 <template>

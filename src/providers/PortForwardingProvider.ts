@@ -1,6 +1,6 @@
 import { provide, reactive, InjectionKey, toRefs, ToRefs } from "vue";
-import { Child, Command } from "@tauri-apps/api/shell";
-import { open } from "@tauri-apps/api/shell";
+import { Child, Command } from "@tauri-apps/plugin-shell";
+import { open } from "@tauri-apps/plugin-shell";
 
 export const PortForwardingStateKey: InjectionKey<ToRefs<PortForwardingState>> =
   Symbol("PortForwardingStateKey");
@@ -61,7 +61,7 @@ export default {
           `${portForwarding.localPort}:${portForwarding.objectPort}`,
           `--address=${portForwarding.address}`,
         ];
-        const command = new Command("kubectl", args);
+        const command = Command.create("kubectl", args);
 
         let child: Child | null = null;
 

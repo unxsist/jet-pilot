@@ -11,15 +11,15 @@ import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { GlobalShortcutRegisterShortcutsKey } from "@/providers/GlobalShortcutProvider";
 import { injectStrict } from "@/lib/utils";
 import { V1APIResource } from "@kubernetes/client-node";
-import { type as getOsType } from "@tauri-apps/api/os";
-import { getCurrent as getWindow } from "@tauri-apps/api/window";
-import { exit } from "@tauri-apps/api/process";
+import { type as getOsType } from "@tauri-apps/plugin-os";
+import { getCurrentWebviewWindow as getWindow } from "@tauri-apps/api/webviewWindow";
+import { exit } from "@tauri-apps/plugin-process";
 import CloseIcon from "@/assets/icons/close.svg";
 import FullScreenIcon from "@/assets/icons/full_screen.svg";
 import MinimizeIcon from "@/assets/icons/minimize.svg";
 import { formatResourceKind } from "@/lib/utils";
 
-const targetOs = ref<string>("");
+const targetOs = ref<string>(getOsType());
 const {
   context,
   namespace,
@@ -239,10 +239,6 @@ const unpinResource = (resource: { name: string; kind: string }) => {
 
 onMounted(() => {
   fetchResources();
-
-  getOsType().then((os) => {
-    targetOs.value = os;
-  });
 });
 
 watch([context, namespace, clusterAuthenticated], () => {
@@ -253,7 +249,7 @@ watch([context, namespace, clusterAuthenticated], () => {
 <template>
   <div class="flex flex-col flex-shrink-0 relative min-w-[200px] max-w-[200px]">
     <div
-      v-if="targetOs !== 'Darwin'"
+      v-if="targetOs !== 'macos'"
       class="p-2 pb-0 -mb-1 space-x-2"
       data-tauri-drag-region
     >
@@ -269,7 +265,7 @@ watch([context, namespace, clusterAuthenticated], () => {
     </div>
     <div class="absolute w-full h-[40px]" v-else data-tauri-drag-region></div>
     <div class="flex flex-col flex-grow min-h-screen max-h-screen p-2 pr-0">
-      <ContextSwitcher :class="{ 'mt-[30px]': targetOs === 'Darwin' }" />
+      <ContextSwitcher :class="{ 'mt-[30px]': targetOs === 'macos' }" />
       <PortForwardingManager />
       <div class="flex w-full flex-grow flex-shrink overflow-hidden">
         <ScrollArea class="w-full mt-0 mb-0">
