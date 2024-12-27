@@ -1,13 +1,12 @@
 pub mod structured_logging {
-    use std::collections::{HashMap, HashSet};
-    use std::
-        sync::Mutex
-    ;
     use access_log_parser::{LogEntry, LogType};
     use serde_json::{json, Value};
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Mutex;
     use uuid::Uuid;
 
-    static STRUCTURED_LOGGING_SESSIONS: Mutex<Option<HashMap<String, StructuredLoggingSession>>> = Mutex::new(None);
+    static STRUCTURED_LOGGING_SESSIONS: Mutex<Option<HashMap<String, StructuredLoggingSession>>> =
+        Mutex::new(None);
 
     #[derive(Debug)]
     pub struct StructuredLoggingSession {
@@ -51,50 +50,66 @@ pub mod structured_logging {
     }
 
     #[derive(Clone, Debug, serde::Deserialize)]
-    pub struct SortingState { 
+    pub struct SortingState {
         id: String,
-        desc: bool
+        desc: bool,
     }
 
     #[tauri::command]
     pub async fn start_structured_logging_session(initial_data: Vec<String>) -> String {
         let session_id = Uuid::new_v4().to_string();
-        
+
         if STRUCTURED_LOGGING_SESSIONS.lock().unwrap().is_none() {
             *STRUCTURED_LOGGING_SESSIONS.lock().unwrap() = Some(HashMap::new());
         }
 
-        STRUCTURED_LOGGING_SESSIONS.lock().unwrap().as_mut().unwrap().insert(
-            session_id.clone(),
-            StructuredLoggingSession {
-                entries: initial_data.into_iter().map(|d|
-                    StructuredLogEntry {
-                        id: Uuid::new_v4(),
-                        content: d.clone(),
-                        timestamp: d.splitn(2, ' ').next().unwrap_or("").to_string(),
-                        data: serde_json::from_str(
-                            d.splitn(2, ' ').nth(1).unwrap_or("")
-                        ).unwrap_or_else(|_| serde_json::Value::String(d)),
-                    }
-                ).collect(),
-                columns: Vec::new(),
-                facets: Vec::new(),
-            },
-        );
+        STRUCTURED_LOGGING_SESSIONS
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .insert(
+                session_id.clone(),
+                StructuredLoggingSession {
+                    entries: initial_data
+                        .into_iter()
+                        .map(|d| StructuredLogEntry {
+                            id: Uuid::new_v4(),
+                            content: d.clone(),
+                            timestamp: d.splitn(2, ' ').next().unwrap_or("").to_string(),
+                            data: serde_json::from_str(d.splitn(2, ' ').nth(1).unwrap_or(""))
+                                .unwrap_or_else(|_| serde_json::Value::String(d)),
+                        })
+                        .collect(),
+                    columns: Vec::new(),
+                    facets: Vec::new(),
+                },
+            );
 
         return session_id;
     }
 
     #[tauri::command]
     pub async fn repurpose_structured_logging_session(session_id: String) {
-        if let Some(session) = STRUCTURED_LOGGING_SESSIONS.lock().unwrap().as_mut().unwrap().get_mut(&session_id) {
+        if let Some(session) = STRUCTURED_LOGGING_SESSIONS
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .get_mut(&session_id)
+        {
             session.entries.clear();
-        }        
+        }
     }
 
     #[tauri::command]
     pub async fn end_structured_logging_session(session_id: String) {
-        STRUCTURED_LOGGING_SESSIONS.lock().unwrap().as_mut().unwrap().remove(&session_id);
+        STRUCTURED_LOGGING_SESSIONS
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .remove(&session_id);
     }
 
     #[derive(Debug)]
@@ -114,7 +129,8 @@ pub mod structured_logging {
                 '{' => {
                     if brace_count == 0 && i > last_end_index {
                         // Capture text before JSON
-                        extracted_content.push(ExtractedContent::Text(input[last_end_index..i].to_string()));
+                        extracted_content
+                            .push(ExtractedContent::Text(input[last_end_index..i].to_string()));
                     }
                     if start_index.is_none() {
                         start_index = Some(i);
@@ -153,34 +169,43 @@ pub mod structured_logging {
         // split the data by newline if there's any
         let data = data.split("\n").collect::<Vec<&str>>();
 
-        let parsed_records = data.into_iter().flat_map(|d| {
-            let timestamp = d.splitn(2, ' ').next().unwrap_or("");
-            let data = d.splitn(2, ' ').nth(1).unwrap_or("");
-            extract_content(data).into_iter().filter_map(|content| {
-                match content {
-                    ExtractedContent::Json(json) => {
-                        update_columns_for_logging_session(session_id.clone(), &json);
-                        Some(StructuredLogEntry {
-                            id: Uuid::new_v4(),
-                            content: data.to_string(),
-                            timestamp: timestamp.to_string(),
-                            data: json,
-                        })
-                    },
-                    ExtractedContent::Text(text) => {
-                        let log_record = parse_log_record(session_id.clone(), &text);
-                        Some(StructuredLogEntry {
-                            id: Uuid::new_v4(),
-                            content: data.to_string(),
-                            timestamp: timestamp.to_string(),
-                            data: log_record,
-                        })
-                    }
-                }
+        let parsed_records = data
+            .into_iter()
+            .flat_map(|d| {
+                let timestamp = d.splitn(2, ' ').next().unwrap_or("");
+                let data = d.splitn(2, ' ').nth(1).unwrap_or("");
+                extract_content(data)
+                    .into_iter()
+                    .filter_map(|content| match content {
+                        ExtractedContent::Json(json) => {
+                            update_columns_for_logging_session(session_id.clone(), &json);
+                            Some(StructuredLogEntry {
+                                id: Uuid::new_v4(),
+                                content: data.to_string(),
+                                timestamp: timestamp.to_string(),
+                                data: json,
+                            })
+                        }
+                        ExtractedContent::Text(text) => {
+                            let log_record = parse_log_record(session_id.clone(), &text);
+                            Some(StructuredLogEntry {
+                                id: Uuid::new_v4(),
+                                content: data.to_string(),
+                                timestamp: timestamp.to_string(),
+                                data: log_record,
+                            })
+                        }
+                    })
             })
-        }).collect::<Vec<StructuredLogEntry>>();
+            .collect::<Vec<StructuredLogEntry>>();
 
-        if let Some(session) = STRUCTURED_LOGGING_SESSIONS.lock().unwrap().as_mut().unwrap().get_mut(&session_id) {
+        if let Some(session) = STRUCTURED_LOGGING_SESSIONS
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .get_mut(&session_id)
+        {
             session.entries.extend(parsed_records);
         }
 
@@ -192,95 +217,105 @@ pub mod structured_logging {
             Ok(json) => {
                 update_columns_for_logging_session(session_id, &json);
                 return json;
-            },
+            }
             Err(_) => {}
         }
 
         match access_log_parser::parse(LogType::CommonLog, data) {
-            Ok(clf_record) => {
-                match clf_record {
-                    LogEntry::CommonLog(entry) => {
-                        let clf_json = serde_json::to_string(&entry);
+            Ok(clf_record) => match clf_record {
+                LogEntry::CommonLog(entry) => {
+                    let clf_json = serde_json::to_string(&entry);
 
-                        match clf_json {
-                            Ok(json) => {
-                                update_columns_for_logging_session(session_id, &serde_json::from_str(&json).unwrap());
-                                return serde_json::from_str(&json).unwrap();
-                            },
-                            Err(_) => {}
+                    match clf_json {
+                        Ok(json) => {
+                            update_columns_for_logging_session(
+                                session_id,
+                                &serde_json::from_str(&json).unwrap(),
+                            );
+                            return serde_json::from_str(&json).unwrap();
                         }
-                    },
-                    _ => {},
+                        Err(_) => {}
+                    }
                 }
+                _ => {}
             },
-            Err(_) => {},
+            Err(_) => {}
         }
 
         match access_log_parser::parse(LogType::CombinedLog, data) {
-            Ok(cl_record) => {
-                match cl_record {
-                    LogEntry::CombinedLog(entry) => {
-                        let cl_json = serde_json::to_string(&entry);
+            Ok(cl_record) => match cl_record {
+                LogEntry::CombinedLog(entry) => {
+                    let cl_json = serde_json::to_string(&entry);
 
-                        match cl_json {
-                            Ok(json) => {
-                                update_columns_for_logging_session(session_id, &serde_json::from_str(&json).unwrap());
-                                return serde_json::from_str(&json).unwrap();
-                            },
-                            Err(_) => {}
+                    match cl_json {
+                        Ok(json) => {
+                            update_columns_for_logging_session(
+                                session_id,
+                                &serde_json::from_str(&json).unwrap(),
+                            );
+                            return serde_json::from_str(&json).unwrap();
                         }
-                    },
-                    _ => {},
+                        Err(_) => {}
+                    }
                 }
+                _ => {}
             },
-            Err(_) => {},
+            Err(_) => {}
         }
 
         match access_log_parser::parse(LogType::GorouterLog, data) {
-            Ok(grl_record) => {
-                match grl_record {
-                    LogEntry::GorouterLog(entry) => {
-                        let grl_json = serde_json::to_string(&entry);
+            Ok(grl_record) => match grl_record {
+                LogEntry::GorouterLog(entry) => {
+                    let grl_json = serde_json::to_string(&entry);
 
-                        match grl_json {
-                            Ok(json) => {
-                                update_columns_for_logging_session(session_id, &serde_json::from_str(&json).unwrap());
-                                return serde_json::from_str(&json).unwrap();
-                            },
-                            Err(_) => {}
+                    match grl_json {
+                        Ok(json) => {
+                            update_columns_for_logging_session(
+                                session_id,
+                                &serde_json::from_str(&json).unwrap(),
+                            );
+                            return serde_json::from_str(&json).unwrap();
                         }
-                    },
-                    _ => {},
+                        Err(_) => {}
+                    }
                 }
+                _ => {}
             },
-            Err(_) => {},
+            Err(_) => {}
         }
 
         match access_log_parser::parse(LogType::CloudControllerLog, data) {
-            Ok(ccl_record) => {
-                match ccl_record {
-                    LogEntry::CloudControllerLog(entry) => {
-                        let ccl_json = serde_json::to_string(&entry);
+            Ok(ccl_record) => match ccl_record {
+                LogEntry::CloudControllerLog(entry) => {
+                    let ccl_json = serde_json::to_string(&entry);
 
-                        match ccl_json {
-                            Ok(json) => {
-                                update_columns_for_logging_session(session_id, &serde_json::from_str(&json).unwrap());
-                                return serde_json::from_str(&json).unwrap();
-                            },
-                            Err(_) => {}
+                    match ccl_json {
+                        Ok(json) => {
+                            update_columns_for_logging_session(
+                                session_id,
+                                &serde_json::from_str(&json).unwrap(),
+                            );
+                            return serde_json::from_str(&json).unwrap();
                         }
-                    },
-                    _ => {},
+                        Err(_) => {}
+                    }
                 }
+                _ => {}
             },
-            Err(_) => {},
+            Err(_) => {}
         }
-        
-        return json!({ "message": data })
+
+        return json!({ "message": data });
     }
 
     fn update_columns_for_logging_session(session_id: String, record: &serde_json::Value) {
-        if let Some(session) = STRUCTURED_LOGGING_SESSIONS.lock().unwrap().as_mut().unwrap().get_mut(&session_id) {
+        if let Some(session) = STRUCTURED_LOGGING_SESSIONS
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .get_mut(&session_id)
+        {
             if let Some(obj) = record.as_object() {
                 for key in obj.keys() {
                     if !session.columns.contains(key) {
@@ -292,8 +327,18 @@ pub mod structured_logging {
     }
 
     #[tauri::command]
-    pub async fn add_facet_to_structured_logging_session(session_id: String, property: String, match_type: String) {
-        if let Some(session) = STRUCTURED_LOGGING_SESSIONS.lock().unwrap().as_mut().unwrap().get_mut(&session_id) {
+    pub async fn add_facet_to_structured_logging_session(
+        session_id: String,
+        property: String,
+        match_type: String,
+    ) {
+        if let Some(session) = STRUCTURED_LOGGING_SESSIONS
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .get_mut(&session_id)
+        {
             let match_type = match match_type.as_str() {
                 "AND" => MatchType::AND,
                 "OR" => MatchType::OR,
@@ -310,8 +355,18 @@ pub mod structured_logging {
     }
 
     #[tauri::command]
-    pub async fn set_facet_match_type_for_structured_logging_session(session_id: String, property: String, match_type: String) {
-        if let Some(session) = STRUCTURED_LOGGING_SESSIONS.lock().unwrap().as_mut().unwrap().get_mut(&session_id) {
+    pub async fn set_facet_match_type_for_structured_logging_session(
+        session_id: String,
+        property: String,
+        match_type: String,
+    ) {
+        if let Some(session) = STRUCTURED_LOGGING_SESSIONS
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .get_mut(&session_id)
+        {
             for facet in session.facets.iter_mut() {
                 if facet.property == property {
                     facet.match_type = match match_type.as_str() {
@@ -326,8 +381,17 @@ pub mod structured_logging {
     }
 
     #[tauri::command]
-    pub async fn remove_facet_from_structured_logging_session(session_id: String, property: String) {
-        if let Some(session) = STRUCTURED_LOGGING_SESSIONS.lock().unwrap().as_mut().unwrap().get_mut(&session_id) {
+    pub async fn remove_facet_from_structured_logging_session(
+        session_id: String,
+        property: String,
+    ) {
+        if let Some(session) = STRUCTURED_LOGGING_SESSIONS
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .get_mut(&session_id)
+        {
             session.facets.retain(|f| f.property != property);
         }
 
@@ -335,8 +399,19 @@ pub mod structured_logging {
     }
 
     #[tauri::command]
-    pub async fn set_filtered_for_facet_value(session_id: String, property: String, value: String, filtered: bool) {
-        if let Some(session) = STRUCTURED_LOGGING_SESSIONS.lock().unwrap().as_mut().unwrap().get_mut(&session_id) {
+    pub async fn set_filtered_for_facet_value(
+        session_id: String,
+        property: String,
+        value: String,
+        filtered: bool,
+    ) {
+        if let Some(session) = STRUCTURED_LOGGING_SESSIONS
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .get_mut(&session_id)
+        {
             for facet in session.facets.iter_mut() {
                 if facet.property == property {
                     for facet_value in facet.values.iter_mut() {
@@ -353,7 +428,13 @@ pub mod structured_logging {
 
     #[tauri::command]
     pub async fn get_facets_for_structured_logging_session(session_id: String) -> Vec<Facet> {
-        if let Some(session) = STRUCTURED_LOGGING_SESSIONS.lock().unwrap().as_mut().unwrap().get_mut(&session_id) {
+        if let Some(session) = STRUCTURED_LOGGING_SESSIONS
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .get_mut(&session_id)
+        {
             return session.facets.clone();
         }
 
@@ -362,7 +443,13 @@ pub mod structured_logging {
 
     #[tauri::command]
     pub async fn get_columns_for_structured_logging_session(session_id: String) -> Vec<String> {
-        if let Some(session) = STRUCTURED_LOGGING_SESSIONS.lock().unwrap().as_mut().unwrap().get_mut(&session_id) {
+        if let Some(session) = STRUCTURED_LOGGING_SESSIONS
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .get_mut(&session_id)
+        {
             return session.columns.clone();
         }
 
@@ -370,8 +457,18 @@ pub mod structured_logging {
     }
 
     #[tauri::command]
-    pub async fn get_filtered_data_for_structured_logging_session(session_id: String, search_query: String, mut sorting: Vec<SortingState>) -> FilteredLogResult {
-        if let Some(session) = STRUCTURED_LOGGING_SESSIONS.lock().unwrap().as_mut().unwrap().get_mut(&session_id) {
+    pub async fn get_filtered_data_for_structured_logging_session(
+        session_id: String,
+        search_query: String,
+        mut sorting: Vec<SortingState>,
+    ) -> FilteredLogResult {
+        if let Some(session) = STRUCTURED_LOGGING_SESSIONS
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .get_mut(&session_id)
+        {
             let mut filtered_data = Vec::new();
             let mut any_filtered = false;
             let mut facet_matches: Vec<HashMap<String, HashSet<usize>>> = Vec::new();
@@ -395,7 +492,10 @@ pub mod structured_logging {
                 }
 
                 if !facet_matched_indices.is_empty() {
-                    facet_matches.push(HashMap::from([(facet.property.clone(), facet_matched_indices)]));
+                    facet_matches.push(HashMap::from([(
+                        facet.property.clone(),
+                        facet_matched_indices,
+                    )]));
                 }
             }
 
@@ -403,16 +503,25 @@ pub mod structured_logging {
 
             if !facet_matches.is_empty() {
                 // matched indices based on AND or OR
-                matched_indices = facet_matches[0].iter().map(|(_, indices)| indices.clone()).flatten().collect();
+                matched_indices = facet_matches[0]
+                    .iter()
+                    .map(|(_, indices)| indices.clone())
+                    .flatten()
+                    .collect();
                 for (property, indices) in facet_matches.iter().skip(1).flat_map(|m| m.iter()) {
                     // get matchtype for property
-                    let facet = session.facets.iter().find(|f| f.property == *property).unwrap();
+                    let facet = session
+                        .facets
+                        .iter()
+                        .find(|f| f.property == *property)
+                        .unwrap();
                     match facet.match_type {
                         MatchType::OR => {
                             matched_indices = matched_indices.union(indices).cloned().collect();
                         }
                         MatchType::AND => {
-                            matched_indices = matched_indices.intersection(indices).cloned().collect();
+                            matched_indices =
+                                matched_indices.intersection(indices).cloned().collect();
                         }
                     }
                 }
@@ -423,15 +532,18 @@ pub mod structured_logging {
                 // Apply search query if any and filter the matched indices
                 if !search_query.is_empty() {
                     let search_query = search_query.to_lowercase();
-                    matched_indices = matched_indices.into_iter().filter(|index| {
-                        let data = &session.entries[*index];
+                    matched_indices = matched_indices
+                        .into_iter()
+                        .filter(|index| {
+                            let data = &session.entries[*index];
 
-                        if data.content.to_lowercase().contains(&search_query) {
-                            return true
-                        }
+                            if data.content.to_lowercase().contains(&search_query) {
+                                return true;
+                            }
 
-                        return false;
-                    }).collect();
+                            return false;
+                        })
+                        .collect();
                 }
 
                 for index in matched_indices.iter() {
@@ -458,7 +570,7 @@ pub mod structured_logging {
             if sorting.is_empty() {
                 sorting.push(SortingState {
                     id: "timestamp".to_string(),
-                    desc: false
+                    desc: false,
                 });
             }
 
@@ -478,18 +590,21 @@ pub mod structured_logging {
         };
     }
 
-    fn apply_sorting(mut data: Vec<StructuredLogEntry>, sorting: &[SortingState]) -> Vec<StructuredLogEntry> {
+    fn apply_sorting(
+        mut data: Vec<StructuredLogEntry>,
+        sorting: &[SortingState],
+    ) -> Vec<StructuredLogEntry> {
         data.sort_by(|a, b| {
             for sort in sorting.iter() {
                 let key = &sort.id;
                 let desc = sort.desc;
                 let value_a = a.data.get(key);
                 let value_b = b.data.get(key);
-    
+
                 if value_a.is_none() || value_b.is_none() {
                     continue;
                 }
-    
+
                 let order = match (value_a, value_b) {
                     (Some(va), Some(vb)) if va.is_string() && vb.is_string() => {
                         let va = va.as_str().unwrap();
@@ -499,7 +614,7 @@ pub mod structured_logging {
                         } else {
                             va.cmp(&vb)
                         }
-                    },
+                    }
                     (Some(va), Some(vb)) if va.is_number() && vb.is_number() => {
                         let va = va.as_f64().unwrap();
                         let vb = vb.as_f64().unwrap();
@@ -508,10 +623,10 @@ pub mod structured_logging {
                         } else {
                             va.partial_cmp(&vb).unwrap()
                         }
-                    },
+                    }
                     _ => continue,
                 };
-    
+
                 if order != std::cmp::Ordering::Equal {
                     return order;
                 }
@@ -522,9 +637,14 @@ pub mod structured_logging {
     }
 
     fn update_unique_facet_values_for_logging_session(session_id: String) {
-        if let Some(session) = STRUCTURED_LOGGING_SESSIONS.lock().unwrap().as_mut().unwrap().get_mut(&session_id) {
+        if let Some(session) = STRUCTURED_LOGGING_SESSIONS
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .get_mut(&session_id)
+        {
             for facet in session.facets.iter_mut() {
-                
                 let mut values: HashMap<String, u32> = HashMap::new();
                 for entry in session.entries.iter() {
                     if let Some(value) = entry.data.get(&facet.property) {

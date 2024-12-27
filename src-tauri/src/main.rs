@@ -1,69 +1,34 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::{AboutMetadata, CustomMenuItem, Manager, Menu, Submenu, MenuEntry, MenuItem};
+use tauri::{menu::{AboutMetadataBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder}, Emitter, Manager};
 
 mod kubernetes;
-mod shell;
 mod logs;
+mod shell;
 
 #[derive(Clone, serde::Serialize)]
 struct CheckForUpdatesPayload {}
 
-fn main() { 
+fn main() {
     let _ = fix_path_env::fix();
-    
+
     let ctx = tauri::generate_context!();
 
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_http::init());
 
-    #[cfg(target_os = "macos")]
-    {
-        let metadata = AboutMetadata::new()
-        .authors(vec!["@unxsist".to_string()])
-        .website(String::from("https://www.jet-pilot.app"))
-        .license(String::from("MIT"));
-
-    let submenu = Submenu::new(
-        "JET Pilot", 
-        Menu::new()
-            .add_native_item(
-                tauri::MenuItem::About(
-                    String::from("JET Pilot"), 
-                    metadata                
-                )
-            )
-            .add_item(CustomMenuItem::new("check_for_updates", "Check for Updates..."))
-            .add_native_item(tauri::MenuItem::Separator)
-            .add_native_item(tauri::MenuItem::Quit));
-
-    let copyPasteMenu = Submenu::new(
-        "Edit",
-        Menu::with_items([
-            MenuItem::Undo.into(),
-            MenuItem::Redo.into(),
-            MenuItem::Separator.into(),
-            MenuItem::Cut.into(),
-            MenuItem::Copy.into(),
-            MenuItem::Paste.into(),
-            MenuItem::Separator.into(),
-            MenuItem::SelectAll.into(),
-        ]),
-    );
-    let mut menu = Menu::new().add_submenu(submenu);
-    menu = menu.add_submenu(copyPasteMenu);
-
-        builder = builder.menu(menu).on_menu_event(|event| {
-            match event.menu_item_id() {
-                "check_for_updates" => {
-                    event.window().emit("check_for_updates", CheckForUpdatesPayload {}).unwrap();
-                }
-                _ => {}
-            }
-        });
-    }
-
-    builder.invoke_handler(tauri::generate_handler![
+    builder
+        .invoke_handler(tauri::generate_handler![
             kubernetes::client::set_current_kubeconfig,
             kubernetes::client::list_contexts,
             kubernetes::client::get_context_auth_info,
@@ -113,7 +78,47 @@ fn main() {
             logs::structured_logging::get_filtered_data_for_structured_logging_session,
         ])
         .setup(|_app| {
-            let _window = _app.get_window("main").unwrap();
+            #[cfg(target_os = "macos")]
+            {
+                let metadata = AboutMetadataBuilder::new()
+                    .authors(Some(vec!["@unxsist".to_string()]))
+                    .website(Some(String::from("https://www.jet-pilot.app")))
+                    .license(Some(String::from("MIT")))
+                    .build();
+
+                let check_for_updates = MenuItemBuilder::new("Check for updates...").id("check_for_updates").build(_app)?;
+
+                let submenu = SubmenuBuilder::new(_app, "JET Pilot")
+                    .about(Some(metadata))
+                    .item(&check_for_updates)
+                    .separator()
+                    .quit()
+                    .build()?;
+
+                let copy_paste_menu = SubmenuBuilder::new(_app, "Edit")
+                    .undo()
+                    .redo()
+                    .separator()
+                    .cut()
+                    .copy()
+                    .paste()
+                    .separator()
+                    .select_all()
+                    .build()?;
+
+
+                let menu = MenuBuilder::new(_app).item(&submenu).item(&copy_paste_menu).build()?;
+
+                _app.set_menu(menu)?;
+
+                _app.on_menu_event(move |app, event| {
+                    if check_for_updates.id() == event.id() {
+                        app.emit("check_for_updates", CheckForUpdatesPayload {}).unwrap();
+                    }
+                });
+            }
+
+            let _window = _app.get_webview_window("main").unwrap();
 
             #[cfg(target_os = "macos")]
             {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { invoke } from "@tauri-apps/api/tauri";
-import { Child, Command } from "@tauri-apps/api/shell";
+import { invoke } from "@tauri-apps/api/core";
+import { Child, Command } from "@tauri-apps/plugin-shell";
 import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,7 +58,7 @@ const initCommand = computed(() => {
 const initLogOutput = async () => {
   killProcess();
 
-  const command = new Command("kubectl", initCommand.value);
+  const command = Command.create("kubectl", initCommand.value);
 
   command.stdout.on("data", async (data: string) => {
     if (data === "") {

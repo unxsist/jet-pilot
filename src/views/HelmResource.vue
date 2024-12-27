@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRoute, useRouter, onBeforeRouteUpdate } from "vue-router";
-import { Command, Child } from "@tauri-apps/api/shell";
+import { Command, Child } from "@tauri-apps/plugin-shell";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { injectStrict } from "@/lib/utils";
 import { onMounted } from "vue";
@@ -123,7 +123,7 @@ const fetchHelmResource = (resource: string) => {
     args.push("--all-namespaces");
   }
 
-  const command = new Command("helm", args);
+  const command = Command.create("helm", args);
   command.stdout.on("data", (data) => {
     const parsedData = JSON.parse(data);
 

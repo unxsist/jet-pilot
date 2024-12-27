@@ -1,0 +1,6 @@
+{
+  "identifier": "desktop",
+  "platforms": ["macOS", "windows", "linux"],
+  "windows": ["main"],
+  "permissions": ["updater:default", "global-shortcut:default"]
+}

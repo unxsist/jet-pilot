@@ -8,11 +8,11 @@ import {
 } from "@/providers/CommandPaletteProvider";
 import PinIcon from "@/assets/icons/pin.svg";
 import PinLineIcon from "@/assets/icons/pin-line.svg";
-import { type } from "@tauri-apps/api/os";
+import { type } from "@tauri-apps/plugin-os";
 
 const router = useRouter();
 
-const os = ref("");
+const os = ref(type());
 const props = withDefaults(
   defineProps<{
     icon: string;
@@ -47,10 +47,6 @@ registerCommand({
   },
 });
 
-onMounted(async () => {
-  os.value = await type();
-});
-
 onUnmounted(() => {
   unregisterCommand(commandId);
 });
@@ -69,7 +65,7 @@ onUnmounted(() => {
         class="text-xxs leading-none text-[#7a7a7a] whitespace-nowrap"
       >
         <span>
-          {{ os === "Darwin" ? "⌘" : "Ctrl" }}{{ os === "Windows_NT" ? "+" : ""
+          {{ os === "macos" ? "⌘" : "Ctrl" }}{{ os !== "macos" ? "+" : ""
           }}{{ props.shortcut }}
         </span>
       </span>

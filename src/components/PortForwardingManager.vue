@@ -24,7 +24,7 @@ import { injectStrict } from "@/lib/utils";
 const { activePortForwardings } = injectStrict(PortForwardingStateKey);
 const removePortForwarding = injectStrict(PortForwardingRemovePortForwarding);
 
-import { open } from "@tauri-apps/api/shell";
+import { open } from "@tauri-apps/plugin-shell";
 const openInBrowser = (portForwarding: ActivePortForwarding) => {
   open(`http://${portForwarding.address}:${portForwarding.localPort}`);
 };

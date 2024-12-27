@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Button } from "@/components/ui/button";
 import { AlertDialogFooter } from "@/components/ui/alert-dialog";
-import { Command } from "@tauri-apps/api/shell";
+import { Command } from "@tauri-apps/plugin-shell";
 
 import { useToast } from "@/components/ui/toast";
 import {
@@ -48,7 +48,7 @@ const scale = () => {
 
   console.log(args);
 
-  const command = new Command("kubectl", args);
+  const command = Command.create("kubectl", args);
   command.stdout.on("data", (data) => {
     // toast({
     //   title: "Rollback successful",

@@ -4,7 +4,7 @@ import {
   register,
   unregister,
   unregisterAll,
-} from "@tauri-apps/api/globalShortcut";
+} from "@tauri-apps/plugin-global-shortcut";
 import { useRouter } from "vue-router";
 
 export const GlobalShortcutRegisterShortcutsKey: InjectionKey<() => void> =

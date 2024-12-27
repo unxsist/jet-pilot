@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/select";
 
 import { AlertDialogFooter } from "@/components/ui/alert-dialog";
-import { Command } from "@tauri-apps/api/shell";
+import { Command } from "@tauri-apps/plugin-shell";
 
 import { useToast } from "@/components/ui/toast";
 const { toast } = useToast();
@@ -51,7 +51,7 @@ const rollback = () => {
 
   console.log(args);
 
-  const command = new Command("helm", args);
+  const command = Command.create("helm", args);
   command.stdout.on("data", (data) => {
     toast({
       title: "Rollback successful",
@@ -88,7 +88,7 @@ const fetchRevisions = async () => {
 
   console.log(args);
 
-  const command = new Command("helm", args);
+  const command = Command.create("helm", args);
   command.stdout.on("data", (data) => {
     const parsedData = JSON.parse(data);
 

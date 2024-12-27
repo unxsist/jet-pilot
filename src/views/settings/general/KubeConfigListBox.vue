@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { homeDir } from "@tauri-apps/api/path";
-import { open } from "@tauri-apps/api/dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
 import FolderIcon from "@/assets/icons/folder.svg";
 import BinIcon from "@/assets/icons/bin.svg";

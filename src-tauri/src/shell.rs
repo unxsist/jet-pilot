@@ -1,5 +1,4 @@
 pub mod tty {
-    use tauri::Manager;
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
     use std::collections::HashMap;
     use std::ffi::OsString;
@@ -9,6 +8,7 @@ pub mod tty {
         thread::{self, sleep},
         time::Duration,
     };
+    use tauri::Emitter;
     use uuid::Uuid;
 
     struct TerminalSession {
@@ -65,7 +65,7 @@ pub mod tty {
                     let data = reader.fill_buf().unwrap().to_vec();
                     reader.consume(data.len());
                     if data.len() > 0 {
-                        app.emit_all(format!("tty_data_{}", session_id).as_ref(), data)
+                        app.emit(format!("tty_data_{}", session_id).as_ref(), data)
                             .unwrap();
                     }
                 }
