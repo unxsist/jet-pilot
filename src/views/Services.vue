@@ -99,6 +99,7 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(
   <DataTable
     :data="services"
     :columns="columns"
+    :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"
   />
