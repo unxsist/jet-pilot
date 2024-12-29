@@ -80,6 +80,7 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(
   <DataTable
     :data="virtualServices"
     :columns="columns"
+    :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"
   />

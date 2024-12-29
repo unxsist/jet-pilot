@@ -155,6 +155,7 @@ onUnmounted(() => {
     :key="`${route.query.resource}-${resourceData.length}`"
     :data="resourceData"
     :columns="columns"
+    :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"
   />

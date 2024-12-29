@@ -81,6 +81,7 @@ x
   <DataTable
     :data="pvcs"
     :columns="columns"
+    :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"
   />
