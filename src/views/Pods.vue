@@ -204,7 +204,7 @@ async function getPods(refresh: boolean = false) {
 
     if (results[1].status === "fulfilled") {
       metrics.value.push(results[1].value);
-      if (metrics.value.length > 20) {
+      if (metrics.value.length > 1) {
         metrics.value.shift();
       }
 
