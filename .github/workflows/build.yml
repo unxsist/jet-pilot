@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        platform: [macos-latest, ubuntu-22.04, windows-latest]
+        platform: [macos-latest, ubuntu-24.04, windows-latest]
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -43,7 +43,7 @@ jobs:
           workspaces: "./src-tauri -> target"
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.platform == 'ubuntu-24.04'
         run: |
           sudo apt update;
           sudo apt install -y \
@@ -53,15 +53,15 @@ jobs:
             file \
             libssl-dev \
             libgtk-3-dev \
-            libayatana-appindicator3-dev \
+            libappindicator3-dev \
             librsvg2-dev;
           sudo apt install -y \
-            libwebkit2gtk-4.0-37=2.36.0-2ubuntu1 \
-            libwebkit2gtk-4.0-dev=2.36.0-2ubuntu1 \
-            libjavascriptcoregtk-4.0-18=2.36.0-2ubuntu1 \
-            libjavascriptcoregtk-4.0-dev=2.36.0-2ubuntu1 \
-            gir1.2-javascriptcoregtk-4.0=2.36.0-2ubuntu1 \
-            gir1.2-webkit2-4.0=2.36.0-2ubuntu1;
+            libwebkit2gtk-4.1-0=2.44.0-2 \
+            libwebkit2gtk-4.1-dev=2.44.0-2 \
+            libjavascriptcoregtk-4.1-0=2.44.0-2 \
+            libjavascriptcoregtk-4.1-dev=2.44.0-2 \
+            gir1.2-javascriptcoregtk-4.1=2.44.0-2 \
+            gir1.2-webkit2-4.1=2.44.0-2;
 
       - name: Set-up OpenSSL (Windows Only)
         if: matrix.platform == 'windows-latest'
