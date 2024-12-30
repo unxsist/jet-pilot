@@ -152,7 +152,7 @@ const onSave = () => {
         "--namespace",
         props.namespace,
         "-f",
-        `${tempDirectory}${filename}`,
+        `${tempDirectory}/${filename}`,
         "--kubeconfig",
         props.kubeConfig,
       ]);
