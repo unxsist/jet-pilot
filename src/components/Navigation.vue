@@ -273,7 +273,7 @@ watch([context, namespace, clusterAuthenticated], () => {
             <template v-for="(resource, index) in settings.pinnedResources">
               <NavigationItem
                 v-if="getResourceByName(resource.name)"
-                :key="resource.name"
+                :key="`pin-${resource.name}`"
                 :icon="formatResourceKind(resource.kind).toLowerCase()"
                 :pinned="true"
                 :title="formatResourceKind(resource.kind)"
@@ -298,7 +298,7 @@ watch([context, namespace, clusterAuthenticated], () => {
             >
               <template
                 v-for="resource in getCoreResourcesForGroup(group)"
-                :key="resource.name"
+                :key="`core-${resource.name}`"
               >
                 <NavigationItem
                   v-if="!isPinned(resource.name)"
@@ -316,7 +316,7 @@ watch([context, namespace, clusterAuthenticated], () => {
               </template>
               <template
                 v-for="resource in getApiResourcesForGroup(group)"
-                :key="resource.name"
+                :key="`api-${resource.name}`"
               >
                 <NavigationItem
                   v-if="!isPinned(resource.name)"
@@ -361,7 +361,7 @@ watch([context, namespace, clusterAuthenticated], () => {
                 v-for="resource in getApiResourcesForNonDefaultGroup(
                   nonDefaultApiGroup
                 )"
-                :key="resource.name"
+                :key="`non-default-${resource.name}`"
               >
                 <NavigationItem
                   v-if="!isPinned(resource.name)"
