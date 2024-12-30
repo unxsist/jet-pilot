@@ -15,7 +15,11 @@ JET Pilot is an open-source K8s IDE. It was created out of frustration, as all "
 
 ## Installation Instructions
 
-### macOS
+### macOS (Homebrew)
+
+1. Run the following command: `brew install jet-pilot`
+
+### macOS (manual installation)
 
 1. Download the [latest release for MacOS](https://github.com/unxsist/jet-pilot/releases/latest/) from here.
 2. Double-click the downloaded `.dmg` file to mount it.
