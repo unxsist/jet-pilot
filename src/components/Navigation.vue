@@ -350,7 +350,10 @@ watch([context, namespace, clusterAuthenticated], () => {
               :can-pin="false"
             />
           </NavigationGroup>
-          <template v-for="nonDefaultApiGroup in getNonDefaultApiGroups()">
+          <template
+            v-for="nonDefaultApiGroup in getNonDefaultApiGroups()"
+            :key="`non-default-group-${nonDefaultApiGroup}`"
+          >
             <NavigationGroup
               :title="nonDefaultApiGroup"
               v-if="

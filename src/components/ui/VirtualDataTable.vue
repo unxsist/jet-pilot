@@ -7,6 +7,7 @@ import {
   getSortedRowModel,
   useVueTable,
   SortingState,
+  getFilteredRowModel,
 } from "@tanstack/vue-table";
 import { useVirtualizer } from "@tanstack/vue-virtual";
 import {
@@ -45,6 +46,8 @@ const setContextMenuSubject = (subject: TData | null) => {
 };
 
 const sorting = ref<SortingState>([]);
+const searchInput = ref<HTMLInputElement | null>(null);
+const searchQuery = ref<string>("");
 
 const props = defineProps<{
   stickyHeaders?: boolean;
@@ -79,6 +82,9 @@ const table = useVueTable({
   },
   getCoreRowModel: getCoreRowModel(),
   getSortedRowModel: getSortedRowModel(),
+  getFilteredRowModel: getFilteredRowModel(),
+  globalFilterFn: "includesString",
+  autoResetAll: false,
   manualSorting: false,
   state: {
     get sorting() {
@@ -95,6 +101,10 @@ const table = useVueTable({
     size: Number.MAX_SAFE_INTEGER,
     maxSize: Number.MAX_SAFE_INTEGER,
   },
+});
+
+const rows = computed(() => {
+  return table.getRowModel().rows;
 });
 
 const tableContainer = ref<HTMLDivElement | null>(null);
@@ -143,6 +153,32 @@ const after = computed(() => {
     ? virtualizer.value.getTotalSize() -
         Math.max(0, virtualRows.value[virtualRows.value.length - 1].end)
     : 0;
+});
+
+const handleSearchKeyDown = (e: KeyboardEvent) => {
+  if (searchQuery.value.length === 0 && e.key.match(/[a-z0-9]/i)) {
+    searchInput.value?.focus();
+    window.removeEventListener("keydown", handleSearchKeyDown);
+  }
+};
+
+const handleSearchInputKeydown = (e: KeyboardEvent) => {
+  if (e.key === "Escape") {
+    searchQuery.value = "";
+    searchInput.value?.blur();
+  }
+};
+
+watch(searchQuery, () => {
+  if (searchQuery.value.length === 0) {
+    window.addEventListener("keydown", handleSearchKeyDown);
+  } else {
+    table.setGlobalFilter(searchQuery.value);
+  }
+});
+
+onMounted(() => {
+  // window.addEventListener("keydown", handleSearchKeyDown);
 });
 </script>
 
@@ -217,7 +253,7 @@ const after = computed(() => {
         <ContextMenu>
           <ContextMenuTrigger as-child>
             <TableBody>
-              <template v-if="table.getRowModel().rows?.length">
+              <template v-if="rows?.length">
                 <tr v-if="before > 0">
                   <td
                     colspan="columns.length"
@@ -226,31 +262,29 @@ const after = computed(() => {
                 </tr>
                 <TableRow
                   v-for="row in virtualRows"
-                  :key="row.key"
+                  :key="rows[row.index].id"
+                  :style="{
+                    height: `${row.size}px`,
+                    transform: `translateY(${
+                      row.start - row.index * row.size
+                    }px)`,
+                  }"
                   :data-state="
-                    table.getRowModel().rows[row.index].getIsSelected()
-                      ? 'selected'
-                      : undefined
+                    rows[row.index].getIsSelected() ? 'selected' : undefined
                   "
                   :class="
                     typeof rowClasses === 'function'
-                      ? rowClasses(table.getRowModel().rows[row.index].original)
+                      ? rowClasses(rows[row.index].original)
                       : rowClasses || ''
                   "
-                  @click.right="
-                    setContextMenuSubject(
-                      table.getRowModel().rows[row.index].original
-                    )
-                  "
+                  @click.right="setContextMenuSubject(rows[row.index].original)"
                 >
                   <TableCell
-                    v-for="cell in table
-                      .getRowModel()
-                      .rows[row.index].getVisibleCells()"
+                    v-for="cell in rows[row.index].getVisibleCells()"
                     :key="cell.id"
                     :class="
                       cell.column.columnDef.meta?.class?.(
-                        table.getRowModel().rows[row.index].original
+                        rows[row.index].original
                       )
                     "
                     class="truncate overflow-hidden"
@@ -318,6 +352,20 @@ const after = computed(() => {
           </ContextMenuContent>
         </ContextMenu>
       </Table>
+    </div>
+    <div class="absolute rounded z-50 bottom-4 right-4" v-if="false">
+      <input
+        v-model="searchQuery"
+        :class="{ 'opacity-0 pointer-events-none': searchQuery.length === 0 }"
+        class="w-full h-10 px-2 text-lg bg-background border border-border rounded"
+        placeholder="Search"
+        ref="searchInput"
+        autocorrect="off"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        @keydown="handleSearchInputKeydown"
+      />
     </div>
   </div>
 </template>
