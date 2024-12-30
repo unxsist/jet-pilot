@@ -18,6 +18,7 @@ import CloseIcon from "@/assets/icons/close.svg";
 import FullScreenIcon from "@/assets/icons/full_screen.svg";
 import MinimizeIcon from "@/assets/icons/minimize.svg";
 import { formatResourceKind } from "@/lib/utils";
+import { ref } from "vue";
 
 const targetOs = ref<string>(getOsType());
 const {
@@ -43,7 +44,7 @@ const navigationGroups: NavigationGroup[] = [
       "Node",
       "CustomResourceDefinition",
     ],
-    apiGroupResources: [],
+    apiGroupResources: ["events.k8s.io*"],
   },
   {
     title: "Workloads",
@@ -123,31 +124,26 @@ const getApiResourcesForGroup = (group: NavigationGroup) => {
     .filter((resource) => !resource.name.includes("/"));
 };
 
-const getOtherResources = () => {
-  return Array.from(clusterResources.value.keys())
-    .filter((key) => {
-      return !navigationGroups.some((group) => {
+const getApiResourcesForNonDefaultGroup = (group: string) => {
+  return (
+    clusterResources.value
+      .get(group)
+      ?.filter((resource) => !resource.name.includes("/")) ?? []
+  );
+};
+
+const getNonDefaultApiGroups = () => {
+  return Array.from(clusterResources.value.keys()).filter((key) => {
+    return (
+      !navigationGroups.some((group) => {
         return group.apiGroupResources.some((group) => {
           return key.match(group);
         });
-      });
-    })
-    .map((key) => clusterResources.value.get(key)!)
-    .flat()
-    .filter((resource) => !resource.name.includes("/"))
-    .filter(
-      (resource) =>
-        !navigationGroups.some((group) => {
-          return group.coreResourceKinds.includes(resource.kind);
-        })
-    )
-    .filter(
-      (resource, index, self) =>
-        index ===
-        self.findIndex(
-          (t) => t.kind === resource.kind && t.name === resource.name
-        )
+      }) &&
+      key !== "v1" &&
+      key !== "apps"
     );
+  });
 };
 
 const filterNamespaced = (resource: V1APIResource) => {
@@ -354,26 +350,35 @@ watch([context, namespace, clusterAuthenticated], () => {
               :can-pin="false"
             />
           </NavigationGroup>
-          <NavigationGroup title="Other">
-            <template
-              v-for="resource in getOtherResources()"
-              :key="resource.name"
+          <template v-for="nonDefaultApiGroup in getNonDefaultApiGroups()">
+            <NavigationGroup
+              :title="nonDefaultApiGroup"
+              v-if="
+                getApiResourcesForNonDefaultGroup(nonDefaultApiGroup).length > 0
+              "
             >
-              <NavigationItem
-                v-if="!isPinned(resource.name)"
-                :icon="formatResourceKind(resource.kind).toLowerCase()"
-                :title="formatResourceKind(resource.kind)"
-                :to="{
-                  path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
-                  query: {
-                    resource: formatResourceKind(resource.kind).toLowerCase(),
-                  },
-                }"
-                @pinned="pinResource(resource)"
-                @unpinned="unpinResource(resource)"
-              />
-            </template>
-          </NavigationGroup>
+              <template
+                v-for="resource in getApiResourcesForNonDefaultGroup(
+                  nonDefaultApiGroup
+                )"
+                :key="resource.name"
+              >
+                <NavigationItem
+                  v-if="!isPinned(resource.name)"
+                  :icon="formatResourceKind(resource.kind).toLowerCase()"
+                  :title="formatResourceKind(resource.kind)"
+                  :to="{
+                    path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
+                    query: {
+                      resource: formatResourceKind(resource.kind).toLowerCase(),
+                    },
+                  }"
+                  @pinned="pinResource(resource)"
+                  @unpinned="unpinResource(resource)"
+                />
+              </template>
+            </NavigationGroup>
+          </template>
         </ScrollArea>
       </div>
       <div
