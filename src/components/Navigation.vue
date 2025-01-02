@@ -260,10 +260,17 @@ watch([context, namespace, clusterAuthenticated], () => {
       </Button>
     </div>
     <div class="absolute w-full h-[40px]" v-else data-tauri-drag-region></div>
-    <div class="flex flex-col flex-grow min-h-screen max-h-screen p-2 pr-0">
+    <div
+      :class="{
+        'min-h-screen max-h-screen': targetOs === 'macos',
+        'min-h-[calc(100vh-33px)] max-h-[calc(100vh-33px)]':
+          targetOs !== 'macos',
+      }"
+      class="flex flex-col flex-grow p-2 pr-0"
+    >
       <ContextSwitcher :class="{ 'mt-[30px]': targetOs === 'macos' }" />
       <PortForwardingManager />
-      <div class="flex w-full flex-grow flex-shrink overflow-hidden">
+      <div class="flex w-full flex-grow overflow-hidden">
         <ScrollArea class="w-full mt-0 mb-0">
           <div><!-- Empty div to fix width and truncation --></div>
           <NavigationGroup
@@ -386,7 +393,8 @@ watch([context, namespace, clusterAuthenticated], () => {
       </div>
       <div
         navigation-settings
-        class="flex-shrink-0 border-t -ml-2 pl-2 pt-2 mb-0"
+        :class="{ 'pb-1': targetOs === 'macos' }"
+        class="border-t -ml-2 pl-2 pt-2 pb-1 mb-0"
       >
         <NavigationItem
           icon="settings"
