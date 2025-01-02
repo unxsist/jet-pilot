@@ -100,7 +100,7 @@ export default {
 
     if (state.settings.kubeConfigs.length === 0) {
       const home = await homeDir();
-      state.settings.kubeConfigs.push(`${home}.kube/config`);
+      state.settings.kubeConfigs.push(`${home}/.kube/config`);
     }
   },
   render(): any {
