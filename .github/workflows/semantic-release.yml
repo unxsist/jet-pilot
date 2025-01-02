@@ -1,10 +1,5 @@
 name: Semantic Release
-on:
-  workflow_run:
-    workflows: ["Build"]
-    branches: ["main"]
-    types:
-      - completed
+on: workflow_dispatch
 
 permissions:
   contents: read # for checkout
