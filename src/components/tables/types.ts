@@ -14,6 +14,7 @@ export interface WithOptions<T> extends BaseRowAction<T> {
 
 export interface WithHandler<T> extends BaseRowAction<T> {
   options?: never;
+  massAction?: never;
   isAvailable?: (row: T) => boolean;
   handler: (row: T) => void;
 }

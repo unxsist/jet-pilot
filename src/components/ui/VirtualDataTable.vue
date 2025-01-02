@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import { MassWithHandler, RowAction } from "../tables/types";
+import { MassWithHandler, RowAction, WithHandler } from "../tables/types";
 
 interface DataTableState<T> {
   contextMenuSubject: T | null;
@@ -216,7 +216,20 @@ const registerFilterKeybinds = () => {
   window.addEventListener("keydown", handleSearchKeyDown);
 };
 
-const handleMassAction = (rowAction: MassWithHandler<TData>) => {
+const handleRowAction = (
+  rowAction: WithHandler<TData> | MassWithHandler<TData>,
+  fromContextMenu = false
+) => {
+  if (fromContextMenu && rowAction.massAction) {
+    rowAction.handler([state.contextMenuSubject as TData]);
+    return;
+  }
+
+  if (fromContextMenu) {
+    rowAction.handler(state.contextMenuSubject as TData);
+    return;
+  }
+
   rowAction.handler(
     table.getSelectedRowModel().rows.map((row) => row.original)
   );
@@ -374,7 +387,7 @@ onUpdated(() => {
               <template v-if="!rowAction.options">
                 <ContextMenuItem
                   v-if="rowAction.isAvailable ? rowAction.isAvailable(state.contextMenuSubject as TData) : true"
-                  @select="rowAction.handler(state.contextMenuSubject as TData)"
+                  @select="handleRowAction(rowAction, true)"
                   >{{
                     typeof rowAction.label === "function"
                       ? rowAction.label(state.contextMenuSubject as TData)
@@ -391,9 +404,7 @@ onUpdated(() => {
                     <ContextMenuItem
                       v-for="(option, optionIndex) in rowAction.options(state.contextMenuSubject as TData)"
                       :key="optionIndex"
-                      @select="
-                        option.handler(state.contextMenuSubject as TData)
-                      "
+                      @select="handleRowAction(option, true)"
                       >{{ option.label }}</ContextMenuItem
                     >
                   </ContextMenuSubContent>
@@ -426,7 +437,7 @@ onUpdated(() => {
       </div>
 
       <div
-        class="ml-auto w-1/3 flex items-center justify-between px-4 h-10 border rounded-full transition-all"
+        class="ml-auto w-1/3 flex items-center justify-between px-4 h-10 border bg-background rounded-full transition-all"
         :class="{
           'translate-y-0': table.getSelectedRowModel().rows.length > 0,
           'translate-y-full': table.getSelectedRowModel().rows.length === 0,
@@ -438,7 +449,7 @@ onUpdated(() => {
             <Button
               v-if="rowAction.massAction"
               class="rounded-full"
-              @click="handleMassAction(rowAction)"
+              @click="handleRowAction(rowAction)"
               size="xs"
               >{{ rowAction.label }}</Button
             >
