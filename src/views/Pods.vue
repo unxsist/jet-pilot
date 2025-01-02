@@ -246,6 +246,7 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(getPods, 1000, [
   <DataTable
     :data="pods"
     :columns="columns"
+    :allow-filter="true"
     :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"

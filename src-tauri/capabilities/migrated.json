@@ -113,6 +113,7 @@
     "http:default",
     "clipboard-manager:default",
     "process:default",
+    "shell:allow-kill",
     {
       "identifier": "shell:allow-spawn",
       "allow": [

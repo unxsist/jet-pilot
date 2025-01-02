@@ -50,6 +50,7 @@ const searchInput = ref<HTMLInputElement | null>(null);
 const searchQuery = ref<string>("");
 
 const props = defineProps<{
+  allowFilter?: boolean;
   stickyHeaders?: boolean;
   autoScroll?: boolean;
   columns: ColumnDef<TData, TValue>[];
@@ -111,7 +112,7 @@ const tableContainer = ref<HTMLDivElement | null>(null);
 
 const virtualizerOptions = computed(() => {
   return {
-    count: props.data.length,
+    count: rows.value.length,
     getScrollElement: () => tableContainer.value,
     estimateSize: () => props.estimatedRowHeight || 37,
     overscan: 5,
@@ -170,15 +171,27 @@ const handleSearchInputKeydown = (e: KeyboardEvent) => {
 };
 
 watch(searchQuery, () => {
-  if (searchQuery.value.length === 0) {
-    window.addEventListener("keydown", handleSearchKeyDown);
-  } else {
-    table.setGlobalFilter(searchQuery.value);
-  }
+  table.setGlobalFilter(String(searchQuery.value));
 });
 
+const registerFilterKeybinds = () => {
+  if (!props.allowFilter) {
+    return;
+  }
+
+  if (searchQuery.value.length > 0) {
+    return;
+  }
+
+  window.addEventListener("keydown", handleSearchKeyDown);
+};
+
 onMounted(() => {
-  // window.addEventListener("keydown", handleSearchKeyDown);
+  registerFilterKeybinds();
+});
+
+onUpdated(() => {
+  registerFilterKeybinds();
 });
 </script>
 
@@ -353,13 +366,13 @@ onMounted(() => {
         </ContextMenu>
       </Table>
     </div>
-    <div class="absolute rounded z-50 bottom-4 right-4" v-if="false">
+    <div class="absolute z-50 bottom-4 right-4 left-4 flex justify-center">
       <input
+        ref="searchInput"
         v-model="searchQuery"
         :class="{ 'opacity-0 pointer-events-none': searchQuery.length === 0 }"
-        class="w-full h-10 px-2 text-lg bg-background border border-border rounded"
+        class="w-96 py-2 px-2 text-lg bg-background border border-border ring-primary ring-2 rounded-lg focus:outline-none"
         placeholder="Search"
-        ref="searchInput"
         autocorrect="off"
         autocomplete="off"
         autocapitalize="off"

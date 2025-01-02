@@ -81,6 +81,7 @@ x
   <DataTable
     :data="secrets"
     :columns="columns"
+    :allow-filter="true"
     :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"

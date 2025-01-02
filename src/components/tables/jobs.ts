@@ -12,6 +12,7 @@ export const columns: ColumnDef<V1Job>[] = [
     accessorFn: (row) => {
       return `${row.status?.succeeded ?? 0}/${row.spec?.completions}`;
     },
+    enableGlobalFilter: false,
   },
   {
     header: "Duration",
@@ -20,6 +21,7 @@ export const columns: ColumnDef<V1Job>[] = [
         row.status?.startTime || new Date(),
         row.status?.completionTime || new Date()
       ),
+    enableGlobalFilter: false,
   },
   {
     header: "Age",
@@ -34,5 +36,6 @@ export const columns: ColumnDef<V1Job>[] = [
         new Date(b.original.metadata?.creationTimestamp || 0).getTime()
       );
     },
+    enableGlobalFilter: false,
   },
 ];

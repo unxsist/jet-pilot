@@ -172,6 +172,7 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(
   <DataTable
     :data="deployments"
     :columns="columns"
+    :allow-filter="true"
     :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"

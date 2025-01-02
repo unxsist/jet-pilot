@@ -10,6 +10,7 @@ export const columns: ColumnDef<V1ReplicaSet>[] = [
   {
     header: "Desired",
     accessorKey: "spec.replicas",
+    enableGlobalFilter: false,
   },
   {
     header: "Ready",
@@ -18,6 +19,7 @@ export const columns: ColumnDef<V1ReplicaSet>[] = [
       const total = row.status?.replicas || 0;
       return `${ready}/${total}`;
     },
+    enableGlobalFilter: false,
   },
   {
     header: "Age",
@@ -32,5 +34,6 @@ export const columns: ColumnDef<V1ReplicaSet>[] = [
         new Date(b.original.metadata?.creationTimestamp || 0).getTime()
       );
     },
+    enableGlobalFilter: false,
   },
 ];

@@ -80,6 +80,7 @@ x
   <DataTable
     :data="jobs"
     :columns="columns"
+    :allow-filter="true"
     :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"

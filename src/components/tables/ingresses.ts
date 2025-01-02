@@ -30,5 +30,6 @@ export const columns: ColumnDef<V1Ingress>[] = [
         new Date(b.original.metadata?.creationTimestamp || 0).getTime()
       );
     },
+    enableGlobalFilter: false,
   },
 ];

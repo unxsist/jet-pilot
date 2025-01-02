@@ -32,5 +32,6 @@ export const columns: ColumnDef<VirtualService>[] = [
         new Date(b.original.metadata?.creationTimestamp || 0).getTime()
       );
     },
+    enableGlobalFilter: false,
   },
 ];
