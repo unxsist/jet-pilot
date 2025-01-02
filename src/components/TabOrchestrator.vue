@@ -94,7 +94,11 @@ const closeAndSetActiveTab = (id: string, force = false) => {
 };
 </script>
 <template>
-  <div class="relative border-t border-l bg-background" v-if="tabs.length > 0">
+  <div
+    @keydown.stop="() => {}"
+    class="relative border-t border-l bg-background"
+    v-if="tabs.length > 0"
+  >
     <div
       class="absolute w-full h-2 border-t border-transparent"
       :class="{ 'hover:border-white cursor-ns-resize': state.open }"
