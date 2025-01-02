@@ -27,7 +27,7 @@ export const columns: ColumnDef<V1Deployment>[] = [
   },
   {
     header: "Available",
-    accessorKey: "status.availableReplicas",
+    accessorFn: (row) => row.status?.availableReplicas || "",
     enableGlobalFilter: false,
   },
   {
