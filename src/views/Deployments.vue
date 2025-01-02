@@ -77,10 +77,11 @@ const rowActions: RowAction<V1Deployment>[] = [
   },
   {
     label: "Restart",
-    handler: (row) => {
+    massAction: true,
+    handler: (rows: V1Deployment[]) => {
       const dialog: BaseDialogInterface = {
         title: "Restart deployment",
-        message: `Are you sure you want to restart deployment ${row.metadata?.name}?`,
+        message: `Are you sure you want to restart ${rows.length} deployment(s)?`,
         buttons: [
           {
             label: "Cancel",
@@ -92,22 +93,24 @@ const rowActions: RowAction<V1Deployment>[] = [
           {
             label: "Restart",
             handler: (dialog) => {
-              Kubernetes.restartDeployment(
-                context.value,
-                namespace.value === "all" ? "" : namespace.value,
-                row.metadata?.name || ""
-              )
-                .then(() => {
-                  dialog.close();
-                })
-                .catch((error) => {
-                  dialog.close();
-                  toast({
-                    title: "An error occured",
-                    description: error.message,
-                    variant: "destructive",
+              rows.forEach((row) => {
+                Kubernetes.restartDeployment(
+                  context.value,
+                  row.metadata?.namespace || namespace.value,
+                  row.metadata?.name || ""
+                )
+                  .then(() => {
+                    dialog.close();
+                  })
+                  .catch((error) => {
+                    dialog.close();
+                    toast({
+                      title: "An error occured",
+                      description: error.message,
+                      variant: "destructive",
+                    });
                   });
-                });
+              });
             },
           },
         ],
@@ -193,11 +196,14 @@ const create = () => {
     :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"
-  />
-  <button
-    class="transition-all hover:opacity-100 opacity-50 z-50 absolute rounded-full w-10 h-10 flex items-center justify-center bottom-6 right-4 bg-primary text-white text-lg"
-    @click="create"
   >
-    +
-  </button>
+    <template #action-buttons>
+      <button
+        class="transition-all ml-2 hover:opacity-100 opacity-50 z-50 rounded-full w-9 h-9 flex items-center justify-center bg-primary text-white text-lg"
+        @click="create"
+      >
+        +
+      </button>
+    </template>
+  </DataTable>
 </template>
