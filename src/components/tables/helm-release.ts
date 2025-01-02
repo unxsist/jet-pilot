@@ -42,6 +42,7 @@ export const columns: ColumnDef<any>[] = [
         }
       },
     },
+    enableGlobalFilter: false,
   },
   {
     header: "Updated",
@@ -56,5 +57,6 @@ export const columns: ColumnDef<any>[] = [
         parseJSON(b.original.updated).getTime()
       );
     },
+    enableGlobalFilter: false,
   },
 ];

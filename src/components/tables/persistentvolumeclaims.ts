@@ -14,10 +14,12 @@ export const columns: ColumnDef<V1PersistentVolumeClaim>[] = [
   {
     header: "Size",
     accessorKey: "status.capacity.storage",
+    enableGlobalFilter: false,
   },
   {
     header: "Status",
     accessorKey: "status.phase",
+    enableGlobalFilter: false,
   },
   {
     header: "Age",
@@ -32,5 +34,6 @@ export const columns: ColumnDef<V1PersistentVolumeClaim>[] = [
         new Date(b.original.metadata?.creationTimestamp || 0).getTime()
       );
     },
+    enableGlobalFilter: false,
   },
 ];

@@ -19,5 +19,6 @@ export const columns: ColumnDef<any>[] = [
         new Date(b.original.metadata?.creationTimestamp || 0).getTime()
       );
     },
+    enableGlobalFilter: false,
   },
 ];

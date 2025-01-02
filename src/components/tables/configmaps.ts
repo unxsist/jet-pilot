@@ -12,6 +12,7 @@ export const columns: ColumnDef<V1ConfigMap>[] = [
     accessorFn: (row) => {
       return `${Object.keys(row.data || {}).length}`;
     },
+    enableGlobalFilter: false,
   },
   {
     header: "Age",
@@ -26,5 +27,6 @@ export const columns: ColumnDef<V1ConfigMap>[] = [
         new Date(b.original.metadata?.creationTimestamp || 0).getTime()
       );
     },
+    enableGlobalFilter: false,
   },
 ];

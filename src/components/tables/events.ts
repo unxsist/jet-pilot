@@ -41,6 +41,7 @@ export const columns: ColumnDef<any>[] = [
         ]
       );
     },
+    enableGlobalFilter: false,
   },
   {
     accessorKey: "source.component",
@@ -49,6 +50,7 @@ export const columns: ColumnDef<any>[] = [
   {
     accessorKey: "count",
     header: "Count",
+    enableGlobalFilter: false,
   },
   {
     header: "Age",
@@ -63,6 +65,7 @@ export const columns: ColumnDef<any>[] = [
         new Date(b.original.metadata?.creationTimestamp || 0).getTime()
       );
     },
+    enableGlobalFilter: false,
   },
   {
     header: "Last seen",
@@ -74,5 +77,6 @@ export const columns: ColumnDef<any>[] = [
         new Date(b.original.metadata?.creationTimestamp || 0).getTime()
       );
     },
+    enableGlobalFilter: false,
   },
 ];

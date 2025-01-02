@@ -13,43 +13,14 @@ import {
       <CarouselItem>
         <div>
           <img
-            src="@/assets/whats-new/helm-basic-support.gif"
-            alt="Basic Helm support"
+            src="@/assets/whats-new/table-filtering.gif"
+            alt="Table Filtering"
             class="w-full rounded-lg"
           />
-          <h1 class="font-bold mt-5">Basic Helm support</h1>
+          <h1 class="font-bold mt-5">Resource filtering</h1>
           <p class="text-sm">
-            You can now manage Helm releases. Currently only rollbacks and
-            deletion are supported. Support for installing and upgrading Helm
-            releases will be added in a future version.
-          </p>
-        </div>
-      </CarouselItem>
-      <CarouselItem>
-        <div>
-          <img
-            src="@/assets/whats-new/cluster-resources.gif"
-            alt="Cluster Objects"
-            class="w-full rounded-lg"
-          />
-          <h1 class="font-bold mt-5">Support for Cluster Objects</h1>
-          <p class="text-sm">
-            You can now view and manage cluster resources such as Nodes,
-            Namespaces and CRDs.
-          </p>
-        </div>
-      </CarouselItem>
-      <CarouselItem>
-        <div>
-          <img
-            src="@/assets/whats-new/cluster-events.gif"
-            alt="Events Support"
-            class="w-full rounded-lg"
-          />
-          <h1 class="font-bold mt-5">Support for Events</h1>
-          <p class="text-sm">
-            We've added a new Events view that allows you to see all the events
-            and the option to navigate to the involved resources quickly.
+            You can now easily filter any resource overview by just starting to
+            type in any overview.
           </p>
         </div>
       </CarouselItem>

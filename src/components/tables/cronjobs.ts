@@ -14,12 +14,14 @@ export const columns: ColumnDef<V1CronJob>[] = [
   {
     header: "Suspend",
     accessorKey: "spec.suspend",
+    enableGlobalFilter: false,
   },
   {
     header: "Active",
     accessorFn: (row) => {
       return `${row.status?.active?.length ?? 0}`;
     },
+    enableGlobalFilter: false,
   },
   {
     header: "Last Schedule",
@@ -28,6 +30,7 @@ export const columns: ColumnDef<V1CronJob>[] = [
         row.status?.lastScheduleTime || new Date(),
         new Date()
       ),
+    enableGlobalFilter: false,
   },
   {
     header: "Age",
@@ -42,5 +45,6 @@ export const columns: ColumnDef<V1CronJob>[] = [
         new Date(b.original.metadata?.creationTimestamp || 0).getTime()
       );
     },
+    enableGlobalFilter: false,
   },
 ];

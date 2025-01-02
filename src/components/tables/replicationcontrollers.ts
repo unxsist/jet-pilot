@@ -14,10 +14,12 @@ export const columns: ColumnDef<V1ReplicationController>[] = [
       const total = row.status?.replicas || 0;
       return `${ready}/${total}`;
     },
+    enableGlobalFilter: false,
   },
   {
     header: "Desired Replicas",
     accessorKey: "spec.replicas",
+    enableGlobalFilter: false,
   },
   {
     header: "Age",
@@ -32,5 +34,6 @@ export const columns: ColumnDef<V1ReplicationController>[] = [
         new Date(b.original.metadata?.creationTimestamp || 0).getTime()
       );
     },
+    enableGlobalFilter: false,
   },
 ];

@@ -19,6 +19,7 @@ export const columns: ColumnDef<V1Pod & { metrics: PodMetric[] }>[] = [
       `${row.status?.containerStatuses?.reduce((acc, curr) => {
         return curr.ready ? acc + 1 : acc;
       }, 0)} / ${row.status?.containerStatuses?.length}`,
+    enableGlobalFilter: false,
   },
   {
     header: "Restarts",
@@ -26,6 +27,7 @@ export const columns: ColumnDef<V1Pod & { metrics: PodMetric[] }>[] = [
       `${row.status?.containerStatuses?.reduce((acc, curr) => {
         return acc + curr.restartCount;
       }, 0)}`,
+    enableGlobalFilter: false,
   },
   {
     header: "Status",
@@ -36,6 +38,7 @@ export const columns: ColumnDef<V1Pod & { metrics: PodMetric[] }>[] = [
 
       return row.status?.phase;
     },
+    enableGlobalFilter: false,
   },
   {
     header: "Usage",
@@ -43,10 +46,12 @@ export const columns: ColumnDef<V1Pod & { metrics: PodMetric[] }>[] = [
     cell: ({ row }) => {
       return h(PodUsageChart, { pod: row.original });
     },
+    enableGlobalFilter: false,
   },
   {
     header: "IP",
     accessorFn: (row) => row.status?.podIP || "",
+    enableGlobalFilter: false,
   },
   {
     header: "Node",
@@ -65,5 +70,6 @@ export const columns: ColumnDef<V1Pod & { metrics: PodMetric[] }>[] = [
         new Date(b.original.metadata?.creationTimestamp || 0).getTime()
       );
     },
+    enableGlobalFilter: false,
   },
 ];

@@ -13,6 +13,7 @@ export const columns: ColumnDef<V1Node>[] = [
       const taints = row.spec?.taints || [];
       return taints.length;
     },
+    enableGlobalFilter: false,
   },
   {
     header: "Roles",
@@ -39,6 +40,7 @@ export const columns: ColumnDef<V1Node>[] = [
         "Unknown"
       );
     },
+    enableGlobalFilter: false,
   },
   {
     header: "Age",
