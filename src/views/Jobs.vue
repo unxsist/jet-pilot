@@ -74,8 +74,25 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(getJobs, 1000, [
   context,
   namespace,
 ]);
+
+const create = () => {
+  addTab(
+    `create_` + Math.random().toString(36).substring(7),
+    `New Job`,
+    defineAsyncComponent(() => import("@/views/ObjectEditor.vue")),
+    {
+      context: context,
+      namespace: namespace.value === "all" ? "" : namespace,
+      kubeConfig: kubeConfig,
+      create: true,
+      type: "job",
+      useKubeCtl: false,
+    },
+    "edit"
+  );
+};
 </script>
-x
+
 <template>
   <DataTable
     :data="jobs"
@@ -85,4 +102,10 @@ x
     :row-actions="rowActions"
     :row-classes="rowClasses"
   />
+  <button
+    class="transition-all hover:opacity-100 opacity-50 z-50 absolute rounded-full w-10 h-10 flex items-center justify-center bottom-6 right-4 bg-primary text-white text-lg"
+    @click="create"
+  >
+    +
+  </button>
 </template>

@@ -13,6 +13,20 @@ import {
       <CarouselItem>
         <div>
           <img
+            src="@/assets/whats-new/object-creation.gif"
+            alt="Object Creation"
+            class="w-full rounded-lg"
+          />
+          <h1 class="font-bold mt-5">Object Creation</h1>
+          <p class="text-sm">
+            You can now quickly create new resources by clicking the plus icon
+            on a resource overview.
+          </p>
+        </div>
+      </CarouselItem>
+      <CarouselItem>
+        <div>
+          <img
             src="@/assets/whats-new/table-filtering.gif"
             alt="Table Filtering"
             class="w-full rounded-lg"

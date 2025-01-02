@@ -28,14 +28,24 @@ watch(colorMode, (value) => {
   monacoEditor?.editor.setTheme(value);
 });
 
-const props = defineProps<{
-  context: string;
-  namespace?: string;
-  kubeConfig: string;
-  type: string;
-  name: string;
-  useKubeCtl: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    context: string;
+    namespace?: string;
+    kubeConfig: string;
+    type: string;
+    name?: string;
+    useKubeCtl: boolean;
+    create?: boolean;
+    createProps?: string[];
+  }>(),
+  {
+    name: "",
+    namespace: "",
+    create: false,
+    createProps: () => [],
+  }
+);
 
 let monacoEditor: Monaco | null = null;
 const editorElement = ref<HTMLElement | null>(null);
@@ -60,57 +70,82 @@ const handleCloseEvent = (e: Event) => {
   }
 };
 
-onMounted(() => {
-  const args = [
-    "get",
-    `${props.type}/${props.name}`,
-    "--context",
-    props.context,
-    "-o",
-    "yaml",
-    "--kubeconfig",
-    props.kubeConfig,
-  ];
+const fetchObject = () => {
+  return new Promise<void>((resolve, reject) => {
+    const args = [
+      "get",
+      `${props.type}/${props.name}`,
+      "--context",
+      props.context,
+      "-o",
+      "yaml",
+      "--kubeconfig",
+      props.kubeConfig,
+    ];
 
-  if (props.namespace) {
-    args.push("--namespace", props.namespace);
+    if (props.namespace) {
+      args.push("--namespace", props.namespace);
+    }
+
+    const command = Command.create("kubectl", args);
+
+    let stdOutData = "";
+    command.stdout.on("data", (data) => {
+      stdOutData += data;
+    });
+
+    command.stderr.on("data", (error) => {
+      console.debug(error);
+      reject();
+    });
+
+    command.on("close", ({ code }) => {
+      if (code === 0) {
+        originalContents.value = stdOutData;
+        editContents.value = stdOutData;
+        resolve();
+      }
+    });
+
+    command.spawn();
+  });
+};
+
+const getTemplate = (): Promise<string> => {
+  return import(`@/assets/spec-templates/${props.type}.ts`).then((module) => {
+    return module.default;
+  });
+};
+
+const initializeEditor = () => {
+  loader.init().then((monaco) => {
+    monacoEditor = monaco;
+    const model = monaco.editor.createModel(editContents.value, "yaml");
+    model.onDidChangeContent(() => {
+      editContents.value = model.getValue();
+    });
+
+    monaco.editor.defineTheme("light", LightTheme);
+    monaco.editor.defineTheme("dark", DarkTheme);
+    monaco.editor.create(editorElement.value!, {
+      model,
+      theme: colorMode.value,
+      automaticLayout: true,
+      minimap: {
+        enabled: false,
+      },
+    });
+  });
+};
+
+onMounted(async () => {
+  if (props.create !== true) {
+    await fetchObject();
+  } else {
+    editContents.value = await getTemplate();
   }
 
-  const command = Command.create("kubectl", args);
-
-  let stdOutData = "";
-  command.stdout.on("data", (data) => {
-    stdOutData += data;
-  });
-
-  command.on("close", ({ code }) => {
-    if (code === 0) {
-      originalContents.value = stdOutData;
-      editContents.value = stdOutData;
-
-      loader.init().then((monaco) => {
-        monacoEditor = monaco;
-        const model = monaco.editor.createModel(editContents.value, "yaml");
-        model.onDidChangeContent(() => {
-          editContents.value = model.getValue();
-        });
-
-        monaco.editor.defineTheme("light", LightTheme);
-        monaco.editor.defineTheme("dark", DarkTheme);
-        monaco.editor.create(editorElement.value!, {
-          model,
-          theme: colorMode.value,
-          automaticLayout: true,
-          minimap: {
-            enabled: false,
-          },
-        });
-      });
-    }
-  });
-
-  command.spawn();
-
+  initializeEditor();
   window.addEventListener("TabOrchestrator_TabClosed", handleCloseEvent);
 });
 
@@ -119,6 +154,10 @@ const onClose = () => {
 };
 
 const onSave = () => {
+  props.create ? onCreate() : onUpdate();
+};
+
+const onUpdate = () => {
   if (!props.useKubeCtl) {
     Kubernetes.replaceObject(
       props.context,
@@ -131,7 +170,7 @@ const onSave = () => {
         onClose();
       })
       .catch((error) => {
-        console.log(error);
+        console.debug(error);
         toast({
           title: "An error occured",
           description: error.message,
@@ -158,11 +197,11 @@ const onSave = () => {
       ]);
 
       command.stdout.on("data", (data) => {
-        console.log(data);
+        console.debug(data);
       });
 
       command.stderr.on("data", (error) => {
-        console.log(error);
+        console.debug(error);
       });
 
       command.on("close", ({ code }) => {
@@ -177,6 +216,44 @@ const onSave = () => {
   }
 };
 
+const onCreate = () => {
+  const filename = `${props.name}-${crypto.randomUUID()}.yaml`;
+  writeTextFile(filename, editContents.value, {
+    baseDir: BaseDirectory.Temp,
+  }).then(async () => {
+    const tempDirectory = await tempDir();
+
+    const command = Command.create("kubectl", [
+      "apply",
+      "--context",
+      props.context,
+      "--namespace",
+      props.namespace,
+      "-f",
+      `${tempDirectory}/${filename}`,
+      "--kubeconfig",
+      props.kubeConfig,
+    ]);
+
+    command.stdout.on("data", (data) => {
+      console.debug(data);
+    });
+
+    command.stderr.on("data", (error) => {
+      console.debug(error);
+    });
+
+    command.on("close", ({ code }) => {
+      if (code === 0) {
+        remove(filename, { baseDir: BaseDirectory.Temp });
+        onClose();
+      }
+    });
+
+    command.spawn();
+  });
+};
+
 onUnmounted(() => {
   window.removeEventListener("TabOrchestrator_TabClosed", handleCloseEvent);
 });
@@ -188,10 +265,12 @@ onUnmounted(() => {
       v-if="hasChanges"
       class="z-50 absolute bottom-5 right-5 flex justify-end space-x-1 transition-opacity opacity-25 group-hover:opacity-100"
     >
-      <Button variant="default" size="xs" @click="onSave">Save Changes</Button>
-      <Button variant="secondary" size="xs" @click="onClose"
-        >Discard changes</Button
-      >
+      <Button variant="default" size="xs" @click="onSave">{{
+        create ? "Create" : "Save Changes"
+      }}</Button>
+      <Button variant="secondary" size="xs" @click="onClose">{{
+        create ? "Cancel" : "Discard changes"
+      }}</Button>
     </div>
     <div ref="editorElement" class="w-full h-full"></div>
     <AlertDialog
