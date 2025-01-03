@@ -62,6 +62,7 @@ fn main() {
             kubernetes::client::replace_ingress,
             kubernetes::client::replace_persistentvolumeclaim,
             kubernetes::client::get_pod_metrics,
+            kubernetes::client::trigger_cronjob,
             shell::tty::create_tty_session,
             shell::tty::stop_tty_session,
             shell::tty::write_to_pty,

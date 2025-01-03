@@ -19,7 +19,7 @@ import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { TabProviderAddTabKey } from "@/providers/TabProvider";
 const addTab = injectStrict(TabProviderAddTabKey);
 
-import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
+import { BaseDialogInterface, DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
 const rowActions: RowAction<V1CronJob>[] = [
@@ -29,6 +29,46 @@ const rowActions: RowAction<V1CronJob>[] = [
     context.value,
     kubeConfig.value
   ),
+  {
+    label: "Trigger",
+    handler: (row) => {
+      const dialog: BaseDialogInterface = {
+        title: "Trigger cron job",
+        message: `Are you sure you want to manually trigger "${row.metadata?.name}"?`,
+        buttons: [
+          {
+            label: "Cancel",
+            variant: "ghost",
+            handler: (dialog) => {
+              dialog.close();
+            },
+          },
+          {
+            label: "Trigger",
+            handler: (dialog) => {
+              Kubernetes.triggerCronJob(
+                context.value,
+                namespace.value === "all" ? "" : namespace.value,
+                row.metadata?.name || ""
+              )
+                .then(() => {
+                  dialog.close();
+                })
+                .catch((error) => {
+                  dialog.close();
+                  toast({
+                    title: "An error occured",
+                    description: error.message,
+                    variant: "destructive",
+                  });
+                });
+            },
+          },
+        ],
+      };
+      spawnDialog(dialog);
+    },
+  },
 ];
 
 import { useRoute } from "vue-router";
