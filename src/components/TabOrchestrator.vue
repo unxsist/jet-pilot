@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import {
-  TabProviderStateKey,
-  TabProviderCloseTabKey,
+  PanelProviderStateKey,
+  PanelProviderCloseTabKey,
   TabClosedEvent,
-} from "@/providers/TabProvider";
+} from "@/providers/PanelProvider";
 import { injectStrict } from "@/lib/utils";
 import TabIcon from "@/components/TabIcon.vue";
 import Expand from "@/assets/icons/expand.svg";
@@ -12,9 +12,9 @@ import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 
 import { ResizablePanel } from "@/components/ui/resizable";
 
-const { tabs, activeTabId } = injectStrict(TabProviderStateKey);
+const { tabs, activeTabId } = injectStrict(PanelProviderStateKey);
 const { settings } = injectStrict(SettingsContextStateKey);
-const closeTab = injectStrict(TabProviderCloseTabKey);
+const closeTab = injectStrict(PanelProviderCloseTabKey);
 
 const state = reactive({
   open: true,
@@ -58,7 +58,7 @@ const closeAndSetActiveTab = (id: string, force = false) => {
 };
 
 const handleResize = (size: number) => {
-  settings.value.tabProvider.height = size;
+  settings.value.PanelProvider.height = size;
 
   window.dispatchEvent(new Event("TabOrchestrator_Resized"));
 };
@@ -66,7 +66,7 @@ const handleResize = (size: number) => {
 <template>
   <ResizablePanel
     v-if="tabs.length > 0"
-    :defaultSize="settings.tabProvider.height"
+    :defaultSize="settings.PanelProvider.height"
     @resize="handleResize"
   >
     <div

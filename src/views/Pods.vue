@@ -11,7 +11,10 @@ import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { columns } from "@/components/tables/pods";
 import { useDataRefresher } from "@/composables/refresher";
-import { TabProviderAddTabKey } from "@/providers/TabProvider";
+import {
+  PanelProviderAddTabKey,
+  PanelProviderSetSidePanelComponentKey,
+} from "@/providers/PanelProvider";
 
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 const { settings } = injectStrict(SettingsContextStateKey);
@@ -22,7 +25,10 @@ const {
   kubeConfig,
   authenticated: clusterAuthenticated,
 } = injectStrict(KubeContextStateKey);
-const addTab = injectStrict(TabProviderAddTabKey);
+const setSidePanelComponent = injectStrict(
+  PanelProviderSetSidePanelComponentKey
+);
+const addTab = injectStrict(PanelProviderAddTabKey);
 
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 import { useRoute } from "vue-router";
@@ -43,6 +49,10 @@ const rowActions: RowAction<V1Pod>[] = [
     context.value,
     kubeConfig.value
   ),
+  {
+    label: "Show details",
+    handler: (row) => {},
+  },
   {
     label: "Shell",
     options: (row) => {
@@ -127,6 +137,15 @@ const rowActions: RowAction<V1Pod>[] = [
     },
   },
 ];
+
+const showPodDetails = (pod: V1Pod) => {
+  setSidePanelComponent(
+    defineAsyncComponent(() => import("@/views/panels/PodDetails.vue")),
+    {
+      pod: pod,
+    }
+  );
+};
 
 async function getPods(refresh: boolean = false) {
   if (!refresh) {
@@ -248,6 +267,7 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(getPods, 1000, [
     :columns="columns"
     :allow-filter="true"
     :sticky-headers="true"
+    @row-clicked="showPodDetails"
     :row-actions="rowActions"
     :row-classes="rowClasses"
     :estimated-row-height="41"

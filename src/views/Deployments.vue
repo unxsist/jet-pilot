@@ -12,8 +12,8 @@ const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 const { settings } = injectStrict(SettingsContextStateKey);
 
-import { TabProviderAddTabKey } from "@/providers/TabProvider";
-const addTab = injectStrict(TabProviderAddTabKey);
+import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
+const addTab = injectStrict(PanelProviderAddTabKey);
 
 import {
   BaseDialogInterface,

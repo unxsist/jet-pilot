@@ -2,7 +2,7 @@
 import AppLayout from "@/components/AppLayout.vue";
 import Navigation from "@/components/Navigation.vue";
 import RouterViewport from "@/components/RouterViewport.vue";
-import DetailPanel from "@/components/DetailPanel.vue";
+import SidePanel from "@/components/SidePanel.vue";
 import Toaster from "@/components/ui/toast/Toaster.vue";
 import CommandPalette from "./components/CommandPalette.vue";
 import SettingsContextProvider from "./providers/SettingsContextProvider";
@@ -11,7 +11,7 @@ import ColorSchemeProvider from "./providers/ColorSchemeProvider";
 import KubeContextProvider from "./providers/KubeContextProvider";
 import PortForwardingProvider from "./providers/PortForwardingProvider";
 import CommandPaletteProvider from "./providers/CommandPaletteProvider";
-import TabProvider from "./providers/TabProvider";
+import PanelProvider from "./providers/PanelProvider";
 import DialogProvider from "./providers/DialogProvider";
 import DialogHandler from "./components/DialogHandler.vue";
 import UpdateHandler from "./components/UpdateHandler.vue";
@@ -38,13 +38,13 @@ const osType = ref(getOsType());
             <DialogProvider>
               <KubeContextProvider>
                 <PortForwardingProvider>
-                  <TabProvider>
+                  <PanelProvider>
                     <CommandPaletteProvider>
                       <Navigation />
                       <ResizablePanelGroup direction="horizontal">
                         <ResizablePanel><RouterViewport /></ResizablePanel>
                         <ResizableHandle />
-                        <ResizablePanel><DetailPanel /></ResizablePanel>
+                        <SidePanel />
                       </ResizablePanelGroup>
                       <Toaster />
                       <CommandPalette />
@@ -52,7 +52,7 @@ const osType = ref(getOsType());
                       <UpdateHandler />
                       <WhatsNew />
                     </CommandPaletteProvider>
-                  </TabProvider>
+                  </PanelProvider>
                 </PortForwardingProvider>
               </KubeContextProvider>
             </DialogProvider>

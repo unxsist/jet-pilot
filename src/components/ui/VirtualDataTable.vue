@@ -65,7 +65,7 @@ const props = defineProps<{
   };
 }>();
 
-const emit = defineEmits(["sortingChange"]);
+const emit = defineEmits(["sortingChange", "rowClicked"]);
 
 const table = useVueTable({
   get data() {
@@ -347,6 +347,7 @@ onUpdated(() => {
                     @click.right="
                       setContextMenuSubject(rows[row.index].original)
                     "
+                    @click.left="emit('rowClicked', rows[row.index].original)"
                   >
                     <TableCell
                       v-for="cell in rows[row.index].getVisibleCells()"
