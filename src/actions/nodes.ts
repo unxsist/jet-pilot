@@ -61,10 +61,13 @@ export function actions<T extends V1Node>(
     },
     {
       label: "Drain",
-      handler: (row: T) => {
+      massAction: true,
+      handler: (rows: T[]) => {
         const dialog: BaseDialogInterface = {
           title: "Drain",
-          message: `Are you sure you want to drain ${row.metadata?.name}?`,
+          message: `Are you sure you want to drain ${
+            rows.length > 1 ? "nodes" : rows[0].metadata?.name
+          }?`,
           buttons: [
             {
               label: "Cancel",
@@ -75,39 +78,41 @@ export function actions<T extends V1Node>(
             {
               label: "Drain",
               handler: (dialog) => {
-                const command = Command.create("kubectl", [
-                  "drain",
-                  `${row.metadata?.name}`,
-                  "--force",
-                  "--ignore-daemonsets",
-                  "--delete-local-data",
-                  "--context",
-                  context,
-                  "--kubeconfig",
-                  kubeConfig,
-                ]);
+                rows.forEach((row) => {
+                  const command = Command.create("kubectl", [
+                    "drain",
+                    `${row.metadata?.name}`,
+                    "--force",
+                    "--ignore-daemonsets",
+                    "--delete-local-data",
+                    "--context",
+                    context,
+                    "--kubeconfig",
+                    kubeConfig,
+                  ]);
 
-                command.stderr.on("data", (error: string) => {
-                  console.log(error);
+                  command.stderr.on("data", (error: string) => {
+                    console.log(error);
+                  });
+
+                  command.once("close", (result: any) => {
+                    const { toast } = useToast();
+
+                    if (result.code === 0) {
+                      toast({
+                        title: `Node drain`,
+                        description: `Node ${row.metadata?.name} successfully drained`,
+                      });
+                    } else {
+                      toast({
+                        title: `Node drain`,
+                        description: `Node ${row.metadata?.name} failed to drain`,
+                      });
+                    }
+                  });
+                  command.spawn();
+                  dialog.close();
                 });
-
-                command.once("close", (result: any) => {
-                  const { toast } = useToast();
-
-                  if (result.code === 0) {
-                    toast({
-                      title: `Node drain`,
-                      description: `Node ${row.metadata?.name} successfully drained`,
-                    });
-                  } else {
-                    toast({
-                      title: `Node drain`,
-                      description: `Node ${row.metadata?.name} failed to drain`,
-                    });
-                  }
-                });
-                command.spawn();
-                dialog.close();
               },
             },
           ],

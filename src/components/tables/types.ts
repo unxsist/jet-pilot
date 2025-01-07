@@ -14,11 +14,18 @@ export interface WithOptions<T> extends BaseRowAction<T> {
 
 export interface WithHandler<T> extends BaseRowAction<T> {
   options?: never;
+  massAction?: never;
   isAvailable?: (row: T) => boolean;
   handler: (row: T) => void;
 }
 
-export type RowAction<T> = WithOptions<T> | WithHandler<T>;
+export interface MassWithHandler<T> extends BaseRowAction<T> {
+  massAction: true;
+  options?: never;
+  handler: (rows: T[]) => void;
+}
+
+export type RowAction<T> = WithOptions<T> | WithHandler<T> | MassWithHandler<T>;
 
 export function getDefaultActions<T extends KubernetesObject | VirtualService>(
   addTab: any,
@@ -49,7 +56,7 @@ export function getDefaultActions<T extends KubernetesObject | VirtualService>(
     },
     {
       label: "Describe",
-      handler: (row) => {
+      handler: (row: T) => {
         addTab(
           `describe_${row.metadata?.name}`,
           `${row.metadata?.name}`,
@@ -67,10 +74,11 @@ export function getDefaultActions<T extends KubernetesObject | VirtualService>(
     },
     {
       label: "Delete",
-      handler: (row) => {
+      massAction: true,
+      handler: (rows: T[]) => {
         const dialog: BaseDialogInterface = {
           title: "Delete",
-          message: `Are you sure you want to delete ${row.metadata?.name}?`,
+          message: `Are you sure you want to delete ${rows.length} selected items?`,
           buttons: [
             {
               label: "Cancel",
@@ -81,23 +89,25 @@ export function getDefaultActions<T extends KubernetesObject | VirtualService>(
             {
               label: "Delete",
               handler: (dialog) => {
-                const command = Command.create("kubectl", [
-                  "delete",
-                  `${row.kind}/${row.metadata?.name}`,
-                  "--context",
-                  context,
-                  "--namespace",
-                  row.metadata?.namespace || "",
-                  "--kubeconfig",
-                  kubeConfig,
-                ]);
+                rows.forEach((row) => {
+                  const command = Command.create("kubectl", [
+                    "delete",
+                    `${row.kind}/${row.metadata?.name}`,
+                    "--context",
+                    context,
+                    "--namespace",
+                    row.metadata?.namespace || "",
+                    "--kubeconfig",
+                    kubeConfig,
+                  ]);
 
-                command.stderr.on("data", (error: string) => {
-                  console.log(error);
+                  command.stderr.on("data", (error: string) => {
+                    console.log(error);
+                  });
+
+                  command.spawn();
+                  dialog.close();
                 });
-
-                command.spawn();
-                dialog.close();
               },
             },
           ],

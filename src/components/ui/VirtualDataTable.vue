@@ -31,7 +31,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { RowAction } from "../tables/types";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "@/components/ui/button";
+import { MassWithHandler, RowAction, WithHandler } from "../tables/types";
 
 interface DataTableState<T> {
   contextMenuSubject: T | null;
@@ -70,7 +72,34 @@ const table = useVueTable({
     return props.data;
   },
   get columns() {
-    return props.columns;
+    return [
+      {
+        id: "select",
+        size: 10,
+        header: ({ table }) => {
+          return h(Checkbox, {
+            class:
+              "border-white/25 hover:border-white data-[state=checked]:border-primary",
+            checked: table.getIsSomeRowsSelected()
+              ? "indeterminate"
+              : table.getIsAllRowsSelected(),
+            "onUpdate:checked": (checked) =>
+              table?.getToggleAllRowsSelectedHandler()?.({
+                target: { checked },
+              }),
+          });
+        },
+        cell: ({ row }) => {
+          return h(Checkbox, {
+            class:
+              "border-white/25 hover:border-white data-[state=checked]:border-primary",
+            checked: row.getIsSelected(),
+            "onUpdate:checked": row.getToggleSelectedHandler(),
+          });
+        },
+      },
+      ...props.columns,
+    ];
   },
   initialState: {
     columnVisibility: props.visibleColumns,
@@ -87,6 +116,7 @@ const table = useVueTable({
   globalFilterFn: "includesString",
   autoResetAll: false,
   manualSorting: false,
+  enableRowSelection: true,
   state: {
     get sorting() {
       return sorting.value;
@@ -184,6 +214,27 @@ const registerFilterKeybinds = () => {
   }
 
   window.addEventListener("keydown", handleSearchKeyDown);
+};
+
+const handleRowAction = (
+  rowAction: WithHandler<TData> | MassWithHandler<TData>,
+  fromContextMenu = false
+) => {
+  if (fromContextMenu && rowAction.massAction) {
+    rowAction.handler([state.contextMenuSubject as TData]);
+    return;
+  }
+
+  if (fromContextMenu) {
+    rowAction.handler(state.contextMenuSubject as TData);
+    return;
+  }
+
+  rowAction.handler(
+    table.getSelectedRowModel().rows.map((row) => row.original)
+  );
+
+  table.resetRowSelection();
 };
 
 onMounted(() => {
@@ -336,7 +387,7 @@ onUpdated(() => {
               <template v-if="!rowAction.options">
                 <ContextMenuItem
                   v-if="rowAction.isAvailable ? rowAction.isAvailable(state.contextMenuSubject as TData) : true"
-                  @select="rowAction.handler(state.contextMenuSubject as TData)"
+                  @select="handleRowAction(rowAction, true)"
                   >{{
                     typeof rowAction.label === "function"
                       ? rowAction.label(state.contextMenuSubject as TData)
@@ -353,9 +404,7 @@ onUpdated(() => {
                     <ContextMenuItem
                       v-for="(option, optionIndex) in rowAction.options(state.contextMenuSubject as TData)"
                       :key="optionIndex"
-                      @select="
-                        option.handler(state.contextMenuSubject as TData)
-                      "
+                      @select="handleRowAction(option, true)"
                       >{{ option.label }}</ContextMenuItem
                     >
                   </ContextMenuSubContent>
@@ -366,19 +415,49 @@ onUpdated(() => {
         </ContextMenu>
       </Table>
     </div>
-    <div class="absolute z-50 bottom-4 right-4 left-4 flex justify-center">
-      <input
-        ref="searchInput"
-        v-model="searchQuery"
-        :class="{ 'opacity-0 pointer-events-none': searchQuery.length === 0 }"
-        class="w-96 py-2 px-2 text-lg bg-background border border-border ring-primary ring-2 rounded-lg focus:outline-none"
-        placeholder="Search"
-        autocorrect="off"
-        autocomplete="off"
-        autocapitalize="off"
-        spellcheck="false"
-        @keydown="handleSearchInputKeydown"
-      />
+    <div
+      class="absolute z-50 bottom-4 right-4 left-4 flex justify-center"
+    ></div>
+    <div
+      class="bottom-5 flex items-center absolute z-50 left-4 right-4 overflow-hidden"
+    >
+      <div class="w-1/3">
+        <input
+          ref="searchInput"
+          v-model="searchQuery"
+          :class="{ 'opacity-0 pointer-events-none': searchQuery.length === 0 }"
+          class="w-full h-10 py-2 px-4 bg-background border border-primary focus:border-2 rounded-full focus:outline-none"
+          placeholder="Search"
+          autocorrect="off"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+          @keydown="handleSearchInputKeydown"
+        />
+      </div>
+
+      <div
+        class="ml-auto w-1/3 flex items-center justify-between px-4 h-10 border bg-background rounded-full transition-all"
+        :class="{
+          'translate-y-0': table.getSelectedRowModel().rows.length > 0,
+          'translate-y-full': table.getSelectedRowModel().rows.length === 0,
+        }"
+      >
+        <div>{{ table.getSelectedRowModel().rows.length }} selected</div>
+        <div class="space-x-2 -mr-2">
+          <template v-for="(rowAction, index) in rowActions" :key="index">
+            <Button
+              v-if="rowAction.massAction"
+              class="rounded-full"
+              @click="handleRowAction(rowAction)"
+              size="xs"
+              >{{ rowAction.label }}</Button
+            >
+          </template>
+        </div>
+      </div>
+
+      <slot name="action-buttons" />
     </div>
   </div>
 </template>

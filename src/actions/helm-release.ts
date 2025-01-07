@@ -38,10 +38,13 @@ export function actions(
     // },
     {
       label: "Delete",
-      handler: (row: any) => {
+      massAction: true,
+      handler: (rows: any[]) => {
         spawnDialog({
           title: "Delete Helm Release",
-          message: `Are you sure you want to delete ${row.name}?`,
+          message: `Are you sure you want to delete ${
+            rows.length > 1 ? "releases" : rows[0].name
+          }?`,
           buttons: [
             {
               label: "Cancel",
@@ -52,36 +55,38 @@ export function actions(
             {
               label: "Delete",
               handler: (dialog: DialogInterface) => {
-                const { toast } = useToast();
+                rows.forEach((row) => {
+                  const { toast } = useToast();
 
-                const command = Command.create("helm", [
-                  "delete",
-                  row.name,
-                  "--kube-context",
-                  context,
-                  "--namespace",
-                  row.namespace,
-                  "--kubeconfig",
-                  kubeConfig,
-                ]);
+                  const command = Command.create("helm", [
+                    "delete",
+                    row.name,
+                    "--kube-context",
+                    context,
+                    "--namespace",
+                    row.namespace,
+                    "--kubeconfig",
+                    kubeConfig,
+                  ]);
 
-                command.stdout.on("data", (data: string) => {
-                  toast({
-                    title: "Helm Release Deleted",
-                    description: `${row.name} has been deleted`,
+                  command.stdout.on("data", (data: string) => {
+                    toast({
+                      title: "Helm Release Deleted",
+                      description: `${row.name} has been deleted`,
+                    });
                   });
-                });
 
-                command.stderr.on("data", (error: string) => {
-                  console.log(error);
-                  toast({
-                    title: "Helm Release Delete Error",
-                    description: `Failed to delete ${row.name}`,
+                  command.stderr.on("data", (error: string) => {
+                    console.log(error);
+                    toast({
+                      title: "Helm Release Delete Error",
+                      description: `Failed to delete ${row.name}`,
+                    });
                   });
-                });
 
-                command.spawn();
-                dialog.close();
+                  command.spawn();
+                  dialog.close();
+                });
               },
             },
           ],
