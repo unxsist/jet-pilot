@@ -36,7 +36,7 @@ export function getDefaultActions<T extends KubernetesObject | VirtualService>(
 ): RowAction<T>[] {
   return [
     {
-      label: "Edit",
+      label: "Edit YAML",
       handler: (row: T) => {
         addTab(
           `edit_${row.metadata?.name}`,

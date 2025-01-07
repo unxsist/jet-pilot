@@ -23,6 +23,10 @@ import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
 const rowActions: RowAction<V1Secret>[] = [
+  {
+    label: "Secret Editor",
+    handler: (row) => {},
+  },
   ...getDefaultActions<V1Secret>(
     addTab,
     spawnDialog,
@@ -43,7 +47,7 @@ const rowClasses = (row: any) => {
   return "";
 };
 
-async function getConfigMaps(refresh: boolean = false) {
+async function getSecrets(refresh: boolean = false) {
   if (!refresh) {
     secrets.value = [];
   }
@@ -70,11 +74,10 @@ async function getConfigMaps(refresh: boolean = false) {
     });
 }
 
-const { startRefreshing, stopRefreshing } = useDataRefresher(
-  getConfigMaps,
-  1000,
-  [context, namespace]
-);
+const { startRefreshing, stopRefreshing } = useDataRefresher(getSecrets, 1000, [
+  context,
+  namespace,
+]);
 
 const create = () => {
   addTab(

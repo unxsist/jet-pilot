@@ -247,185 +247,196 @@ onUpdated(() => {
 </script>
 
 <template>
-  <div ref="tableContainer" class="h-full overflow-auto">
-    <div :style="{ height: `${totalSize}px` }">
-      <Table class="w-full">
-        <ContextMenu>
-          <ContextMenuTrigger as-child>
-            <TableHeader>
-              <TableRow
-                v-for="headerGroup in table.getHeaderGroups()"
-                :key="headerGroup.id"
-              >
-                <TableHead
-                  v-for="header in headerGroup.headers"
-                  :key="header.id"
-                  v-bind:enable-header-drag-region="true"
-                  :style="{
-                    width:
-                      header.getSize() === Number.MAX_SAFE_INTEGER
-                        ? 'auto'
-                        : `${header.getSize()}px`,
-                  }"
-                  :sticky="stickyHeaders === true"
-                  :class="
-                    header.column.getCanSort()
-                      ? 'cursor-pointer select-none'
-                      : ''
-                  "
-                  @click="header.column.getToggleSortingHandler()?.($event)"
-                >
-                  <div class="flex justify-between items-center">
-                    <FlexRender
-                      v-if="!header.isPlaceholder"
-                      :render="header.column.columnDef.header"
-                      :props="header.getContext()"
-                    />
-                    <div class="ml-2">
-                      <span v-if="header.column.getIsSorted() === 'asc'">
-                        <SortDescendingIcon class="w-4 h-4" />
-                      </span>
-                      <span v-else-if="header.column.getIsSorted() === 'desc'">
-                        <SortAscendingIcon class="w-4 h-4" />
-                      </span>
-                    </div>
-                  </div>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-          </ContextMenuTrigger>
-          <ContextMenuContent>
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>Columns</ContextMenuSubTrigger>
-              <ContextMenuSubContent>
-                <ContextMenuCheckboxItem
-                  v-for="column in table.getAllColumns()"
-                  :key="column.id"
-                  :checked="column.getIsVisible()"
-                  @select="
-                    table.setColumnVisibility({
-                      [column.id]: !column.getIsVisible(),
-                    })
-                  "
-                >
-                  {{ column.columnDef.header }}
-                </ContextMenuCheckboxItem>
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-          </ContextMenuContent>
-        </ContextMenu>
-        <ContextMenu>
-          <ContextMenuTrigger as-child>
-            <TableBody>
-              <template v-if="rows?.length">
-                <tr v-if="before > 0">
-                  <td
-                    colspan="columns.length"
-                    :style="{ height: `${before}px` }"
-                  />
-                </tr>
+  <div class="relative h-full">
+    <div ref="tableContainer" class="relative h-full overflow-auto">
+      <div :style="{ height: `${totalSize}px` }">
+        <Table class="w-full">
+          <ContextMenu>
+            <ContextMenuTrigger as-child>
+              <TableHeader>
                 <TableRow
-                  v-for="row in virtualRows"
-                  :key="rows[row.index].id"
-                  :style="{
-                    height: `${row.size}px`,
-                    transform: `translateY(${
-                      row.start - row.index * row.size
-                    }px)`,
-                  }"
-                  :data-state="
-                    rows[row.index].getIsSelected() ? 'selected' : undefined
-                  "
-                  :class="
-                    typeof rowClasses === 'function'
-                      ? rowClasses(rows[row.index].original)
-                      : rowClasses || ''
-                  "
-                  @click.right="setContextMenuSubject(rows[row.index].original)"
+                  v-for="headerGroup in table.getHeaderGroups()"
+                  :key="headerGroup.id"
                 >
-                  <TableCell
-                    v-for="cell in rows[row.index].getVisibleCells()"
-                    :key="cell.id"
-                    :class="
-                      cell.column.columnDef.meta?.class?.(
-                        rows[row.index].original
-                      )
-                    "
-                    class="truncate overflow-hidden"
-                    :columnDef="cell.column.columnDef"
+                  <TableHead
+                    v-for="header in headerGroup.headers"
+                    :key="header.id"
+                    v-bind:enable-header-drag-region="true"
                     :style="{
-                      maxWidth:
-                        cell.column.getSize() === Number.MAX_SAFE_INTEGER
+                      width:
+                        header.getSize() === Number.MAX_SAFE_INTEGER
                           ? 'auto'
-                          : `${cell.column.columnDef.size}px`,
+                          : `${header.getSize()}px`,
                     }"
+                    :sticky="stickyHeaders === true"
+                    :class="
+                      header.column.getCanSort()
+                        ? 'cursor-pointer select-none'
+                        : ''
+                    "
+                    @click="header.column.getToggleSortingHandler()?.($event)"
                   >
-                    <FlexRender
-                      :render="cell.column.columnDef.cell"
-                      :props="cell.getContext()"
+                    <div class="flex justify-between items-center">
+                      <FlexRender
+                        v-if="!header.isPlaceholder"
+                        :render="header.column.columnDef.header"
+                        :props="header.getContext()"
+                      />
+                      <div class="ml-2">
+                        <span v-if="header.column.getIsSorted() === 'asc'">
+                          <SortDescendingIcon class="w-4 h-4" />
+                        </span>
+                        <span
+                          v-else-if="header.column.getIsSorted() === 'desc'"
+                        >
+                          <SortAscendingIcon class="w-4 h-4" />
+                        </span>
+                      </div>
+                    </div>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>Columns</ContextMenuSubTrigger>
+                <ContextMenuSubContent>
+                  <ContextMenuCheckboxItem
+                    v-for="column in table.getAllColumns()"
+                    :key="column.id"
+                    :checked="column.getIsVisible()"
+                    @select="
+                      table.setColumnVisibility({
+                        [column.id]: !column.getIsVisible(),
+                      })
+                    "
+                  >
+                    {{ column.columnDef.header }}
+                  </ContextMenuCheckboxItem>
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+            </ContextMenuContent>
+          </ContextMenu>
+          <ContextMenu>
+            <ContextMenuTrigger as-child>
+              <TableBody>
+                <template v-if="rows?.length">
+                  <tr v-if="before > 0">
+                    <td
+                      colspan="columns.length"
+                      :style="{ height: `${before}px` }"
                     />
-                  </TableCell>
-                </TableRow>
-                <tr v-if="after > 0">
-                  <td
-                    colspan="columns.length"
-                    :style="{ height: `${after}px` }"
-                  />
-                </tr>
-              </template>
-              <template v-else>
-                <TableRow>
-                  <TableCell :colSpan="columns.length" class="h-24 text-center">
-                    No results.
-                  </TableCell>
-                </TableRow>
-              </template>
-            </TableBody>
-          </ContextMenuTrigger>
-          <ContextMenuContent v-if="rowActions && rowActions?.length > 0">
-            <template v-for="(rowAction, index) in rowActions" :key="index">
-              <template v-if="!rowAction.options">
-                <ContextMenuItem
-                  v-if="rowAction.isAvailable ? rowAction.isAvailable(state.contextMenuSubject as TData) : true"
-                  @select="handleRowAction(rowAction, true)"
-                  >{{
-                    typeof rowAction.label === "function"
-                      ? rowAction.label(state.contextMenuSubject as TData)
-                      : rowAction.label
-                  }}</ContextMenuItem
-                >
-              </template>
-              <template v-else>
-                <ContextMenuSub>
-                  <ContextMenuSubTrigger>
-                    {{ rowAction.label }}
-                  </ContextMenuSubTrigger>
-                  <ContextMenuSubContent>
-                    <ContextMenuItem
-                      v-for="(option, optionIndex) in rowAction.options(state.contextMenuSubject as TData)"
-                      :key="optionIndex"
-                      @select="handleRowAction(option, true)"
-                      >{{ option.label }}</ContextMenuItem
+                  </tr>
+                  <TableRow
+                    v-for="row in virtualRows"
+                    :key="rows[row.index].id"
+                    :style="{
+                      height: `${row.size}px`,
+                      transform: `translateY(${
+                        row.start - row.index * row.size
+                      }px)`,
+                    }"
+                    :data-state="
+                      rows[row.index].getIsSelected() ? 'selected' : undefined
+                    "
+                    :class="
+                      typeof rowClasses === 'function'
+                        ? rowClasses(rows[row.index].original)
+                        : rowClasses || ''
+                    "
+                    @click.right="
+                      setContextMenuSubject(rows[row.index].original)
+                    "
+                  >
+                    <TableCell
+                      v-for="cell in rows[row.index].getVisibleCells()"
+                      :key="cell.id"
+                      :class="
+                        cell.column.columnDef.meta?.class?.(
+                          rows[row.index].original
+                        )
+                      "
+                      class="truncate overflow-hidden"
+                      :columnDef="cell.column.columnDef"
+                      :style="{
+                        maxWidth:
+                          cell.column.getSize() === Number.MAX_SAFE_INTEGER
+                            ? 'auto'
+                            : `${cell.column.columnDef.size}px`,
+                      }"
                     >
-                  </ContextMenuSubContent>
-                </ContextMenuSub>
+                      <FlexRender
+                        :render="cell.column.columnDef.cell"
+                        :props="cell.getContext()"
+                      />
+                    </TableCell>
+                  </TableRow>
+                  <tr v-if="after > 0">
+                    <td
+                      colspan="columns.length"
+                      :style="{ height: `${after}px` }"
+                    />
+                  </tr>
+                </template>
+                <template v-else>
+                  <TableRow>
+                    <TableCell
+                      :colSpan="columns.length"
+                      class="h-24 text-center"
+                    >
+                      No results.
+                    </TableCell>
+                  </TableRow>
+                </template>
+              </TableBody>
+            </ContextMenuTrigger>
+            <ContextMenuContent v-if="rowActions && rowActions?.length > 0">
+              <template v-for="(rowAction, index) in rowActions" :key="index">
+                <template v-if="!rowAction.options">
+                  <ContextMenuItem
+                    v-if="rowAction.isAvailable ? rowAction.isAvailable(state.contextMenuSubject as TData) : true"
+                    @select="handleRowAction(rowAction, true)"
+                    >{{
+                      typeof rowAction.label === "function"
+                        ? rowAction.label(state.contextMenuSubject as TData)
+                        : rowAction.label
+                    }}</ContextMenuItem
+                  >
+                </template>
+                <template v-else>
+                  <ContextMenuSub>
+                    <ContextMenuSubTrigger>
+                      {{ rowAction.label }}
+                    </ContextMenuSubTrigger>
+                    <ContextMenuSubContent>
+                      <ContextMenuItem
+                        v-for="(option, optionIndex) in rowAction.options(state.contextMenuSubject as TData)"
+                        :key="optionIndex"
+                        @select="handleRowAction(option, true)"
+                        >{{ option.label }}</ContextMenuItem
+                      >
+                    </ContextMenuSubContent>
+                  </ContextMenuSub>
+                </template>
               </template>
-            </template>
-          </ContextMenuContent>
-        </ContextMenu>
-      </Table>
+            </ContextMenuContent>
+          </ContextMenu>
+        </Table>
+      </div>
+      <div
+        class="absolute z-50 bottom-4 right-4 left-4 flex justify-center"
+      ></div>
     </div>
     <div
-      class="absolute z-50 bottom-4 right-4 left-4 flex justify-center"
-    ></div>
-    <div
-      class="bottom-5 flex items-center absolute z-50 left-4 right-4 overflow-hidden"
+      class="bottom-5 flex items-center absolute right-4 left-4 z-50 overflow-hidden"
     >
       <div class="w-1/3">
         <input
           ref="searchInput"
           v-model="searchQuery"
-          :class="{ 'opacity-0 pointer-events-none': searchQuery.length === 0 }"
+          :class="{
+            'opacity-0 pointer-events-none': searchQuery.length === 0,
+          }"
           class="w-full h-10 py-2 px-4 bg-background border border-primary focus:border-2 rounded-full focus:outline-none"
           placeholder="Search"
           autocorrect="off"

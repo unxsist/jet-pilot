@@ -2,6 +2,7 @@
 import AppLayout from "@/components/AppLayout.vue";
 import Navigation from "@/components/Navigation.vue";
 import RouterViewport from "@/components/RouterViewport.vue";
+import DetailPanel from "@/components/DetailPanel.vue";
 import Toaster from "@/components/ui/toast/Toaster.vue";
 import CommandPalette from "./components/CommandPalette.vue";
 import SettingsContextProvider from "./providers/SettingsContextProvider";
@@ -15,6 +16,11 @@ import DialogProvider from "./providers/DialogProvider";
 import DialogHandler from "./components/DialogHandler.vue";
 import UpdateHandler from "./components/UpdateHandler.vue";
 import WhatsNew from "./components/WhatsNew.vue";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 
 const osType = ref(getOsType());
@@ -35,7 +41,11 @@ const osType = ref(getOsType());
                   <TabProvider>
                     <CommandPaletteProvider>
                       <Navigation />
-                      <RouterViewport />
+                      <ResizablePanelGroup direction="horizontal">
+                        <ResizablePanel><RouterViewport /></ResizablePanel>
+                        <ResizableHandle />
+                        <ResizablePanel><DetailPanel /></ResizablePanel>
+                      </ResizablePanelGroup>
                       <Toaster />
                       <CommandPalette />
                       <DialogHandler />

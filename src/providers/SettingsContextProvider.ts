@@ -102,6 +102,11 @@ export default {
       const home = await homeDir();
       state.settings.kubeConfigs.push(`${home}/.kube/config`);
     }
+
+    /* Make sure tabprovider does not open at more than 90% of the screen */
+    if (state.settings.tabProvider.height > 90) {
+      state.settings.tabProvider.height = 90;
+    }
   },
   render(): any {
     return this.$slots.default();
