@@ -6,7 +6,6 @@ permissions:
 
 jobs:
   release:
-    if: github.event.workflow_run.conclusion == 'success'
     name: Release
     runs-on: ubuntu-latest
     permissions:
