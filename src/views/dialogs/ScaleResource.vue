@@ -24,9 +24,12 @@ const { toast } = useToast();
 
 const props = defineProps<{
   context: string;
-  namespace: string;
   kubeConfig: string;
-  object: V1Deployment | V1StatefulSet | V1ReplicaSet | V1ReplicationController;
+  objects:
+    | V1Deployment[]
+    | V1StatefulSet[]
+    | V1ReplicaSet[]
+    | V1ReplicationController[];
 }>();
 
 const replicas = ref(0);
@@ -34,43 +37,39 @@ const replicas = ref(0);
 const emit = defineEmits(["closeDialog"]);
 
 const scale = () => {
-  const args = [
-    "scale",
-    `--replicas=${replicas.value}`,
-    `${props.object.kind}/${props.object.metadata?.name}`,
-    "--context",
-    props.context,
-    "--namespace",
-    props.object.metadata?.namespace || "",
-    "--kubeconfig",
-    props.kubeConfig,
-  ];
+  props.objects.forEach((object) => {
+    const args = [
+      "scale",
+      `--replicas=${replicas.value}`,
+      `${object.kind}/${object.metadata?.name}`,
+      "--context",
+      props.context,
+      "--namespace",
+      object.metadata?.namespace || "",
+      "--kubeconfig",
+      props.kubeConfig,
+    ];
 
-  console.log(args);
-
-  const command = Command.create("kubectl", args);
-  command.stdout.on("data", (data) => {
-    // toast({
-    //   title: "Rollback successful",
-    //   description: `Rollback of ${props.release.name} to revision ${rollbackRevision.value} was successful`,
-    //   autoDismiss: true,
-    // });
-    emit("closeDialog");
-  });
-
-  command.stderr.on("data", (data) => {
-    toast({
-      title: "Error",
-      description: data,
-      variant: "destructive",
+    const command = Command.create("kubectl", args);
+    command.stdout.on("data", (data) => {
+      emit("closeDialog");
     });
-  });
 
-  command.spawn();
+    command.stderr.on("data", (data) => {
+      toast({
+        title: "Error",
+        description: data,
+        variant: "destructive",
+      });
+    });
+
+    command.spawn();
+  });
 };
 
 onMounted(() => {
-  replicas.value = props.object.spec?.replicas || 0;
+  replicas.value =
+    props.objects.length === 1 ? props.objects[0].spec?.replicas ?? 0 : 0;
 });
 </script>
 <template>

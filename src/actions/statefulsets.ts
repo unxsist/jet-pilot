@@ -16,10 +16,11 @@ export function actions<T extends V1StatefulSet>(
   return [
     {
       label: "Restart",
-      handler: (row) => {
+      massAction: true,
+      handler: (rows: T[]) => {
         const dialog: BaseDialogInterface = {
           title: "Restart statefulset",
-          message: `Are you sure you want to restart statefulset ${row.metadata?.name}?`,
+          message: `Are you sure you want to restart statefulsets?`,
           buttons: [
             {
               label: "Cancel",
@@ -31,25 +32,27 @@ export function actions<T extends V1StatefulSet>(
             {
               label: "Restart",
               handler: (dialog) => {
-                Kubernetes.restartDeployment(
-                  context,
-                  row.metadata?.namespace || "",
-                  row.metadata?.name || ""
-                )
-                  .then(() => {
-                    dialog.close();
-                  })
-                  .catch((error) => {
-                    dialog.close();
+                rows.forEach((row) => {
+                  Kubernetes.restartDeployment(
+                    context,
+                    row.metadata?.namespace || "",
+                    row.metadata?.name || ""
+                  )
+                    .then(() => {
+                      dialog.close();
+                    })
+                    .catch((error) => {
+                      dialog.close();
 
-                    const { toast } = useToast();
+                      const { toast } = useToast();
 
-                    toast({
-                      title: "An error occured",
-                      description: error.message,
-                      variant: "destructive",
+                      toast({
+                        title: "An error occured",
+                        description: error.message,
+                        variant: "destructive",
+                      });
                     });
-                  });
+                });
               },
             },
           ],

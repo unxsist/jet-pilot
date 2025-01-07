@@ -102,11 +102,14 @@ const create = () => {
     :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"
-  />
-  <button
-    class="transition-all hover:opacity-100 opacity-50 z-50 absolute rounded-full w-10 h-10 flex items-center justify-center bottom-6 right-4 bg-primary text-white text-lg"
-    @click="create"
   >
-    +
-  </button>
+    <template #action-buttons>
+      <button
+        class="transition-all ml-2 hover:opacity-100 opacity-50 z-50 rounded-full w-9 h-9 flex items-center justify-center bg-primary text-white text-lg"
+        @click="create"
+      >
+        +
+      </button>
+    </template>
+  </DataTable>
 </template>

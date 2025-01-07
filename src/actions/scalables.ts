@@ -23,18 +23,18 @@ export function actions<
   return [
     {
       label: "Scale",
-      handler: (row: T) => {
+      massAction: true,
+      handler: (rows: T[]) => {
         spawnDialog({
-          title: `Scale ${row.kind}`,
+          title: `Scale ${rows[0].kind}s`,
           message: "Please enter desired number of replicas",
           component: defineAsyncComponent(
             () => import("@/views/dialogs/ScaleResource.vue")
           ),
           props: {
             context: context,
-            namespace: row.metadata?.namespace,
             kubeConfig: kubeConfig,
-            object: row,
+            objects: rows,
           },
           buttons: [],
         });
