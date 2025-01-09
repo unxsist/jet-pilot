@@ -250,6 +250,21 @@ pub mod client {
     }
 
     #[tauri::command]
+    pub async fn get_pod_metric(
+        context: &str,
+        namespace: &str,
+        name: &str,
+    ) -> Result<PodMetrics, SerializableKubeError> {
+        let client = client_with_context(context).await?;
+        let metrics_api: Api<PodMetrics> = Api::namespaced(client, namespace);
+
+        return metrics_api
+            .get(name)
+            .await
+            .map_err(|err| SerializableKubeError::from(err));
+    }
+
+    #[tauri::command]
     pub async fn get_pod(
         context: &str,
         namespace: &str,

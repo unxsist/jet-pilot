@@ -16,16 +16,34 @@ const { toast } = useToast();
 const secrets = ref<V1Secret[]>([]);
 
 import { RowAction, getDefaultActions } from "@/components/tables/types";
-import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
+import {
+  PanelProviderAddTabKey,
+  PanelProviderSetSidePanelComponentKey,
+} from "@/providers/PanelProvider";
 const addTab = injectStrict(PanelProviderAddTabKey);
 
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
+const setSidePanelComponent = injectStrict(
+  PanelProviderSetSidePanelComponentKey
+);
+
 const rowActions: RowAction<V1Secret>[] = [
   {
     label: "Secret Editor",
-    handler: (row) => {},
+    handler: (row: V1Secret) => {
+      setSidePanelComponent({
+        title: `Secret: ${row.metadata?.name}` || "Secret Editor",
+        icon: "secrets",
+        component: defineAsyncComponent(
+          () => import("@/views/panels/SecretEditor.vue")
+        ),
+        props: {
+          secret: row,
+        },
+      });
+    },
   },
   ...getDefaultActions<V1Secret>(
     addTab,

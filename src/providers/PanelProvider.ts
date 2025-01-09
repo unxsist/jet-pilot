@@ -21,7 +21,7 @@ export const PanelProviderAddTabKey: InjectionKey<
 export const PanelProviderCloseTabKey: InjectionKey<(id: string) => void> =
   Symbol("PanelProviderCloseTab");
 export const PanelProviderSetSidePanelComponentKey: InjectionKey<
-  (component: any, props: any) => void
+  (sidePanel: SidePanel | null) => void
 > = Symbol("PanelProviderSetSidePanelComponent");
 
 export type TabClosedEvent = {
@@ -36,11 +36,17 @@ export interface Tab {
   props?: any;
 }
 
+export interface SidePanel {
+  component: any;
+  props: any;
+  icon: string;
+  title: string;
+}
+
 export interface PanelProviderState {
   tabs: Tab[];
   activeTabId: string | null;
-  sidePanelComponent: any;
-  sidePanelComponentProps: any;
+  sidePanel: SidePanel | null;
 }
 
 export default {
@@ -49,8 +55,7 @@ export default {
     const state: PanelProviderState = reactive({
       tabs: [],
       activeTabId: null,
-      sidePanelComponent: null,
-      sidePanelComponentProps: null,
+      sidePanel: null,
     });
 
     provide(PanelProviderStateKey, toRefs(state));
@@ -86,9 +91,8 @@ export default {
       }
     };
 
-    const setSidePanelComponent = (component: any, props: any) => {
-      state.sidePanelComponent = shallowRef(component);
-      state.sidePanelComponentProps = props;
+    const setSidePanelComponent = (sidePanel: SidePanel | null) => {
+      state.sidePanel = sidePanel;
     };
 
     provide(PanelProviderAddTabKey, addTab);

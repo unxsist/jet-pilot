@@ -151,6 +151,18 @@ export class Kubernetes {
     });
   }
 
+  static async getPodMetric(
+    context: string,
+    namespace: string,
+    name: string
+  ): Promise<PodMetric> {
+    return invoke("get_pod_metric", {
+      context: context,
+      namespace: namespace,
+      name: name,
+    });
+  }
+
   static async getPod(
     context: string,
     namespace: string,
