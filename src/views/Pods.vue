@@ -11,10 +11,7 @@ import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { columns } from "@/components/tables/pods";
 import { useDataRefresher } from "@/composables/refresher";
-import { TabProviderAddTabKey } from "@/providers/TabProvider";
-
-import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
-const { settings } = injectStrict(SettingsContextStateKey);
+import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
 
 const {
   context,
@@ -22,7 +19,8 @@ const {
   kubeConfig,
   authenticated: clusterAuthenticated,
 } = injectStrict(KubeContextStateKey);
-const addTab = injectStrict(TabProviderAddTabKey);
+
+const addTab = injectStrict(PanelProviderAddTabKey);
 
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 import { useRoute } from "vue-router";

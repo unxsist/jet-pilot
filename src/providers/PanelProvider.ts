@@ -1,4 +1,3 @@
-import { stat } from "fs";
 import {
   provide,
   reactive,
@@ -8,9 +7,9 @@ import {
   shallowRef,
 } from "vue";
 
-export const TabProviderStateKey: InjectionKey<ToRefs<TabProviderState>> =
-  Symbol("TabProviderState");
-export const TabProviderAddTabKey: InjectionKey<
+export const PanelProviderStateKey: InjectionKey<ToRefs<PanelProviderState>> =
+  Symbol("PanelProviderState");
+export const PanelProviderAddTabKey: InjectionKey<
   (
     id: string,
     title: string,
@@ -18,9 +17,12 @@ export const TabProviderAddTabKey: InjectionKey<
     props?: any,
     icon?: string
   ) => void
-> = Symbol("TabProviderAddTab");
-export const TabProviderCloseTabKey: InjectionKey<(id: string) => void> =
-  Symbol("TabProviderCloseTab");
+> = Symbol("PanelProviderAddTab");
+export const PanelProviderCloseTabKey: InjectionKey<(id: string) => void> =
+  Symbol("PanelProviderCloseTab");
+export const PanelProviderSetSidePanelComponentKey: InjectionKey<
+  (sidePanel: SidePanel | null) => void
+> = Symbol("PanelProviderSetSidePanelComponent");
 
 export type TabClosedEvent = {
   id: string;
@@ -34,27 +36,36 @@ export interface Tab {
   props?: any;
 }
 
-export interface TabProviderState {
+export interface SidePanel {
+  component: any;
+  props: any;
+  icon: string;
+  title: string;
+}
+
+export interface PanelProviderState {
   tabs: Tab[];
   activeTabId: string | null;
+  sidePanel: SidePanel | null;
 }
 
 export default {
-  name: "TabProvider",
+  name: "PanelProvider",
   setup() {
-    const state: TabProviderState = reactive({
+    const state: PanelProviderState = reactive({
       tabs: [],
       activeTabId: null,
+      sidePanel: null,
     });
 
-    provide(TabProviderStateKey, toRefs(state));
+    provide(PanelProviderStateKey, toRefs(state));
 
     const addTab = (
       id: string,
       title: string,
       component: any,
       props?: any,
-      icon: string = "tab"
+      icon = "tab"
     ) => {
       if (state.tabs.find((tab) => tab.id === id)) {
         state.activeTabId = id;
@@ -80,8 +91,13 @@ export default {
       }
     };
 
-    provide(TabProviderAddTabKey, addTab);
-    provide(TabProviderCloseTabKey, closeTab);
+    const setSidePanelComponent = (sidePanel: SidePanel | null) => {
+      state.sidePanel = sidePanel;
+    };
+
+    provide(PanelProviderAddTabKey, addTab);
+    provide(PanelProviderCloseTabKey, closeTab);
+    provide(PanelProviderSetSidePanelComponentKey, setSidePanelComponent);
   },
   render(): any {
     return this.$slots.default();

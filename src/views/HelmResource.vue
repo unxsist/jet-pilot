@@ -17,8 +17,8 @@ const resourceData = ref<object[]>([]);
 const refreshIntervalRef = ref<NodeJS.Timer | null>(null);
 
 import { RowAction, getDefaultActions } from "@/components/tables/types";
-import { TabProviderAddTabKey } from "@/providers/TabProvider";
-const addTab = injectStrict(TabProviderAddTabKey);
+import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
+const addTab = injectStrict(PanelProviderAddTabKey);
 
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);

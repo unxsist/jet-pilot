@@ -16,8 +16,8 @@ const { toast } = useToast();
 const cronjobs = ref<V1CronJob[]>([]);
 
 import { RowAction, getDefaultActions } from "@/components/tables/types";
-import { TabProviderAddTabKey } from "@/providers/TabProvider";
-const addTab = injectStrict(TabProviderAddTabKey);
+import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
+const addTab = injectStrict(PanelProviderAddTabKey);
 
 import {
   BaseDialogInterface,

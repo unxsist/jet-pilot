@@ -16,13 +16,39 @@ const { toast } = useToast();
 const secrets = ref<V1Secret[]>([]);
 
 import { RowAction, getDefaultActions } from "@/components/tables/types";
-import { TabProviderAddTabKey } from "@/providers/TabProvider";
-const addTab = injectStrict(TabProviderAddTabKey);
+import {
+  PanelProviderAddTabKey,
+  PanelProviderSetSidePanelComponentKey,
+} from "@/providers/PanelProvider";
+const addTab = injectStrict(PanelProviderAddTabKey);
 
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
+const setSidePanelComponent = injectStrict(
+  PanelProviderSetSidePanelComponentKey
+);
+
+const showDetails = (row: V1Secret) => {
+  setSidePanelComponent({
+    title: `Secret: ${row.metadata?.name}` || "Secret Editor",
+    icon: "secrets",
+    component: defineAsyncComponent(
+      () => import("@/views/panels/SecretEditor.vue")
+    ),
+    props: {
+      secret: row,
+    },
+  });
+};
+
 const rowActions: RowAction<V1Secret>[] = [
+  {
+    label: "View detais",
+    handler: (row: V1Secret) => {
+      showDetails(row);
+    },
+  },
   ...getDefaultActions<V1Secret>(
     addTab,
     spawnDialog,
@@ -43,7 +69,7 @@ const rowClasses = (row: any) => {
   return "";
 };
 
-async function getConfigMaps(refresh: boolean = false) {
+async function getSecrets(refresh: boolean = false) {
   if (!refresh) {
     secrets.value = [];
   }
@@ -70,11 +96,10 @@ async function getConfigMaps(refresh: boolean = false) {
     });
 }
 
-const { startRefreshing, stopRefreshing } = useDataRefresher(
-  getConfigMaps,
-  1000,
-  [context, namespace]
-);
+const { startRefreshing, stopRefreshing } = useDataRefresher(getSecrets, 1000, [
+  context,
+  namespace,
+]);
 
 const create = () => {
   addTab(
@@ -100,6 +125,7 @@ const create = () => {
     :columns="columns"
     :allow-filter="true"
     :sticky-headers="true"
+    @row-clicked="showDetails"
     :row-actions="rowActions"
     :row-classes="rowClasses"
   >
