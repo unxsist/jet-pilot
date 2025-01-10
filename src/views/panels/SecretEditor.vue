@@ -6,10 +6,11 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Textarea } from "@/components/ui/textarea";
 import EyeCloseIcon from "@/assets/icons/eye_close.svg";
 import EyeOpenIcon from "@/assets/icons/eye_open.svg";
+import CopyIcon from "@/assets/icons/copy.svg";
 import { V1Secret } from "@kubernetes/client-node";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 const decodedKeys = ref<string[]>([]);
 const props = defineProps<{ secret: V1Secret }>();
@@ -70,16 +71,28 @@ const getSecretData = (key: string) => {
                   >
                     {{ getSecretData(key) }}
                   </div>
-                  <button
-                    @click="toggleDecode(key)"
-                    class="absolute -right-1 -top-1 pt-3 pr-3 pl-2 pb-2 border-l border-b rounded-sm hover:bg-muted text-white flex items-center justify-center"
-                  >
-                    <EyeCloseIcon
+                  <div class="absolute right-0 top-0 flex">
+                    <button
                       v-if="decodedKeys.includes(key)"
-                      class="h-4"
-                    />
-                    <EyeOpenIcon v-else class="h-4" />
-                  </button>
+                      @click="writeText(getSecretData(key))"
+                      class="p-2 border-l border-b rounded-bl-sm hover:bg-muted text-white flex items-center justify-center"
+                    >
+                      <CopyIcon class="h-4" />
+                    </button>
+                    <button
+                      :class="{
+                        'rounded-bl-sm': !decodedKeys.includes(key),
+                      }"
+                      @click="toggleDecode(key)"
+                      class="p-2 border-l border-b hover:bg-muted text-white flex items-center justify-center"
+                    >
+                      <EyeCloseIcon
+                        v-if="decodedKeys.includes(key)"
+                        class="h-4"
+                      />
+                      <EyeOpenIcon v-else class="h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
