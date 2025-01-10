@@ -95,6 +95,9 @@ const table = useVueTable({
               "border-white/25 hover:border-white data-[state=checked]:border-primary",
             checked: row.getIsSelected(),
             "onUpdate:checked": row.getToggleSelectedHandler(),
+            onClick: (e: Event) => {
+              e.stopPropagation();
+            },
           });
         },
       },
@@ -244,6 +247,19 @@ onMounted(() => {
 onUpdated(() => {
   registerFilterKeybinds();
 });
+
+const getRowClasses = (row: TData) => {
+  const classes =
+    typeof props.rowClasses === "function"
+      ? props.rowClasses(row)
+      : props.rowClasses || "";
+
+  return [classes, hasRowClickListener.value ? "cursor-pointer" : ""].join(" ");
+};
+
+const hasRowClickListener = computed(() => {
+  return !!getCurrentInstance()?.vnode.props?.onRowClicked;
+});
 </script>
 
 <template>
@@ -339,11 +355,7 @@ onUpdated(() => {
                     :data-state="
                       rows[row.index].getIsSelected() ? 'selected' : undefined
                     "
-                    :class="
-                      typeof rowClasses === 'function'
-                        ? rowClasses(rows[row.index].original)
-                        : rowClasses || ''
-                    "
+                    :class="getRowClasses(rows[row.index].original)"
                     @click.right="
                       setContextMenuSubject(rows[row.index].original)
                     "
