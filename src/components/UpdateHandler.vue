@@ -49,7 +49,8 @@ async function updateApp() {
   if (updateInfo.value?.available) {
     closeable.value = false;
     isUpdating.value = true;
-    await updateInfo.value.downloadAndInstall();
+    const update = await check();
+    update?.downloadAndInstall();
     isUpdating.value = false;
     restart.value = true;
   }
