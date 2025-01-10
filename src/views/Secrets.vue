@@ -29,20 +29,24 @@ const setSidePanelComponent = injectStrict(
   PanelProviderSetSidePanelComponentKey
 );
 
+const showDetails = (row: V1Secret) => {
+  setSidePanelComponent({
+    title: `Secret: ${row.metadata?.name}` || "Secret Editor",
+    icon: "secrets",
+    component: defineAsyncComponent(
+      () => import("@/views/panels/SecretEditor.vue")
+    ),
+    props: {
+      secret: row,
+    },
+  });
+};
+
 const rowActions: RowAction<V1Secret>[] = [
   {
-    label: "Secret Editor",
+    label: "View detais",
     handler: (row: V1Secret) => {
-      setSidePanelComponent({
-        title: `Secret: ${row.metadata?.name}` || "Secret Editor",
-        icon: "secrets",
-        component: defineAsyncComponent(
-          () => import("@/views/panels/SecretEditor.vue")
-        ),
-        props: {
-          secret: row,
-        },
-      });
+      showDetails(row);
     },
   },
   ...getDefaultActions<V1Secret>(
@@ -121,6 +125,7 @@ const create = () => {
     :columns="columns"
     :allow-filter="true"
     :sticky-headers="true"
+    @row-clicked="showDetails"
     :row-actions="rowActions"
     :row-classes="rowClasses"
   >

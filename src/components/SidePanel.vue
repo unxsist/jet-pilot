@@ -6,7 +6,9 @@ import {
 import { injectStrict } from "@/lib/utils";
 import { ResizablePanel } from "@/components/ui/resizable";
 import CloseIcon from "@/assets/icons/close.svg";
-import { min } from "date-fns";
+import { useRoute } from "vue-router";
+
+const route = useRoute();
 
 const { sidePanel } = injectStrict(PanelProviderStateKey);
 const setSidePanelComponent = injectStrict(
@@ -18,10 +20,18 @@ const icon = defineAsyncComponent(() =>
     () => import("@/assets/icons/k8s.svg")
   )
 );
+
+watch(route, () => {
+  setSidePanelComponent(null);
+});
 </script>
 
 <template>
-  <ResizablePanel v-if="sidePanel !== null" :default-size="30">
+  <ResizablePanel
+    v-if="sidePanel !== null"
+    :default-size="30"
+    class="max-h-screen !overflow-y-auto"
+  >
     <div class="bg-background p-4 flex justify-between items-center border-b">
       <div class="flex items-center space-x-2">
         <component v-if="sidePanel.icon" :is="icon" class="h-4" />

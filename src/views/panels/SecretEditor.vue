@@ -66,7 +66,7 @@ const getSecretData = (key: string) => {
                 <span class="font-mono">{{ key }}</span>
                 <div class="relative overflow-hidden rounded">
                   <div
-                    class="border border-input rounded p-4 pr-10 break-all opacity-50 hover:opacity-100"
+                    class="select-text border border-input rounded p-4 pr-10 break-all opacity-50 hover:opacity-100"
                   >
                     {{ getSecretData(key) }}
                   </div>
