@@ -461,13 +461,15 @@ const hasRowClickListener = computed(() => {
       </div>
 
       <div
-        class="ml-auto w-1/3 flex items-center justify-between px-4 h-10 border bg-background rounded-full transition-all"
+        class="ml-auto flex items-center justify-between px-4 h-10 border bg-background rounded-full transition-all"
         :class="{
           'translate-y-0': table.getSelectedRowModel().rows.length > 0,
           'translate-y-full': table.getSelectedRowModel().rows.length === 0,
         }"
       >
-        <div>{{ table.getSelectedRowModel().rows.length }} selected</div>
+        <div class="mr-4">
+          {{ table.getSelectedRowModel().rows.length }} selected
+        </div>
         <div class="space-x-2 -mr-2">
           <template v-for="(rowAction, index) in rowActions" :key="index">
             <Button
