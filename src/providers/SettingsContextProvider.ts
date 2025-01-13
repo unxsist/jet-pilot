@@ -28,6 +28,9 @@ export interface SettingsContextState {
     shell: {
       executable: string;
     };
+    logs: {
+      tail_lines: number;
+    };
     kubeConfigs: string[];
     contextSettings: ContextSettings[];
     collapsedNavigationGroups: string[];
@@ -57,6 +60,9 @@ export default {
         },
         shell: {
           executable: "/bin/sh",
+        },
+        logs: {
+          tail_lines: 15,
         },
         kubeConfigs: [],
         contextSettings: [],

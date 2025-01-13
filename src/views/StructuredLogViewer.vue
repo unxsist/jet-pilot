@@ -4,11 +4,13 @@ import { Child, Command } from "@tauri-apps/plugin-shell";
 import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { h } from "vue";
 import ArrowDownIcon from "@/assets/icons/arrow_down_xl.svg";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useDebounceFn } from "@vueuse/core";
-import { formatSnakeCaseToHumanReadable } from "@/lib/utils";
+import { formatSnakeCaseToHumanReadable, injectStrict } from "@/lib/utils";
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+
+const { settings } = injectStrict(SettingsContextStateKey);
 
 const sessionId = ref<string>("");
 const columns = ref<string[]>([]);
@@ -19,9 +21,9 @@ let logProcess: Child | null = null;
 
 const autoScroll = ref(true);
 const liveTail = ref(true);
-const currentSince = ref<string>("1h");
+const currentSince = ref<string>("tail");
 
-const logsSinceOptions = ["1m", "5m", "15m", "30m", "1h"];
+const logsSinceOptions = ["1m", "5m", "15m", "30m", "1h", "tail", "head"];
 
 const logData = ref<any[]>([]);
 
@@ -48,7 +50,13 @@ const initCommand = computed(() => {
     initCommandArgs.push("--follow");
   }
 
-  initCommandArgs.push("--since=" + currentSince.value);
+  if (currentSince.value !== "tail" && currentSince.value !== "head") {
+    initCommandArgs.push("--since=" + currentSince.value);
+  }
+
+  if (currentSince.value === "tail") {
+    initCommandArgs.push(`--tail=${settings.value.logs.tail_lines}`);
+  }
 
   initCommandArgs.push(props.object);
 
@@ -342,15 +350,23 @@ onUnmounted(() => {
       </div>
       <!-- Hack to fix sticky header table data to shine through -->
       <div class="absolute h-[5px] w-full bg-background z-[9999]"></div>
-      <DataTable
-        :columns="datatableColumns"
-        :data="logData"
-        :row-classes="() => 'font-mono text-xs select-text'"
-        :estimated-row-height="33"
-        :auto-scroll="autoScroll"
-        sticky-headers
-        @sorting-change="updateSorting"
-      />
+      <div class="log-table-wrapper mt-0 mb-0 w-full">
+        <DataTable
+          :columns="datatableColumns"
+          :data="logData"
+          :row-classes="() => 'font-mono text-xs select-text'"
+          :estimated-row-height="33"
+          :auto-scroll="autoScroll"
+          sticky-headers
+          @sorting-change="updateSorting"
+        />
+      </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.log-table-wrapper {
+  height: calc(100% - 55px);
+}
+</style>

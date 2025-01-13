@@ -9,6 +9,13 @@ import {
 } from "@/components/ui/form";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import {
+  NumberField,
+  NumberFieldContent,
+  NumberFieldDecrement,
+  NumberFieldIncrement,
+  NumberFieldInput,
+} from "@/components/ui/number-field";
 import KubeConfigListBox from "@/views/settings/general/KubeConfigListBox.vue";
 
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
@@ -61,6 +68,31 @@ const { settings } = injectStrict(SettingsContextStateKey);
           </FormControl>
           <FormDescription>
             The default shell to use when opening a shell for a container
+          </FormDescription>
+          <FormMessage />
+        </FormItem>
+      </FormField>
+    </div>
+    <div>
+      <h2 class="font-medium text-base mb-4">Logs</h2>
+      <FormField
+        v-slot="{ componentField }"
+        v-model="settings.logs.tail_lines"
+        name="tail_lines"
+      >
+        <FormItem>
+          <FormLabel>Default tail lines</FormLabel>
+          <FormControl class="w-48">
+            <NumberField v-bind="componentField">
+              <NumberFieldContent>
+                <NumberFieldDecrement />
+                <NumberFieldInput />
+                <NumberFieldIncrement />
+              </NumberFieldContent>
+            </NumberField>
+          </FormControl>
+          <FormDescription>
+            The amount of lines to tail when viewing logs
           </FormDescription>
           <FormMessage />
         </FormItem>
