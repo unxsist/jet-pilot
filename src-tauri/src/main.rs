@@ -2,15 +2,84 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::{menu::{AboutMetadataBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder}, Emitter, Manager};
+use tracing::Level;
+use tracing::level_filters::LevelFilter;
+use tracing_appender::rolling;
+use tracing_subscriber::{fmt, prelude::*, reload, Registry};
+use once_cell::sync::Lazy;
+use std::sync::Arc;
 
 mod kubernetes;
 mod logs;
 mod shell;
 
+static RELOAD_HANDLE: Lazy<Arc<reload::Handle<LevelFilter, Registry>>> = Lazy::new(|| {
+    // Set up the file appender and layers as in main
+    let file_appender = rolling::daily("logs", "jet-pilot.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    let (filter_layer, reload_handle) = reload::Layer::new(LevelFilter::INFO);
+    let fmt_layer = fmt::layer().with_writer(non_blocking);
+    let subscriber = Registry::default().with(filter_layer).with(fmt_layer);
+
+    // Set the subscriber globally
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
+
+    Arc::new(reload_handle)
+});
+
+#[tauri::command]
+fn update_log_level(level: String) -> Result<(), String> {
+    let level = match level.to_lowercase().as_str() {
+        "trace" => Level::TRACE,
+        "debug" => Level::DEBUG,
+        "info" => Level::INFO,
+        "warn" => Level::WARN,
+        "error" => Level::ERROR,
+        _ => return Err(format!("Invalid log level: {}", level)),
+    };
+
+    RELOAD_HANDLE
+        .modify(|filter| *filter = level.into())
+        .map_err(|e| e.to_string())?;
+
+    println!("Log level updated to: {:?}", level);
+    Ok(())
+}
+
+#[tauri::command]
+fn write_log(level: String, message: String) -> Result<(), String> {
+    let level = match level.to_lowercase().as_str() {
+        "trace" => Level::TRACE,
+        "debug" => Level::DEBUG,
+        "info" => Level::INFO,
+        "warn" => Level::WARN,
+        "error" => Level::ERROR,
+        _ => return Err(format!("Invalid log level: {}", level)),
+    };
+
+    match level {
+        Level::TRACE => tracing::trace!("{}", message),
+        Level::DEBUG => tracing::debug!("{}", message),
+        Level::INFO => tracing::info!("{}", message),
+        Level::WARN => tracing::warn!("{}", message),
+        Level::ERROR => tracing::error!("{}", message),
+    }
+
+    Ok(())
+}
+
 #[derive(Clone, serde::Serialize)]
 struct CheckForUpdatesPayload {}
 
 fn main() {
+    let file_appender = rolling::daily("logs", "jet-pilot.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    let (filter, reload_handle) = reload::Layer::new(LevelFilter::INFO);
+    let fmt_layer = fmt::layer().with_writer(non_blocking);
+    let subscriber = tracing_subscriber::registry().with(filter).with(fmt_layer);
+
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
+
     let _ = fix_path_env::fix();
 
     let ctx = tauri::generate_context!();
@@ -29,6 +98,8 @@ fn main() {
 
     builder
         .invoke_handler(tauri::generate_handler![
+            update_log_level,
+            write_log,
             kubernetes::client::set_current_kubeconfig,
             kubernetes::client::list_contexts,
             kubernetes::client::get_context_auth_info,
