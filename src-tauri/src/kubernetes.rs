@@ -14,6 +14,7 @@ pub mod client {
     use rand::distributions::DistString;
     use serde::Serialize;
     use std::sync::Mutex;
+    use tracing::{debug, error, info, trace, warn};
 
     #[derive(Serialize)]
     pub enum DeletionResult {
@@ -31,7 +32,7 @@ pub mod client {
 
     impl From<Error> for SerializableKubeError {
         fn from(error: Error) -> Self {
-            println!("Error: {:?}", error);
+            error!("Kubernetes API error occurred: {:?}", error);
 
             match error {
                 Error::Api(api_error) => {
