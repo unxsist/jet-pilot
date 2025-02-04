@@ -60,6 +60,8 @@ pub mod client {
 
     impl From<KubeconfigError> for SerializableKubeError {
         fn from(error: KubeconfigError) -> Self {
+            error!("Kubeconfig error occurred: {:?}", error);
+            
             return SerializableKubeError {
                 message: error.to_string(),
                 code: None,
