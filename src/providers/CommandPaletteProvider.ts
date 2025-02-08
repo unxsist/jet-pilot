@@ -1,4 +1,5 @@
 import { Command } from "@/command-palette";
+import { error } from "@/lib/logger";
 import { provide, reactive, InjectionKey, toRefs, ToRefs } from "vue";
 
 export const RegisterCommandStateKey: InjectionKey<(command: Command) => void> =
@@ -131,9 +132,10 @@ export default {
 
             state.loading = false;
           })
-          .catch((error) => {
+          .catch((e) => {
+            error(`Failed to execute command: ${e.message}`);
             state.loading = false;
-            state.executionError = error.message;
+            state.executionError = e.message;
             setTimeout(() => {
               state.executionError = null;
             }, 2500);

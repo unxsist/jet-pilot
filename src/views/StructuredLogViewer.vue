@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useDebounceFn } from "@vueuse/core";
 import { formatSnakeCaseToHumanReadable, injectStrict } from "@/lib/utils";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+import { error } from "@/lib/logger";
 
 const { settings } = injectStrict(SettingsContextStateKey);
 
@@ -85,7 +86,7 @@ const initLogOutput = async () => {
   });
 
   command.stderr.on("data", (data: string) => {
-    console.log("stderr", data);
+    error(`Error fetching logs: ${data}`);
   });
 
   const child = await command.spawn();

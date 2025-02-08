@@ -21,6 +21,7 @@ import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
 const addTab = injectStrict(PanelProviderAddTabKey);
 
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
+import { error } from "@/lib/logger";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
 const columns = ref<ColumnDef<any>[]>([]);
@@ -35,7 +36,7 @@ const initColumns = async (resource: string) => {
     const customColumns = await import(`@/components/tables/${resource}.ts`);
     columns.value = customColumns.columns;
   } catch (e) {
-    console.log(e);
+    error(`Error initializing columns for ${resource}: ${e}`);
   }
 };
 
@@ -67,7 +68,7 @@ const initRowActions = async (resource: string) => {
         : []),
     ];
   } catch (e) {
-    console.log(e);
+    error(`Error initializing row actions for ${resource}: ${e}`);
   }
 };
 
@@ -136,7 +137,7 @@ const initiateWatchCommand = (resource: string) => {
   });
 
   command.stderr.on("data", (data) => {
-    console.log(data);
+    error(`Error watching ${resource}: ${data}`);
   });
 
   command.spawn().then((child) => {

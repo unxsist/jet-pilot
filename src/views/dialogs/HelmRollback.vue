@@ -18,6 +18,7 @@ const { toast } = useToast();
 
 import { parseJSON } from "date-fns";
 import { formatDateTime } from "@/lib/utils";
+import { error } from "@/lib/logger";
 
 const rollbackRevision = ref<string>("");
 const revisions = ref<any[]>([]);
@@ -49,8 +50,6 @@ const rollback = () => {
     props.release.namespace,
   ];
 
-  console.log(args);
-
   const command = Command.create("helm", args);
   command.stdout.on("data", (data) => {
     toast({
@@ -62,6 +61,7 @@ const rollback = () => {
   });
 
   command.stderr.on("data", (data) => {
+    error(`Error rolling back release ${props.release.name} to revision ${rollbackRevision.value}: ${data}`);
     toast({
       title: "Error",
       description: data,
@@ -86,18 +86,15 @@ const fetchRevisions = async () => {
     props.release.namespace,
   ];
 
-  console.log(args);
-
   const command = Command.create("helm", args);
   command.stdout.on("data", (data) => {
     const parsedData = JSON.parse(data);
 
     revisions.value = parsedData;
-    console.log(revisions.value);
   });
 
   command.stderr.on("data", (data) => {
-    console.error(data);
+    error(`Error fetching Helm release history: ${data}`);
   });
 
   command.spawn();

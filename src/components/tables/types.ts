@@ -2,6 +2,7 @@ import { BaseDialogInterface } from "@/providers/DialogProvider";
 import { Command } from "@tauri-apps/plugin-shell";
 import { VirtualService } from "@kubernetes-models/istio/networking.istio.io/v1beta1";
 import { KubernetesObject } from "@kubernetes/client-node";
+import { error } from "@/lib/logger";
 
 export interface BaseRowAction<T> {
   label: string | ((row: T) => string);
@@ -101,8 +102,8 @@ export function getDefaultActions<T extends KubernetesObject | VirtualService>(
                     kubeConfig,
                   ]);
 
-                  command.stderr.on("data", (error: string) => {
-                    console.log(error);
+                  command.stderr.on("data", (e: string) => {
+                    error(`Failed to delete resource: ${e}`);
                   });
 
                   command.spawn();

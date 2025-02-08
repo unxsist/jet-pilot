@@ -40,7 +40,6 @@ const getNamespacesForCluster = (): string[] => {
 };
 
 const setNamespacesForCluster = (namespaces: string[]) => {
-  console.log(namespaces);
   const clusterSettings = settings.value.contextSettings.find(
     (c) => c.context === currentContext.value
   );

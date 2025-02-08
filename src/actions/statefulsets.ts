@@ -5,6 +5,7 @@ import { actions as scalableActions } from "./scalables";
 import { BaseDialogInterface } from "@/providers/DialogProvider";
 import { Kubernetes } from "@/services/Kubernetes";
 import { useToast } from "@/components/ui/toast";
+import { error } from "@/lib/logger";
 
 export function actions<T extends V1StatefulSet>(
   addTab: any,
@@ -41,14 +42,15 @@ export function actions<T extends V1StatefulSet>(
                     .then(() => {
                       dialog.close();
                     })
-                    .catch((error) => {
+                    .catch((e) => {
+                      error(`Failed to restart statefulset: ${e.message}`);
                       dialog.close();
 
                       const { toast } = useToast();
 
                       toast({
                         title: "An error occured",
-                        description: error.message,
+                        description: e.message,
                         variant: "destructive",
                       });
                     });

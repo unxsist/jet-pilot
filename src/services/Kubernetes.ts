@@ -72,7 +72,7 @@ export class Kubernetes {
     return {
       canHandle: false,
       callback: () => {
-        console.log("void");
+        // Do nothing
       },
     };
   }
