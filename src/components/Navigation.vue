@@ -298,6 +298,7 @@ watch([context, namespace, clusterAuthenticated], () => {
           </NavigationGroup>
           <template v-for="group in navigationGroups" :key="group.title">
             <NavigationGroup
+              :key="group.title"
               :title="group.title"
               v-if="
                 getCoreResourcesForGroup(group).length > 0 ||
