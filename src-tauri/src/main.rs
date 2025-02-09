@@ -2,20 +2,143 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::{menu::{AboutMetadataBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder}, Emitter, Manager};
+use tracing::Level;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::{fmt, prelude::*, reload, Registry};
+use once_cell::sync::Lazy;
+use std::sync::{Arc, RwLock, Weak};
+use chrono::DateTime;
+use serde::Serialize;
+use tracing_subscriber::fmt::MakeWriter;
 
 mod kubernetes;
 mod logs;
 mod shell;
 
+#[derive(Debug, Serialize, Clone)]
+struct LogEntry {
+    timestamp: DateTime<chrono::Utc>,
+    level: String,
+    message: String,
+}
+
+#[derive(Clone)]
+struct MemoryWriter {
+    logs: Arc<RwLock<Vec<LogEntry>>>
+}
+
+impl std::io::Write for MemoryWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Ok(log_line) = String::from_utf8(buf.to_vec()) {
+            if let Some((level, message)) = log_line.split_once(' ') {
+                let entry = LogEntry {
+                    timestamp: chrono::Utc::now(),
+                    level: level.trim().to_string(),
+                    message: message.trim().to_string(),
+                };
+                if let Ok(mut logs) = self.logs.write() {
+                    logs.push(entry);
+                }
+            }
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> MakeWriter<'a> for MemoryWriter {
+    type Writer = Self;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+static LOGS: Lazy<Arc<RwLock<Vec<LogEntry>>>> = Lazy::new(|| Arc::new(RwLock::new(Vec::new())));
+static RELOAD_HANDLE: Lazy<Arc<RwLock<reload::Handle<LevelFilter, Registry>>>> = Lazy::new(|| {
+    let (_, reload_handle) = reload::Layer::new(LevelFilter::INFO);
+    Arc::new(RwLock::new(reload_handle))
+});
+
+#[tauri::command]
+fn get_logs() -> Result<Vec<LogEntry>, String> {
+    LOGS.read()
+        .map(|logs| logs.clone())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn update_log_level(level: String) -> Result<(), String> {
+    let level = match level.to_lowercase().as_str() {
+        "trace" => Level::TRACE,
+        "debug" => Level::DEBUG,
+        "info" => Level::INFO,
+        "warn" => Level::WARN,
+        "error" => Level::ERROR,
+        _ => return Err(format!("Invalid log level: {}", level)),
+    };
+
+    if let Ok(handle) = RELOAD_HANDLE.write() {
+        handle.modify(|filter| *filter = level.into())
+            .map_err(|e| e.to_string())?;
+    }
+
+    println!("Log level updated to: {:?}", level);
+    Ok(())
+}
+
+#[tauri::command]
+fn write_log(level: String, message: String) -> Result<(), String> {
+    let level = match level.to_lowercase().as_str() {
+        "trace" => Level::TRACE,
+        "debug" => Level::DEBUG,
+        "info" => Level::INFO,
+        "warn" => Level::WARN,
+        "error" => Level::ERROR,
+        _ => return Err(format!("Invalid log level: {}", level)),
+    };
+
+    match level {
+        Level::TRACE => tracing::trace!("{}", message),
+        Level::DEBUG => tracing::debug!("{}", message),
+        Level::INFO => tracing::info!("{}", message),
+        Level::WARN => tracing::warn!("{}", message),
+        Level::ERROR => tracing::error!("{}", message),
+    }
+
+    Ok(())
+}
+
 #[derive(Clone, serde::Serialize)]
 struct CheckForUpdatesPayload {}
 
 fn main() {
+    let memory_writer = MemoryWriter { logs: LOGS.clone() };
+    let (filter, reload_handle) = reload::Layer::new(LevelFilter::INFO);
+    let fmt_layer = fmt::layer().with_writer(memory_writer);
+    
+    // Initialize the subscriber with both layers
+    let subscriber = tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt_layer);
+
+    // Set the global subscriber
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("Failed to set subscriber");
+
+    // Store the new reload handle
+    if let Ok(mut handle) = RELOAD_HANDLE.write() {
+        *handle = reload_handle;
+    }
+
     let _ = fix_path_env::fix();
 
     let ctx = tauri::generate_context!();
 
-    let mut builder = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -29,6 +152,9 @@ fn main() {
 
     builder
         .invoke_handler(tauri::generate_handler![
+            update_log_level,
+            write_log,
+            get_logs,
             kubernetes::client::set_current_kubeconfig,
             kubernetes::client::list_contexts,
             kubernetes::client::get_context_auth_info,

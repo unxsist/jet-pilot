@@ -21,6 +21,7 @@ import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
 const addTab = injectStrict(PanelProviderAddTabKey);
 
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
+import { error } from "@/lib/logger";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
 const columns = ref<ColumnDef<any>[]>([]);
@@ -35,7 +36,7 @@ const initColumns = async (resource: string) => {
     );
     columns.value = customColumns.columns;
   } catch (e) {
-    console.log(e);
+    error(`Error initializing columns for ${resource}: ${e}`);
   }
 };
 
@@ -59,7 +60,7 @@ const initRowActions = async (resource: string) => {
         : []),
     ];
   } catch (e) {
-    console.log(e);
+    error(`Error initializing row actions for ${resource}: ${e}`);
   }
 };
 
@@ -131,7 +132,7 @@ const fetchHelmResource = (resource: string) => {
   });
 
   command.stderr.on("data", (data) => {
-    console.error(data);
+    error(`Error fetching Helm ${resource}: ${data}`);
   });
 
   command.spawn();

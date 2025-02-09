@@ -4,6 +4,7 @@ pub mod structured_logging {
     use std::collections::{HashMap, HashSet};
     use std::sync::Mutex;
     use uuid::Uuid;
+    use tracing::{info, warn, error};
 
     static STRUCTURED_LOGGING_SESSIONS: Mutex<Option<HashMap<String, StructuredLoggingSession>>> =
         Mutex::new(None);
@@ -57,6 +58,7 @@ pub mod structured_logging {
 
     #[tauri::command]
     pub async fn start_structured_logging_session(initial_data: Vec<String>) -> String {
+        info!("Starting structured logging session");
         let session_id = Uuid::new_v4().to_string();
 
         if STRUCTURED_LOGGING_SESSIONS.lock().unwrap().is_none() {
@@ -91,6 +93,7 @@ pub mod structured_logging {
 
     #[tauri::command]
     pub async fn repurpose_structured_logging_session(session_id: String) {
+        info!("Repurposing structured logging session: {}", session_id);
         if let Some(session) = STRUCTURED_LOGGING_SESSIONS
             .lock()
             .unwrap()
@@ -104,6 +107,7 @@ pub mod structured_logging {
 
     #[tauri::command]
     pub async fn end_structured_logging_session(session_id: String) {
+        info!("Ending structured logging session: {}", session_id);
         STRUCTURED_LOGGING_SESSIONS
             .lock()
             .unwrap()
@@ -166,6 +170,7 @@ pub mod structured_logging {
 
     #[tauri::command]
     pub async fn add_data_to_structured_logging_session(session_id: String, data: String) {
+        info!("Adding data to structured logging session: {}", session_id);
         // split the data by newline if there's any
         let data = data.split("\n").collect::<Vec<&str>>();
 
@@ -332,6 +337,7 @@ pub mod structured_logging {
         property: String,
         match_type: String,
     ) {
+        info!("Adding facet to structured logging session: {}", session_id);
         if let Some(session) = STRUCTURED_LOGGING_SESSIONS
             .lock()
             .unwrap()
@@ -360,6 +366,7 @@ pub mod structured_logging {
         property: String,
         match_type: String,
     ) {
+        info!("Setting facet match type for structured logging session: {}", session_id);
         if let Some(session) = STRUCTURED_LOGGING_SESSIONS
             .lock()
             .unwrap()
@@ -385,6 +392,7 @@ pub mod structured_logging {
         session_id: String,
         property: String,
     ) {
+        info!("Removing facet from structured logging session: {}", session_id);
         if let Some(session) = STRUCTURED_LOGGING_SESSIONS
             .lock()
             .unwrap()
@@ -405,6 +413,7 @@ pub mod structured_logging {
         value: String,
         filtered: bool,
     ) {
+        info!("Setting filtered for facet value in structured logging session: {}", session_id);
         if let Some(session) = STRUCTURED_LOGGING_SESSIONS
             .lock()
             .unwrap()
@@ -428,6 +437,7 @@ pub mod structured_logging {
 
     #[tauri::command]
     pub async fn get_facets_for_structured_logging_session(session_id: String) -> Vec<Facet> {
+        info!("Getting facets for structured logging session: {}", session_id);
         if let Some(session) = STRUCTURED_LOGGING_SESSIONS
             .lock()
             .unwrap()
@@ -443,6 +453,7 @@ pub mod structured_logging {
 
     #[tauri::command]
     pub async fn get_columns_for_structured_logging_session(session_id: String) -> Vec<String> {
+        info!("Getting columns for structured logging session: {}", session_id);
         if let Some(session) = STRUCTURED_LOGGING_SESSIONS
             .lock()
             .unwrap()
@@ -462,6 +473,7 @@ pub mod structured_logging {
         search_query: String,
         mut sorting: Vec<SortingState>,
     ) -> FilteredLogResult {
+        info!("Getting filtered data for structured logging session: {}", session_id);
         if let Some(session) = STRUCTURED_LOGGING_SESSIONS
             .lock()
             .unwrap()

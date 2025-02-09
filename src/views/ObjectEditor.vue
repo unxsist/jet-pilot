@@ -22,6 +22,7 @@ import { Kubernetes } from "@/services/Kubernetes";
 import yaml from "js-yaml";
 import { useToast } from "@/components/ui/toast";
 import { useColorMode } from "@vueuse/core";
+import { error, trace } from "@/lib/logger";
 
 const colorMode = useColorMode();
 watch(colorMode, (value) => {
@@ -94,8 +95,8 @@ const fetchObject = () => {
       stdOutData += data;
     });
 
-    command.stderr.on("data", (error) => {
-      console.debug(error);
+    command.stderr.on("data", (e) => {
+      error(`Error fetching ${props.type}/${props.name}: ${e}`);
       reject();
     });
 
@@ -170,7 +171,6 @@ const onUpdate = () => {
         onClose();
       })
       .catch((error) => {
-        console.debug(error);
         toast({
           title: "An error occured",
           description: error.message,
@@ -197,11 +197,11 @@ const onUpdate = () => {
       ]);
 
       command.stdout.on("data", (data) => {
-        console.debug(data);
+        trace(`Updated ${props.type}/${props.name}: ${data}`);
       });
 
-      command.stderr.on("data", (error) => {
-        console.debug(error);
+      command.stderr.on("data", (e) => {
+        error(`Error updating ${props.type}/${props.name}: ${e}`);
       });
 
       command.on("close", ({ code }) => {
@@ -236,11 +236,11 @@ const onCreate = () => {
     ]);
 
     command.stdout.on("data", (data) => {
-      console.debug(data);
+      trace(`Created ${props.type}/${props.name}: ${data}`);
     });
 
-    command.stderr.on("data", (error) => {
-      console.debug(error);
+    command.stderr.on("data", (e) => {
+      error(`Error creating ${props.type}/${props.name}: ${e}`);
     });
 
     command.on("close", ({ code }) => {

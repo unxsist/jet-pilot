@@ -3,6 +3,7 @@ import { Router } from "vue-router";
 import { DialogInterface } from "@/providers/DialogProvider";
 import { Command } from "@tauri-apps/plugin-shell";
 import { useToast } from "@/components/ui/toast";
+import { error } from "@/lib/logger";
 
 export function actions(
   addTab: any,
@@ -76,8 +77,8 @@ export function actions(
                     });
                   });
 
-                  command.stderr.on("data", (error: string) => {
-                    console.log(error);
+                  command.stderr.on("data", (e: string) => {
+                    error(`Failed to delete Helm Release: ${e}`);
                     toast({
                       title: "Helm Release Delete Error",
                       description: `Failed to delete ${row.name}`,

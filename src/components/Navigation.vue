@@ -19,6 +19,7 @@ import FullScreenIcon from "@/assets/icons/full_screen.svg";
 import MinimizeIcon from "@/assets/icons/minimize.svg";
 import { formatResourceKind } from "@/lib/utils";
 import { ref } from "vue";
+import { error } from "@/lib/logger";
 
 const targetOs = ref<string>(getOsType());
 const {
@@ -186,13 +187,13 @@ const fetchResources = () => {
               resources.filter(filterNamespaced)
             );
           })
-          .catch((error) => {
-            console.error(error);
+          .catch((e) => {
+            error(`Error fetching resources for group ${group.name}: ${e}`);
           });
       });
     })
-    .catch((error) => {
-      console.error(error);
+    .catch((e) => {
+      error(`Error fetching api groups: ${e}`);
     });
 };
 

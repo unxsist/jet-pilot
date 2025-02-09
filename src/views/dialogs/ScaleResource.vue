@@ -19,6 +19,7 @@ import {
   NumberFieldInput,
 } from "@/components/ui/number-field";
 import { Label } from "@/components/ui/label";
+import { error } from "@/lib/logger";
 
 const { toast } = useToast();
 
@@ -56,6 +57,7 @@ const scale = () => {
     });
 
     command.stderr.on("data", (data) => {
+      error(`Error scaling ${object.kind}/${object.metadata?.name}: ${data}`);
       toast({
         title: "Error",
         description: data,

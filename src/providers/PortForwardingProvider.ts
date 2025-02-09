@@ -1,6 +1,7 @@
 import { provide, reactive, InjectionKey, toRefs, ToRefs } from "vue";
 import { Child, Command } from "@tauri-apps/plugin-shell";
 import { open } from "@tauri-apps/plugin-shell";
+import { error } from "@/lib/logger";
 
 export const PortForwardingStateKey: InjectionKey<ToRefs<PortForwardingState>> =
   Symbol("PortForwardingStateKey");
@@ -94,6 +95,7 @@ export default {
         });
 
         command.stderr.on("data", (data: string) => {
+          error(`Failed to add port forwarding: ${data}`);
           child?.kill();
           reject(data);
         });

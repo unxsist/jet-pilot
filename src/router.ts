@@ -27,6 +27,11 @@ const routes: Array<RouteRecordRaw> = [
         name: "SettingsClusters",
         component: () => import("./views/settings/Clusters.vue"),
       },
+      {
+        path: "logs",
+        name: "SettingsLogs", 
+        component: () => import("./views/settings/Logs.vue"),
+      },
     ],
   },
   {

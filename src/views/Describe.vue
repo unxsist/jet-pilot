@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import Loading from "@/components/Loading.vue";
+import { error } from "@/lib/logger";
 import { Command } from "@tauri-apps/plugin-shell";
 
 const props = defineProps<{
@@ -31,6 +32,10 @@ onMounted(() => {
   let stdOutData = "";
   command.stdout.on("data", (data) => {
     stdOutData += data;
+  });
+
+  command.stderr.on("data", (data) => {
+    error(`Error describing ${props.type}/${props.name}: ${data}`);
   });
 
   command.on("close", ({ code }) => {

@@ -4,6 +4,7 @@ import { BaseDialogInterface } from "@/providers/DialogProvider";
 import { Command } from "@tauri-apps/plugin-shell";
 import { useToast } from "@/components/ui/toast";
 import { Router } from "vue-router";
+import { error } from "@/lib/logger";
 
 export function actions<T extends V1Node>(
   addTab: any,
@@ -46,8 +47,8 @@ export function actions<T extends V1Node>(
                   kubeConfig,
                 ]);
 
-                command.stderr.on("data", (error: string) => {
-                  console.log(error);
+                command.stderr.on("data", (e: string) => {
+                  error(e);
                 });
 
                 command.spawn();
@@ -91,8 +92,8 @@ export function actions<T extends V1Node>(
                     kubeConfig,
                   ]);
 
-                  command.stderr.on("data", (error: string) => {
-                    console.log(error);
+                  command.stderr.on("data", (e: string) => {
+                    error(`Failed to drain node: ${e}`);
                   });
 
                   command.once("close", (result: any) => {

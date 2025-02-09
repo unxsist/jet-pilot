@@ -6,5 +6,6 @@ import NavigationItem from "@/components/settings/NavigationItem.vue";
     <NavigationItem :to="{ name: 'SettingsGeneral' }" title="General" />
     <NavigationItem :to="{ name: 'SettingsAppearance' }" title="Appearance" />
     <NavigationItem :to="{ name: 'SettingsClusters' }" title="Clusters" />
+    <NavigationItem :to="{ name: 'SettingsLogs' }" title="Logs" />
   </nav>
 </template>

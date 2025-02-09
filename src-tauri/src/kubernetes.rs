@@ -14,6 +14,7 @@ pub mod client {
     use rand::distributions::DistString;
     use serde::Serialize;
     use std::sync::Mutex;
+    use tracing::{debug, error, info, trace, warn};
 
     #[derive(Serialize)]
     pub enum DeletionResult {
@@ -31,7 +32,7 @@ pub mod client {
 
     impl From<Error> for SerializableKubeError {
         fn from(error: Error) -> Self {
-            println!("Error: {:?}", error);
+            error!("Kubernetes API error occurred: {:?}", error);
 
             match error {
                 Error::Api(api_error) => {
@@ -59,6 +60,8 @@ pub mod client {
 
     impl From<KubeconfigError> for SerializableKubeError {
         fn from(error: KubeconfigError) -> Self {
+            error!("Kubeconfig error occurred: {:?}", error);
+            
             return SerializableKubeError {
                 message: error.to_string(),
                 code: None,
@@ -74,31 +77,51 @@ pub mod client {
 
     #[tauri::command]
     pub async fn get_current_context() -> Result<String, SerializableKubeError> {
-        let config = Kubeconfig::read().map_err(|err| SerializableKubeError::from(err))?;
+        debug!("Retrieving current Kubernetes context");
+        let config = Kubeconfig::read().map_err(|err| {
+            error!("Failed to read kubeconfig: {}", err);
+            SerializableKubeError::from(err)
+        })?;
 
-        return Ok(config.current_context.expect("No current context"));
+        let context = config.current_context.ok_or_else(|| SerializableKubeError {
+            message: "No current context set in kubeconfig".to_string(),
+            code: None,
+            reason: Some("NoCurrentContext".to_string()),
+            details: None,
+        })?;
+        
+        info!("Current context retrieved: {}", context);
+        Ok(context)
     }
 
     #[tauri::command]
     pub async fn list_contexts() -> Result<Vec<String>, SerializableKubeError> {
-        let config = Kubeconfig::read_from(
-            CURRENT_KUBECONFIG
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .as_str(),
-        )
-        .map_err(|err| SerializableKubeError::from(err))?;
+        debug!("Listing available Kubernetes contexts");
+        let kubeconfig = {
+            let kubeconfig_guard = CURRENT_KUBECONFIG.lock().unwrap();
+            kubeconfig_guard.as_ref().ok_or_else(|| {
+                error!("No kubeconfig has been set");
+                SerializableKubeError {
+                    message: "No kubeconfig has been set".to_string(),
+                    code: None,
+                    reason: Some("NoKubeconfig".to_string()),
+                    details: None,
+                } 
+            })?.clone()
+        };
 
-        config
-            .contexts
-            .iter()
-            .map(|context| {
-                let name = context.name.clone();
-                return Ok(name);
-            })
-            .collect()
+        let config = Kubeconfig::read_from(kubeconfig.as_str()).map_err(|err| {
+            error!("Failed to read kubeconfig from path: {}", err);
+            SerializableKubeError::from(err)
+        })?;
+
+        let contexts: Vec<String> = config.contexts.iter()
+            .map(|context| context.name.clone())
+            .collect();
+
+        info!("Found {} contexts", contexts.len());
+        trace!("Available contexts: {:?}", contexts);
+        Ok(contexts)
     }
 
     #[tauri::command]
@@ -139,26 +162,38 @@ pub mod client {
         context: &str,
         kube_config: &str,
     ) -> Result<Client, SerializableKubeError> {
+        debug!("Creating one-off client for context: {}", context);
         let options = KubeConfigOptions {
             context: Some(context.to_string()),
             cluster: None,
             user: None,
         };
 
-        let kubeconfig = Kubeconfig::read_from(kube_config.to_string())
-            .map_err(|err| SerializableKubeError::from(err))?;
-        let client_config = Config::from_custom_kubeconfig(kubeconfig, &options)
-            .await
-            .map_err(|err| SerializableKubeError::from(err))?;
+        let kubeconfig = Kubeconfig::read_from(kube_config.to_string()).map_err(|err| {
+            error!("Failed to read kubeconfig for context {}: {}", context, err);
+            SerializableKubeError::from(err)
+        })?;
+        
+        let client_config = Config::from_custom_kubeconfig(kubeconfig, &options).await.map_err(|err| {
+            error!("Failed to create client config for context {}: {}", context, err);
+            SerializableKubeError::from(err)
+        })?;
 
-        let client =
-            Client::try_from(client_config).map_err(|err| SerializableKubeError::from(err))?;
+        let client = Client::try_from(client_config).map_err(|err| {
+            error!("Failed to create client for context {}: {}", context, err);
+            SerializableKubeError::from(err)
+        })?;
 
-        return Ok(client);
+        debug!("Successfully created one-off client for context: {}", context);
+        Ok(client)
     }
 
     async fn client_with_context(context: &str) -> Result<Client, SerializableKubeError> {
-        if context.to_string() != CURRENT_CONTEXT.lock().unwrap().as_ref().unwrap().clone() {
+        debug!("Getting or creating client for context: {}", context);
+        
+        let current_context = CURRENT_CONTEXT.lock().unwrap().as_ref().unwrap().clone();
+        if context.to_string() != current_context {
+            debug!("Context switch detected: {} -> {}", current_context, context);
             let options = KubeConfigOptions {
                 context: Some(context.to_string()),
                 cluster: None,
@@ -168,34 +203,54 @@ pub mod client {
             let current_kubeconfig = CURRENT_KUBECONFIG.lock().unwrap().clone();
             let client_config = match current_kubeconfig {
                 Some(kubeconfig) if !kubeconfig.is_empty() => {
-                    let kubeconfig = Kubeconfig::read_from(kubeconfig.clone())
-                        .map_err(|err| SerializableKubeError::from(err))?;
-                    Config::from_custom_kubeconfig(kubeconfig, &options)
-                        .await
-                        .map_err(|err| SerializableKubeError::from(err))?
+                    debug!("Using custom kubeconfig path");
+                    let kubeconfig = Kubeconfig::read_from(kubeconfig.clone()).map_err(|err| {
+                        error!("Failed to read custom kubeconfig: {}", err);
+                        SerializableKubeError::from(err)
+                    })?;
+                    Config::from_custom_kubeconfig(kubeconfig, &options).await.map_err(|err| {
+                        error!("Failed to create config from custom kubeconfig: {}", err);
+                        SerializableKubeError::from(err)
+                    })?
                 }
-                _ => Config::from_kubeconfig(&options)
-                    .await
-                    .map_err(|err| SerializableKubeError::from(err))?,
+                _ => {
+                    debug!("Using default kubeconfig path");
+                    Config::from_kubeconfig(&options).await.map_err(|err| {
+                        error!("Failed to create config from default kubeconfig: {}", err);
+                        SerializableKubeError::from(err)
+                    })?
+                }
             };
 
-            let client =
-                Client::try_from(client_config).map_err(|err| SerializableKubeError::from(err))?;
+            let client = Client::try_from(client_config).map_err(|err| {
+                error!("Failed to create Kubernetes client: {}", err);
+                SerializableKubeError::from(err)
+            })?;
 
             CURRENT_CONTEXT.lock().unwrap().replace(context.to_string());
             CLIENT.lock().unwrap().replace(client);
+            info!("Successfully switched to context: {}", context);
         }
 
-        return Ok(CLIENT.lock().unwrap().clone().unwrap());
+        Ok(CLIENT.lock().unwrap().clone().unwrap())
     }
 
     #[tauri::command]
     pub async fn set_current_kubeconfig(kube_config: &str) -> Result<(), SerializableKubeError> {
-        CURRENT_KUBECONFIG
-            .lock()
-            .unwrap()
-            .replace(kube_config.to_string());
-        return Ok(());
+        debug!("Setting current kubeconfig path");
+        
+        // Validate the kubeconfig can be read before setting it
+        match Kubeconfig::read_from(kube_config.to_string()) {
+            Ok(_) => {
+                CURRENT_KUBECONFIG.lock().unwrap().replace(kube_config.to_string());
+                info!("Successfully set new kubeconfig path");
+                Ok(())
+            }
+            Err(err) => {
+                error!("Invalid kubeconfig provided: {}", err);
+                Err(SerializableKubeError::from(err))
+            }
+        }
     }
 
     #[tauri::command]
@@ -203,14 +258,17 @@ pub mod client {
         context: &str,
         kube_config: &str,
     ) -> Result<Vec<Namespace>, SerializableKubeError> {
+        debug!("Listing namespaces for context: {}", context);
         let client = one_off_client_with_context(context, kube_config).await?;
         let namespace_api: Api<Namespace> = Api::all(client);
 
-        return namespace_api
-            .list(&ListParams::default())
-            .await
-            .map(|namespaces| namespaces.items)
-            .map_err(|err| SerializableKubeError::from(err));
+        let namespaces = namespace_api.list(&ListParams::default()).await.map_err(|err| {
+            error!("Failed to list namespaces: {}", err);
+            SerializableKubeError::from(err)
+        })?;
+
+        info!("Found {} namespaces", namespaces.items.len());
+        Ok(namespaces.items)
     }
 
     #[tauri::command]
@@ -220,18 +278,23 @@ pub mod client {
         label_selector: &str,
         field_selector: &str,
     ) -> Result<Vec<Pod>, SerializableKubeError> {
+        debug!("Listing pods in namespace {} for context: {}", namespace, context);
+        trace!("Using selectors - label: {}, field: {}", label_selector, field_selector);
+        
         let client = client_with_context(context).await?;
         let pod_api: Api<Pod> = Api::namespaced(client, namespace);
 
-        return pod_api
-            .list(
-                &ListParams::default()
-                    .labels(label_selector)
-                    .fields(field_selector),
-            )
-            .await
-            .map(|pods| pods.items)
-            .map_err(|err| SerializableKubeError::from(err));
+        let pods = pod_api.list(
+            &ListParams::default()
+                .labels(label_selector)
+                .fields(field_selector),
+        ).await.map_err(|err| {
+            error!("Failed to list pods in namespace {}: {}", namespace, err);
+            SerializableKubeError::from(err)
+        })?;
+
+        info!("Found {} pods in namespace {}", pods.items.len(), namespace);
+        Ok(pods.items)
     }
 
     #[tauri::command]
@@ -239,14 +302,17 @@ pub mod client {
         context: &str,
         namespace: &str,
     ) -> Result<Vec<PodMetrics>, SerializableKubeError> {
+        debug!("Fetching pod metrics for namespace {} in context {}", namespace, context);
         let client = client_with_context(context).await?;
         let metrics_api: Api<PodMetrics> = Api::namespaced(client, namespace);
 
-        return metrics_api
-            .list(&ListParams::default())
-            .await
-            .map(|metrics| metrics.items)
-            .map_err(|err| SerializableKubeError::from(err));
+        let metrics = metrics_api.list(&ListParams::default()).await.map_err(|err| {
+            error!("Failed to get pod metrics for namespace {}: {}", namespace, err);
+            SerializableKubeError::from(err)
+        })?;
+
+        info!("Retrieved metrics for {} pods in namespace {}", metrics.items.len(), namespace);
+        Ok(metrics.items)
     }
 
     #[tauri::command]
@@ -255,13 +321,17 @@ pub mod client {
         namespace: &str,
         name: &str,
     ) -> Result<PodMetrics, SerializableKubeError> {
+        debug!("Fetching metrics for pod {}/{}", namespace, name);
         let client = client_with_context(context).await?;
         let metrics_api: Api<PodMetrics> = Api::namespaced(client, namespace);
 
-        return metrics_api
-            .get(name)
-            .await
-            .map_err(|err| SerializableKubeError::from(err));
+        let metric = metrics_api.get(name).await.map_err(|err| {
+            error!("Failed to get metrics for pod {}/{}: {}", namespace, name, err);
+            SerializableKubeError::from(err)
+        })?;
+
+        info!("Successfully retrieved metrics for pod {}/{}", namespace, name);
+        Ok(metric)
     }
 
     #[tauri::command]
@@ -286,21 +356,26 @@ pub mod client {
         name: &str,
         grace_period_seconds: u32,
     ) -> Result<DeletionResult, SerializableKubeError> {
+        debug!("Deleting pod {}/{} with grace period {}s", namespace, name, grace_period_seconds);
         let client = client_with_context(context).await?;
         let pod_api: Api<Pod> = Api::namespaced(client, namespace);
 
         match pod_api
-            .delete(
-                name,
-                &DeleteParams::default().grace_period(grace_period_seconds),
-            )
+            .delete(name, &DeleteParams::default().grace_period(grace_period_seconds))
             .await
         {
-            Ok(Either::Left(_pod)) => Ok(DeletionResult::Deleted(name.to_string())),
+            Ok(Either::Left(_pod)) => {
+                info!("Pod {}/{} deleted successfully", namespace, name);
+                Ok(DeletionResult::Deleted(name.to_string()))
+            }
             Ok(Either::Right(_status)) => {
+                debug!("Pod {}/{} deletion in progress", namespace, name);
                 Ok(DeletionResult::Pending("Deletion in progress".to_string()))
             }
-            Err(err) => Err(SerializableKubeError::from(err)),
+            Err(err) => {
+                error!("Failed to delete pod {}/{}: {}", namespace, name, err);
+                Err(SerializableKubeError::from(err))
+            }
         }
     }
 
@@ -325,14 +400,20 @@ pub mod client {
         namespace: &str,
         name: &str,
     ) -> Result<bool, SerializableKubeError> {
+        debug!("Restarting deployment {}/{}", namespace, name);
         let client = client_with_context(context).await?;
         let deployment_api: Api<Deployment> = Api::namespaced(client, namespace);
 
-        return deployment_api
-            .restart(name)
-            .await
-            .map(|_deployment| true)
-            .map_err(|err| SerializableKubeError::from(err));
+        match deployment_api.restart(name).await {
+            Ok(_) => {
+                info!("Successfully restarted deployment {}/{}", namespace, name);
+                Ok(true)
+            }
+            Err(err) => {
+                error!("Failed to restart deployment {}/{}: {}", namespace, name, err);
+                Err(SerializableKubeError::from(err))
+            }
+        }
     }
 
     #[tauri::command]
@@ -341,14 +422,20 @@ pub mod client {
         namespace: &str,
         name: &str,
     ) -> Result<bool, SerializableKubeError> {
+        debug!("Restarting statefulset {}/{}", namespace, name);
         let client = client_with_context(context).await?;
         let statefulset_api: Api<StatefulSet> = Api::namespaced(client, namespace);
 
-        return statefulset_api
-            .restart(name)
-            .await
-            .map(|_replicaset| true)
-            .map_err(|err| SerializableKubeError::from(err));
+        match statefulset_api.restart(name).await {
+            Ok(_) => {
+                info!("Successfully restarted statefulset {}/{}", namespace, name);
+                Ok(true)
+            }
+            Err(err) => {
+                error!("Failed to restart statefulset {}/{}: {}", namespace, name, err);
+                Err(SerializableKubeError::from(err))
+            }
+        }
     }
 
     #[tauri::command]
@@ -445,14 +532,17 @@ pub mod client {
     pub async fn list_persistentvolumes(
         context: &str,
     ) -> Result<Vec<PersistentVolume>, SerializableKubeError> {
+        debug!("Listing persistent volumes in context {}", context);
         let client: Client = client_with_context(context).await?;
         let pv_api: Api<PersistentVolume> = Api::all(client);
 
-        return pv_api
-            .list(&ListParams::default())
-            .await
-            .map(|pvs| pvs.items)
-            .map_err(|err| SerializableKubeError::from(err));
+        let pvs = pv_api.list(&ListParams::default()).await.map_err(|err| {
+            error!("Failed to list persistent volumes: {}", err);
+            SerializableKubeError::from(err)
+        })?;
+
+        info!("Found {} persistent volumes", pvs.items.len());
+        Ok(pvs.items)
     }
 
     #[tauri::command]
@@ -477,163 +567,83 @@ pub mod client {
         name: &str,
         object: Pod,
     ) -> Result<Pod, SerializableKubeError> {
+        debug!("Replacing pod {}/{}", namespace, name);
         let client = client_with_context(context).await?;
         let pod_api: Api<Pod> = Api::namespaced(client, namespace);
 
-        return pod_api
-            .replace(name, &Default::default(), &object)
-            .await
-            .map(|pod| pod.clone())
-            .map_err(|err| SerializableKubeError::from(err));
+        let pod = pod_api.replace(name, &Default::default(), &object).await.map_err(|err| {
+            error!("Failed to replace pod {}/{}: {}", namespace, name, err);
+            SerializableKubeError::from(err)
+        })?;
+
+        info!("Successfully replaced pod {}/{}", namespace, name);
+        Ok(pod)
     }
 
-    #[tauri::command]
-    pub async fn replace_deployment(
-        context: &str,
+    async fn log_resource_operation<T: std::fmt::Debug>(
+        resource_type: &str,
         namespace: &str,
         name: &str,
-        object: Deployment,
-    ) -> Result<Deployment, SerializableKubeError> {
-        let client = client_with_context(context).await?;
-        let deployment_api: Api<Deployment> = Api::namespaced(client, namespace);
-
-        return deployment_api
-            .replace(name, &Default::default(), &object)
-            .await
-            .map(|deployment| deployment.clone())
-            .map_err(|err| SerializableKubeError::from(err));
+        operation: &str,
+        result: Result<T, Error>,
+    ) -> Result<T, SerializableKubeError> {
+        match result {
+            Ok(resource) => {
+                info!("Successfully {}d {} {}/{}", operation, resource_type, namespace, name);
+                Ok(resource)
+            }
+            Err(err) => {
+                error!("Failed to {} {} {}/{}: {}", operation, resource_type, namespace, name, err);
+                Err(SerializableKubeError::from(err))
+            }
+        }
     }
 
-    #[tauri::command]
-    pub async fn replace_job(
-        context: &str,
-        namespace: &str,
-        name: &str,
-        object: Job,
-    ) -> Result<Job, SerializableKubeError> {
-        let client = client_with_context(context).await?;
-        let job_api: Api<Job> = Api::namespaced(client, namespace);
+    // Resource replace operations with logging
+    macro_rules! impl_replace_resource {
+        ($name:ident, $type:ty, $resource_name:expr) => {
+            #[tauri::command]
+            pub async fn $name(
+                context: &str,
+                namespace: &str,
+                name: &str,
+                object: $type,
+            ) -> Result<$type, SerializableKubeError> {
+                debug!("Replacing {} {}/{}", $resource_name, namespace, name);
+                let client = client_with_context(context).await?;
+                let api: Api<$type> = Api::namespaced(client, namespace);
 
-        return job_api
-            .replace(name, &Default::default(), &object)
-            .await
-            .map(|job| job.clone())
-            .map_err(|err| SerializableKubeError::from(err));
+                let result = api.replace(name, &Default::default(), &object).await;
+                log_resource_operation($resource_name, namespace, name, "replace", result).await
+            }
+        };
     }
 
-    #[tauri::command]
-    pub async fn replace_cronjob(
-        context: &str,
-        namespace: &str,
-        name: &str,
-        object: CronJob,
-    ) -> Result<CronJob, SerializableKubeError> {
-        let client = client_with_context(context).await?;
-        let cronjob_api: Api<CronJob> = Api::namespaced(client, namespace);
-
-        return cronjob_api
-            .replace(name, &Default::default(), &object)
-            .await
-            .map(|cronjob| cronjob.clone())
-            .map_err(|err| SerializableKubeError::from(err));
-    }
-
-    #[tauri::command]
-    pub async fn replace_configmap(
-        context: &str,
-        namespace: &str,
-        name: &str,
-        object: ConfigMap,
-    ) -> Result<ConfigMap, SerializableKubeError> {
-        let client = client_with_context(context).await?;
-        let configmap_api: Api<ConfigMap> = Api::namespaced(client, namespace);
-
-        return configmap_api
-            .replace(name, &Default::default(), &object)
-            .await
-            .map(|configmap| configmap.clone())
-            .map_err(|err| SerializableKubeError::from(err));
-    }
-
-    #[tauri::command]
-    pub async fn replace_secret(
-        context: &str,
-        namespace: &str,
-        name: &str,
-        object: Secret,
-    ) -> Result<Secret, SerializableKubeError> {
-        let client = client_with_context(context).await?;
-        let secret_api: Api<Secret> = Api::namespaced(client, namespace);
-
-        return secret_api
-            .replace(name, &Default::default(), &object)
-            .await
-            .map(|secret| secret.clone())
-            .map_err(|err| SerializableKubeError::from(err));
-    }
-
-    #[tauri::command]
-    pub async fn replace_service(
-        context: &str,
-        namespace: &str,
-        name: &str,
-        object: Service,
-    ) -> Result<Service, SerializableKubeError> {
-        let client = client_with_context(context).await?;
-        let service_api: Api<Service> = Api::namespaced(client, namespace);
-
-        return service_api
-            .replace(name, &Default::default(), &object)
-            .await
-            .map(|service| service.clone())
-            .map_err(|err| SerializableKubeError::from(err));
-    }
-
-    #[tauri::command]
-    pub async fn replace_ingress(
-        context: &str,
-        namespace: &str,
-        name: &str,
-        object: Ingress,
-    ) -> Result<Ingress, SerializableKubeError> {
-        let client = client_with_context(context).await?;
-        let ingress_api: Api<Ingress> = Api::namespaced(client, namespace);
-
-        return ingress_api
-            .replace(name, &Default::default(), &object)
-            .await
-            .map(|ingress| ingress.clone())
-            .map_err(|err| SerializableKubeError::from(err));
-    }
-
-    #[tauri::command]
-    pub async fn replace_persistentvolumeclaim(
-        context: &str,
-        namespace: &str,
-        name: &str,
-        object: PersistentVolumeClaim,
-    ) -> Result<PersistentVolumeClaim, SerializableKubeError> {
-        let client = client_with_context(context).await?;
-        let pvc_api: Api<PersistentVolumeClaim> = Api::namespaced(client, namespace);
-
-        return pvc_api
-            .replace(name, &Default::default(), &object)
-            .await
-            .map(|pvc: PersistentVolumeClaim| pvc.clone())
-            .map_err(|err| SerializableKubeError::from(err));
-    }
+    // Implement replace operations for various resources
+    impl_replace_resource!(replace_deployment, Deployment, "deployment");
+    impl_replace_resource!(replace_job, Job, "job");
+    impl_replace_resource!(replace_cronjob, CronJob, "cronjob");
+    impl_replace_resource!(replace_configmap, ConfigMap, "configmap");
+    impl_replace_resource!(replace_secret, Secret, "secret");
+    impl_replace_resource!(replace_service, Service, "service");
+    impl_replace_resource!(replace_ingress, Ingress, "ingress");
+    impl_replace_resource!(replace_persistentvolumeclaim, PersistentVolumeClaim, "persistent volume claim");
 
     #[tauri::command]
     pub async fn get_core_api_versions(
         context: &str,
     ) -> Result<Vec<String>, SerializableKubeError> {
+        debug!("Fetching core API versions for context {}", context);
         let client = client_with_context(context).await?;
 
-        return client
-            .list_core_api_versions()
-            .await
-            .map(|api_versions| api_versions.versions)
-            .map_err(|err| SerializableKubeError::from(err));
+        let versions = client.list_core_api_versions().await.map_err(|err| {
+            error!("Failed to list core API versions: {}", err);
+            SerializableKubeError::from(err)
+        })?;
+
+        info!("Found {} core API versions", versions.versions.len());
+        trace!("Available core API versions: {:?}", versions.versions);
+        Ok(versions.versions)
     }
 
     #[tauri::command]
@@ -641,24 +651,30 @@ pub mod client {
         context: &str,
         core_api_version: &str,
     ) -> Result<Vec<APIResource>, SerializableKubeError> {
+        debug!("Fetching core API resources for version {} in context {}", core_api_version, context);
         let client = client_with_context(context).await?;
 
-        return client
-            .list_core_api_resources(core_api_version)
-            .await
-            .map(|api_resources| api_resources.resources)
-            .map_err(|err| SerializableKubeError::from(err));
+        let resources = client.list_core_api_resources(core_api_version).await.map_err(|err| {
+            error!("Failed to list core API resources for version {}: {}", core_api_version, err);
+            SerializableKubeError::from(err)
+        })?;
+
+        info!("Found {} core API resources for version {}", resources.resources.len(), core_api_version);
+        Ok(resources.resources)
     }
 
     #[tauri::command]
     pub async fn get_api_groups(context: &str) -> Result<Vec<APIGroup>, SerializableKubeError> {
+        debug!("Fetching API groups for context {}", context);
         let client = client_with_context(context).await?;
 
-        return client
-            .list_api_groups()
-            .await
-            .map(|api_groups| api_groups.groups)
-            .map_err(|err| SerializableKubeError::from(err));
+        let groups = client.list_api_groups().await.map_err(|err| {
+            error!("Failed to list API groups: {}", err);
+            SerializableKubeError::from(err)
+        })?;
+
+        info!("Found {} API groups", groups.groups.len());
+        Ok(groups.groups)
     }
 
     #[tauri::command]
@@ -666,13 +682,16 @@ pub mod client {
         context: &str,
         api_group_version: &str,
     ) -> Result<Vec<APIResource>, SerializableKubeError> {
+        debug!("Fetching API resources for group version {} in context {}", api_group_version, context);
         let client = client_with_context(context).await?;
 
-        return client
-            .list_api_group_resources(api_group_version)
-            .await
-            .map(|api_resources| api_resources.resources)
-            .map_err(|err| SerializableKubeError::from(err));
+        let resources = client.list_api_group_resources(api_group_version).await.map_err(|err| {
+            error!("Failed to list API resources for group version {}: {}", api_group_version, err);
+            SerializableKubeError::from(err)
+        })?;
+
+        info!("Found {} API resources for group version {}", resources.resources.len(), api_group_version);
+        Ok(resources.resources)
     }
 
     #[tauri::command]
@@ -681,17 +700,24 @@ pub mod client {
         namespace: &str,
         name: &str,
     ) -> Result<Job, SerializableKubeError> {
+        debug!("Triggering manual run of cronjob {}/{}", namespace, name);
         let mut client = client_with_context(context).await?;
 
-        let cronjob_api: Api<CronJob> = Api::namespaced(client, namespace);
-        let selected_cronjob = cronjob_api.get(name).await?;
+        let cronjob_api: Api<CronJob> = Api::namespaced(client.clone(), namespace);
+        let selected_cronjob = cronjob_api.get(name).await.map_err(|err| {
+            error!("Failed to get cronjob {}/{}: {}", namespace, name, err);
+            SerializableKubeError::from(err)
+        })?;
+
         let Some(cronjob_spec) = selected_cronjob.spec else {
-            return Err(SerializableKubeError {
-                message: "Failed to get cron job spec".into(),
+            let err = SerializableKubeError {
+                message: format!("Cronjob {}/{} has no spec", namespace, name),
                 code: None,
-                reason: None,
+                reason: Some("InvalidCronjobSpec".to_string()),
                 details: None,
-            });
+            };
+            error!("{}", err.message);
+            return Err(err);
         };
 
         let job_spec = cronjob_spec.job_template.spec;
@@ -700,9 +726,10 @@ pub mod client {
             format!("{}-manual-{}", name, ext.to_lowercase())
         };
 
+        debug!("Creating manual job {} from cronjob {}", jobname, name);
         let manual_job = Job {
             metadata: ObjectMeta {
-                name: Some(jobname),
+                name: Some(jobname.clone()),
                 namespace: Some(namespace.into()),
                 ..Default::default()
             },
@@ -713,9 +740,12 @@ pub mod client {
         client = cronjob_api.into_client();
         let job_api: Api<Job> = Api::namespaced(client, namespace);
 
-        return job_api
-            .create(&PostParams::default(), &manual_job)
-            .await
-            .map_err(|err| SerializableKubeError::from(err));
+        let job = job_api.create(&PostParams::default(), &manual_job).await.map_err(|err| {
+            error!("Failed to create manual job {} from cronjob {}: {}", jobname, name, err);
+            SerializableKubeError::from(err)
+        })?;
+
+        info!("Successfully created manual job {} from cronjob {}", jobname, name);
+        Ok(job)
     }
 }
