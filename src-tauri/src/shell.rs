@@ -10,6 +10,7 @@ pub mod tty {
     };
     use tauri::Emitter;
     use uuid::Uuid;
+    use tracing::{info, warn, error};
 
     struct TerminalSession {
         writer: Arc<Mutex<Box<dyn Write + Send>>>,
@@ -19,6 +20,7 @@ pub mod tty {
 
     #[tauri::command]
     pub fn create_tty_session(app_handle: tauri::AppHandle, init_command: Vec<String>) -> String {
+        info!("Creating TTY session");
         if TTY_SESSIONS.lock().unwrap().is_none() {
             *TTY_SESSIONS.lock().unwrap() = Some(HashMap::new());
         }
@@ -85,12 +87,14 @@ pub mod tty {
 
     #[tauri::command]
     pub fn stop_tty_session(session_id: &str) {
+        info!("Stopping TTY session: {}", session_id);
         // write to pty to kill the process, this can be a bash or powershell command
         write_to_pty(session_id, "exit\n");
     }
 
     #[tauri::command]
     pub fn write_to_pty(session_id: &str, data: &str) {
+        info!("Writing to TTY session: {}", session_id);
         // First, lock the sessions map
         let sessions_lock = TTY_SESSIONS.lock().unwrap();
 
