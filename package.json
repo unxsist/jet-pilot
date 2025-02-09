@@ -33,6 +33,7 @@
     "@tauri-apps/plugin-updater": "^2.3.1",
     "@vee-validate/zod": "^4.12.5",
     "@vueuse/core": "^10.11.1",
+    "ansi_up": "^6.0.2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "date-fns": "^3.0.6",

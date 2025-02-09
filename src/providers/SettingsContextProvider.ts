@@ -7,6 +7,7 @@ import {
   readTextFile,
 } from "@tauri-apps/plugin-fs";
 import { homeDir } from "@tauri-apps/api/path";
+import { invoke } from "@tauri-apps/api/core";
 
 export const SettingsContextStateKey: InjectionKey<
   ToRefs<SettingsContextState>
@@ -42,6 +43,7 @@ export interface SettingsContextState {
       checkOnStartup: boolean;
       whatsNew: string | null;
     };
+    logLevel: "error" | "warn" | "info" | "debug" | "trace";
   };
 }
 
@@ -75,6 +77,7 @@ export default {
           checkOnStartup: true,
           whatsNew: null,
         },
+        logLevel: "error",
       },
     });
     provide(SettingsContextStateKey, toRefs(state));
@@ -98,6 +101,8 @@ export default {
 
       // Merge initial state with file contents
       state.settings = { ...state.settings, ...JSON.parse(fileContents) };
+
+      invoke("update_log_level", { level: state.settings.logLevel });
     }
 
     watch(state, (newState) => {
