@@ -34,6 +34,30 @@ export class Kubernetes {
     canHandle: boolean;
     callback: (authCompletedCallback?: () => void) => void;
   }> {
+    //GKE
+    if (errorMessage.includes("Unauthorized")) {
+      const context_auth_info = (await invoke("get_context_auth_info", {
+        context: context,
+        kubeConfig: kubeConfig,
+      })) as any;
+
+      if (context_auth_info.user.exec.command.includes('gke-gcloud-auth-plugin')) {
+        return {
+          canHandle: true,
+          callback: async (authCompletedCallback?) => {
+            const command = Command.create("gcloud", [
+              "auth",
+              "login"
+            ]);
+            command.addListener("close", async () => {
+              authCompletedCallback?.();
+            });
+            await command.spawn();
+          },
+        };
+      }
+    }
+
     // AWS SSO
     if (
       errorMessage.includes("AWS_PROFILE") &&

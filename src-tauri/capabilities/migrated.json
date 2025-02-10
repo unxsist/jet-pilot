@@ -77,6 +77,12 @@
         },
         {
           "args": true,
+          "cmd": "gcloud",
+          "name": "gcloud",
+          "sidecar": false
+        },
+        {
+          "args": true,
           "cmd": "helm",
           "name": "helm",
           "sidecar": false
@@ -127,6 +133,12 @@
           "args": true,
           "cmd": "aws",
           "name": "aws",
+          "sidecar": false
+        },
+        {
+          "args": true,
+          "cmd": "gcloud",
+          "name": "gcloud",
           "sidecar": false
         },
         {
