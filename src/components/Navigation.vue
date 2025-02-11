@@ -20,6 +20,7 @@ import MinimizeIcon from "@/assets/icons/minimize.svg";
 import { formatResourceKind } from "@/lib/utils";
 import { ref } from "vue";
 import { error } from "@/lib/logger";
+import { RouteLocationRaw } from "vue-router";
 
 const targetOs = ref<string>(getOsType());
 const {
@@ -34,9 +35,24 @@ interface NavigationGroup {
   title: string;
   coreResourceKinds: string[];
   apiGroupResources: string[];
+  customLinks?: { title: string; to: RouteLocationRaw, icon: string }[];
 }
 
 const navigationGroups: NavigationGroup[] = [
+  {
+    title: "",
+    coreResourceKinds: [],
+    apiGroupResources: [],
+    customLinks: [
+      {
+        title: "Overview",
+        to: {
+          name: 'ClusterOverview'
+        },
+        icon: 'diagram'
+      }
+    ],
+  },
   {
     title: "Cluster",
     coreResourceKinds: [
@@ -296,15 +312,24 @@ watch([context, namespace, clusterAuthenticated], () => {
               />
             </template>
           </NavigationGroup>
-          <template v-for="group in navigationGroups" :key="group.title">
+          <template v-for="(group, index) in navigationGroups" :key="index">
             <NavigationGroup
-              :key="group.title"
+              :key="index"
               :title="group.title"
               v-if="
                 getCoreResourcesForGroup(group).length > 0 ||
-                getApiResourcesForGroup(group).length > 0
+                getApiResourcesForGroup(group).length > 0 ||
+                (group.customLinks && group.customLinks.length > 0)
               "
             >
+              <template v-for="link in group.customLinks" :key="link.title">
+                <NavigationItem
+                  :icon="link.icon"
+                  :title="link.title"
+                  :to="link.to"
+                  :can-pin="false"
+                />
+              </template>
               <template
                 v-for="resource in getCoreResourcesForGroup(group)"
                 :key="`core-${resource.name}`"

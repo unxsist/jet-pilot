@@ -99,6 +99,10 @@ export class Kubernetes {
     });
   }
 
+  static async kubectl(args: string[]): Promise<string> {
+    return invoke("run_kubectl", { args: args });
+  }
+
   static async getCoreApiVersions(context: string): Promise<string[]> {
     return invoke("get_core_api_versions", { context: context });
   }

@@ -1,7 +1,7 @@
 pub mod client {
     use either::Either;
     use k8s_metrics::v1beta1::PodMetrics;
-    use k8s_openapi::api::apps::v1::{Deployment, ReplicaSet, StatefulSet};
+    use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
     use k8s_openapi::api::batch::v1::{CronJob, Job};
     use k8s_openapi::api::core::v1::{
         ConfigMap, Namespace, PersistentVolume, PersistentVolumeClaim, Pod, Secret, Service,
@@ -14,7 +14,10 @@ pub mod client {
     use rand::distributions::DistString;
     use serde::Serialize;
     use std::sync::Mutex;
-    use tracing::{debug, error, info, trace, warn};
+    use tracing::{debug, error, info, trace};
+    use tokio::process::Command;
+    use std::io;
+
 
     #[derive(Serialize)]
     pub enum DeletionResult {
@@ -747,5 +750,20 @@ pub mod client {
 
         info!("Successfully created manual job {} from cronjob {}", jobname, name);
         Ok(job)
+    }
+
+    #[tauri::command]
+    pub async fn run_kubectl(args: Vec<String>) -> Result<String, String> {
+        let output = Command::new("kubectl")
+            .args(&args)
+            .output()
+            .await
+            .map_err(|e| e.to_string())?;
+        
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+        } else {
+            Err(format!("kubectl failed: {}", String::from_utf8_lossy(&output.stderr)))
+        }
     }
 }

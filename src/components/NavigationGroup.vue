@@ -30,6 +30,7 @@ watch(
     <div
       class="group cursor-pointer flex justify-between items-center ml-2 mb-2 uppercase font-bold text-xs text-[#7a7a7a]"
       @click="collapsed = !collapsed"
+      v-if="title"
     >
       <span>{{ title }}</span>
       <div
