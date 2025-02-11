@@ -1,14 +1,22 @@
 <script setup lang="ts">
 import SpotlightGridContainer from "@/components/ui/SpotlightGridContainer.vue";
 import type { Node, Edge } from "@vue-flow/core";
-import { VueFlow, useVueFlow } from "@vue-flow/core";
+import { MarkerType, VueFlow, useVueFlow } from "@vue-flow/core";
+import { useLayout } from "@/composables/useDagreLayout";
 import { onMounted } from "vue";
 import { injectStrict, formatResourceKind } from "@/lib/utils";
 import { Kubernetes } from "@/services/Kubernetes";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
-import { KubernetesObject, V1APIResource } from "@kubernetes/client-node";
+import {
+  KubernetesObject,
+  V1APIResource,
+  V1ReplicaSet,
+  V1Secret,
+} from "@kubernetes/client-node";
 import ObjectNode from "@/components/vue-flow/ObjectNode.vue";
+import PodsObjectNode from "@/components/vue-flow/PodsObjectNode.vue";
 import jsonpath from "jsonpath";
+import jsonata from "jsonata";
 
 const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
 
@@ -19,6 +27,7 @@ const loadingState = ref<string>("");
 
 const nodes = ref<Node[]>([]);
 const { fitView } = useVueFlow();
+const { layout: dagreLayout } = useLayout();
 
 const edges = ref<Edge[]>([]);
 
@@ -131,6 +140,23 @@ const layoutGraph = () => {
   });
 };
 
+const layoutTopLevelNodes = () => {
+  const topLevelNodes = nodes.value.filter((node) => node.data.level === 0);
+  const layoutTopLevelnodes = dagreLayout(topLevelNodes, edges.value, "TB");
+
+  nodes.value = nodes.value.map((node) => {
+    const layoutNode = layoutTopLevelnodes.find((n) => n.id === node.id);
+    if (layoutNode) {
+      node.position = layoutNode.position;
+    }
+    return node;
+  });
+
+  nextTick(() => {
+    fitView();
+  });
+};
+
 const mapObjectsToNodes = () => {
   const topLevelObjects = [...objects.value.values()]
     .flat()
@@ -156,12 +182,38 @@ const mapObjectsToNodes = () => {
   });
 };
 
-/** Mapping of how kubernetes object relate to each other and the json path to be able to determine that */
-const specLinks: [string, string, string[]][] = [
+const specLinks: [string, string, string, string[]][] = [
   [
+    "ts",
     "Deployment",
     "ConfigMap",
-    ["$.spec.template.spec.volumes.*.configMap.name"],
+    ["jsonpath:$.spec.template.spec.volumes.*.configMap.name"],
+  ],
+  [
+    "ts",
+    "Deployment",
+    "ServiceAccount",
+    ["jsonpath:$.spec.template.spec.serviceAccountName"],
+  ],
+  [
+    "ts",
+    "Deployment",
+    "Secret",
+    [
+      "jsonpath:$.spec.template.spec.containers.*.env.*.valueFrom.secretKeyRef.name",
+    ],
+  ],
+  [
+    "st",
+    "HorizontalPodAutoscaler",
+    "Deployment",
+    ["jsonata:[$.spec.scaleTargetRef[kind = 'Deployment'].name]"],
+  ],
+  [
+    "st",
+    "VirtualService",
+    "Service",
+    ["jsonata:[$.spec.http.route.destination.host.$split('.')[0]]"],
   ],
 ];
 
@@ -173,10 +225,80 @@ const resolveEdges = () => {
     });
 
   topLevelObjects.forEach((object) => {
-    specLinks.forEach(([sourceKind, targetKind, queries]) => {
+    if (object.kind === "Service") {
+      if (object.spec.selector) {
+        const deployments = (objects.value.get("Deployment") ?? []).filter(
+          (deployment) => {
+            return Object.keys(object.spec.selector).every((key) => {
+              return (
+                deployment.spec?.template?.metadata?.labels[key] ===
+                object.spec.selector[key]
+              );
+            });
+          }
+        );
+
+        deployments.forEach((deployment) => {
+          edges.value.push({
+            id: `${object.metadata.uid}-${deployment.metadata.uid}`,
+            source: object.metadata.uid || object.metadata.name,
+            target: deployment.metadata.uid || deployment.metadata.name,
+            animated: false,
+            markerEnd: MarkerType.ArrowClosed,
+            style: {
+              zIndex: 1000,
+            },
+          });
+        });
+      }
+    }
+
+    if (object.kind === "PodDisruptionBudget") {
+      if (object.spec.selector) {
+        const deployments = (objects.value.get("Deployment") ?? []).filter(
+          (deployment) => {
+            return Object.keys(object.spec.selector.matchLabels).every(
+              (key) => {
+                return (
+                  deployment.spec?.template?.metadata?.labels[key] ===
+                  object.spec.selector.matchLabels[key]
+                );
+              }
+            );
+          }
+        );
+
+        deployments.forEach((deployment) => {
+          edges.value.push({
+            id: `${object.metadata.uid}-${deployment.metadata.uid}`,
+            source: object.metadata.uid || object.metadata.name,
+            target: deployment.metadata.uid || deployment.metadata.name,
+            animated: false,
+            markerEnd: MarkerType.ArrowClosed,
+            style: {
+              zIndex: 1000,
+            },
+          });
+        });
+      }
+    }
+
+    // Spec Links
+    specLinks.forEach(([direction, sourceKind, targetKind, queries]) => {
       if (object.kind === sourceKind) {
-        queries.forEach((query) => {
-          const targets = jsonpath.query(object, query);
+        queries.forEach(async (query) => {
+          let targets = [];
+          if (query.startsWith("jsonpath:")) {
+            const path = query.replace("jsonpath:", "");
+            targets = jsonpath.query(object, path);
+          } else if (query.startsWith("jsonata:")) {
+            const expression = query.replace("jsonata:", "");
+            const compiled = jsonata(expression);
+            targets = (await compiled.evaluate(object)) as [];
+          }
+
+          // make them distinct
+          targets = [...new Set(targets)];
 
           targets.forEach((targetName) => {
             const target = objects.value.get(targetKind)?.find((obj) => {
@@ -186,9 +308,19 @@ const resolveEdges = () => {
             if (target) {
               edges.value.push({
                 id: `${object.metadata.uid}-${target.metadata.uid}`,
-                source: object.metadata.uid || object.metadata.name,
-                target: target.metadata.uid || target.metadata.name,
-                type: "kubernetes-object",
+                source:
+                  direction === "st"
+                    ? object.metadata.uid
+                    : target.metadata.uid,
+                target:
+                  direction === "st"
+                    ? target.metadata.uid
+                    : object.metadata.uid,
+                animated: false,
+                markerEnd: MarkerType.ArrowClosed,
+                style: {
+                  zIndex: 1000,
+                },
               });
             }
           });
@@ -208,27 +340,47 @@ const resolveChildNodesForParent = (parent: Node, level: number) => {
     );
   });
 
-  children.forEach((child) => {
-    const node = {
-      id: child.metadata.uid || child.metadata.name,
-      data: { label: child.metadata.name, kubeObject: child, level: level },
+  //if parent is ReplicaSet, create 1 node with all pods, else just add all
+  if (parent.data.kubeObject.kind === "ReplicaSet") {
+    const podsNode = {
+      id: "pods-" + parent.data.kubeObject.metadata.uid,
+      data: {
+        label: "Pods",
+        kubeObject: children[0],
+        pods: children,
+        level: level,
+      },
       position: { x: 0, y: 0 },
-      parentNode: child.metadata.ownerReferences?.[0].uid || "",
+      parentNode: parent.data.kubeObject.metadata.uid || "",
       expandParent: true,
-      type: "kubernetes-object",
+      type: "pods-object",
       class:
         "overflow-hidden bg-background border border-muted rounded text-white nodrag hover:border-white",
     } as Node;
 
-    nodes.value.push(node);
+    nodes.value.push(podsNode);
+  } else {
+    children.forEach((child) => {
+      const node = {
+        id: child.metadata.uid || child.metadata.name,
+        data: { label: child.metadata.name, kubeObject: child, level: level },
+        position: { x: 0, y: 0 },
+        parentNode: child.metadata.ownerReferences?.[0].uid || "",
+        expandParent: true,
+        type: "kubernetes-object",
+        class:
+          "overflow-hidden bg-background border border-muted rounded text-white nodrag hover:border-white",
+      } as Node;
 
-    resolveChildNodesForParent(node, level + 1);
-  });
+      nodes.value.push(node);
+
+      resolveChildNodesForParent(node, level + 1);
+    });
+  }
 };
 
 const fetchResourceObjects = (resource: V1APIResource): Promise<void> => {
   return new Promise(async (resolve) => {
-    console.log(`Fetching objects for ${resource.name}`);
     const args = [
       "get",
       formatResourceKind(resource.kind).toLowerCase(),
@@ -244,7 +396,31 @@ const fetchResourceObjects = (resource: V1APIResource): Promise<void> => {
 
     try {
       const result = await Kubernetes.kubectl(args);
-      objects.value.set(resource.kind, JSON.parse(result).items);
+
+      let items = JSON.parse(result).items;
+
+      /*
+       * Filter out resources that cause clutter
+       */
+      if (resource.kind === "ReplicaSet") {
+        items = items.filter((item: V1ReplicaSet) => {
+          return item.status?.replicas > 0;
+        });
+      }
+
+      if (resource.kind === "Secret") {
+        items = items.filter((item: V1Secret) => {
+          if (item.metadata?.labels?.["owner"] === "helm") {
+            return false;
+          }
+        });
+      }
+
+      if (resource.kind === "PodMetrics") {
+        items = [];
+      }
+
+      objects.value.set(resource.kind, items);
     } catch (error) {
       failedResources.value.push(resource);
       return;
@@ -299,15 +475,6 @@ const fetchAllResources = async () => {
     );
   }
 
-  apiResources.value = apiResources.value.filter((resource) => {
-    return (
-      resource.kind === "Pod" ||
-      resource.kind === "Deployment" ||
-      resource.kind === "ReplicaSet" ||
-      resource.kind === "ConfigMap"
-    );
-  });
-
   for (const resource of apiResources.value) {
     fetchResourceObjects(resource).then(() => {
       if (
@@ -319,21 +486,6 @@ const fetchAllResources = async () => {
         mapObjectsToNodes();
         resolveEdges();
         layoutGraph();
-
-        //create nodes for all pods
-        // const nodesArray: Node[] = [];
-        // objects.value.forEach((objects, kind) => {
-        //   if (kind === "Pod") {
-        //     objects.forEach((object) => {
-        //       nodesArray.push({
-        //         id: object.metadata.name,
-        //         data: { label: object.metadata.name },
-        //         position: { x: 0, y: 0 },
-        //       });
-        //     });
-        //   }
-        // });
-        // nodes.value = nodesArray;
       }
     });
   }
@@ -356,9 +508,18 @@ onMounted(async () => {
         }})</span
       >
     </div>
-    <VueFlow v-else :nodes="nodes" :edges="edges" fit-view-on-init>
+    <VueFlow
+      v-else
+      :nodes="nodes"
+      :edges="edges"
+      fit-view-on-init
+      @nodes-initialized="layoutTopLevelNodes"
+    >
       <template #node-kubernetes-object="props">
         <ObjectNode v-bind="props" />
+      </template>
+      <template #node-pods-object="props">
+        <PodsObjectNode v-bind="props" />
       </template>
     </VueFlow>
   </SpotlightGridContainer>
@@ -369,4 +530,8 @@ onMounted(async () => {
 
 /* import the default theme, this is optional but generally recommended */
 @import "@vue-flow/core/dist/theme-default.css";
+
+.vue-flow__edges.vue-flow__container {
+  z-index: 1000 !important;
+}
 </style>

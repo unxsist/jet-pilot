@@ -42,6 +42,7 @@
     "embla-carousel-vue": "^8.3.0",
     "fuse.js": "^7.0.0",
     "js-yaml": "^4.1.0",
+    "jsonata": "^2.0.6",
     "jsonpath": "^1.1.1",
     "lucide-vue-next": "^0.446.0",
     "marked": "^9.1.6",
