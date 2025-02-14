@@ -15,8 +15,10 @@ import {
 } from "@kubernetes/client-node";
 import ObjectNode from "@/components/vue-flow/ObjectNode.vue";
 import PodsObjectNode from "@/components/vue-flow/PodsObjectNode.vue";
+import specLinks from "@/lib/kubernetesSpecLinks";
 import jsonpath from "jsonpath";
 import jsonata from "jsonata";
+import { PanelProviderSetSidePanelComponentKey } from "@/providers/PanelProvider";
 
 const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
 
@@ -26,7 +28,15 @@ const objects = ref<Map<string, KubernetesObject[]>>(new Map());
 const loadingState = ref<string>("");
 
 const nodes = ref<Node[]>([]);
-const { fitView } = useVueFlow();
+const {
+  fitView,
+  onNodeMouseEnter,
+  onNodeMouseLeave,
+  onNodeClick,
+  findEdge,
+  onNodesChange,
+  findNode,
+} = useVueFlow();
 const { layout: dagreLayout } = useLayout();
 
 const edges = ref<Edge[]>([]);
@@ -182,152 +192,86 @@ const mapObjectsToNodes = () => {
   });
 };
 
-const specLinks: [string, string, string, string[]][] = [
-  [
-    "ts",
-    "Deployment",
-    "ConfigMap",
-    ["jsonpath:$.spec.template.spec.volumes.*.configMap.name"],
-  ],
-  [
-    "ts",
-    "Deployment",
-    "ServiceAccount",
-    ["jsonpath:$.spec.template.spec.serviceAccountName"],
-  ],
-  [
-    "ts",
-    "Deployment",
-    "Secret",
-    [
-      "jsonpath:$.spec.template.spec.containers.*.env.*.valueFrom.secretKeyRef.name",
-    ],
-  ],
-  [
-    "st",
-    "HorizontalPodAutoscaler",
-    "Deployment",
-    ["jsonata:[$.spec.scaleTargetRef[kind = 'Deployment'].name]"],
-  ],
-  [
-    "st",
-    "VirtualService",
-    "Service",
-    ["jsonata:[$.spec.http.route.destination.host.$split('.')[0]]"],
-  ],
-];
-
-const resolveEdges = () => {
+const resolveEdges = async () => {
   const topLevelObjects = [...objects.value.values()]
     .flat()
     .filter((object) => {
       return !object.metadata.ownerReferences;
     });
 
-  topLevelObjects.forEach((object) => {
-    if (object.kind === "Service") {
-      if (object.spec.selector) {
-        const deployments = (objects.value.get("Deployment") ?? []).filter(
-          (deployment) => {
-            return Object.keys(object.spec.selector).every((key) => {
-              return (
-                deployment.spec?.template?.metadata?.labels[key] ===
-                object.spec.selector[key]
-              );
-            });
-          }
-        );
-
-        deployments.forEach((deployment) => {
-          edges.value.push({
-            id: `${object.metadata.uid}-${deployment.metadata.uid}`,
-            source: object.metadata.uid || object.metadata.name,
-            target: deployment.metadata.uid || deployment.metadata.name,
-            animated: false,
-            markerEnd: MarkerType.ArrowClosed,
-            style: {
-              zIndex: 1000,
-            },
-          });
-        });
-      }
-    }
-
-    if (object.kind === "PodDisruptionBudget") {
-      if (object.spec.selector) {
-        const deployments = (objects.value.get("Deployment") ?? []).filter(
-          (deployment) => {
-            return Object.keys(object.spec.selector.matchLabels).every(
-              (key) => {
-                return (
-                  deployment.spec?.template?.metadata?.labels[key] ===
-                  object.spec.selector.matchLabels[key]
-                );
-              }
-            );
-          }
-        );
-
-        deployments.forEach((deployment) => {
-          edges.value.push({
-            id: `${object.metadata.uid}-${deployment.metadata.uid}`,
-            source: object.metadata.uid || object.metadata.name,
-            target: deployment.metadata.uid || deployment.metadata.name,
-            animated: false,
-            markerEnd: MarkerType.ArrowClosed,
-            style: {
-              zIndex: 1000,
-            },
-          });
-        });
-      }
-    }
-
-    // Spec Links
-    specLinks.forEach(([direction, sourceKind, targetKind, queries]) => {
-      if (object.kind === sourceKind) {
-        queries.forEach(async (query) => {
-          let targets = [];
-          if (query.startsWith("jsonpath:")) {
-            const path = query.replace("jsonpath:", "");
-            targets = jsonpath.query(object, path);
-          } else if (query.startsWith("jsonata:")) {
-            const expression = query.replace("jsonata:", "");
+  for (const object of topLevelObjects) {
+    for (const specLink of specLinks) {
+      if (object.kind === specLink.sourceKind) {
+        for (const matcher of specLink.matchers) {
+          let targetValues = [];
+          if (matcher.sourceSelector.startsWith("jsonpath:")) {
+            const path = matcher.sourceSelector.replace("jsonpath:", "");
+            targetValues = jsonpath.query(object, path);
+          } else if (matcher.sourceSelector.startsWith("jsonata:")) {
+            const expression = matcher.sourceSelector.replace("jsonata:", "");
             const compiled = jsonata(expression);
-            targets = (await compiled.evaluate(object)) as [];
+            targetValues = (await compiled.evaluate(object)) as [];
           }
 
           // make them distinct
-          targets = [...new Set(targets)];
+          targetValues = [...new Set(targetValues)];
 
-          targets.forEach((targetName) => {
-            const target = objects.value.get(targetKind)?.find((obj) => {
-              return obj.metadata.name === targetName;
-            });
+          for (const targetValue of targetValues) {
+            const targets = objects.value
+              .get(specLink.targetKind)
+              ?.filter((obj) => {
+                if (matcher.targetSelector.startsWith("jsonpath:")) {
+                  const path = matcher.targetSelector.replace("jsonpath:", "");
+                  let queryResult = jsonpath.query(obj, path);
+                  if (matcher.matchType === "exact") {
+                    return queryResult == targetValue;
+                  } else if (matcher.matchType === "subset") {
+                    queryResult = queryResult[0];
+                    return Object.keys(targetValue).every((key) => {
+                      return queryResult[key] === targetValue[key];
+                    });
+                  }
+                } else if (matcher.targetSelector.startsWith("jsonata:")) {
+                  const expression = matcher.targetSelector.replace(
+                    "jsonata:",
+                    ""
+                  );
+                  const compiled = jsonata(expression);
+                  const queryResult = compiled.evaluate(obj);
+                  if (matcher.matchType === "exact") {
+                    return queryResult == targetValue;
+                  } else if (matcher.matchType === "subset") {
+                    return Object.keys(targetValue).every((key) => {
+                      return queryResult[key] === targetValue[key];
+                    });
+                  }
+                }
+              });
 
-            if (target) {
+            for (const target of targets || []) {
               edges.value.push({
                 id: `${object.metadata.uid}-${target.metadata.uid}`,
                 source:
-                  direction === "st"
+                  specLink.direction === "sourceTarget"
                     ? object.metadata.uid
                     : target.metadata.uid,
                 target:
-                  direction === "st"
+                  specLink.direction === "sourceTarget"
                     ? target.metadata.uid
                     : object.metadata.uid,
                 animated: false,
+                selectable: false,
                 markerEnd: MarkerType.ArrowClosed,
                 style: {
                   zIndex: 1000,
                 },
               });
             }
-          });
-        });
+          }
+        }
       }
-    });
-  });
+    }
+  }
 };
 
 const resolveChildNodesForParent = (parent: Node, level: number) => {
@@ -379,6 +323,67 @@ const resolveChildNodesForParent = (parent: Node, level: number) => {
   }
 };
 
+const groupObjectsWithoutEdges = () => {
+  const nodesWithoutEdges = nodes.value.filter((node) => {
+    return (
+      !node.parentNode &&
+      edges.value.filter((edge) => edge.source === node.id).length === 0 &&
+      edges.value.filter((edge) => edge.target === node.id).length === 0
+    );
+  });
+
+  if (nodesWithoutEdges.length > 0) {
+    const groupNode = {
+      id: "unmapped-resources",
+      data: {
+        label: "",
+        kubeObject: { kind: "Unmapped resources" },
+        level: 0,
+      },
+      position: { x: 0, y: 0 },
+      type: "kubernetes-object",
+      class:
+        "overflow-hidden bg-background border border-muted rounded text-white hover:border-white",
+    } as Node;
+
+    nodes.value.push(groupNode);
+
+    nodesWithoutEdges.forEach((node) => {
+      // update node to be a child of the group node
+      node.parentNode = groupNode.id;
+      node.data.level = 1;
+    });
+  }
+};
+
+onNodeMouseEnter((event) => {
+  const nodeEdges = edges.value.filter(
+    (edge) => edge.source === event.node.id || edge.target === event.node.id
+  );
+
+  nodeEdges.forEach((edge) => {
+    findEdge(edge.id).animated = true;
+  });
+});
+
+onNodeMouseLeave((event) => {
+  const nodeEdges = edges.value.filter(
+    (edge) => edge.source === event.node.id || edge.target === event.node.id
+  );
+
+  nodeEdges.forEach((edge) => {
+    findEdge(edge.id).animated = false;
+  });
+});
+
+const setSidePanelComponent = injectStrict(
+  PanelProviderSetSidePanelComponentKey
+);
+
+onNodesChange((nodes) => {
+  // show details when a node is clicked
+});
+
 const fetchResourceObjects = (resource: V1APIResource): Promise<void> => {
   return new Promise(async (resolve) => {
     const args = [
@@ -410,9 +415,7 @@ const fetchResourceObjects = (resource: V1APIResource): Promise<void> => {
 
       if (resource.kind === "Secret") {
         items = items.filter((item: V1Secret) => {
-          if (item.metadata?.labels?.["owner"] === "helm") {
-            return false;
-          }
+          return item.type && !item.type.includes("helm.sh/release");
         });
       }
 
@@ -476,7 +479,7 @@ const fetchAllResources = async () => {
   }
 
   for (const resource of apiResources.value) {
-    fetchResourceObjects(resource).then(() => {
+    fetchResourceObjects(resource).then(async () => {
       if (
         objects.value.size + failedResources.value.length ===
         apiResources.value.length
@@ -484,15 +487,31 @@ const fetchAllResources = async () => {
         loadingState.value = "";
 
         mapObjectsToNodes();
-        resolveEdges();
+        await resolveEdges();
+        groupObjectsWithoutEdges();
         layoutGraph();
       }
     });
   }
 };
 
-onMounted(async () => {
+watch([context, namespace], async () => {
+  await refresh();
+});
+
+const refresh = async () => {
+  apiResources.value = [];
+  objects.value = new Map();
+  failedResources.value = [];
+  nodes.value = [];
+  edges.value = [];
+  setSidePanelComponent(null);
+
   await fetchAllResources();
+};
+
+onMounted(async () => {
+  await refresh();
 });
 </script>
 <template>
@@ -533,5 +552,9 @@ onMounted(async () => {
 
 .vue-flow__edges.vue-flow__container {
   z-index: 1000 !important;
+}
+
+.vue-flow__node-kubernetes-object.selected {
+  border-color: #fff;
 }
 </style>

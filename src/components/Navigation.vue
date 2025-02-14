@@ -35,7 +35,7 @@ interface NavigationGroup {
   title: string;
   coreResourceKinds: string[];
   apiGroupResources: string[];
-  customLinks?: { title: string; to: RouteLocationRaw, icon: string }[];
+  customLinks?: { title: string; to: RouteLocationRaw; icon: string }[];
 }
 
 const navigationGroups: NavigationGroup[] = [
@@ -45,12 +45,12 @@ const navigationGroups: NavigationGroup[] = [
     apiGroupResources: [],
     customLinks: [
       {
-        title: "Overview",
+        title: "Resource Graph",
         to: {
-          name: 'ClusterOverview'
+          name: "ClusterOverview",
         },
-        icon: 'diagram'
-      }
+        icon: "diagram",
+      },
     ],
   },
   {
