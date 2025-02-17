@@ -1,19 +1,19 @@
 <script setup lang="ts">
 import { useRoute, useRouter, onBeforeRouteUpdate } from "vue-router";
-import { Command, Child } from "@tauri-apps/plugin-shell";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
-import { injectStrict } from "@/lib/utils";
+import { injectStrict, formatResourceKind } from "@/lib/utils";
 import { onMounted } from "vue";
 import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { ColumnDef } from "@tanstack/vue-table";
 import { columns as defaultGenericColumns } from "@/components/tables/generic";
 
-let process: Child | null = null;
 const route = useRoute();
 const router = useRouter();
+const { toast, toasts, dismiss } = useToast();
 const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
 
 const actions = ref(null);
+const currentResource = ref(route.query.resource as string);
 const resourceData = ref<object[]>([]);
 
 import { RowAction, getDefaultActions } from "@/components/tables/types";
@@ -24,9 +24,17 @@ import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 import { error } from "@/lib/logger";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
+import { PanelProviderSetSidePanelComponentKey } from "@/providers/PanelProvider";
+import { Kubernetes } from "@/services/Kubernetes";
+import { useDataRefresher } from "@/composables/refresher";
+import { useToast } from "@/components/ui/toast";
+import ToastAction from "@/components/ui/toast/ToastAction.vue";
+const setSidePanelComponent = injectStrict(
+  PanelProviderSetSidePanelComponentKey
+);
+
 const columns = ref<ColumnDef<any>[]>([]);
 const rowActions = ref<RowAction<any>[]>([]);
-const intervalRef = ref<NodeJS.Timer | null>(null);
 const refreshKey = ref<number>(0);
 
 const initColumns = async (resource: string) => {
@@ -46,6 +54,7 @@ const initRowActions = async (resource: string) => {
       ...getDefaultActions<any>(
         addTab,
         spawnDialog,
+        setSidePanelComponent,
         context.value,
         kubeConfig.value,
         true
@@ -61,6 +70,7 @@ const initRowActions = async (resource: string) => {
         ? actions.value.actions(
             addTab,
             spawnDialog,
+            setSidePanelComponent,
             router,
             context.value,
             kubeConfig.value
@@ -82,26 +92,71 @@ const rowClasses = (row: any) => {
   return "";
 };
 
+const showDetails = (row: any) => {
+  setSidePanelComponent({
+    title: `${row.kind}: ${row.metadata?.name}` || "Resource",
+    icon: formatResourceKind(row.kind).toLowerCase(),
+    component: defineAsyncComponent(
+      () => import("@/views/panels/Resource.vue")
+    ),
+    props: {
+      resource: row,
+    },
+  });
+};
+
+const create = () => {
+  addTab(
+    `create_` + Math.random().toString(36).substring(7),
+    `New ${route.query.kind}`,
+    defineAsyncComponent(() => import("@/views/ObjectEditor.vue")),
+    {
+      context: context,
+      namespace: namespace.value === "all" ? "" : namespace,
+      kubeConfig: kubeConfig,
+      create: true,
+      type: route.query.kind.toLowerCase(),
+      kind: route.query.kind,
+      useKubeCtl: false,
+    },
+    "edit"
+  );
+};
+
 onBeforeRouteUpdate(async (to, from, next) => {
-  killWatchCommand();
-  initiateWatchCommand(to.query.resource as string);
+  resourceData.value = [];
+  currentResource.value = to.query.resource as string;
+
+  dismissAllToasts();
+  getResourceData(true);
 
   await initColumns(to.query.resource as string);
   await initRowActions(to.query.resource as string);
 
   next();
+
+  if (!isRefreshing.value) {
+    startRefreshing();
+  }
 });
 
-const initiateWatchCommand = (resource: string) => {
-  resourceData.value = [];
+const dismissAllToasts = () => {
+  toasts.value.forEach((t) => dismiss(t.id));
+};
 
-  let args = [
+const getResourceData = async (refresh = false) => {
+  console.log("fetch");
+  if (!refresh) {
+    resourceData.value = [];
+  }
+
+  const fetchingResource = currentResource.value;
+
+  const args = [
     "get",
-    resource,
+    fetchingResource,
     "--context",
     context.value,
-    "-w",
-    "--output-watch-events=true",
     "-o",
     "json",
     "--kubeconfig",
@@ -114,63 +169,46 @@ const initiateWatchCommand = (resource: string) => {
     args.push("--all-namespaces");
   }
 
-  const command = Command.create("kubectl", args);
-  command.stdout.on("data", (data) => {
-    const watchEvent = JSON.parse(data) as {
-      type: string;
-      object: any;
-    };
+  try {
+    const data = await Kubernetes.kubectl(args);
 
-    if (watchEvent.type === "ADDED") {
-      resourceData.value.push(watchEvent.object);
-    } else if (watchEvent.type === "DELETED") {
-      resourceData.value = resourceData.value.filter(
-        (item: any) => item.metadata.uid !== watchEvent.object.metadata.uid
-      );
-    } else if (watchEvent.type === "MODIFIED") {
-      resourceData.value = resourceData.value.map((item: any) =>
-        item.metadata.uid === watchEvent.object.metadata.uid
-          ? watchEvent.object
-          : item
-      );
+    /*
+     * Make sure we never show data that's not related to the current resource
+     * e.g. due to route switching mid-fetch
+     */
+    if (fetchingResource !== currentResource.value) {
+      return;
     }
-  });
 
-  command.stderr.on("data", (data) => {
-    error(`Error watching ${resource}: ${data}`);
-  });
+    resourceData.value = JSON.parse(data).items;
+  } catch (e) {
+    resourceData.value = [];
+    toast({
+      title: "An error occured",
+      description: e,
+      variant: "destructive",
+      action: h(
+        ToastAction,
+        { altText: "Retry", onClick: () => startRefreshing() },
+        { default: () => "Retry" }
+      ),
+    });
+    stopRefreshing();
 
-  command.spawn().then((child) => {
-    process = child;
-  });
-};
-
-const killWatchCommand = () => {
-  if (process) {
-    process.kill();
-    process = null;
+    return;
   }
 };
 
-onMounted(() => {
-  initiateWatchCommand(route.query.resource as string);
+onMounted(async () => {
   initColumns(route.query.resource as string);
   initRowActions(route.query.resource as string);
-
-  intervalRef.value = setInterval(() => {
-    if (refreshKey.value !== resourceData.value.length) {
-      refreshKey.value = resourceData.value.length;
-    }
-  }, 250);
 });
 
-onUnmounted(() => {
-  killWatchCommand();
-
-  if (intervalRef.value) {
-    clearInterval(intervalRef.value);
-  }
-});
+const { startRefreshing, stopRefreshing, isRefreshing } = useDataRefresher(
+  getResourceData,
+  5000,
+  [context, namespace]
+);
 </script>
 <template>
   <DataTable
@@ -181,5 +219,15 @@ onUnmounted(() => {
     :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"
-  />
+    @row-clicked="showDetails"
+  >
+    <template #action-buttons>
+      <button
+        class="transition-all ml-2 hover:opacity-100 opacity-50 z-50 rounded-full w-9 h-9 flex items-center justify-center bg-primary text-white text-lg"
+        @click="create"
+      >
+        +
+      </button>
+    </template>
+  </DataTable>
 </template>

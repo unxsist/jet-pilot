@@ -9,6 +9,7 @@ import { error } from "@/lib/logger";
 export function actions<T extends V1Node>(
   addTab: any,
   spawnDialog: any,
+  setSidePanelComponent: any,
   router: Router,
   context: string,
   kubeConfig: string

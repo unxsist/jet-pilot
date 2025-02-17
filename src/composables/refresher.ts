@@ -6,15 +6,18 @@ export function useDataRefresher(
   dependencies: any[] = []
 ) {
   let refreshInterval: NodeJS.Timer;
+  let isRefreshing = ref(false);
 
   const startRefreshing = () => {
     refreshInterval = setInterval(() => {
       method(true);
     }, interval);
+    isRefreshing.value = true;
   };
 
   const stopRefreshing = () => {
     clearInterval(refreshInterval);
+    isRefreshing.value = false;
   };
 
   onMounted(() => {
@@ -33,5 +36,5 @@ export function useDataRefresher(
     });
   });
 
-  return { startRefreshing, stopRefreshing };
+  return { startRefreshing, stopRefreshing, isRefreshing };
 }

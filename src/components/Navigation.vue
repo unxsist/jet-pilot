@@ -306,6 +306,7 @@ watch([context, namespace, clusterAuthenticated], () => {
                   path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
                   query: {
                     resource: formatResourceKind(resource.kind).toLowerCase(),
+                    kind: resource.kind,
                   },
                 }"
                 @unpinned="unpinResource(resource)"
@@ -342,6 +343,7 @@ watch([context, namespace, clusterAuthenticated], () => {
                     path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
                     query: {
                       resource: formatResourceKind(resource.kind).toLowerCase(),
+                      kind: resource.kind,
                     },
                   }"
                   @pinned="pinResource(resource)"
@@ -360,6 +362,7 @@ watch([context, namespace, clusterAuthenticated], () => {
                     path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
                     query: {
                       resource: formatResourceKind(resource.kind).toLowerCase(),
+                      kind: resource.kind,
                     },
                   }"
                   @pinned="pinResource(resource)"
@@ -373,14 +376,20 @@ watch([context, namespace, clusterAuthenticated], () => {
               icon="helm"
               title="Charts"
               custom-command-title="Helm Charts"
-              :to="{ path: '/helm-charts', query: { resource: 'chart' } }"
+              :to="{
+                path: '/helm-charts',
+                query: { resource: 'chart', kind: 'Chart' },
+              }"
               :can-pin="false"
             />
             <NavigationItem
               icon="helm"
               title="Releases"
               custom-command-title="Helm Releases"
-              :to="{ path: '/helm-releases', query: { resource: 'release' } }"
+              :to="{
+                path: '/helm-releases',
+                query: { resource: 'release', kind: 'Release' },
+              }"
               :can-pin="false"
             />
           </NavigationGroup>
@@ -408,6 +417,7 @@ watch([context, namespace, clusterAuthenticated], () => {
                     path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
                     query: {
                       resource: formatResourceKind(resource.kind).toLowerCase(),
+                      kind: resource.kind,
                     },
                   }"
                   @pinned="pinResource(resource)"

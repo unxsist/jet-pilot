@@ -6,6 +6,7 @@ import { actions as scalableActions } from "./scalables";
 export function actions<T extends V1ReplicaSet>(
   addTab: any,
   spawnDialog: any,
+  setSidePanelComponent: any,
   router: Router,
   context: string,
   kubeConfig: string

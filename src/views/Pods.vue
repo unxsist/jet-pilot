@@ -29,6 +29,11 @@ const route = useRoute();
 
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
+import { PanelProviderSetSidePanelComponentKey } from "@/providers/PanelProvider";
+const setSidePanelComponent = injectStrict(
+  PanelProviderSetSidePanelComponentKey
+);
+
 const { toast } = useToast();
 
 const pods = ref<V1Pod & { metrics: PodMetric[] }[]>([]);
@@ -38,6 +43,7 @@ const rowActions: RowAction<V1Pod>[] = [
   ...getDefaultActions<V1Pod>(
     addTab,
     spawnDialog,
+    setSidePanelComponent,
     context.value,
     kubeConfig.value
   ),

@@ -35,6 +35,7 @@ const props = withDefaults(
     namespace?: string;
     kubeConfig: string;
     type: string;
+    kind?: string;
     name?: string;
     useKubeCtl: boolean;
     create?: boolean;
@@ -43,6 +44,7 @@ const props = withDefaults(
   {
     name: "",
     namespace: "",
+    kind: "",
     create: false,
     createProps: () => [],
   }
@@ -118,6 +120,12 @@ const getTemplate = (): Promise<string> => {
   });
 };
 
+const getDefaultTemplate = (): Promise<string> => {
+  return import(`@/assets/spec-templates/default.ts`).then((module) => {
+    return module.default;
+  });
+};
+
 const initializeEditor = () => {
   loader.init().then((monaco) => {
     monacoEditor = monaco;
@@ -143,7 +151,14 @@ onMounted(async () => {
   if (props.create !== true) {
     await fetchObject();
   } else {
-    editContents.value = await getTemplate();
+    try {
+      editContents.value = await getTemplate();
+    } catch (e) {
+      editContents.value = (await getDefaultTemplate())
+        .replace(/{{kind}}/g, props.kind)
+        .replace(/{{name}}/g, props.type)
+        .replace(/{{namespace}}/g, props.namespace || "default");
+    }
   }
 
   initializeEditor();

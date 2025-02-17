@@ -6,6 +6,7 @@ import { formatResourceKind } from "@/lib/utils";
 export function actions<T extends CoreV1Event>(
   addTab: any,
   spawnDialog: any,
+  setSidePanelComponent: any,
   router: Router,
   context: string,
   kubeConfig: string
