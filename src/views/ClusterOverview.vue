@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import SpotlightGridContainer from "@/components/ui/SpotlightGridContainer.vue";
-import type { Node, Edge } from "@vue-flow/core";
+import type { Node, Edge, NodeSelectionChange } from "@vue-flow/core";
 import { MarkerType, VueFlow, useVueFlow } from "@vue-flow/core";
 import { useLayout } from "@/composables/useDagreLayout";
 import { onMounted } from "vue";
@@ -367,6 +367,12 @@ onNodeMouseEnter((event) => {
 });
 
 onNodeMouseLeave((event) => {
+  const node = findNode(event.node.id);
+
+  if (node && node.selected) {
+    return;
+  }
+
   const nodeEdges = edges.value.filter(
     (edge) => edge.source === event.node.id || edge.target === event.node.id
   );
@@ -380,8 +386,56 @@ const setSidePanelComponent = injectStrict(
   PanelProviderSetSidePanelComponentKey
 );
 
-onNodesChange((nodes) => {
-  // show details when a node is clicked
+onNodesChange((nodeChanges) => {
+  if (
+    nodeChanges.filter((node) => node.type === "select" && node.selected)
+      .length === 1
+  ) {
+    const selectedNode = nodeChanges.find(
+      (node) => node.type === "select" && node.selected
+    ) as NodeSelectionChange;
+    if (selectedNode) {
+      const node = findNode(selectedNode.id);
+
+      if (!node || node.id === "unmapped-resources") {
+        setSidePanelComponent(null);
+        return;
+      }
+
+      const kubeObject = node.data.kubeObject;
+
+      setSidePanelComponent({
+        title: `${kubeObject.kind}: ${kubeObject.metadata?.name}` || "Resource",
+        icon: formatResourceKind(kubeObject.kind).toLowerCase(),
+        component: defineAsyncComponent(
+          () => import("@/views/panels/Resource.vue")
+        ),
+        props: {
+          resource: kubeObject,
+        },
+      });
+    }
+  } else {
+    setSidePanelComponent(null);
+  }
+
+  nodeChanges.forEach((nodeChange) => {
+    if (nodeChange.type === "select" && nodeChange.selected) {
+      const nodeEdges = edges.value.filter(
+        (edge) => edge.source === nodeChange.id || edge.target === nodeChange.id
+      );
+      nodeEdges.forEach((edge) => {
+        findEdge(edge.id).animated = true;
+      });
+    } else if (nodeChange.type === "select" && !nodeChange.selected) {
+      const nodeEdges = edges.value.filter(
+        (edge) => edge.source === nodeChange.id || edge.target === nodeChange.id
+      );
+      nodeEdges.forEach((edge) => {
+        findEdge(edge.id).animated = false;
+      });
+    }
+  });
 });
 
 const fetchResourceObjects = (resource: V1APIResource): Promise<void> => {

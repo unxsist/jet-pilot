@@ -7,6 +7,7 @@ import {
 import EyeCloseIcon from "@/assets/icons/eye_close.svg";
 import EyeOpenIcon from "@/assets/icons/eye_open.svg";
 import CopyIcon from "@/assets/icons/copy.svg";
+import { KeyRound } from "lucide-vue-next";
 import { V1Secret } from "@kubernetes/client-node";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
@@ -32,7 +33,7 @@ const getSecretData = (key: string) => {
 <template>
   <AccordionItem class="px-4" value="data">
     <AccordionTrigger>
-      <div class="flex items-center gap-2">Data</div>
+      <div class="flex items-center gap-2"><KeyRound class="h-4" /> Data</div>
     </AccordionTrigger>
     <AccordionContent>
       <div class="space-y-4">

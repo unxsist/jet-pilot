@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/accordion";
 import MetadataAnnotationsLabels from "@/components/generic/MetadataAnnotationsLabels.vue";
 import { KubernetesObject } from "@kubernetes/client-node";
+import { Tags, NotebookPen } from "lucide-vue-next";
 
 defineProps<{ resource: KubernetesObject }>();
 
@@ -26,7 +27,9 @@ const getResourceSpecificComponent = (resource: KubernetesObject) => {
     >
       <AccordionItem class="px-4" value="annotations">
         <AccordionTrigger>
-          <div class="flex items-center gap-2">Annotations</div>
+          <div class="flex items-center gap-2">
+            <NotebookPen class="h-4" /> Annotations
+          </div>
         </AccordionTrigger>
         <AccordionContent>
           <MetadataAnnotationsLabels type="annotations" :object="resource" />
@@ -34,7 +37,7 @@ const getResourceSpecificComponent = (resource: KubernetesObject) => {
       </AccordionItem>
       <AccordionItem class="px-4" value="labels">
         <AccordionTrigger>
-          <div class="flex items-center gap-2">Labels</div>
+          <div class="flex items-center gap-2"><Tags class="h-5" /> Labels</div>
         </AccordionTrigger>
         <AccordionContent>
           <MetadataAnnotationsLabels type="labels" :object="resource" />
