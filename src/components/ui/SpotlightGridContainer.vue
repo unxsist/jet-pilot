@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { useColorMode } from "@vueuse/core";
 import { onMounted, onUnmounted } from "vue";
+
+const colorMode = useColorMode();
 
 const mousePosition = ref({ x: 0, y: 0 });
 const spotlightGrid = ref<HTMLDivElement | null>(null);
@@ -35,7 +38,11 @@ const spotlightStyle = computed(() => ({
 </script>
 
 <template>
-  <div ref="spotlightGrid" class="spotlight-grid w-full h-full">
+  <div
+    ref="spotlightGrid"
+    class="spotlight-grid w-full h-full"
+    :class="colorMode"
+  >
     <div class="grid-lines"></div>
     <div class="grid-lines spotlight" :style="spotlightStyle"></div>
     <slot />
@@ -49,6 +56,12 @@ const spotlightStyle = computed(() => ({
   --background-color: #1a1a1a;
   --grid-color: rgba(255, 255, 255, 0.02);
   --grid-color-highlight: rgba(255, 255, 255, 0.1);
+
+  &.light {
+    --background-color: #f5f5f5;
+    --grid-color: rgba(0, 0, 0, 0.02);
+    --grid-color-highlight: rgba(0, 0, 0, 0.1);
+  }
 
   position: relative;
   width: 100%;

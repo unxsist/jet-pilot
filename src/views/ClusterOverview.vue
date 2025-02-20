@@ -182,7 +182,7 @@ const mapObjectsToNodes = () => {
         position: { x: 0, y: 0 },
         type: "kubernetes-object",
         class:
-          "overflow-hidden bg-background border border-muted rounded text-white hover:border-white",
+          "overflow-hidden bg-background border border-foreground-muted rounded text-white hover:border-foreground",
       };
     })
   );
@@ -299,7 +299,7 @@ const resolveChildNodesForParent = (parent: Node, level: number) => {
       expandParent: true,
       type: "pods-object",
       class:
-        "overflow-hidden bg-background border border-muted rounded text-white nodrag hover:border-white",
+        "overflow-hidden bg-background border border-foreground-muted rounded text-white nodrag hover:border-foreground",
     } as Node;
 
     nodes.value.push(podsNode);
@@ -313,7 +313,7 @@ const resolveChildNodesForParent = (parent: Node, level: number) => {
         expandParent: true,
         type: "kubernetes-object",
         class:
-          "overflow-hidden bg-background border border-muted rounded text-white nodrag hover:border-white",
+          "overflow-hidden bg-background border border-foreground-muted rounded text-white nodrag hover:border-foreground",
       } as Node;
 
       nodes.value.push(node);
@@ -343,7 +343,7 @@ const groupObjectsWithoutEdges = () => {
       position: { x: 0, y: 0 },
       type: "kubernetes-object",
       class:
-        "overflow-hidden bg-background border border-muted rounded text-white hover:border-white",
+        "overflow-hidden bg-background border border-foreground-muted rounded text-white hover:border-foreground",
     } as Node;
 
     nodes.value.push(groupNode);
@@ -608,7 +608,8 @@ onMounted(async () => {
   z-index: 1000 !important;
 }
 
-.vue-flow__node-kubernetes-object.selected {
-  border-color: #fff;
+.vue-flow__node-kubernetes-object.selected,
+.vue-flow__node-pods-object.selected {
+  border-color: hsl(var(--foreground));
 }
 </style>

@@ -12,7 +12,7 @@ const props = defineProps<{
 </script>
 
 <template>
-  <div class="bg-muted border-b p-1 px-2 text-white/75 text-xs">
+  <div class="bg-muted border-b p-1 px-2 text-foreground/75 text-xs">
     <div class="flex items-center space-x-2 truncate">
       <NavigationItemIcon
         :name="formatResourceKind(data.kubeObject.kind).toLowerCase()"
