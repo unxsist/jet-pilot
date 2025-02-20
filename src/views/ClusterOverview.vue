@@ -533,24 +533,30 @@ const fetchAllResources = async () => {
   }
 
   for (const resource of apiResources.value) {
-    fetchResourceObjects(resource).then(async () => {
-      if (
-        objects.value.size + failedResources.value.length ===
-        apiResources.value.length
-      ) {
-        loadingState.value = "";
-
-        mapObjectsToNodes();
-        await resolveEdges();
-        groupObjectsWithoutEdges();
-        layoutGraph();
-      }
-    });
+    fetchResourceObjects(resource);
   }
 };
 
 watch([context, namespace], async () => {
   await refresh();
+});
+
+const finishedLoading = computed(() => {
+  return (
+    apiResources.value.length > 0 &&
+    objects.value.size + failedResources.value.length ===
+      apiResources.value.length
+  );
+});
+
+watch([finishedLoading], async () => {
+  if (finishedLoading.value) {
+    loadingState.value = "";
+    mapObjectsToNodes();
+    await resolveEdges();
+    groupObjectsWithoutEdges();
+    layoutGraph();
+  }
 });
 
 const refresh = async () => {
