@@ -145,7 +145,6 @@ const dismissAllToasts = () => {
 };
 
 const getResourceData = async (refresh = false) => {
-  console.log("fetch");
   if (!refresh) {
     resourceData.value = [];
   }

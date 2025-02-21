@@ -6,8 +6,10 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import MetadataAnnotationsLabels from "@/components/generic/MetadataAnnotationsLabels.vue";
+import Events from "@/components/generic/Events.vue";
 import { KubernetesObject } from "@kubernetes/client-node";
-import { Tags, NotebookPen } from "lucide-vue-next";
+import { Tags, NotebookPen, CalendarSearch } from "lucide-vue-next";
+import Loading from "@/components/Loading.vue";
 
 defineProps<{ resource: KubernetesObject }>();
 
@@ -47,6 +49,24 @@ const getResourceSpecificComponent = (resource: KubernetesObject) => {
         :is="getResourceSpecificComponent(resource)"
         :resource="resource"
       />
+      <AccordionItem class="px-4" value="events">
+        <AccordionTrigger>
+          <div class="flex items-center gap-2">
+            <CalendarSearch class="h-4" /> Events
+          </div>
+        </AccordionTrigger>
+        <AccordionContent>
+          <Suspense>
+            <Events :object="resource" />
+
+            <template #fallback>
+              <div class="text-center">
+                <Loading label="Fetching events" />
+              </div>
+            </template>
+          </Suspense>
+        </AccordionContent>
+      </AccordionItem>
     </Accordion>
   </div>
 </template>

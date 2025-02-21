@@ -240,7 +240,7 @@ const rowClasses = (row: V1Pod) => {
   return "";
 };
 
-const { startRefreshing, stopRefreshing } = useDataRefresher(getPods, 1000, [
+const { startRefreshing, stopRefreshing } = useDataRefresher(getPods, 2500, [
   context,
   namespace,
 ]);

@@ -32,10 +32,10 @@ const {
   fitView,
   onNodeMouseEnter,
   onNodeMouseLeave,
-  onNodeClick,
   findEdge,
   onNodesChange,
   findNode,
+  getSelectedNodes,
 } = useVueFlow();
 const { layout: dagreLayout } = useLayout();
 
@@ -373,8 +373,13 @@ onNodeMouseLeave((event) => {
     return;
   }
 
+  const selectedNodeIds = getSelectedNodes.value.map((node) => node.id);
+
   const nodeEdges = edges.value.filter(
-    (edge) => edge.source === event.node.id || edge.target === event.node.id
+    (edge) =>
+      (edge.source === event.node.id || edge.target === event.node.id) &&
+      !selectedNodeIds.includes(edge.source) &&
+      !selectedNodeIds.includes(edge.target)
   );
 
   nodeEdges.forEach((edge) => {
