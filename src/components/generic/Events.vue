@@ -47,7 +47,7 @@ await fetchEvents();
     <div
       v-for="(event, index) in events"
       :key="index"
-      class="transition-all bg-muted p-3 hover:bg-muted-foreground rounded"
+      class="transition-all bg-muted p-3 hover:bg-muted-foreground/50 rounded"
     >
       <div class="flex items-center justify-between mb-1">
         <div class="font-bold">{{ event.reason }}</div>
