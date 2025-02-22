@@ -132,6 +132,19 @@ const rowActions: RowAction<V1Pod>[] = [
   },
 ];
 
+const showDetails = (row: any) => {
+  setSidePanelComponent({
+    title: `${row.kind}: ${row.metadata?.name}` || "Resource",
+    icon: "pod",
+    component: defineAsyncComponent(
+      () => import("@/views/panels/Resource.vue")
+    ),
+    props: {
+      resource: row,
+    },
+  });
+};
+
 async function getPods(refresh: boolean = false) {
   if (!refresh) {
     pods.value = [];
@@ -254,6 +267,7 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(getPods, 1000, [
     :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"
+    @row-clicked="showDetails"
     :estimated-row-height="41"
   />
 </template>
