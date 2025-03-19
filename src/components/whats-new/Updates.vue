@@ -13,57 +13,30 @@ import {
       <CarouselItem>
         <div>
           <img
-            src="@/assets/whats-new/mass-actions.gif"
-            alt="Object Creation"
+            src="@/assets/whats-new/resource-graph.gif"
+            alt="Resource Graph"
             class="w-full rounded-lg"
           />
-          <h1 class="font-bold mt-5">Mass actions</h1>
+          <h1 class="font-bold mt-5">Resource Graph</h1>
           <p class="text-sm">
-            You can now easily perform actions on multiple resources at once,
-            for example scale up multiple deployments or kill pods.
+            Get a high level overview of all objects deployed in a namespace and
+            easily identify dependencies between objects.
           </p>
         </div>
       </CarouselItem>
       <CarouselItem>
         <div>
           <img
-            src="@/assets/whats-new/object-creation.gif"
-            alt="Object Creation"
+            src="@/assets/whats-new/detail-pane.gif"
+            alt="Object Details Pane"
             class="w-full rounded-lg"
           />
-          <h1 class="font-bold mt-5">Object Creation</h1>
+          <h1 class="font-bold mt-5">Objects Detail Pane</h1>
           <p class="text-sm">
-            You can now quickly create new resources by clicking the plus icon
-            on a resource overview.
-          </p>
-        </div>
-      </CarouselItem>
-      <CarouselItem>
-        <div>
-          <img
-            src="@/assets/whats-new/secret-decoding.gif"
-            alt="Object Creation"
-            class="w-full rounded-lg"
-          />
-          <h1 class="font-bold mt-5">Easy secret decoding</h1>
-          <p class="text-sm">
-            With the new detail view of secrets, you can now easily view the
-            contents of the secret. You can decode them and copy them to the
-            clipboard.
-          </p>
-        </div>
-      </CarouselItem>
-      <CarouselItem>
-        <div>
-          <img
-            src="@/assets/whats-new/table-filtering.gif"
-            alt="Table Filtering"
-            class="w-full rounded-lg"
-          />
-          <h1 class="font-bold mt-5">Resource filtering</h1>
-          <p class="text-sm">
-            You can now easily filter any resource overview by just starting to
-            type in any overview.
+            We've added a Object Detail pane that can be openen by left-clicking
+            on any resource. For now, for most objects, it shows generic
+            information like labels and metadata, but this will be enriched in
+            later versions.
           </p>
         </div>
       </CarouselItem>
