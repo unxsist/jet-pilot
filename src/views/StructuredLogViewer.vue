@@ -33,6 +33,7 @@ const props = defineProps<{
   namespace: string;
   kubeConfig: string;
   object: string;
+  container?: string;
 }>();
 
 const initCommand = computed(() => {
@@ -61,12 +62,22 @@ const initCommand = computed(() => {
 
   initCommandArgs.push(props.object);
 
+  if (props.container) {
+    initCommandArgs.push("-c");
+    initCommandArgs.push(props.container);
+  } else {
+    initCommandArgs.push("--all-containers");
+  }
+
+  console.log(initCommandArgs);
+
   return initCommandArgs;
 });
 
 const initLogOutput = async () => {
   killProcess();
 
+  console.log(initCommand.value);
   const command = Command.create("kubectl", initCommand.value);
 
   command.stdout.on("data", async (data: string) => {

@@ -91,19 +91,48 @@ const rowActions: RowAction<V1Pod>[] = [
   },
   {
     label: "Logs",
-    handler: (row) => {
-      addTab(
-        `logs_${row.metadata?.name}`,
-        `${row.metadata?.name}`,
-        defineAsyncComponent(() => import("@/views/StructuredLogViewer.vue")),
+    options: (row) => {
+      return [
         {
-          context: context.value,
-          namespace: row.metadata?.namespace ?? namespace.value,
-          kubeConfig: kubeConfig.value,
-          object: row.metadata?.name,
+          label: "All containers",
+          handler: () => {
+            addTab(
+              `logs_${row.metadata?.name}`,
+              `${row.metadata?.name}`,
+              defineAsyncComponent(
+                () => import("@/views/StructuredLogViewer.vue")
+              ),
+              {
+                context: context.value,
+                namespace: row.metadata?.namespace ?? namespace.value,
+                kubeConfig: kubeConfig.value,
+                object: row.metadata?.name,
+              },
+              "logs"
+            );
+          },
         },
-        "logs"
-      );
+        ...(row.status?.containerStatuses || []).map((container) => ({
+          label: container.name,
+          handler: () => {
+            addTab(
+              `logs_${row.metadata?.name}_${container.name}`,
+              `${row.metadata?.name}/${container.name}`,
+              defineAsyncComponent(
+                () => import("@/views/StructuredLogViewer.vue")
+              ),
+              {
+                context: context.value,
+                namespace: row.metadata?.namespace ?? namespace.value,
+                kubeConfig: kubeConfig.value,
+                object: row.metadata?.name,
+                container: container.name,
+              },
+              "logs"
+            );
+          },
+        })),
+      ];
     },
   },
   {
