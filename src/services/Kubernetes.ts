@@ -131,54 +131,6 @@ export class Kubernetes {
     });
   }
 
-  static async getPods(
-    context: string,
-    namespace: string,
-    labelSelector = "",
-    fieldSelector = ""
-  ): Promise<V1Pod[]> {
-    return invoke("list_pods", {
-      context: context,
-      namespace: namespace,
-      labelSelector: labelSelector,
-      fieldSelector: fieldSelector,
-    });
-  }
-
-  static async getPodMetrics(
-    context: string,
-    namespace: string
-  ): Promise<PodMetric[]> {
-    return invoke("get_pod_metrics", {
-      context: context,
-      namespace: namespace,
-    });
-  }
-
-  static async getPodMetric(
-    context: string,
-    namespace: string,
-    name: string
-  ): Promise<PodMetric> {
-    return invoke("get_pod_metric", {
-      context: context,
-      namespace: namespace,
-      name: name,
-    });
-  }
-
-  static async getPod(
-    context: string,
-    namespace: string,
-    name: string
-  ): Promise<V1Pod> {
-    return invoke("get_pod", {
-      context: context,
-      namespace: namespace,
-      name: name,
-    });
-  }
-
   static async replaceObject(
     context: string,
     namespace: string,

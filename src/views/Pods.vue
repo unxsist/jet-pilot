@@ -145,21 +145,54 @@ const showDetails = (row: any) => {
   });
 };
 
-async function getPods(refresh: boolean = false) {
+async function getPods(): Promise<V1Pod[]> {
+  const args = [
+    "get",
+    "pods",
+    "--context",
+    context.value,
+    "-o",
+    "json",
+    "--kubeconfig",
+    kubeConfig.value,
+  ];
+
+  if (namespace.value !== "all") {
+    args.push("--namespace", namespace.value);
+  } else {
+    args.push("--all-namespaces");
+  }
+
+  return JSON.parse(await Kubernetes.kubectl(args)).items as V1Pod[];
+}
+
+async function getPodMetrics(): Promise<PodMetric[]> {
+  const args = [
+    "get",
+    "podmetrics",
+    "--context",
+    context.value,
+    "-o",
+    "json",
+    "--kubeconfig",
+    kubeConfig.value,
+  ];
+
+  if (namespace.value !== "all") {
+    args.push("--namespace", namespace.value);
+  } else {
+    args.push("--all-namespaces");
+  }
+
+  return JSON.parse(await Kubernetes.kubectl(args)).items as PodMetric[];
+}
+
+async function loadData(refresh = false) {
   if (!refresh) {
     pods.value = [];
   }
 
-  Promise.allSettled([
-    Kubernetes.getPods(
-      context.value,
-      namespace.value === "all" ? "" : namespace.value
-    ),
-    Kubernetes.getPodMetrics(
-      context.value,
-      namespace.value === "all" ? "" : namespace.value
-    ),
-  ]).then(async (results) => {
+  Promise.allSettled([getPods(), getPodMetrics()]).then(async (results) => {
     if (results[0].status === "rejected") {
       const authErrorHandler = await Kubernetes.getAuthErrorHandler(
         context.value,
@@ -253,7 +286,7 @@ const rowClasses = (row: V1Pod) => {
   return "";
 };
 
-const { startRefreshing, stopRefreshing } = useDataRefresher(getPods, 1000, [
+const { startRefreshing, stopRefreshing } = useDataRefresher(loadData, 1000, [
   context,
   namespace,
 ]);
