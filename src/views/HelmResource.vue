@@ -24,6 +24,11 @@ import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 import { error } from "@/lib/logger";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
+import { PanelProviderSetSidePanelComponentKey } from "@/providers/PanelProvider";
+const setSidePanelComponent = injectStrict(
+  PanelProviderSetSidePanelComponentKey
+);
+
 const columns = ref<ColumnDef<any>[]>([]);
 const rowActions = ref<RowAction<any>[]>([]);
 
@@ -53,6 +58,7 @@ const initRowActions = async (resource: string) => {
         ? actions.value.actions(
             addTab,
             spawnDialog,
+            setSidePanelComponent,
             router,
             context.value,
             kubeConfig.value

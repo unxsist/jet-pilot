@@ -20,6 +20,14 @@ export const columns: ColumnDef<V1Pod & { metrics: PodMetric[] }>[] = [
         return curr.ready ? acc + 1 : acc;
       }, 0)} / ${row.status?.containerStatuses?.length}`,
     enableGlobalFilter: false,
+    meta: {
+      class: (row: V1Pod) => {
+        return row.status?.containerStatuses?.filter((c) => c.ready).length ===
+          row.status?.containerStatuses?.length
+          ? ""
+          : "text-red-500";
+      },
+    },
   },
   {
     header: "Restarts",
@@ -36,9 +44,40 @@ export const columns: ColumnDef<V1Pod & { metrics: PodMetric[] }>[] = [
         return "Terminating";
       }
 
-      return row.status?.phase;
+      return (
+        row.status?.containerStatuses?.reduce((acc, curr) => {
+          return acc || curr.state.waiting || curr.state.terminated;
+        }, null)?.reason ||
+        row.status?.phase ||
+        "Unknown"
+      );
     },
     enableGlobalFilter: false,
+    meta: {
+      class: (row: V1Pod) => {
+        if (row.metadata?.deletionTimestamp) {
+          return "text-red-500";
+        }
+
+        const status =
+          row.status?.containerStatuses?.reduce((acc, curr) => {
+            return acc || curr.state.waiting || curr.state.terminated;
+          }, null)?.reason ||
+          row.status?.phase ||
+          "Unknown";
+
+        switch (status) {
+          case "Running":
+            return "text-green-500";
+          case "CrashLoopBackOff":
+            return "text-red-500";
+          case "Error":
+            return "text-red-500";
+          default:
+            return;
+        }
+      },
+    },
   },
   {
     header: "Usage",

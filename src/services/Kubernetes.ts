@@ -36,7 +36,8 @@ export class Kubernetes {
   }> {
     // AWS SSO
     if (
-      errorMessage.includes("AWS_PROFILE") &&
+      (errorMessage.includes("AWS_PROFILE") ||
+        errorMessage.includes("executable aws failed")) &&
       (errorMessage.includes("Error loading SSO Token") ||
         errorMessage.includes("profile has expired"))
     ) {
@@ -99,6 +100,10 @@ export class Kubernetes {
     });
   }
 
+  static async kubectl(args: string[]): Promise<string> {
+    return invoke("run_kubectl", { args: args });
+  }
+
   static async getCoreApiVersions(context: string): Promise<string[]> {
     return invoke("get_core_api_versions", { context: context });
   }
@@ -124,54 +129,6 @@ export class Kubernetes {
     return invoke("get_api_group_resources", {
       context: context,
       apiGroupVersion: api_group_version,
-    });
-  }
-
-  static async getPods(
-    context: string,
-    namespace: string,
-    labelSelector = "",
-    fieldSelector = ""
-  ): Promise<V1Pod[]> {
-    return invoke("list_pods", {
-      context: context,
-      namespace: namespace,
-      labelSelector: labelSelector,
-      fieldSelector: fieldSelector,
-    });
-  }
-
-  static async getPodMetrics(
-    context: string,
-    namespace: string
-  ): Promise<PodMetric[]> {
-    return invoke("get_pod_metrics", {
-      context: context,
-      namespace: namespace,
-    });
-  }
-
-  static async getPodMetric(
-    context: string,
-    namespace: string,
-    name: string
-  ): Promise<PodMetric> {
-    return invoke("get_pod_metric", {
-      context: context,
-      namespace: namespace,
-      name: name,
-    });
-  }
-
-  static async getPod(
-    context: string,
-    namespace: string,
-    name: string
-  ): Promise<V1Pod> {
-    return invoke("get_pod", {
-      context: context,
-      namespace: namespace,
-      name: name,
     });
   }
 

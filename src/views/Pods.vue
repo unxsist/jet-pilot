@@ -29,6 +29,11 @@ const route = useRoute();
 
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
+import { PanelProviderSetSidePanelComponentKey } from "@/providers/PanelProvider";
+const setSidePanelComponent = injectStrict(
+  PanelProviderSetSidePanelComponentKey
+);
+
 const { toast } = useToast();
 
 const pods = ref<V1Pod & { metrics: PodMetric[] }[]>([]);
@@ -38,6 +43,7 @@ const rowActions: RowAction<V1Pod>[] = [
   ...getDefaultActions<V1Pod>(
     addTab,
     spawnDialog,
+    setSidePanelComponent,
     context.value,
     kubeConfig.value
   ),
@@ -126,26 +132,72 @@ const rowActions: RowAction<V1Pod>[] = [
   },
 ];
 
-async function getPods(refresh: boolean = false) {
+const showDetails = (row: any) => {
+  setSidePanelComponent({
+    title: `${row.kind}: ${row.metadata?.name}` || "Resource",
+    icon: "pod",
+    component: defineAsyncComponent(
+      () => import("@/views/panels/Resource.vue")
+    ),
+    props: {
+      resource: row,
+    },
+  });
+};
+
+async function getPods(): Promise<V1Pod[]> {
+  const args = [
+    "get",
+    "pods",
+    "--context",
+    context.value,
+    "-o",
+    "json",
+    "--kubeconfig",
+    kubeConfig.value,
+  ];
+
+  if (namespace.value !== "all") {
+    args.push("--namespace", namespace.value);
+  } else {
+    args.push("--all-namespaces");
+  }
+
+  return JSON.parse(await Kubernetes.kubectl(args)).items as V1Pod[];
+}
+
+async function getPodMetrics(): Promise<PodMetric[]> {
+  const args = [
+    "get",
+    "podmetrics",
+    "--context",
+    context.value,
+    "-o",
+    "json",
+    "--kubeconfig",
+    kubeConfig.value,
+  ];
+
+  if (namespace.value !== "all") {
+    args.push("--namespace", namespace.value);
+  } else {
+    args.push("--all-namespaces");
+  }
+
+  return JSON.parse(await Kubernetes.kubectl(args)).items as PodMetric[];
+}
+
+async function loadData(refresh = false) {
   if (!refresh) {
     pods.value = [];
   }
 
-  Promise.allSettled([
-    Kubernetes.getPods(
-      context.value,
-      namespace.value === "all" ? "" : namespace.value
-    ),
-    Kubernetes.getPodMetrics(
-      context.value,
-      namespace.value === "all" ? "" : namespace.value
-    ),
-  ]).then(async (results) => {
+  Promise.allSettled([getPods(), getPodMetrics()]).then(async (results) => {
     if (results[0].status === "rejected") {
       const authErrorHandler = await Kubernetes.getAuthErrorHandler(
         context.value,
         kubeConfig.value,
-        results[0].reason.message
+        results[0].reason
       );
 
       if (authErrorHandler.canHandle) {
@@ -181,7 +233,7 @@ async function getPods(refresh: boolean = false) {
       } else {
         toast({
           title: "An error occured",
-          description: results[0].reason.message,
+          description: results[0].reason,
           variant: "destructive",
           action: h(
             ToastAction,
@@ -234,7 +286,7 @@ const rowClasses = (row: V1Pod) => {
   return "";
 };
 
-const { startRefreshing, stopRefreshing } = useDataRefresher(getPods, 1000, [
+const { startRefreshing, stopRefreshing } = useDataRefresher(loadData, 1000, [
   context,
   namespace,
 ]);
@@ -248,6 +300,7 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(getPods, 1000, [
     :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"
+    @row-clicked="showDetails"
     :estimated-row-height="41"
   />
 </template>

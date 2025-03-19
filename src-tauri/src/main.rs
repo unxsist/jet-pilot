@@ -119,11 +119,13 @@ fn main() {
     let memory_writer = MemoryWriter { logs: LOGS.clone() };
     let (filter, reload_handle) = reload::Layer::new(LevelFilter::INFO);
     let fmt_layer = fmt::layer().with_writer(memory_writer);
+    let fmt_stdout = fmt::layer().with_writer(std::io::stdout);
     
     // Initialize the subscriber with both layers
     let subscriber = tracing_subscriber::registry()
         .with(filter)
-        .with(fmt_layer);
+        .with(fmt_layer)
+        .with(fmt_stdout);
 
     // Set the global subscriber
     tracing::subscriber::set_global_default(subscriber)
@@ -190,6 +192,7 @@ fn main() {
             kubernetes::client::get_pod_metrics,
             kubernetes::client::get_pod_metric,
             kubernetes::client::trigger_cronjob,
+            kubernetes::client::run_kubectl,
             shell::tty::create_tty_session,
             shell::tty::stop_tty_session,
             shell::tty::write_to_pty,

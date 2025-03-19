@@ -8,6 +8,7 @@ import { error } from "@/lib/logger";
 export function actions(
   addTab: any,
   spawnDialog: any,
+  setSidePanelComponent: any,
   router: Router,
   context: string,
   kubeConfig: string

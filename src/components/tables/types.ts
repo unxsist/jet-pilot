@@ -3,6 +3,7 @@ import { Command } from "@tauri-apps/plugin-shell";
 import { VirtualService } from "@kubernetes-models/istio/networking.istio.io/v1beta1";
 import { KubernetesObject } from "@kubernetes/client-node";
 import { error } from "@/lib/logger";
+import { formatResourceKind } from "@/lib/utils";
 
 export interface BaseRowAction<T> {
   label: string | ((row: T) => string);
@@ -31,11 +32,27 @@ export type RowAction<T> = WithOptions<T> | WithHandler<T> | MassWithHandler<T>;
 export function getDefaultActions<T extends KubernetesObject | VirtualService>(
   addTab: any,
   spawnDialog: any,
+  setSidePanelComponent: any,
   context: string,
   kubeConfig: string,
   isGenericResource = false
 ): RowAction<T>[] {
   return [
+    {
+      label: "View details",
+      handler: (row: T) => {
+        setSidePanelComponent({
+          title: `${row.kind}: ${row.metadata?.name}`,
+          icon: formatResourceKind(row.kind).toLowerCase(),
+          component: defineAsyncComponent(
+            () => import("@/views/panels/Resource.vue")
+          ),
+          props: {
+            resource: row,
+          },
+        });
+      },
+    },
     {
       label: "Edit YAML",
       handler: (row: T) => {

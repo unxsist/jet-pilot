@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from "vue-router";
-import ColumnDefinitions from "@/components/tables/ColumnDefinitions";
 
 const routes: Array<RouteRecordRaw> = [
   {
@@ -29,10 +28,15 @@ const routes: Array<RouteRecordRaw> = [
       },
       {
         path: "logs",
-        name: "SettingsLogs", 
+        name: "SettingsLogs",
         component: () => import("./views/settings/Logs.vue"),
       },
     ],
+  },
+  {
+    path: "/cluster-overview",
+    name: "ClusterOverview",
+    component: () => import("./views/ClusterOverview.vue"),
   },
   {
     path: "/pods",
@@ -43,62 +47,20 @@ const routes: Array<RouteRecordRaw> = [
     },
   },
   {
-    path: "/deployments",
-    name: "Deployments",
-    component: () => import("./views/Deployments.vue"),
-  },
-  {
-    path: "/jobs",
-    name: "Jobs",
-    component: () => import("./views/Jobs.vue"),
-  },
-  {
-    path: "/cronjobs",
-    name: "CronJobs",
-    component: () => import("./views/CronJobs.vue"),
-  },
-  {
-    path: "/configmaps",
-    name: "ConfigMaps",
-    component: () => import("./views/ConfigMaps.vue"),
-  },
-  {
-    path: "/secrets",
-    name: "Secrets",
-    component: () => import("./views/Secrets.vue"),
-  },
-  {
-    path: "/services",
-    name: "Services",
-    component: () => import("./views/Services.vue"),
-  },
-  {
-    path: "/virtualservices",
-    name: "VirtualServices",
-    component: () => import("./views/GenericResource.vue"),
-    props: {
-      columns: ColumnDefinitions.VirtualServices,
-    },
-  },
-  {
-    path: "/ingresses",
-    name: "Ingresses",
-    component: () => import("./views/Ingresses.vue"),
-  },
-  {
-    path: "/persistentvolumeclaims",
-    name: "PersistentVolumeClaims",
-    component: () => import("./views/PersistentVolumeClaims.vue"),
-  },
-  {
     path: "/helm-:pathMatch(.*)*",
     name: "HelmCharts",
     component: () => import("./views/HelmResource.vue"),
+    meta: {
+      requiresContext: true,
+    },
   },
   {
     path: "/:pathMatch(.*)*",
     name: "GenericResource",
     component: () => import("./views/GenericResource.vue"),
+    meta: {
+      requiresContext: true,
+    },
   },
 ];
 
