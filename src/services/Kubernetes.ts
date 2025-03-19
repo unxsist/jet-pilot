@@ -36,7 +36,8 @@ export class Kubernetes {
   }> {
     // AWS SSO
     if (
-      errorMessage.includes("AWS_PROFILE") &&
+      (errorMessage.includes("AWS_PROFILE") ||
+        errorMessage.includes("executable aws failed")) &&
       (errorMessage.includes("Error loading SSO Token") ||
         errorMessage.includes("profile has expired"))
     ) {

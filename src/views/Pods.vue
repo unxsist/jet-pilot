@@ -197,7 +197,7 @@ async function loadData(refresh = false) {
       const authErrorHandler = await Kubernetes.getAuthErrorHandler(
         context.value,
         kubeConfig.value,
-        results[0].reason.message
+        results[0].reason
       );
 
       if (authErrorHandler.canHandle) {
@@ -233,7 +233,7 @@ async function loadData(refresh = false) {
       } else {
         toast({
           title: "An error occured",
-          description: results[0].reason.message,
+          description: results[0].reason,
           variant: "destructive",
           action: h(
             ToastAction,
