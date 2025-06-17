@@ -39,7 +39,8 @@ export class Kubernetes {
       (errorMessage.includes("AWS_PROFILE") ||
         errorMessage.includes("executable aws failed")) &&
       (errorMessage.includes("Error loading SSO Token") ||
-        errorMessage.includes("profile has expired"))
+        errorMessage.includes("profile has expired") ||
+        errorMessage.includes("Error when retrieving token from sso"))
     ) {
       const context_auth_info = (await invoke("get_context_auth_info", {
         context: context,
