@@ -131,26 +131,28 @@ const rowActions: RowAction<V1Pod>[] = [
             );
           },
         },
-        ...(row.status?.containerStatuses || []).map((container) => ({
-          label: container.name,
-          handler: () => {
-            addTab(
-              `logs_${row.metadata?.name}_${container.name}`,
-              `${row.metadata?.name}/${container.name}`,
-              defineAsyncComponent(
-                () => import("@/views/StructuredLogViewer.vue")
-              ),
-              {
-                context: context.value,
-                namespace: row.metadata?.namespace ?? namespace.value,
-                kubeConfig: kubeConfig.value,
-                object: row.metadata?.name,
-                container: container.name,
-              },
-              "logs"
-            );
-          },
-        })),
+        ...(row.status?.containerStatuses || [])
+          .concat(row.status?.initContainerStatuses || [])
+          .map((container) => ({
+            label: container.name,
+            handler: () => {
+              addTab(
+                `logs_${row.metadata?.name}_${container.name}`,
+                `${row.metadata?.name}/${container.name}`,
+                defineAsyncComponent(
+                  () => import("@/views/StructuredLogViewer.vue")
+                ),
+                {
+                  context: context.value,
+                  namespace: row.metadata?.namespace ?? namespace.value,
+                  kubeConfig: kubeConfig.value,
+                  object: row.metadata?.name,
+                  container: container.name,
+                },
+                "logs"
+              );
+            },
+          })),
       ];
     },
   },
