@@ -9,12 +9,12 @@ pub mod client {
     use k8s_openapi::api::networking::v1::Ingress;
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::{APIGroup, APIResource};
     use kube::api::{DeleteParams, ListParams, ObjectMeta, PostParams};
-    use kube::config::{KubeConfigOptions, Kubeconfig, KubeconfigError, NamedAuthInfo};
+    use kube::config::{KubeConfigOptions, Kubeconfig, KubeconfigError, NamedAuthInfo, NamedContext};
     use kube::{api::Api, Client, Config, Error};
     use rand::distributions::DistString;
     use serde::Serialize;
     use std::sync::Mutex;
-    use tracing::{debug, error, info, trace};
+    use tracing::{debug, error, info, trace, warn};
     use tokio::process::Command;
     use std::io;
 
@@ -98,7 +98,7 @@ pub mod client {
     }
 
     #[tauri::command]
-    pub async fn list_contexts() -> Result<Vec<String>, SerializableKubeError> {
+    pub async fn list_contexts() -> Result<Vec<NamedContext>, SerializableKubeError> {
         debug!("Listing available Kubernetes contexts");
         let kubeconfig = {
             let kubeconfig_guard = CURRENT_KUBECONFIG.lock().unwrap();
@@ -118,13 +118,9 @@ pub mod client {
             SerializableKubeError::from(err)
         })?;
 
-        let contexts: Vec<String> = config.contexts.iter()
-            .map(|context| context.name.clone())
-            .collect();
-
-        info!("Found {} contexts", contexts.len());
-        trace!("Available contexts: {:?}", contexts);
-        Ok(contexts)
+        info!("Found {} contexts", config.contexts.len());
+        trace!("Available contexts: {:?}", config.contexts); 
+        Ok(config.contexts)
     }
 
     #[tauri::command]

@@ -26,7 +26,7 @@ import { Kubernetes } from "@/services/Kubernetes";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
 
-const contexts = ref<string[]>([]);
+const contexts = ref<{ name: string; context: { namespace: string } }[]>([]);
 const currentContext = ref<string | undefined>(undefined);
 
 const { settings } = injectStrict(SettingsContextStateKey);
@@ -75,10 +75,10 @@ onMounted(async () => {
           <SelectGroup>
             <SelectItem
               v-for="context in contexts"
-              :key="context"
-              :value="context"
+              :key="context.name"
+              :value="context.name"
             >
-              {{ context }}
+              {{ context.name }}
             </SelectItem>
           </SelectGroup>
         </SelectContent>

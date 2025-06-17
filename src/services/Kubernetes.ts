@@ -87,7 +87,9 @@ export class Kubernetes {
     return invoke("set_current_kubeconfig", { kubeConfig: kubeConfig });
   }
 
-  static async getContexts(): Promise<string[]> {
+  static async getContexts(): Promise<
+    { name: string; context: { namespace: string } }[]
+  > {
     return invoke("list_contexts");
   }
 

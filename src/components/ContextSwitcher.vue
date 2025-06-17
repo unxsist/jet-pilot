@@ -43,13 +43,21 @@ onMounted(() => {
     description: "Switch the current context",
     keywords: ["ctx", "context"],
     commands: async (): Promise<Command[]> => {
-      const contexts: { context: string; kubeConfig: string }[] = [];
+      const contexts: {
+        context: string;
+        namespace: string;
+        kubeConfig: string;
+      }[] = [];
       for (const kubeConfig of settings.value.kubeConfigs) {
         await Kubernetes.setCurrentKubeConfig(kubeConfig);
         const ctx = await Kubernetes.getContexts();
         contexts.push(
           ...ctx.map((ctx) => {
-            return { context: ctx, kubeConfig: kubeConfig };
+            return {
+              context: ctx.name,
+              namespace: ctx.context.namespace,
+              kubeConfig: kubeConfig,
+            };
           })
         );
       }
@@ -118,7 +126,12 @@ onMounted(() => {
                   ],
                 });
               } else {
-                throw e;
+                console.log(context);
+                if (context.namespace) {
+                  namespaces = [context.namespace];
+                } else {
+                  throw e;
+                }
               }
             }
           }
