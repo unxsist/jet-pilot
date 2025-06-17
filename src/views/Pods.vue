@@ -50,24 +50,43 @@ const rowActions: RowAction<V1Pod>[] = [
   {
     label: "Shell",
     options: (row) => {
-      return (row.status?.containerStatuses || []).map((container) => ({
-        label: container.name,
-        handler: () => {
-          addTab(
-            `shell_${row.metadata?.name}_${container.name}`,
-            `${row.metadata?.name}/${container.name}`,
-            defineAsyncComponent(() => import("@/views/Shell.vue")),
-            {
-              kubeConfig: kubeConfig.value,
-              context: context.value,
-              namespace: row.metadata?.namespace ?? namespace.value,
-              pod: row,
-              container: container,
-            },
-            "shell"
+      const containerStatuses = [
+        ...(row.status?.containerStatuses || []),
+        ...(row.status?.initContainerStatuses || []),
+      ];
+
+      return containerStatuses
+        .filter((container) => {
+          return (
+            container.name &&
+            (container.state?.running || container.state?.waiting) &&
+            !container.state?.terminated
           );
-        },
-      }));
+        })
+        .map((container) => {
+          const specContainer =
+            row.spec?.containers?.find((c) => c.name === container.name) ||
+            row.spec?.initContainers?.find((c) => c.name === container.name);
+
+          return {
+            label: container.name,
+            handler: () => {
+              addTab(
+                `shell_${row.metadata?.name}_${container.name}`,
+                `${row.metadata?.name}/${container.name}`,
+                defineAsyncComponent(() => import("@/views/Shell.vue")),
+                {
+                  kubeConfig: kubeConfig.value,
+                  context: context.value,
+                  namespace: row.metadata?.namespace ?? namespace.value,
+                  pod: row,
+                  container: specContainer,
+                },
+                "shell"
+              );
+            },
+          };
+        });
     },
   },
   {
