@@ -138,37 +138,41 @@ const getApiResourcesForGroup = (group: NavigationGroup) => {
     .map((key) => clusterResources.value.get(key)!)
     .flat()
     .filter((resource) => !group.coreResourceKinds.includes(resource.kind))
-    .filter((resource) => !resource.name.includes("/"));
+    .filter((resource) => !resource.name.includes("/"))
+    .sort((a, b) => a.kind.localeCompare(b.kind));
 };
 
 const getApiResourcesForNonDefaultGroup = (group: string) => {
   return (
     clusterResources.value
       .get(group)
-      ?.filter((resource) => !resource.name.includes("/")) ?? []
+      ?.filter((resource) => !resource.name.includes("/"))
+      .sort((a, b) => a.kind.localeCompare(b.kind)) ?? []
   );
 };
 
 const getNonDefaultApiGroups = () => {
-  return Array.from(clusterResources.value.keys()).filter((key) => {
-    return (
-      !navigationGroups.some((group) => {
-        return group.apiGroupResources.some((group) => {
-          return key.match(group);
-        });
-      }) &&
-      key !== "v1" &&
-      key !== "apps"
-    );
-  });
+  return Array.from(clusterResources.value.keys())
+    .filter((key) => {
+      return (
+        !navigationGroups.some((group) => {
+          return group.apiGroupResources.some((group) => {
+            return key.match(group);
+          });
+        }) &&
+        key !== "v1" &&
+        key !== "apps"
+      );
+    })
+    .sort((a, b) => a.localeCompare(b));
 };
 
-const filterNamespaced = (resource: V1APIResource) => {
-  if (namespace.value === "") {
-    return true;
-  }
-
-  return resource.namespaced;
+// Always show resources regardless of their scope so that cluster scoped CRDs
+// like those used by Karpenter are visible even when a specific namespace is
+// selected.  This previously filtered out non-namespaced resources whenever a
+// namespace was chosen which caused CRDs to disappear from the navigation.
+const filterNamespaced = (_resource: V1APIResource) => {
+  return true;
 };
 
 const fetchResources = () => {
