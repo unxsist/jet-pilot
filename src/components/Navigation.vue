@@ -138,37 +138,33 @@ const getApiResourcesForGroup = (group: NavigationGroup) => {
     .map((key) => clusterResources.value.get(key)!)
     .flat()
     .filter((resource) => !group.coreResourceKinds.includes(resource.kind))
-    .filter((resource) => !resource.name.includes("/"));
+    .filter((resource) => !resource.name.includes("/"))
+    .sort((a, b) => a.kind.localeCompare(b.kind));
 };
 
 const getApiResourcesForNonDefaultGroup = (group: string) => {
   return (
     clusterResources.value
       .get(group)
-      ?.filter((resource) => !resource.name.includes("/")) ?? []
+      ?.filter((resource) => !resource.name.includes("/"))
+      .sort((a, b) => a.kind.localeCompare(b.kind)) ?? []
   );
 };
 
 const getNonDefaultApiGroups = () => {
-  return Array.from(clusterResources.value.keys()).filter((key) => {
-    return (
-      !navigationGroups.some((group) => {
-        return group.apiGroupResources.some((group) => {
-          return key.match(group);
-        });
-      }) &&
-      key !== "v1" &&
-      key !== "apps"
-    );
-  });
-};
-
-const filterNamespaced = (resource: V1APIResource) => {
-  if (namespace.value === "") {
-    return true;
-  }
-
-  return resource.namespaced;
+  return Array.from(clusterResources.value.keys())
+    .filter((key) => {
+      return (
+        !navigationGroups.some((group) => {
+          return group.apiGroupResources.some((group) => {
+            return key.match(group);
+          });
+        }) &&
+        key !== "v1" &&
+        key !== "apps"
+      );
+    })
+    .sort((a, b) => a.localeCompare(b));
 };
 
 const fetchResources = () => {
@@ -181,10 +177,7 @@ const fetchResources = () => {
     results.forEach((version) => {
       Kubernetes.getCoreApiResources(context.value, version).then(
         (resources) => {
-          clusterResources.value.set(
-            version,
-            resources.filter(filterNamespaced)
-          );
+          clusterResources.value.set(version, resources);
         }
       );
     });
@@ -198,10 +191,7 @@ const fetchResources = () => {
           group.preferredVersion?.groupVersion ?? ""
         )
           .then((resources) => {
-            clusterResources.value.set(
-              group.name,
-              resources.filter(filterNamespaced)
-            );
+            clusterResources.value.set(group.name, resources);
           })
           .catch((e) => {
             error(`Error fetching resources for group ${group.name}: ${e}`);
