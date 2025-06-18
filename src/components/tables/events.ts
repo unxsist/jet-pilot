@@ -2,8 +2,10 @@ import { ColumnDef } from "@tanstack/vue-table";
 import { formatDateTimeDifference } from "@/lib/utils";
 import { RouterLink } from "vue-router";
 import { formatResourceKind } from "@/lib/utils";
+import { multiContextColumns } from "./multicontext";
 
 export const columns: ColumnDef<any>[] = [
+  ...multiContextColumns,
   {
     accessorKey: "type",
     header: "Type",

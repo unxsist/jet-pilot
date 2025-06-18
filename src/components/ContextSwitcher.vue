@@ -1,252 +1,317 @@
 <script setup lang="ts">
-import { Command } from "@/command-palette";
 import { injectStrict } from "@/lib/utils";
-import {
-  ShowSingleCommandKey,
-  RegisterCommandStateKey,
-  CloseCommandPaletteKey,
-  RerunLastCommandKey,
-} from "@/providers/CommandPaletteProvider";
-import {
-  KubeContextSetContextKey,
-  KubeContextSetNamespaceKey,
-} from "@/providers/KubeContextProvider";
-import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { Kubernetes } from "@/services/Kubernetes";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
-import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 
-const showSingleCommand = injectStrict(ShowSingleCommandKey);
-const registerCommand = injectStrict(RegisterCommandStateKey);
-const closeCommandPalette = injectStrict(CloseCommandPaletteKey);
-const rerunLastCommand = injectStrict(RerunLastCommandKey);
+import {
+  DropdownMenu,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuPortal,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { V1Namespace } from "@kubernetes/client-node";
+import DropdownMenuItem from "./ui/dropdown-menu/DropdownMenuItem.vue";
+import Spinner from "./Spinner.vue";
 
-const {
-  context,
-  namespace,
-  kubeConfig,
-  authenticated: clusterAuthenticated,
-} = injectStrict(KubeContextStateKey);
-const setContext = injectStrict(KubeContextSetContextKey);
-const setNamespace = injectStrict(KubeContextSetNamespaceKey);
+import {
+  KubeContextSetActiveNamespacesKey,
+  KubeContextIsContextActiveKey,
+  KubeContextIsNamespaceActiveKey,
+  KubeContextStateKey,
+} from "@/providers/KubeContextProvider";
+
+const { contexts: activeContexts } = injectStrict(KubeContextStateKey);
 const { settings } = injectStrict(SettingsContextStateKey);
-const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
+const setActiveNamespaces = injectStrict(KubeContextSetActiveNamespacesKey);
+const isContextActive = injectStrict(KubeContextIsContextActiveKey);
+const isNamespaceActive = injectStrict(KubeContextIsNamespaceActiveKey);
 
-const needsMarquee = ref(false);
-const marqueeContainer = ref<HTMLDivElement | null>();
-const marqueeText = ref<HTMLDivElement | null>();
+const contexts = ref<
+  {
+    context: string;
+    defaultNamespace: string;
+    namespaces: string[];
+    isFetching?: boolean;
+    canListNamespaces?: boolean;
+    canConnect?: boolean;
+    canHandleAuth?: boolean;
+    handleAuthCallback?: () => void;
+    kubeConfig: string;
+  }[]
+>([]);
 
-onMounted(() => {
-  registerCommand({
-    id: "switch-context",
-    name: "Switch context",
-    description: "Switch the current context",
-    keywords: ["ctx", "context"],
-    commands: async (): Promise<Command[]> => {
-      const contexts: {
-        context: string;
-        namespace: string;
-        kubeConfig: string;
-      }[] = [];
-      for (const kubeConfig of settings.value.kubeConfigs) {
-        await Kubernetes.setCurrentKubeConfig(kubeConfig);
-        const ctx = await Kubernetes.getContexts();
-        contexts.push(
-          ...ctx.map((ctx) => {
-            return {
-              context: ctx.name,
-              namespace: ctx.context.namespace,
-              kubeConfig: kubeConfig,
-            };
-          })
-        );
-      }
+const activeNamespaces = ref<Map<string, string[]>>(
+  new Map<string, string[]>()
+);
 
-      return contexts.map((context) => ({
-        id: context.context,
-        name: context.context,
-        description: "Switch to " + context,
-        commands: async (): Promise<Command[]> => {
-          const clusterSettings = settings.value.contextSettings.find(
-            (c) => c.context === context.context
-          );
+const toggleActiveNamespace = (
+  context: string,
+  kubeConfig: string,
+  namespace: string
+) => {
+  if (!activeNamespaces.value.has(context)) {
+    activeNamespaces.value.set(context, []);
+  }
 
-          let namespaces: string[] = [];
+  const ctx = contexts.value.find((ctx) => ctx.context === context);
 
-          if (
-            clusterSettings &&
-            clusterSettings.namespaces &&
-            clusterSettings.namespaces.length > 0
-          ) {
-            namespaces = clusterSettings.namespaces;
-          } else {
-            try {
-              const contextNamespaces = await Kubernetes.getNamespaces(
-                context.context,
-                context.kubeConfig
-              );
-              namespaces = contextNamespaces.map(
-                (ns) => ns.metadata?.name || ""
-              );
-            } catch (e: any) {
-              const authErrorHandler = await Kubernetes.getAuthErrorHandler(
-                context.context,
-                context.kubeConfig,
-                e.message
-              );
+  if (!ctx) return;
 
-              if (authErrorHandler.canHandle) {
-                clusterAuthenticated.value = false;
-                spawnDialog({
-                  title: "SSO Session expired",
-                  message:
-                    "Failed to authenticate as the SSO session has expired. Please login again.",
-                  buttons: [
-                    {
-                      label: "Close",
-                      variant: "ghost",
-                      handler: (dialog) => {
-                        dialog.close();
-                        closeCommandPalette();
-                      },
-                    },
-                    {
-                      label: "Login with SSO",
-                      handler: (dialog) => {
-                        dialog.buttons = [];
-                        dialog.title = "Awaiting SSO login";
-                        dialog.message = "Please wait while we redirect you.";
-                        authErrorHandler.callback(() => {
-                          dialog.close();
-                          clusterAuthenticated.value = true;
-                          rerunLastCommand();
-                        });
-                      },
-                    },
-                  ],
-                });
-              } else {
-                console.log(context);
-                if (context.namespace) {
-                  namespaces = [context.namespace];
-                } else {
-                  throw e;
-                }
-              }
-            }
-          }
+  let namespaces = activeNamespaces.value.get(context) || [];
 
-          return [
-            {
-              id: "all-namespaces",
-              name: "All namespaces",
-              description: "Show all namespaces",
-              execute: async () => {
-                await Kubernetes.setCurrentKubeConfig(context.kubeConfig);
-                setContext(context);
-                setNamespace("");
-              },
-            } as Command,
-          ].concat(
-            namespaces.map((namespace) => ({
-              id: namespace || "",
-              name: namespace || "",
-              description: "Switch to " + namespace,
-              execute: async () => {
-                await Kubernetes.setCurrentKubeConfig(context.kubeConfig);
-                setContext(context);
-                setNamespace(namespace || "");
-              },
-            }))
-          );
-        },
-      }));
-    },
-  });
+  if (namespace === "all" && !namespaces.includes("all")) {
+    activeNamespaces.value.set(context, ["all"]);
 
-  registerCommand({
-    name: "Switch namespace",
-    description: "Switch the current namespace",
-    id: "switch-namespace",
-    keywords: ["ns", "namespace"],
-    commands: async (): Promise<Command[]> => {
-      const clusterSettings = settings.value.contextSettings.find(
-        (c) => c.context === context.value
+    setActiveNamespaces(
+      context,
+      kubeConfig,
+      activeNamespaces.value.get(context) || []
+    );
+
+    return;
+  }
+
+  if (namespace !== "all" && namespaces.includes("all")) {
+    activeNamespaces.value.set(context, ctx.namespaces);
+    namespaces = activeNamespaces.value.get(context) || [];
+  }
+
+  if (namespace !== "all" && !namespaces.includes(namespace)) {
+    if (namespaces.length + 1 === ctx.namespaces.length) {
+      activeNamespaces.value.set(context, ["all"]);
+
+      setActiveNamespaces(
+        context,
+        kubeConfig,
+        activeNamespaces.value.get(context) || []
       );
 
-      let namespaces = [];
-
-      if (
-        clusterSettings &&
-        clusterSettings.namespaces &&
-        clusterSettings.namespaces.length > 0
-      ) {
-        namespaces = clusterSettings.namespaces;
-      } else {
-        namespaces = await (
-          await Kubernetes.getNamespaces(context.value, kubeConfig.value)
-        ).map((ns) => ns.metadata?.name || "");
-      }
-
-      return [
-        {
-          id: "all-namespaces",
-          name: "All namespaces",
-          description: "Show all namespaces",
-          execute: () => {
-            setNamespace("");
-          },
-        } as Command,
-      ].concat(
-        namespaces.map((namespace) => ({
-          id: namespace || "",
-          name: namespace || "",
-          description: "Switch to " + namespace,
-          execute: () => {
-            setNamespace(namespace || "");
-          },
-        }))
-      );
-    },
-  });
-
-  setInterval(() => {
-    if (
-      marqueeContainer.value &&
-      marqueeText.value &&
-      marqueeText.value.offsetWidth > marqueeContainer.value.offsetWidth
-    ) {
-      needsMarquee.value = true;
-    } else {
-      needsMarquee.value = false;
+      return;
     }
-  }, 1000);
+  }
+
+  if (namespaces.includes(namespace)) {
+    activeNamespaces.value.set(
+      context,
+      namespaces.filter((ns) => ns !== namespace)
+    );
+  } else {
+    activeNamespaces.value.set(context, [...namespaces, namespace]);
+  }
+
+  setActiveNamespaces(
+    context,
+    kubeConfig,
+    activeNamespaces.value.get(context) || []
+  );
+};
+
+const fetchContexts = async () => {
+  contexts.value = [];
+  for (const kubeConfig of settings.value.kubeConfigs) {
+    await Kubernetes.setCurrentKubeConfig(kubeConfig);
+    const ctx = await Kubernetes.getContexts();
+    contexts.value.push(
+      ...ctx.map((ctx) => {
+        return {
+          context: ctx.name,
+          defaultNamespace: ctx.context.namespace,
+          namespaces: [],
+          kubeConfig: kubeConfig,
+        };
+      })
+    );
+  }
+};
+
+const fetchNamespaces = async (context: string) => {
+  const ctx = contexts.value.find((ctx) => ctx.context === context);
+
+  if (!ctx) return;
+  if (ctx.namespaces.length > 0) return;
+
+  const clusterSettings = settings.value.contextSettings.find(
+    (c) => c.context === context
+  );
+
+  if (
+    clusterSettings &&
+    clusterSettings.namespaces &&
+    clusterSettings.namespaces.length > 0
+  ) {
+    ctx.canConnect = true;
+    ctx.namespaces = clusterSettings.namespaces;
+    return;
+  }
+
+  ctx.isFetching = true;
+
+  await Kubernetes.setCurrentKubeConfig(ctx.kubeConfig);
+  try {
+    const namespaces = await Kubernetes.getNamespaces(context, ctx.kubeConfig);
+    ctx.namespaces = namespaces.map(
+      (ns: V1Namespace) => ns.metadata?.name || ""
+    );
+    ctx.canConnect = true;
+  } catch (err: { code: number; message: string }) {
+    if (err.code === 401) {
+      ctx.canConnect = true;
+      ctx.canListNamespaces = false;
+
+      if (ctx.defaultNamespace) {
+        ctx.namespaces = [ctx.defaultNamespace];
+      } else {
+        ctx.namespaces = [];
+      }
+
+      return;
+    }
+
+    ctx.canConnect = false;
+
+    const authHandler = await Kubernetes.getAuthErrorHandler(
+      ctx.context,
+      ctx.kubeConfig,
+      err.message
+    );
+
+    ctx.canHandleAuth = authHandler.canHandle;
+    ctx.handleAuthCallback = () => {
+      authHandler.callback(() => {
+        fetchNamespaces(context);
+        ctx.canConnect = true;
+      });
+    };
+  } finally {
+    ctx.isFetching = false;
+  }
+};
+
+onMounted(async () => {
+  await fetchContexts();
 });
 </script>
 <template>
   <div class="w-full mt-2 mb-4 pr-2">
-    <button
-      class="flex flex-col w-full text-xs border rounded-lg p-2 text-left hover:bg-background"
-      @click="showSingleCommand('switch-context')"
-    >
-      <div
-        ref="marqueeContainer"
-        class="overflow-hidden whitespace-nowrap uppercase font-bold mb-1 w-full"
-        :title="context"
-      >
+    <DropdownMenu>
+      <DropdownMenuTrigger class="w-full">
         <div
-          ref="marqueeText"
-          class="inline-block"
-          :class="{ marquee: needsMarquee }"
+          class="bg-background border border-muted hover:bg-muted rounded p-1 text-xs"
         >
-          {{ context || "No context" }}
+          Connected to {{ activeContexts.size }} of
+          {{ contexts.length }} contexts
         </div>
-      </div>
-      <span v-if="context">{{
-        namespace == "" ? "All namespaces" : namespace
-      }}</span>
-      <span v-else>Click here to set context</span>
-    </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        class="w-[--reka-dropdown-menu-trigger-width] min-w-56 rounded-lg max-h-[80vh] overflow-y-auto"
+        align="start"
+        side="right"
+        :side-offset="4"
+      >
+        <DropdownMenuLabel class="text-xs text-muted-foreground">
+          Contexts
+        </DropdownMenuLabel>
+        <DropdownMenuSub v-for="context in contexts" :key="context.context">
+          <DropdownMenuSubTrigger
+            class="py-2"
+            @mouseenter="fetchNamespaces(context.context)"
+          >
+            <div class="flex items-center gap-2 max-w-[225px]">
+              <span
+                class="block w-2 h-2 rounded-full"
+                :class="{
+                  'bg-gray-500': !isContextActive(context.context),
+                  // 'bg-yellow-500': context.canHandleAuth,
+                  'bg-green-500': isContextActive(context.context),
+                  // 'bg-red-500': !context.canConnect && !context.canHandleAuth,
+                }"
+              ></span>
+              <span class="whitespace-nowrap truncate">{{
+                context.context
+              }}</span>
+            </div>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuSubContent
+              class="max-h-[80vh] overflow-y-auto"
+              align="start"
+              side="right"
+              :side-offset="4"
+            >
+              <template
+                v-if="!context.isFetching && context.namespaces.length > 0"
+              >
+                <DropdownMenuCheckboxItem
+                  :checked="isNamespaceActive(context.context, 'all')"
+                  @select.prevent="
+                    toggleActiveNamespace(
+                      context.context,
+                      context.kubeConfig,
+                      'all'
+                    )
+                  "
+                >
+                  <span>All namespaces</span>
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuSeparator />
+              </template>
+              <DropdownMenuLabel v-if="context.isFetching">
+                <div class="flex flex-row items-center gap-2">
+                  <Spinner class="text-white max-w-[16px]" />
+                  <span>Fetching namespaces...</span>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                v-if="
+                  !context.isFetching &&
+                  context.canHandleAuth &&
+                  context.namespaces.length === 0
+                "
+                @select.prevent="
+                  context.handleAuthCallback && context.handleAuthCallback()
+                "
+              >
+                <button class="w-full text-left">
+                  <span>Re-authenticate</span>
+                </button>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                v-if="
+                  !context.isFetching &&
+                  !context.canConnect &&
+                  !context.canHandleAuth
+                "
+              >
+                <span class="text-red-500">
+                  Cannot connect to this context
+                </span>
+              </DropdownMenuItem>
+              <DropdownMenuCheckboxItem
+                v-for="namespace in context.namespaces"
+                :key="namespace"
+                :value="namespace"
+                :checked="isNamespaceActive(context.context, namespace)"
+                @select.prevent="
+                  toggleActiveNamespace(
+                    context.context,
+                    context.kubeConfig,
+                    namespace
+                  )
+                "
+              >
+                <span>{{ namespace }}</span>
+              </DropdownMenuCheckboxItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuPortal>
+        </DropdownMenuSub>
+      </DropdownMenuContent>
+    </DropdownMenu>
   </div>
 </template>
 

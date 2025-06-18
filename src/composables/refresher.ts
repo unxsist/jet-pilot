@@ -6,7 +6,7 @@ export function useDataRefresher(
   dependencies: any[] = []
 ) {
   let refreshInterval: NodeJS.Timer;
-  let isRefreshing = ref(false);
+  const isRefreshing = ref(false);
 
   const startRefreshing = () => {
     refreshInterval = setInterval(() => {
@@ -33,6 +33,7 @@ export function useDataRefresher(
   dependencies.forEach((dep) => {
     watch(dep, () => {
       method(false); // Refresh on dependency change
+      console.log("Dependency changed, refreshing data");
     });
   });
 

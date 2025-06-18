@@ -10,7 +10,8 @@ import { columns as defaultGenericColumns } from "@/components/tables/generic";
 const route = useRoute();
 const router = useRouter();
 const { toast, toasts, dismiss } = useToast();
-const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
+const { contexts, contextKubeConfigMapping, context, namespace, kubeConfig } =
+  injectStrict(KubeContextStateKey);
 
 const actions = ref(null);
 const currentResource = ref(route.query.resource as string);
@@ -55,8 +56,6 @@ const initRowActions = async (resource: string) => {
         addTab,
         spawnDialog,
         setSidePanelComponent,
-        context.value,
-        kubeConfig.value,
         true
       ),
     ];
@@ -71,9 +70,7 @@ const initRowActions = async (resource: string) => {
             addTab,
             spawnDialog,
             setSidePanelComponent,
-            router,
-            context.value,
-            kubeConfig.value
+            router
           )
         : []),
     ];
@@ -151,35 +148,78 @@ const getResourceData = async (refresh = false) => {
 
   const fetchingResource = currentResource.value;
 
-  const args = [
-    "get",
-    fetchingResource,
-    "--context",
-    context.value,
-    "-o",
-    "json",
-    "--kubeconfig",
-    kubeConfig.value,
-  ];
-
-  if (namespace.value) {
-    args.push("--namespace", namespace.value);
-  } else {
-    args.push("--all-namespaces");
-  }
-
   try {
-    const data = await Kubernetes.kubectl(args);
+    let data: object[] = [];
+    for (const [context, namespaces] of contexts.value) {
+      console.debug(`Fetching data for context: ${context}`);
+      if (namespaces.includes("all")) {
+        console.debug(
+          `Fetching data for all namespaces in context: ${context}`
+        );
+        const args = ["get", fetchingResource, "-o", "json"];
 
-    /*
-     * Make sure we never show data that's not related to the current resource
-     * e.g. due to route switching mid-fetch
-     */
-    if (fetchingResource !== currentResource.value) {
-      return;
+        const kubeConfig = contextKubeConfigMapping.value.get(context);
+        if (!kubeConfig) continue;
+
+        args.push("--context", context);
+        args.push("--kubeconfig", kubeConfig);
+        args.push("--all-namespaces");
+
+        const dataPart = await Kubernetes.kubectl(args);
+
+        /*
+         * Make sure we never show data that's not related to the current resource
+         * e.g. due to route switching mid-fetch
+         */
+        if (fetchingResource !== currentResource.value) {
+          return;
+        }
+
+        data = data.concat(
+          JSON.parse(dataPart).items.map((row: any) => {
+            row.metadata.context = context;
+            row.metadata.kubeConfig = kubeConfig;
+            return row;
+          })
+        );
+      } else {
+        for (const ns of namespaces) {
+          console.debug(
+            `Fetching data for namespace: ${ns} in context: ${context}`
+          );
+          const args = ["get", fetchingResource, "-o", "json"];
+
+          const kubeConfig = contextKubeConfigMapping.value.get(context);
+          if (!kubeConfig) continue;
+
+          args.push("--context", context);
+          args.push("--kubeconfig", kubeConfig);
+          args.push("--namespace", ns);
+
+          console.log(args);
+
+          const dataPart = await Kubernetes.kubectl(args);
+
+          /*
+           * Make sure we never show data that's not related to the current resource
+           * e.g. due to route switching mid-fetch
+           */
+          if (fetchingResource !== currentResource.value) {
+            return;
+          }
+
+          data = data.concat(
+            JSON.parse(dataPart).items.map((row: any) => {
+              row.metadata.context = context;
+              row.metadata.kubeConfig = kubeConfig;
+              return row;
+            })
+          );
+        }
+      }
     }
 
-    resourceData.value = JSON.parse(data).items;
+    resourceData.value = data;
   } catch (e) {
     resourceData.value = [];
     toast({
@@ -206,7 +246,7 @@ onMounted(async () => {
 const { startRefreshing, stopRefreshing, isRefreshing } = useDataRefresher(
   getResourceData,
   5000,
-  [context, namespace]
+  [contexts.value, contextKubeConfigMapping.value]
 );
 </script>
 <template>

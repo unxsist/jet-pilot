@@ -1,8 +1,10 @@
 import { V1CronJob, V1Job } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
 import { formatDateTimeDifference } from "@/lib/utils";
+import { multiContextColumns } from "./multicontext";
 
 export const columns: ColumnDef<V1CronJob>[] = [
+  ...multiContextColumns,
   {
     accessorKey: "metadata.name",
     header: "Name",

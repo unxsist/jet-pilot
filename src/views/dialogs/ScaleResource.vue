@@ -27,10 +27,12 @@ const props = defineProps<{
   context: string;
   kubeConfig: string;
   objects:
-    | V1Deployment[]
-    | V1StatefulSet[]
-    | V1ReplicaSet[]
-    | V1ReplicationController[];
+    | (V1Deployment & { metadata: { context: string; kubeConfig: string } })[]
+    | (V1StatefulSet & { metadata: { context: string; kubeConfig: string } })[]
+    | (V1ReplicaSet & { metadata: { context: string; kubeConfig: string } })[]
+    | (V1ReplicationController & {
+        metadata: { context: string; kubeConfig: string };
+      })[];
 }>();
 
 const replicas = ref(0);
@@ -44,11 +46,11 @@ const scale = () => {
       `--replicas=${replicas.value}`,
       `${object.kind}/${object.metadata?.name}`,
       "--context",
-      props.context,
+      object.metadata.context,
       "--namespace",
       object.metadata?.namespace || "",
       "--kubeconfig",
-      props.kubeConfig,
+      object.metadata.kubeConfig,
     ];
 
     const command = Command.create("kubectl", args);

@@ -1,8 +1,10 @@
 import { formatDateTimeDifference } from "@/lib/utils";
 import { VirtualService } from "@kubernetes-models/istio/networking.istio.io/v1beta1";
 import { ColumnDef } from "@tanstack/vue-table";
+import { multiContextColumns } from "./multicontext";
 
 export const columns: ColumnDef<VirtualService>[] = [
+  ...multiContextColumns,
   {
     accessorKey: "metadata.name",
     header: "Name",

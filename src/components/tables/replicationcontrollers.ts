@@ -1,8 +1,10 @@
 import { formatDateTimeDifference } from "@/lib/utils";
 import { V1ReplicationController } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
+import { multiContextColumns } from "./multicontext";
 
 export const columns: ColumnDef<V1ReplicationController>[] = [
+  ...multiContextColumns,
   {
     accessorKey: "metadata.name",
     header: "Name",

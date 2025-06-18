@@ -1,27 +1,12 @@
-import { formatDateTimeDifference } from "@/lib/utils";
-import { V1Deployment, V1ReplicaSet } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
+import { formatDateTimeDifference } from "@/lib/utils";
 import { multiContextColumns } from "./multicontext";
 
-export const columns: ColumnDef<V1ReplicaSet>[] = [
-  ...multiContextColumns,
+export const columns: ColumnDef<any>[] = [
+  ...[multiContextColumns[0]],
   {
     accessorKey: "metadata.name",
     header: "Name",
-  },
-  {
-    header: "Desired",
-    accessorKey: "spec.replicas",
-    enableGlobalFilter: false,
-  },
-  {
-    header: "Ready",
-    accessorFn: (row) => {
-      const ready = row.status?.readyReplicas || 0;
-      const total = row.status?.replicas || 0;
-      return `${ready}/${total}`;
-    },
-    enableGlobalFilter: false,
   },
   {
     header: "Age",

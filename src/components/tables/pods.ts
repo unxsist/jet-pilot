@@ -2,8 +2,10 @@ import { PodMetric, V1Pod } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
 import { formatDateTimeDifference } from "@/lib/utils";
 import PodUsageChart from "../ui/PodUsageChart.vue";
+import { multiContextColumns } from "./multicontext";
 
 export const columns: ColumnDef<V1Pod & { metrics: PodMetric[] }>[] = [
+  ...multiContextColumns,
   {
     accessorKey: "metadata.name",
     header: "Name",

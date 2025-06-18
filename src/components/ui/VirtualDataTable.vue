@@ -35,6 +35,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { MassWithHandler, RowAction, WithHandler } from "../tables/types";
 
+import { KubeContextStateKey } from "@/providers/KubeContextProvider";
+import { injectStrict } from "@/lib/utils";
+import { context } from "node_modules/radix-vue/dist/DismissableLayer/DismissableLayer";
+
 interface DataTableState<T> {
   contextMenuSubject: T | null;
 }
@@ -76,6 +80,7 @@ const table = useVueTable({
       {
         id: "select",
         size: 10,
+        enableHiding: false,
         header: ({ table }) => {
           return h(Checkbox, {
             class:
@@ -100,7 +105,7 @@ const table = useVueTable({
             },
           });
         },
-      },
+      } as ColumnDef<TData, TValue>,
       ...props.columns,
     ];
   },
@@ -136,6 +141,36 @@ const table = useVueTable({
     maxSize: Number.MAX_SAFE_INTEGER,
   },
 });
+
+const toggleMultiContextColumns = () => {
+  if (!table) {
+    return;
+  }
+
+  const isMultiContext = contexts.value.size > 1;
+  let isMultiNamespace = isMultiContext;
+  if (contexts.value.size === 1) {
+    const firstContext = contexts.value.values().next().value;
+    if (firstContext) {
+      isMultiNamespace = firstContext.length > 1 || firstContext[0] === "all";
+    }
+  }
+
+  table.setColumnVisibility({
+    context: isMultiContext,
+    namespace: isMultiContext || isMultiNamespace,
+  });
+};
+
+const { contexts } = injectStrict(KubeContextStateKey);
+
+watch(
+  contexts,
+  () => {
+    toggleMultiContextColumns();
+  },
+  { immediate: true, deep: true }
+);
 
 const rows = computed(() => {
   return table.getRowModel().rows;
@@ -317,18 +352,22 @@ const hasRowClickListener = computed(() => {
               <ContextMenuSub>
                 <ContextMenuSubTrigger>Columns</ContextMenuSubTrigger>
                 <ContextMenuSubContent>
-                  <ContextMenuCheckboxItem
+                  <template
                     v-for="column in table.getAllColumns()"
                     :key="column.id"
-                    :checked="column.getIsVisible()"
-                    @select="
-                      table.setColumnVisibility({
-                        [column.id]: !column.getIsVisible(),
-                      })
-                    "
                   >
-                    {{ column.columnDef.header }}
-                  </ContextMenuCheckboxItem>
+                    <ContextMenuCheckboxItem
+                      v-if="column.getCanHide()"
+                      :checked="column.getIsVisible()"
+                      @select="
+                        table.setColumnVisibility({
+                          [column.id]: !column.getIsVisible(),
+                        })
+                      "
+                    >
+                      {{ column.columnDef.header }}
+                    </ContextMenuCheckboxItem>
+                  </template>
                 </ContextMenuSubContent>
               </ContextMenuSub>
             </ContextMenuContent>

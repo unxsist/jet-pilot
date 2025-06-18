@@ -1,6 +1,8 @@
 import { ColumnDef } from "@tanstack/vue-table";
+import { multiContextColumns } from "./multicontext";
 
 export const columns: ColumnDef<any>[] = [
+  ...multiContextColumns,
   {
     header: "Name",
     size: 400,

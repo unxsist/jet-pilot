@@ -18,6 +18,17 @@ import { VirtualService } from "@kubernetes-models/istio/networking.istio.io/v1b
 import { invoke } from "@tauri-apps/api/core";
 import { Command } from "@tauri-apps/plugin-shell";
 
+export type Namespace = {
+  name: string;
+};
+
+export type Context = {
+  context: string;
+  kubeConfig: string;
+  defaultNamespace?: string;
+  namespaces?: Array<Namespace>;
+};
+
 export interface KubernetesError {
   message: string;
   code: number;

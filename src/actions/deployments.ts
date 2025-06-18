@@ -6,13 +6,13 @@ import { BaseDialogInterface } from "@/providers/DialogProvider";
 import { Kubernetes } from "@/services/Kubernetes";
 import { useToast } from "@/components/ui/toast";
 
-export function actions<T extends V1Deployment>(
+export function actions<
+  T extends V1Deployment & { metadata: { context: string; kubeConfig: string } }
+>(
   addTab: any,
   spawnDialog: any,
   setSidePanelComponent: any,
-  router: Router,
-  context: string,
-  kubeConfig: string
+  router: Router
 ): RowAction<T>[] {
   return [
     {
@@ -23,9 +23,9 @@ export function actions<T extends V1Deployment>(
           `${row.metadata?.name}`,
           defineAsyncComponent(() => import("@/views/StructuredLogViewer.vue")),
           {
-            context: context,
+            context: row.metadata.context,
             namespace: row.metadata?.namespace ?? "",
-            kubeConfig: kubeConfig,
+            kubeConfig: row.metadata.kubeConfig,
             object: `deployment/${row.metadata?.name}`,
           },
           "logs"
@@ -42,9 +42,9 @@ export function actions<T extends V1Deployment>(
             () => import("@/views/dialogs/PortForward.vue")
           ),
           props: {
-            context: context,
+            context: row.metadata.context,
             namespace: row.metadata?.namespace ?? "",
-            kubeConfig: kubeConfig,
+            kubeConfig: row.metadata.kubeConfig,
             object: row,
           },
           buttons: [],
@@ -71,7 +71,7 @@ export function actions<T extends V1Deployment>(
               handler: (dialog) => {
                 rows.forEach((row) => {
                   Kubernetes.restartDeployment(
-                    context,
+                    row.metadata.context,
                     row.metadata?.namespace || "",
                     row.metadata?.name || ""
                   )
@@ -97,13 +97,6 @@ export function actions<T extends V1Deployment>(
         spawnDialog(dialog);
       },
     },
-    ...scalableActions(
-      addTab,
-      spawnDialog,
-      setSidePanelComponent,
-      router,
-      context,
-      kubeConfig
-    ),
+    ...scalableActions(addTab, spawnDialog, setSidePanelComponent, router),
   ];
 }

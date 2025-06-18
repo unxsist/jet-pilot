@@ -1,8 +1,10 @@
 import { V1PersistentVolumeClaim } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
 import { formatDateTimeDifference } from "@/lib/utils";
+import { multiContextColumns } from "./multicontext";
 
 export const columns: ColumnDef<V1PersistentVolumeClaim>[] = [
+  ...multiContextColumns,
   {
     accessorKey: "metadata.name",
     header: "Name",

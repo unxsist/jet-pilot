@@ -1,8 +1,10 @@
 import { ColumnDef } from "@tanstack/vue-table";
 import { formatDateTimeDifference } from "@/lib/utils";
 import { parseJSON } from "date-fns";
+import { multiContextColumns } from "./multicontext";
 
 export const columns: ColumnDef<any>[] = [
+  ...multiContextColumns,
   {
     accessorKey: "name",
     header: "Name",

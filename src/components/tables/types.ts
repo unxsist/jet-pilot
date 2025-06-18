@@ -29,12 +29,14 @@ export interface MassWithHandler<T> extends BaseRowAction<T> {
 
 export type RowAction<T> = WithOptions<T> | WithHandler<T> | MassWithHandler<T>;
 
-export function getDefaultActions<T extends KubernetesObject | VirtualService>(
+export function getDefaultActions<
+  T extends
+    | (KubernetesObject & { metadata: { context: string; kubeConfig: string } })
+    | (VirtualService & { metadata: { context: string; kubeConfig: string } })
+>(
   addTab: any,
   spawnDialog: any,
   setSidePanelComponent: any,
-  context: string,
-  kubeConfig: string,
   isGenericResource = false
 ): RowAction<T>[] {
   return [
@@ -61,9 +63,9 @@ export function getDefaultActions<T extends KubernetesObject | VirtualService>(
           `${row.metadata?.name}`,
           defineAsyncComponent(() => import("@/views/ObjectEditor.vue")),
           {
-            context: context,
+            context: row.metadata.context,
             namespace: row.metadata?.namespace,
-            kubeConfig: kubeConfig,
+            kubeConfig: row.metadata.kubeConfig,
             type: row.kind,
             name: row.metadata?.name,
             useKubeCtl: isGenericResource,
@@ -80,9 +82,9 @@ export function getDefaultActions<T extends KubernetesObject | VirtualService>(
           `${row.metadata?.name}`,
           defineAsyncComponent(() => import("@/views/Describe.vue")),
           {
-            context: context,
+            context: row.metadata.context,
             namespace: row.metadata?.namespace,
-            kubeConfig: kubeConfig,
+            kubeConfig: row.metadata.kubeConfig,
             type: row.kind,
             name: row.metadata?.name,
           },
@@ -112,11 +114,11 @@ export function getDefaultActions<T extends KubernetesObject | VirtualService>(
                     "delete",
                     `${row.kind}/${row.metadata?.name}`,
                     "--context",
-                    context,
+                    row.metadata.context,
                     "--namespace",
                     row.metadata?.namespace || "",
                     "--kubeconfig",
-                    kubeConfig,
+                    row.metadata.kubeConfig,
                   ]);
 
                   command.stderr.on("data", (e: string) => {

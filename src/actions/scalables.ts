@@ -9,17 +9,17 @@ import { Router } from "vue-router";
 
 export function actions<
   T extends
-    | V1ReplicaSet
-    | V1Deployment
-    | V1ReplicationController
-    | V1StatefulSet
+    | (V1ReplicaSet & { metadata: { context: string; kubeConfig: string } })
+    | (V1Deployment & { metadata: { context: string; kubeConfig: string } })
+    | (V1ReplicationController & {
+        metadata: { context: string; kubeConfig: string };
+      })
+    | (V1StatefulSet & { metadata: { context: string; kubeConfig: string } })
 >(
   addTab: any,
   spawnDialog: any,
   setSidePanelComponent: any,
-  router: Router,
-  context: string,
-  kubeConfig: string
+  router: Router
 ): RowAction<T>[] {
   return [
     {
@@ -33,8 +33,6 @@ export function actions<
             () => import("@/views/dialogs/ScaleResource.vue")
           ),
           props: {
-            context: context,
-            kubeConfig: kubeConfig,
             objects: rows,
           },
           buttons: [],
