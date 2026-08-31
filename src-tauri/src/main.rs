@@ -161,6 +161,7 @@ fn main() {
             kubernetes::client::set_current_kubeconfig,
             kubernetes::client::list_contexts,
             kubernetes::client::get_context_auth_info,
+            kubernetes::client::login_exec_auth,
             kubernetes::client::get_current_context,
             kubernetes::client::list_namespaces,
             kubernetes::client::get_core_api_versions,

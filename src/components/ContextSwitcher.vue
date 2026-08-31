@@ -98,9 +98,9 @@ onMounted(() => {
               if (authErrorHandler.canHandle) {
                 clusterAuthenticated.value = false;
                 spawnDialog({
-                  title: "SSO Session expired",
+                  title: "Authentication required",
                   message:
-                    "Failed to authenticate as the SSO session has expired. Please login again.",
+                    "Failed to authenticate with this cluster. Please log in to continue.",
                   buttons: [
                     {
                       label: "Close",
@@ -111,16 +111,36 @@ onMounted(() => {
                       },
                     },
                     {
-                      label: "Login with SSO",
-                      handler: (dialog) => {
+                      label: "Login",
+                      handler: async (dialog) => {
                         dialog.buttons = [];
-                        dialog.title = "Awaiting SSO login";
-                        dialog.message = "Please wait while we redirect you.";
-                        authErrorHandler.callback(() => {
-                          dialog.close();
-                          clusterAuthenticated.value = true;
-                          rerunLastCommand();
-                        });
+                        dialog.title = "Awaiting login";
+                        dialog.message =
+                          "Please wait while we complete the login flow.";
+                        authErrorHandler.callback(
+                          (instructions?: string) => {
+                            if (instructions) {
+                              dialog.title = "Complete login in your browser";
+                              // The dialog only renders plain text, and plugin
+                              // output can be long - keep the most useful part.
+                              dialog.message = instructions.slice(0, 2000);
+                              dialog.buttons = [
+                                {
+                                  label: "I've completed the login",
+                                  handler: (dialog) => {
+                                    dialog.close();
+                                    clusterAuthenticated.value = true;
+                                    rerunLastCommand();
+                                  },
+                                },
+                              ];
+                            } else {
+                              dialog.close();
+                              clusterAuthenticated.value = true;
+                              rerunLastCommand();
+                            }
+                          }
+                        );
                       },
                     },
                   ],

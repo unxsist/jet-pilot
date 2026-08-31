@@ -25,6 +25,24 @@ export interface KubernetesError {
   details: any;
 }
 
+export interface ExecAuthOutput {
+  command: string;
+  stdout: string;
+  stderr: string;
+}
+
+// Exec credential plugin binaries the app can trigger a login flow for.
+// kubelogin (Azure AKS + generic OIDC), `kubectl oidc-login` (GKE / generic
+// OIDC) and gke-gcloud-auth-plugin (GKE).
+const EXEC_AUTH_PLUGINS = ["kubelogin", "oidc-login"];
+
+function getExecCommand(authInfo: any): string | null {
+  const command = authInfo?.exec?.command;
+  if (typeof command !== "string") return null;
+  const basename = command.split(/[\\/]/).pop() || command;
+  return basename;
+}
+
 export class Kubernetes {
   static async getAuthErrorHandler(
     context: string,
@@ -32,7 +50,7 @@ export class Kubernetes {
     errorMessage: string
   ): Promise<{
     canHandle: boolean;
-    callback: (authCompletedCallback?: () => void) => void;
+    callback: (authCompletedCallback?: (instructions?: string) => void) => void;
   }> {
     // AWS SSO
     if (
@@ -71,12 +89,68 @@ export class Kubernetes {
       };
     }
 
+    // Exec credential plugins: kubelogin / oidc-login (and similar). These are
+    // used by AKS (kubelogin), GKE (gke-gcloud-auth-plugin, `kubectl
+    // oidc-login`) and other OIDC-protected clusters. The plugin needs to run
+    // interactively (device-code / browser flow), which can't happen in the GUI
+    // app - so we surface the plugin output (the URL / code) to the user and
+    // let them complete the login, then retry.
+    const context_auth_info = (await invoke("get_context_auth_info", {
+      context: context,
+      kubeConfig: kubeConfig,
+    })) as any;
+
+    const execCommand = getExecCommand(context_auth_info);
+    const isExecPluginAuth =
+      execCommand !== null &&
+      (EXEC_AUTH_PLUGINS.includes(execCommand) ||
+        kubeconfigAuthFlowFailed(errorMessage));
+
+    if (isExecPluginAuth) {
+      return {
+        canHandle: true,
+        callback: async (
+          authCompletedCallback?: (instructions?: string) => void
+        ) => {
+          try {
+            const authOutput = (await invoke("login_exec_auth", {
+              context: context,
+              kubeConfig: kubeConfig,
+            })) as ExecAuthOutput;
+
+            const instructions = [authOutput.stderr, authOutput.stdout]
+              .map((part) => part.trim())
+              .filter(Boolean)
+              .join("\n\n");
+
+            if (instructions) {
+              authCompletedCallback?.(instructions);
+            } else {
+              authCompletedCallback?.();
+            }
+          } catch (e: any) {
+            authCompletedCallback?.(e?.message || String(e));
+          }
+        },
+      };
+    }
+
     return {
       canHandle: false,
       callback: () => {
         // Do nothing
       },
     };
+  }
+
+  private static kubeconfigAuthFlowFailed(errorMessage: string): boolean {
+    return (
+      errorMessage.toLowerCase().includes("exec credential plugin") ||
+      errorMessage.toLowerCase().includes("exec plugin") ||
+      errorMessage.toLowerCase().includes("kubelogin") ||
+      errorMessage.toLowerCase().includes("oidc") ||
+      errorMessage.toLowerCase().includes("auth exec")
+    );
   }
 
   static async getCurrentContext(): Promise<string> {
