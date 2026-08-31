@@ -13,6 +13,7 @@ use tracing_subscriber::fmt::MakeWriter;
 
 mod kubernetes;
 mod logs;
+mod port_forward;
 mod shell;
 
 #[derive(Debug, Serialize, Clone)]
@@ -152,7 +153,7 @@ fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_http::init());
 
-    builder
+    let app = builder
         .invoke_handler(tauri::generate_handler![
             update_log_level,
             write_log,
@@ -193,6 +194,9 @@ fn main() {
             kubernetes::client::get_pod_metric,
             kubernetes::client::trigger_cronjob,
             kubernetes::client::run_kubectl,
+            port_forward::start_port_forward,
+            port_forward::stop_port_forward,
+            port_forward::list_port_forwards,
             shell::tty::create_tty_session,
             shell::tty::stop_tty_session,
             shell::tty::write_to_pty,
@@ -272,6 +276,13 @@ fn main() {
 
             Ok(())
         })
-        .run(ctx)
-        .expect("Error while starting JET Pilot");
+        .build(ctx)
+        .expect("Error while building JET Pilot");
+
+    app.run(|_app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            // Don't orphan kubectl port-forward processes when the app closes.
+            port_forward::kill_all_port_forwards();
+        }
+    });
 }
