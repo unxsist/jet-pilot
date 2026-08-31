@@ -36,6 +36,13 @@ const portForwardModel = ref({
   localPort: "",
   address: "localhost",
   openInBrowser: false,
+  // TTL in hours; "0" (default) means keep running until stopped manually.
+  ttlHours: "0",
+});
+
+const ttlSeconds = computed(() => {
+  const hours = parseInt(portForwardModel.value.ttlHours);
+  return hours > 0 ? hours * 3600 : null;
 });
 
 const isV1Pod = (object: V1Pod | V1Deployment | V1Service): object is V1Pod => {
@@ -123,6 +130,7 @@ const portForward = () => {
       objectPort: parseInt(portForwardModel.value.containerPort.split(":")[1]),
       localPort: parseInt(portForwardModel.value.localPort),
       address: portForwardModel.value.address,
+      ttlSeconds: ttlSeconds.value,
     },
     portForwardModel.value.openInBrowser
   )
@@ -134,10 +142,12 @@ const portForward = () => {
       });
       emit("closeDialog");
     })
-    .catch((error) => {
+    .catch((error: unknown) => {
+      const message =
+        error instanceof Error ? error.message : String(error ?? "Unknown error");
       toast({
         title: "Could not forward port",
-        description: error,
+        description: message,
         variant: "destructive",
         autoDismiss: true,
       });
@@ -180,6 +190,24 @@ onMounted(() => {
   <div class="flex items-center">
     <div class="w-1/3 flex-shrink-0"><Label for="">Address</Label></div>
     <Input v-model="portForwardModel.address" />
+  </div>
+  <div class="flex items-center">
+    <div class="w-1/3 flex-shrink-0"><Label for="">Time to live</Label></div>
+    <Select v-model="portForwardModel.ttlHours">
+      <SelectTrigger>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectLabel>Auto-stop after</SelectLabel>
+          <SelectItem value="0">No auto-stop</SelectItem>
+          <SelectItem value="1">1 hour</SelectItem>
+          <SelectItem value="4">4 hours</SelectItem>
+          <SelectItem value="8">8 hours</SelectItem>
+          <SelectItem value="24">24 hours</SelectItem>
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   </div>
   <div class="flex items-center">
     <div class="w-1/3 flex-shrink-0"></div>
