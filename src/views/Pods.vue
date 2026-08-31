@@ -9,6 +9,8 @@ import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 
 import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { RowAction, getDefaultActions } from "@/components/tables/types";
+import { ColumnDef } from "@tanstack/vue-table";
+import { namespaceColumn } from "@/components/tables/namespace";
 import { columns } from "@/components/tables/pods";
 import { useDataRefresher } from "@/composables/refresher";
 import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
@@ -38,6 +40,15 @@ const { toast } = useToast();
 
 const pods = ref<V1Pod & { metrics: PodMetric[] }[]>([]);
 const metrics = ref<Array<PodMetric[]>>([]);
+
+const tableColumns = computed<ColumnDef<any>[]>(() => {
+  // Global namespace selection is empty when "All namespaces" is active.
+  if (namespace.value) {
+    return columns;
+  }
+
+  return [namespaceColumn, ...columns];
+});
 
 const rowActions: RowAction<V1Pod>[] = [
   ...getDefaultActions<V1Pod>(
@@ -311,7 +322,9 @@ async function loadData(refresh = false) {
       metrics.value.forEach((metric) => {
         pods.value.forEach((pod) => {
           const podMetric = metric.find(
-            (m) => m.metadata?.name === pod.metadata?.name
+            (m) =>
+              m.metadata?.namespace === pod.metadata?.namespace &&
+              m.metadata?.name === pod.metadata?.name
           );
           if (podMetric) {
             pod.metrics.push(podMetric);
@@ -345,7 +358,7 @@ const { startRefreshing, stopRefreshing } = useDataRefresher(loadData, 5000, [
 <template>
   <DataTable
     :data="pods"
-    :columns="columns"
+    :columns="tableColumns"
     :allow-filter="true"
     :sticky-headers="true"
     :row-actions="rowActions"
