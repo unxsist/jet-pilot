@@ -18,7 +18,7 @@ jobs:
             args: "--target aarch64-apple-darwin"
           - platform: "macos-13" # Force x86_64 build on macOS 13, as the tauri github action uses process.arch to come up with the right signature filename
             args: "--target x86_64-apple-darwin"
-          - platform: "ubuntu-24.04"
+          - platform: "ubuntu-22.04"
             args: ""
           - platform: "windows-latest"
             args: ""
@@ -34,7 +34,7 @@ jobs:
           cache: "npm"
 
       - name: install dependencies (ubuntu only)
-        if: matrix.settings.platform == 'ubuntu-24.04'
+        if: matrix.settings.platform == 'ubuntu-22.04'
         run: |
           sudo apt update;
           sudo apt install -y \
@@ -47,20 +47,12 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev;
           sudo apt install -y \
-            libwebkit2gtk-4.1-0=2.44.0-2 \
-            libwebkit2gtk-4.1-dev=2.44.0-2 \
-            libjavascriptcoregtk-4.1-0=2.44.0-2 \
-            libjavascriptcoregtk-4.1-dev=2.44.0-2 \
-            gir1.2-javascriptcoregtk-4.1=2.44.0-2 \
-            gir1.2-webkit2-4.1=2.44.0-2;
-
-      - name: Set-up OpenSSL (Windows only)
-        if: matrix.settings.platform == 'windows-latest'
-        run: |
-          mkdir -p "C:\Program Files\OpenSSL\ca"
-          curl -o "C:\Program Files\OpenSSL\ca\cacert.pem" https://curl.se/ca/cacert.pem
-          copy "C:\Program Files\OpenSSL\bin\libcrypto-1_1-x64.dll" .\src-tauri
-          copy "C:\Program Files\OpenSSL\bin\libssl-1_1-x64.dll" .\src-tauri
+            libwebkit2gtk-4.1-0 \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-0 \
+            libjavascriptcoregtk-4.1-dev \
+            gir1.2-javascriptcoregtk-4.1 \
+            gir1.2-webkit2-4.1;
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -74,13 +66,6 @@ jobs:
 
       - name: Install dependencies
         run: npm install
-
-      - name: Set Windows Env Vars
-        if: matrix.settings.platform == 'windows-latest'
-        run: |
-          echo "OPENSSL_DIR='C:\Program Files\OpenSSL'" >> $env:GITHUB_ENV
-          echo "SSL_CERT_FILE='C:\Program Files\OpenSSL\ca\cacert.pem'" >> $env:GITHUB_ENV
-          echo "OPENSSL_NO_VENDOR=1" >> $env:GITHUB_ENV
 
       - name: Fetch release notes
         uses: actions/github-script@v7
@@ -96,22 +81,11 @@ jobs:
             });
             return release.body;
 
-      - name: Write Private API key to file (OSX)
-        if: matrix.settings.platform == 'macos-latest' || matrix.settings.platform == 'macos-13'
-        run: |
-          echo "${{ secrets.APPLE_PRIVATE_API_KEY_CONTENTS }}" > $HOME/apple_private_api_key.p8
-          echo "APPLE_API_KEY_PATH=$HOME/apple_private_api_key.p8" >> $GITHUB_ENV
-
       - name: Create release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         with:
           tagName: v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version
           releaseName: "v__VERSION__"

@@ -1,6 +1,7 @@
 name: Build
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -16,7 +17,7 @@ on:
       - "src-tauri/**"
       - "tests/**"
       - "package-lock.json"
-      - ".github/workflows/test.yml"
+      - ".github/workflows/**"
 
 concurrency:
   group: build-${{ github.ref }}
@@ -25,16 +26,16 @@ concurrency:
 jobs:
   test-build:
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
-        platform: [macos-latest, ubuntu-24.04, windows-latest]
+        platform: [macos-latest, ubuntu-22.04, windows-latest]
 
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Use Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 18
           cache: "npm"
@@ -43,9 +44,7 @@ jobs:
         run: npm install
 
       - name: Install Rust stable
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -53,7 +52,7 @@ jobs:
           workspaces: "./src-tauri -> target"
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-24.04'
+        if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt update;
           sudo apt install -y \
@@ -66,27 +65,12 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev;
           sudo apt install -y \
-            libwebkit2gtk-4.1-0=2.44.0-2 \
-            libwebkit2gtk-4.1-dev=2.44.0-2 \
-            libjavascriptcoregtk-4.1-0=2.44.0-2 \
-            libjavascriptcoregtk-4.1-dev=2.44.0-2 \
-            gir1.2-javascriptcoregtk-4.1=2.44.0-2 \
-            gir1.2-webkit2-4.1=2.44.0-2;
-
-      - name: Set-up OpenSSL (Windows Only)
-        if: matrix.platform == 'windows-latest'
-        run: |
-          mkdir -p "C:\Program Files\OpenSSL\ca"
-          curl -o "C:\Program Files\OpenSSL\ca\cacert.pem" https://curl.se/ca/cacert.pem
-          copy "C:\Program Files\OpenSSL\bin\libcrypto-1_1-x64.dll" .\src-tauri
-          copy "C:\Program Files\OpenSSL\bin\libssl-1_1-x64.dll" .\src-tauri
-
-      - name: Set Windows Env Vars
-        if: matrix.platform == 'windows-latest'
-        run: |
-          echo "OPENSSL_DIR='C:\Program Files\OpenSSL'" >> $env:GITHUB_ENV
-          echo "SSL_CERT_FILE='C:\Program Files\OpenSSL\ca\cacert.pem'" >> $env:GITHUB_ENV
-          echo "OPENSSL_NO_VENDOR=1" >> $env:GITHUB_ENV
+            libwebkit2gtk-4.1-0 \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-0 \
+            libjavascriptcoregtk-4.1-dev \
+            gir1.2-javascriptcoregtk-4.1 \
+            gir1.2-webkit2-4.1;
 
       - name: Build Vite + Tauri
         env:
