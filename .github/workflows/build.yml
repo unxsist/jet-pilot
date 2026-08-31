@@ -26,7 +26,7 @@ concurrency:
 jobs:
   test-build:
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         platform: [macos-latest, ubuntu-22.04, windows-latest]
 
@@ -71,21 +71,6 @@ jobs:
             libjavascriptcoregtk-4.1-dev \
             gir1.2-javascriptcoregtk-4.1 \
             gir1.2-webkit2-4.1;
-
-      - name: Set-up OpenSSL (Windows Only)
-        if: matrix.platform == 'windows-latest'
-        run: |
-          mkdir -p "C:\Program Files\OpenSSL\ca"
-          curl -o "C:\Program Files\OpenSSL\ca\cacert.pem" https://curl.se/ca/cacert.pem
-          copy "C:\Program Files\OpenSSL\bin\libcrypto-1_1-x64.dll" .\src-tauri
-          copy "C:\Program Files\OpenSSL\bin\libssl-1_1-x64.dll" .\src-tauri
-
-      - name: Set Windows Env Vars
-        if: matrix.platform == 'windows-latest'
-        run: |
-          echo "OPENSSL_DIR='C:\Program Files\OpenSSL'" >> $env:GITHUB_ENV
-          echo "SSL_CERT_FILE='C:\Program Files\OpenSSL\ca\cacert.pem'" >> $env:GITHUB_ENV
-          echo "OPENSSL_NO_VENDOR=1" >> $env:GITHUB_ENV
 
       - name: Build Vite + Tauri
         env:
