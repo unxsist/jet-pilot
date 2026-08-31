@@ -4,6 +4,7 @@ import { PodMetric, V1Pod } from "@kubernetes/client-node";
 import { Kubernetes } from "@/services/Kubernetes";
 import { ref, h } from "vue";
 import { useToast, ToastAction } from "@/components/ui/toast";
+import { error } from "@/lib/logger";
 
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 
@@ -21,6 +22,7 @@ const {
   namespace,
   kubeConfig,
   contexts,
+  contextKubeConfigMapping,
   authenticated: clusterAuthenticated,
 } = injectStrict(KubeContextStateKey);
 
@@ -51,8 +53,15 @@ type ContextAwarePod = V1Pod & {
   };
 } & { metrics: PodMetric[] };
 
+type ContextAwarePodMetric = PodMetric & {
+  metadata: PodMetric["metadata"] & {
+    context: string;
+    kubeConfig: string;
+  };
+};
+
 const pods = ref<ContextAwarePod[]>([]);
-const metrics = ref<Array<PodMetric[]>>([]);
+const metrics = ref<Array<ContextAwarePodMetric[]>>([]);
 
 const tableColumns = computed<ColumnDef<any>[]>(() => {
   /*
@@ -227,6 +236,101 @@ const showDetails = (row: any) => {
   });
 };
 
+/*
+ * Per-context fetch of pods, tagged with the context + kubeconfig they were
+ * fetched with so row actions (logs/shell/port-forward/...) target the
+ * right cluster.
+ */
+const fetchPodsForContext = async (
+  ctx: string,
+  namespaces: string[]
+): Promise<ContextAwarePod[]> => {
+  const kubeConfig = contextKubeConfigMapping.value.get(ctx);
+  if (!kubeConfig) {
+    return [];
+  }
+
+  const fetchArgs = (nsScope: string | null): string[] => {
+    const args = ["get", "pods", "-o", "json"];
+    args.push("--context", ctx);
+    args.push("--kubeconfig", kubeConfig);
+    args.push(nsScope ? "--namespace" : "--all-namespaces");
+    if (nsScope) {
+      args.push(nsScope);
+    }
+    return args;
+  };
+
+  const scopes: (string | null)[] =
+    namespaces.includes("all") ? [null] : namespaces;
+
+  const rows: ContextAwarePod[] = [];
+  for (const nsScope of scopes) {
+    const data = await Kubernetes.kubectl(fetchArgs(nsScope));
+    const items = JSON.parse(data).items as V1Pod[];
+
+    for (const pod of items) {
+      rows.push({
+        ...pod,
+        metadata: {
+          ...pod.metadata,
+          context: ctx,
+          kubeConfig,
+        },
+      } as ContextAwarePod);
+    }
+  }
+
+  return rows;
+};
+
+/*
+ * Per-context fetch of pod metrics; rows carry the context so metrics can be
+ * matched to pods without confusing same-named pods across clusters.
+ */
+const fetchPodMetricsForContext = async (
+  ctx: string,
+  namespaces: string[]
+): Promise<ContextAwarePodMetric[]> => {
+  const kubeConfig = contextKubeConfigMapping.value.get(ctx);
+  if (!kubeConfig) {
+    return [];
+  }
+
+  const fetchArgs = (nsScope: string | null): string[] => {
+    const args = ["get", "podmetrics", "-o", "json"];
+    args.push("--context", ctx);
+    args.push("--kubeconfig", kubeConfig);
+    args.push(nsScope ? "--namespace" : "--all-namespaces");
+    if (nsScope) {
+      args.push(nsScope);
+    }
+    return args;
+  };
+
+  const scopes: (string | null)[] =
+    namespaces.includes("all") ? [null] : namespaces;
+
+  const rows: ContextAwarePodMetric[] = [];
+  for (const nsScope of scopes) {
+    const data = await Kubernetes.kubectl(fetchArgs(nsScope));
+    const items = JSON.parse(data).items as PodMetric[];
+
+    for (const metric of items) {
+      rows.push({
+        ...metric,
+        metadata: {
+          ...metric.metadata,
+          context: ctx,
+          kubeConfig,
+        },
+      } as ContextAwarePodMetric);
+    }
+  }
+
+  return rows;
+};
+
 async function getPods(): Promise<ContextAwarePod[]> {
   const args = [
     "get",
@@ -258,7 +362,7 @@ async function getPods(): Promise<ContextAwarePod[]> {
   );
 }
 
-async function getPodMetrics(): Promise<PodMetric[]> {
+async function getPodMetrics(): Promise<ContextAwarePodMetric[]> {
   const args = [
     "get",
     "podmetrics",
@@ -276,7 +380,17 @@ async function getPodMetrics(): Promise<PodMetric[]> {
     args.push("--all-namespaces");
   }
 
-  return JSON.parse(await Kubernetes.kubectl(args)).items as PodMetric[];
+  return (JSON.parse(await Kubernetes.kubectl(args)).items as PodMetric[]).map(
+    (metric) =>
+      ({
+        ...metric,
+        metadata: {
+          ...metric.metadata,
+          context: context.value,
+          kubeConfig: kubeConfig.value,
+        },
+      } as ContextAwarePodMetric)
+  );
 }
 
 async function loadData(refresh = false) {
@@ -284,102 +398,162 @@ async function loadData(refresh = false) {
     pods.value = [];
   }
 
-  Promise.allSettled([getPods(), getPodMetrics()]).then(async (results) => {
-    if (results[0].status === "rejected") {
-      const authErrorHandler = await Kubernetes.getAuthErrorHandler(
-        context.value,
-        kubeConfig.value,
-        results[0].reason
-      );
+  const applyMetrics = (metricSnapshots: ContextAwarePodMetric[][]) => {
+    pods.value.forEach((pod) => {
+      for (const snapshot of metricSnapshots) {
+        const podMetric = snapshot.find(
+          (m) =>
+            m.metadata?.context === pod.metadata?.context &&
+            m.metadata?.namespace === pod.metadata?.namespace &&
+            m.metadata?.name === pod.metadata?.name
+        );
+        if (podMetric) {
+          pod.metrics.push(podMetric);
+        }
+      }
+    });
+  };
 
-      if (authErrorHandler.canHandle) {
-        clusterAuthenticated.value = false;
-        stopRefreshing();
-        spawnDialog({
-          title: "Authentication required",
-          message:
-            "Failed to authenticate with this cluster. Please log in to continue.",
-          buttons: [
-            {
-              label: "Close",
-              variant: "ghost",
-              handler: (dialog) => {
-                dialog.close();
+  /*
+   * Legacy single-context mode: no contexts activated through the switcher.
+   * Fetch using the global context/namespace selection as before.
+   */
+  if (contexts.value.size === 0) {
+    Promise.allSettled([getPods(), getPodMetrics()]).then(async (results) => {
+      if (results[0].status === "rejected") {
+        const authErrorHandler = await Kubernetes.getAuthErrorHandler(
+          context.value,
+          kubeConfig.value,
+          results[0].reason
+        );
+
+        if (authErrorHandler.canHandle) {
+          clusterAuthenticated.value = false;
+          stopRefreshing();
+          spawnDialog({
+            title: "Authentication required",
+            message:
+              "Failed to authenticate with this cluster. Please log in to continue.",
+            buttons: [
+              {
+                label: "Close",
+                variant: "ghost",
+                handler: (dialog) => {
+                  dialog.close();
+                },
               },
-            },
-            {
-              label: "Login",
-              handler: async (dialog) => {
-                dialog.buttons = [];
-                dialog.title = "Awaiting login";
-                dialog.message =
-                  "Please wait while we complete the login flow.";
-                authErrorHandler.callback((instructions?: string) => {
-                  if (instructions) {
-                    dialog.title = "Complete login in your browser";
-                    dialog.message = instructions.slice(0, 2000);
-                    dialog.buttons = [
-                      {
-                        label: "I've completed the login",
-                        handler: (dialog) => {
-                          dialog.close();
-                          clusterAuthenticated.value = true;
-                          startRefreshing();
+              {
+                label: "Login",
+                handler: async (dialog) => {
+                  dialog.buttons = [];
+                  dialog.title = "Awaiting login";
+                  dialog.message =
+                    "Please wait while we complete the login flow.";
+                  authErrorHandler.callback((instructions?: string) => {
+                    if (instructions) {
+                      dialog.title = "Complete login in your browser";
+                      dialog.message = instructions.slice(0, 2000);
+                      dialog.buttons = [
+                        {
+                          label: "I've completed the login",
+                          handler: (dialog) => {
+                            dialog.close();
+                            clusterAuthenticated.value = true;
+                            startRefreshing();
+                          },
                         },
-                      },
-                    ];
-                  } else {
-                    dialog.close();
-                    clusterAuthenticated.value = true;
-                    startRefreshing();
-                  }
-                });
+                      ];
+                    } else {
+                      dialog.close();
+                      clusterAuthenticated.value = true;
+                      startRefreshing();
+                    }
+                  });
+                },
               },
-            },
-          ],
-        });
-      } else {
-        toast({
-          title: "An error occured",
-          description: results[0].reason,
-          variant: "destructive",
-          action: h(
-            ToastAction,
-            { altText: "Retry", onClick: () => startRefreshing() },
-            { default: () => "Retry" }
-          ),
-        });
-        stopRefreshing();
+            ],
+          });
+        } else {
+          toast({
+            title: "An error occured",
+            description: results[0].reason,
+            variant: "destructive",
+            action: h(
+              ToastAction,
+              { altText: "Retry", onClick: () => startRefreshing() },
+              { default: () => "Retry" }
+            ),
+          });
+          stopRefreshing();
 
-        return;
-      }
-    }
-
-    pods.value = results[0].value.map((pod) => ({
-      ...pod,
-      metrics: [],
-    }));
-
-    if (results[1].status === "fulfilled") {
-      metrics.value.push(results[1].value);
-      if (metrics.value.length > 1) {
-        metrics.value.shift();
+          return;
+        }
       }
 
-      metrics.value.forEach((metric) => {
-        pods.value.forEach((pod) => {
-          const podMetric = metric.find(
-            (m) =>
-              m.metadata?.namespace === pod.metadata?.namespace &&
-              m.metadata?.name === pod.metadata?.name
-          );
-          if (podMetric) {
-            pod.metrics.push(podMetric);
-          }
-        });
-      });
+      pods.value = results[0].value.map((pod) => ({
+        ...pod,
+        metrics: [],
+      }));
+
+      if (results[1].status === "fulfilled") {
+        metrics.value.push(results[1].value);
+        if (metrics.value.length > 1) {
+          metrics.value.shift();
+        }
+
+        applyMetrics(metrics.value);
+      }
+    });
+
+    return;
+  }
+
+  /*
+   * Multi-context mode: aggregate pods + metrics across every activated
+   * (context, namespace) combination.
+   */
+  const aggregatedPods: ContextAwarePod[] = [];
+  const aggregatedMetrics: ContextAwarePodMetric[] = [];
+  let failedContexts = 0;
+
+  for (const [ctx, namespaces] of contexts.value) {
+    try {
+      const [ctxPods, ctxMetrics] = await Promise.all([
+        fetchPodsForContext(ctx, namespaces),
+        fetchPodMetricsForContext(ctx, namespaces),
+      ]);
+      aggregatedPods.push(...ctxPods);
+      aggregatedMetrics.push(...ctxMetrics);
+    } catch (e) {
+      failedContexts++;
+      error(`Failed to fetch pods for context ${ctx}: ${e}`);
     }
-  });
+  }
+
+  if (failedContexts === contexts.value.size && aggregatedPods.length === 0) {
+    toast({
+      title: "An error occured",
+      description: "Failed to fetch pods from any of the active contexts",
+      variant: "destructive",
+      action: h(
+        ToastAction,
+        { altText: "Retry", onClick: () => startRefreshing() },
+        { default: () => "Retry" }
+      ),
+    });
+    stopRefreshing();
+
+    return;
+  }
+
+  pods.value = aggregatedPods.map((pod) => ({
+    ...pod,
+    metrics: [],
+  }));
+
+  if (aggregatedMetrics.length > 0) {
+    applyMetrics([aggregatedMetrics]);
+  }
 }
 
 const rowClasses = (row: V1Pod) => {
@@ -397,8 +571,8 @@ const rowClasses = (row: V1Pod) => {
 };
 
 const { startRefreshing, stopRefreshing } = useDataRefresher(loadData, 5000, [
-  context,
-  namespace,
+  contexts.value,
+  contextKubeConfigMapping.value,
 ]);
 </script>
 
