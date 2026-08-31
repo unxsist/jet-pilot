@@ -18,6 +18,8 @@ pub mod client {
     use tokio::process::Command;
     use std::io;
 
+    #[cfg(windows)]
+    use std::os::windows::process::CommandExt;
 
     #[derive(Serialize)]
     pub enum DeletionResult {
@@ -750,12 +752,23 @@ pub mod client {
 
     #[tauri::command]
     pub async fn run_kubectl(args: Vec<String>) -> Result<String, String> {
-        let output = Command::new("kubectl")
-            .args(&args)
+        let mut cmd = Command::new("kubectl");
+        cmd.args(&args);
+
+        // On Windows, spawning a console-subsystem binary (kubectl, and via it
+        // exec-auth plugins like aws/gke-gcloud-auth-plugin/kubelogin) from a GUI
+        // app allocates a visible console window for EVERY call unless suppressed.
+        // Several views poll kubectl on an interval, so this opens dozens of
+        // terminal windows at once (issue #70). CREATE_NO_WINDOW (0x08000000)
+        // keeps the child attached to a hidden console.
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000);
+
+        let output = cmd
             .output()
             .await
             .map_err(|e| e.to_string())?;
-        
+
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).into_owned())
         } else {

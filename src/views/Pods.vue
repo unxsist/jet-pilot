@@ -336,7 +336,7 @@ const rowClasses = (row: V1Pod) => {
   return "";
 };
 
-const { startRefreshing, stopRefreshing } = useDataRefresher(loadData, 1000, [
+const { startRefreshing, stopRefreshing } = useDataRefresher(loadData, 5000, [
   context,
   namespace,
 ]);
