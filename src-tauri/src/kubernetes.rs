@@ -13,7 +13,9 @@ pub mod client {
     use kube::{api::Api, Client, Config, Error};
     use rand::distributions::DistString;
     use serde::Serialize;
+    use std::collections::HashMap;
     use std::sync::Mutex;
+    use std::time::Duration;
     use tracing::{debug, error, info, trace, warn};
     use tokio::process::Command;
     use std::io;
@@ -51,6 +53,59 @@ pub mod client {
                         details: None,
                     };
                 }
+                // Exec credential plugin errors (kubelogin / oidc-login /
+                // gke-gcloud-auth-plugin) carry the plugin's stderr, which
+                // usually contains the device-code URL or browser instructions
+                // the user needs to complete the OIDC login. Surface it so the
+                // UI can show it instead of a generic "auth error".
+                Error::Auth(auth_error) => {
+                    let message = match &auth_error {
+                        kube::client::AuthError::ExecPluginFailed { .. } => {
+                            "Exec credential plugin did not return credentials".to_string()
+                        }
+                        kube::client::AuthError::AuthExecStart(io_err) => {
+                            format!(
+                                "Unable to run the Kubernetes exec credential plugin ({}) - it may need to be installed separately. {}",
+                                io_err,
+                                hint_for_exec_plugin(io_err)
+                            )
+                        }
+                        kube::client::AuthError::AuthExecRun { out, .. } => {
+                            let stderr = String::from_utf8_lossy(&out.stderr);
+                            let stdout = String::from_utf8_lossy(&out.stdout);
+                            if !stderr.trim().is_empty() {
+                                format!(
+                                    "The Kubernetes exec credential plugin failed: {}\n\n{}",
+                                    stderr.trim(),
+                                    "Complete the login (e.g. open the URL above in a browser and enter the code) and try again."
+                                )
+                            } else if !stdout.trim().is_empty() {
+                                format!(
+                                    "The Kubernetes exec credential plugin failed: {}\n\nComplete the login and try again.",
+                                    stdout.trim()
+                                )
+                            } else {
+                                format!(
+                                    "The Kubernetes exec credential plugin failed ({}). Complete the login and try again.",
+                                    auth_error
+                                )
+                            }
+                        }
+                        kube::client::AuthError::ExecMissingClusterInfo => {
+                            "The exec credential plugin requires cluster info that is missing from the kubeconfig".to_string()
+                        }
+                        kube::client::AuthError::MissingCommand => {
+                            "The kubeconfig exec credential plugin is missing its command".to_string()
+                        }
+                        _ => auth_error.to_string(),
+                    };
+                    SerializableKubeError {
+                        message,
+                        code: None,
+                        reason: Some("ExecAuthFailed".to_string()),
+                        details: None,
+                    }
+                }
                 _ => {
                     return SerializableKubeError {
                         message: error.to_string(),
@@ -60,6 +115,14 @@ pub mod client {
                     };
                 }
             }
+        }
+    }
+
+    fn hint_for_exec_plugin(io_err: &std::io::Error) -> &'static str {
+        if io_err.kind() == std::io::ErrorKind::NotFound {
+            "Make sure the plugin binary (e.g. kubelogin, gke-gcloud-auth-plugin) is installed and on your PATH."
+        } else {
+            ""
         }
     }
 
@@ -748,6 +811,131 @@ pub mod client {
 
         info!("Successfully created manual job {} from cronjob {}", jobname, name);
         Ok(job)
+    }
+
+    /// Clears the cached kube client so the next API call rebuilds it. This is
+    /// needed after an interactive exec-plugin login (kubelogin / oidc-login)
+    /// completes: the cached client still holds the old, expired token.
+    fn clear_cached_client() {
+        CLIENT.lock().unwrap().take();
+        CURRENT_CONTEXT.lock().unwrap().replace(String::new());
+        info!("Cleared cached kube client after auth re-login");
+    }
+
+    /// Serialized result of running an exec credential plugin (kubelogin,
+    /// `kubectl oidc-login`, gke-gcloud-auth-plugin, ...). stdout holds the
+    /// machine readable ExecCredential, stderr usually contains the
+    /// human-readable device-code / browser instructions.
+    #[derive(Serialize)]
+    pub struct ExecAuthOutput {
+        pub command: String,
+        pub stdout: String,
+        pub stderr: String,
+    }
+
+    /// Runs the exec credential plugin configured for a context so the user can
+    /// complete an interactive OIDC login (device code / browser flow).
+    ///
+    /// The plugin may block while waiting for the user to finish logging in, so
+    /// this command has a generous timeout (3 minutes). It returns the plugin's
+    /// stdout and stderr so the UI can show the device-code URL and code.
+    #[tauri::command]
+    pub async fn login_exec_auth(
+        context: &str,
+        kube_config: &str,
+    ) -> Result<ExecAuthOutput, SerializableKubeError> {
+        debug!("Running exec credential plugin for context: {}", context);
+
+        let config = Kubeconfig::read_from(kube_config.to_string())
+            .map_err(SerializableKubeError::from)?;
+
+        let context_auth_info = config
+            .contexts
+            .iter()
+            .find(|c| c.name == context)
+            .and_then(|c| c.context.clone())
+            .map(|c| c.user)
+            .ok_or_else(|| SerializableKubeError {
+                message: "Context not found".to_string(),
+                code: None,
+                reason: None,
+                details: None,
+            })?;
+
+        let auth_info = config
+            .auth_infos
+            .iter()
+            .find(|a| a.name == context_auth_info)
+            .and_then(|a| a.auth_info.clone())
+            .ok_or_else(|| SerializableKubeError {
+                message: "Auth info not found".to_string(),
+                code: None,
+                reason: None,
+                details: None,
+            })?;
+
+        let exec = auth_info.exec.ok_or_else(|| SerializableKubeError {
+            message: "This context does not use an exec credential plugin".to_string(),
+            code: None,
+            reason: Some("NoExecPlugin".to_string()),
+            details: None,
+        })?;
+
+        let command = exec.command.clone().ok_or_else(|| SerializableKubeError {
+            message: "Exec credential plugin is missing its command".to_string(),
+            code: None,
+            reason: Some("NoExecPluginCommand".to_string()),
+            details: None,
+        })?;
+
+        let mut cmd = Command::new(&command);
+        if let Some(args) = &exec.args {
+            cmd.args(args);
+        }
+        if let Some(envs) = &exec.env {
+            let envs: HashMap<&str, &str> = envs
+                .iter()
+                .filter_map(|env| match (env.get("name"), env.get("value")) {
+                    (Some(name), Some(value)) => Some((name.as_str(), value.as_str())),
+                    _ => None,
+                })
+                .collect();
+            cmd.envs(envs);
+        }
+
+        // On Windows, spawning a console-subsystem binary from a GUI app
+        // allocates a visible console window unless suppressed (issue #70).
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000);
+
+        let output = tokio::time::timeout(Duration::from_secs(3 * 60), cmd.output())
+            .await
+            .map_err(|_| SerializableKubeError {
+                message: format!(
+                    "The exec credential plugin '{}' timed out after 3 minutes. Complete the login and try again.",
+                    command
+                ),
+                code: None,
+                reason: Some("ExecAuthTimeout".to_string()),
+                details: None,
+            })?
+            .map_err(|e| SerializableKubeError {
+                message: format!("Unable to run exec credential plugin '{}': {}", command, e),
+                code: None,
+                reason: Some("ExecAuthStart".to_string()),
+                details: None,
+            })?;
+
+        // The plugin may have refreshed/rotated the token on disk, so drop the
+        // cached client - the next API call will rebuild it and pick up the
+        // fresh credentials.
+        clear_cached_client();
+
+        Ok(ExecAuthOutput {
+            command,
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        })
     }
 
     #[tauri::command]
