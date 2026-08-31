@@ -10,13 +10,31 @@ pub mod client {
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::{APIGroup, APIResource};
     use kube::api::{DeleteParams, ListParams, ObjectMeta, PostParams};
     use kube::config::{KubeConfigOptions, Kubeconfig, KubeconfigError, NamedAuthInfo, NamedContext};
-    use kube::{api::Api, Client, Config, Error};
+    use k8s_openapi::NamespaceResourceScope;
+    use kube::{api::Api, Client, Config, Error, Resource};
     use rand::distributions::DistString;
     use serde::Serialize;
-    use std::sync::Mutex;
-    use tracing::{debug, error, info, trace, warn};
-    use tokio::process::Command;
     use std::io;
+    use std::sync::Mutex;
+    use tokio::process::Command;
+    use tracing::{debug, error, info, trace, warn};
+
+    #[cfg(windows)]
+    use std::os::windows::process::CommandExt;
+
+    /// Build a resource API that lists across all namespaces when the
+    /// frontend's global namespace selection is empty ("All namespaces"
+    /// mode), mirroring `kubectl get -A`. Otherwise scope to the namespace.
+    fn api_all_or_namespaced<K>(client: Client, namespace: &str) -> Api<K>
+    where
+        K: Resource<DynamicType = (), Scope = NamespaceResourceScope>,
+    {
+        if namespace.is_empty() {
+            Api::all(client)
+        } else {
+            Api::namespaced(client, namespace)
+        }
+    }
 
 
     #[derive(Serialize)]
@@ -281,7 +299,7 @@ pub mod client {
         trace!("Using selectors - label: {}, field: {}", label_selector, field_selector);
         
         let client = client_with_context(context).await?;
-        let pod_api: Api<Pod> = Api::namespaced(client, namespace);
+        let pod_api: Api<Pod> = api_all_or_namespaced(client, namespace);
 
         let pods = pod_api.list(
             &ListParams::default()
@@ -303,7 +321,7 @@ pub mod client {
     ) -> Result<Vec<PodMetrics>, SerializableKubeError> {
         debug!("Fetching pod metrics for namespace {} in context {}", namespace, context);
         let client = client_with_context(context).await?;
-        let metrics_api: Api<PodMetrics> = Api::namespaced(client, namespace);
+        let metrics_api: Api<PodMetrics> = api_all_or_namespaced(client, namespace);
 
         let metrics = metrics_api.list(&ListParams::default()).await.map_err(|err| {
             error!("Failed to get pod metrics for namespace {}: {}", namespace, err);
@@ -384,7 +402,7 @@ pub mod client {
         namespace: &str,
     ) -> Result<Vec<Deployment>, SerializableKubeError> {
         let client = client_with_context(context).await?;
-        let deployment_api: Api<Deployment> = Api::namespaced(client, namespace);
+        let deployment_api: Api<Deployment> = api_all_or_namespaced(client, namespace);
 
         return deployment_api
             .list(&ListParams::default())
@@ -443,7 +461,7 @@ pub mod client {
         namespace: &str,
     ) -> Result<Vec<Service>, SerializableKubeError> {
         let client = client_with_context(context).await?;
-        let services_api: Api<Service> = Api::namespaced(client, namespace);
+        let services_api: Api<Service> = api_all_or_namespaced(client, namespace);
 
         return services_api
             .list(&ListParams::default())
@@ -458,7 +476,7 @@ pub mod client {
         namespace: &str,
     ) -> Result<Vec<Job>, SerializableKubeError> {
         let client = client_with_context(context).await?;
-        let jobs_api: Api<Job> = Api::namespaced(client, namespace);
+        let jobs_api: Api<Job> = api_all_or_namespaced(client, namespace);
 
         return jobs_api
             .list(&ListParams::default())
@@ -473,7 +491,7 @@ pub mod client {
         namespace: &str,
     ) -> Result<Vec<CronJob>, SerializableKubeError> {
         let client = client_with_context(context).await?;
-        let cronjobs_api: Api<CronJob> = Api::namespaced(client, namespace);
+        let cronjobs_api: Api<CronJob> = api_all_or_namespaced(client, namespace);
 
         return cronjobs_api
             .list(&ListParams::default())
@@ -488,7 +506,7 @@ pub mod client {
         namespace: &str,
     ) -> Result<Vec<ConfigMap>, SerializableKubeError> {
         let client: Client = client_with_context(context).await?;
-        let configmaps_api: Api<ConfigMap> = Api::namespaced(client, namespace);
+        let configmaps_api: Api<ConfigMap> = api_all_or_namespaced(client, namespace);
 
         return configmaps_api
             .list(&ListParams::default())
@@ -503,7 +521,7 @@ pub mod client {
         namespace: &str,
     ) -> Result<Vec<Secret>, SerializableKubeError> {
         let client: Client = client_with_context(context).await?;
-        let secrets_api: Api<Secret> = Api::namespaced(client, namespace);
+        let secrets_api: Api<Secret> = api_all_or_namespaced(client, namespace);
 
         return secrets_api
             .list(&ListParams::default())
@@ -518,7 +536,7 @@ pub mod client {
         namespace: &str,
     ) -> Result<Vec<Ingress>, SerializableKubeError> {
         let client: Client = client_with_context(context).await?;
-        let ingress_api: Api<Ingress> = Api::namespaced(client, namespace);
+        let ingress_api: Api<Ingress> = api_all_or_namespaced(client, namespace);
 
         return ingress_api
             .list(&ListParams::default())
@@ -550,7 +568,7 @@ pub mod client {
         namespace: &str,
     ) -> Result<Vec<PersistentVolumeClaim>, SerializableKubeError> {
         let client: Client = client_with_context(context).await?;
-        let pvc_api: Api<PersistentVolumeClaim> = Api::namespaced(client, namespace);
+        let pvc_api: Api<PersistentVolumeClaim> = api_all_or_namespaced(client, namespace);
 
         return pvc_api
             .list(&ListParams::default())

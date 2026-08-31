@@ -6,6 +6,7 @@ import { onMounted } from "vue";
 import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { ColumnDef } from "@tanstack/vue-table";
 import { columns as defaultGenericColumns } from "@/components/tables/generic";
+import { namespaceColumn } from "@/components/tables/namespace";
 
 const route = useRoute();
 const router = useRouter();
@@ -36,6 +37,15 @@ const setSidePanelComponent = injectStrict(
 const columns = ref<ColumnDef<any>[]>([]);
 const rowActions = ref<RowAction<any>[]>([]);
 const refreshKey = ref<number>(0);
+
+const tableColumns = computed<ColumnDef<any>[]>(() => {
+  // Global namespace selection is empty when "All namespaces" is active.
+  if (namespace.value) {
+    return columns.value;
+  }
+
+  return [namespaceColumn, ...columns.value];
+});
 
 const initColumns = async (resource: string) => {
   try {
@@ -213,7 +223,7 @@ const { startRefreshing, stopRefreshing, isRefreshing } = useDataRefresher(
   <DataTable
     :key="`${route.query.resource}-${refreshKey}`"
     :data="resourceData"
-    :columns="columns"
+    :columns="tableColumns"
     :allow-filter="true"
     :sticky-headers="true"
     :row-actions="rowActions"
