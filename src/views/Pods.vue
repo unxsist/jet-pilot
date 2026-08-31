@@ -11,6 +11,7 @@ import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { ColumnDef } from "@tanstack/vue-table";
 import { namespaceColumn } from "@/components/tables/namespace";
+import { multiContextColumns } from "@/components/tables/multicontext";
 import { columns } from "@/components/tables/pods";
 import { useDataRefresher } from "@/composables/refresher";
 import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
@@ -19,6 +20,7 @@ const {
   context,
   namespace,
   kubeConfig,
+  contexts,
   authenticated: clusterAuthenticated,
 } = injectStrict(KubeContextStateKey);
 
@@ -38,25 +40,44 @@ const setSidePanelComponent = injectStrict(
 
 const { toast } = useToast();
 
-const pods = ref<V1Pod & { metrics: PodMetric[] }[]>([]);
+/*
+ * Pods are self-describing: each row carries the context + kubeconfig it was
+ * fetched with so actions target the right cluster.
+ */
+type ContextAwarePod = V1Pod & {
+  metadata: NonNullable<V1Pod["metadata"]> & {
+    context: string;
+    kubeConfig: string;
+  };
+} & { metrics: PodMetric[] };
+
+const pods = ref<ContextAwarePod[]>([]);
 const metrics = ref<Array<PodMetric[]>>([]);
 
 const tableColumns = computed<ColumnDef<any>[]>(() => {
-  // Global namespace selection is empty when "All namespaces" is active.
-  if (namespace.value) {
-    return columns;
+  /*
+   * Multi-context columns are always present (hidden by default); the
+   * VirtualDataTable toggles them based on the active context state. In
+   * legacy single-context mode (no active contexts) we additionally prepend
+   * the Namespace column when "All namespaces" is selected.
+   */
+  if (contexts.value.size > 0) {
+    return [...multiContextColumns, ...columns];
   }
 
-  return [namespaceColumn, ...columns];
+  // Global namespace selection is empty when "All namespaces" is active.
+  if (namespace.value) {
+    return [...multiContextColumns, ...columns];
+  }
+
+  return [...multiContextColumns, namespaceColumn, ...columns];
 });
 
-const rowActions: RowAction<V1Pod>[] = [
-  ...getDefaultActions<V1Pod>(
+const rowActions: RowAction<ContextAwarePod>[] = [
+  ...getDefaultActions<ContextAwarePod>(
     addTab,
     spawnDialog,
-    setSidePanelComponent,
-    context.value,
-    kubeConfig.value
+    setSidePanelComponent
   ),
   {
     label: "Shell",
@@ -87,8 +108,8 @@ const rowActions: RowAction<V1Pod>[] = [
                 `${row.metadata?.name}/${container.name}`,
                 defineAsyncComponent(() => import("@/views/Shell.vue")),
                 {
-                  kubeConfig: kubeConfig.value,
-                  context: context.value,
+                  kubeConfig: row.metadata.kubeConfig,
+                  context: row.metadata.context,
                   namespace: row.metadata?.namespace ?? namespace.value,
                   pod: row,
                   container: specContainer,
@@ -102,7 +123,7 @@ const rowActions: RowAction<V1Pod>[] = [
   },
   {
     label: "Port Forward",
-    handler: (row) => {
+    handler: (row: ContextAwarePod) => {
       spawnDialog({
         title: "Port Forward",
         message: "Forward ports from the pod to your local machine",
@@ -110,9 +131,9 @@ const rowActions: RowAction<V1Pod>[] = [
           () => import("@/views/dialogs/PortForward.vue")
         ),
         props: {
-          context: context.value,
+          context: row.metadata.context,
           namespace: row.metadata?.namespace ?? namespace.value,
-          kubeConfig: kubeConfig.value,
+          kubeConfig: row.metadata.kubeConfig,
           object: row,
         },
         buttons: [],
@@ -133,9 +154,9 @@ const rowActions: RowAction<V1Pod>[] = [
                 () => import("@/views/StructuredLogViewer.vue")
               ),
               {
-                context: context.value,
+                context: row.metadata.context,
                 namespace: row.metadata?.namespace ?? namespace.value,
-                kubeConfig: kubeConfig.value,
+                kubeConfig: row.metadata.kubeConfig,
                 object: row.metadata?.name,
               },
               "logs"
@@ -154,9 +175,9 @@ const rowActions: RowAction<V1Pod>[] = [
                   () => import("@/views/StructuredLogViewer.vue")
                 ),
                 {
-                  context: context.value,
+                  context: row.metadata.context,
                   namespace: row.metadata?.namespace ?? namespace.value,
-                  kubeConfig: kubeConfig.value,
+                  kubeConfig: row.metadata.kubeConfig,
                   object: row.metadata?.name,
                   container: container.name,
                 },
@@ -169,9 +190,9 @@ const rowActions: RowAction<V1Pod>[] = [
   },
   {
     label: "Kill",
-    handler: (row) => {
+    handler: (row: ContextAwarePod) => {
       Kubernetes.deletePod(
-        context.value,
+        row.metadata.context,
         row.metadata?.namespace ?? namespace.value,
         row.metadata?.name ?? ""
       )
@@ -206,7 +227,7 @@ const showDetails = (row: any) => {
   });
 };
 
-async function getPods(): Promise<V1Pod[]> {
+async function getPods(): Promise<ContextAwarePod[]> {
   const args = [
     "get",
     "pods",
@@ -224,7 +245,17 @@ async function getPods(): Promise<V1Pod[]> {
     args.push("--all-namespaces");
   }
 
-  return JSON.parse(await Kubernetes.kubectl(args)).items as V1Pod[];
+  return (JSON.parse(await Kubernetes.kubectl(args)).items as V1Pod[]).map(
+    (pod) =>
+      ({
+        ...pod,
+        metadata: {
+          ...pod.metadata,
+          context: context.value,
+          kubeConfig: kubeConfig.value,
+        },
+      } as ContextAwarePod)
+  );
 }
 
 async function getPodMetrics(): Promise<PodMetric[]> {

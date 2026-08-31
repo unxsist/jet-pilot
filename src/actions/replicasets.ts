@@ -3,13 +3,15 @@ import { RowAction } from "@/components/tables/types";
 import { Router } from "vue-router";
 import { actions as scalableActions } from "./scalables";
 
-export function actions<T extends V1ReplicaSet>(
+export function actions<
+  T extends V1ReplicaSet & {
+    metadata: { context: string; kubeConfig: string };
+  }
+>(
   addTab: any,
   spawnDialog: any,
   setSidePanelComponent: any,
-  router: Router,
-  context: string,
-  kubeConfig: string
+  router: Router
 ): RowAction<T>[] {
-  return [...scalableActions(addTab, spawnDialog, router, context, kubeConfig)];
+  return [...scalableActions(addTab, spawnDialog, setSidePanelComponent, router)];
 }
