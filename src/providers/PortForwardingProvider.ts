@@ -1,10 +1,12 @@
 import { provide, reactive, InjectionKey, toRefs, ToRefs } from "vue";
-import { Child, Command } from "@tauri-apps/plugin-shell";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-shell";
-import { error } from "@/lib/logger";
+import { error as logError } from "@/lib/logger";
 
-export const PortForwardingStateKey: InjectionKey<ToRefs<PortForwardingState>> =
-  Symbol("PortForwardingStateKey");
+export const PortForwardingStateKey: InjectionKey<
+  ToRefs<PortForwardingState>
+> = Symbol("PortForwardingStateKey");
 
 export const PortForwardingAddPortForwarding: InjectionKey<
   (
@@ -14,7 +16,7 @@ export const PortForwardingAddPortForwarding: InjectionKey<
 > = Symbol("PortForwardingAddPortForwarding");
 export const PortForwardingRemovePortForwarding: InjectionKey<
   (portForwarding: ActivePortForwarding) => void
-> = Symbol("PortForwardingAddPortForwarding");
+> = Symbol("PortForwardingRemovePortForwarding");
 
 export interface PortForwarding {
   kubeConfig: string;
@@ -25,15 +27,29 @@ export interface PortForwarding {
   objectPort: number;
   localPort: number;
   address: string;
+  /** Auto-stop the forward after this many seconds. `null`/`undefined` = keep running. */
+  ttlSeconds?: number | null;
 }
 
+export type ForwardStatus = "starting" | "ready" | "error";
+
+/** A forward as tracked by the Rust side (id + lifecycle status). */
 export interface ActivePortForwarding extends PortForwarding {
-  pid: number;
-  child: Child;
+  id: string;
+  status: ForwardStatus;
+  error: string | null;
+  startedAtMs: number;
+  expiresAtMs: number | null;
 }
 
 export interface PortForwardingState {
   activePortForwardings: ActivePortForwarding[];
+}
+
+interface PendingForward {
+  resolve: (portForwarding: ActivePortForwarding) => void;
+  reject: (error: Error) => void;
+  openInBrowser: boolean;
 }
 
 export default {
@@ -43,75 +59,144 @@ export default {
       activePortForwardings: [],
     });
 
+    // Resolves/rejects the promise returned by `addPortForwarding` once the
+    // back-end reports the forward as ready (or failed).
+    const pendingForwards = new Map<string, PendingForward>();
+
     provide(PortForwardingStateKey, toRefs(state));
 
-    const addPortForwarding = (
+    const upsertForward = (portForwarding: ActivePortForwarding) => {
+      const index = state.activePortForwardings.findIndex(
+        (pf) => pf.id === portForwarding.id
+      );
+      if (index >= 0) {
+        state.activePortForwardings.splice(index, 1, portForwarding);
+      } else {
+        state.activePortForwardings.push(portForwarding);
+      }
+    };
+
+    const removeForward = (id: string) => {
+      state.activePortForwardings = state.activePortForwardings.filter(
+        (pf) => pf.id !== id
+      );
+    };
+
+    const settleForward = (portForwarding: ActivePortForwarding) => {
+      const pending = pendingForwards.get(portForwarding.id);
+      if (!pending) {
+        return;
+      }
+      pendingForwards.delete(portForwarding.id);
+      if (portForwarding.status === "error") {
+        pending.reject(
+          new Error(portForwarding.error ?? "Port forwarding failed")
+        );
+      } else {
+        if (pending.openInBrowser) {
+          open(
+            `http://${portForwarding.address}:${portForwarding.localPort}`
+          ).catch((e) => logError(e));
+        }
+        pending.resolve(portForwarding);
+      }
+    };
+
+    // Lifecycle events emitted by the Rust port-forward manager. Registered
+    // once, before anything is started, so no event can be missed.
+    const unlisteners: Array<() => void> = [];
+    Promise.all([
+      listen<ActivePortForwarding>("port_forward_started", (event) => {
+        upsertForward(event.payload);
+      }),
+      listen<ActivePortForwarding>("port_forward_ready", (event) => {
+        upsertForward(event.payload);
+        settleForward(event.payload);
+      }),
+      listen<ActivePortForwarding>("port_forward_error", (event) => {
+        upsertForward(event.payload);
+        settleForward(event.payload);
+      }),
+      listen<{
+        id: string;
+        reason: "user" | "ttl" | "exited";
+        exitCode: number | null;
+      }>("port_forward_stopped", (event) => {
+        const { id, reason, exitCode } = event.payload;
+        removeForward(id);
+        const pending = pendingForwards.get(id);
+        if (pending) {
+          pendingForwards.delete(id);
+          pending.reject(
+            new Error(
+              reason === "exited"
+                ? `Port forwarding exited (exit code: ${
+                    exitCode ?? "unknown"
+                  })`
+                : "Port forwarding was stopped before it became available"
+            )
+          );
+        }
+      }),
+    ]).then((unlisten) => unlisteners.push(...unlisten));
+
+    // Re-sync with the Rust side in case the webview reloaded while forwards
+    // were still running (e.g. Vite dev HMR).
+    invoke<ActivePortForwarding[]>("list_port_forwards")
+      .then((portForwardings) => {
+        state.activePortForwardings = portForwardings;
+      })
+      .catch((e) => logError(`Failed to list port forwards: ${e}`));
+
+    const addPortForwarding = async (
       portForwarding: PortForwarding,
       openInBrowser: boolean
     ): Promise<ActivePortForwarding> => {
-      return new Promise((resolve, reject) => {
-        const args = [
-          "port-forward",
-          "--context",
-          portForwarding.context,
-          "--namespace",
-          portForwarding.namespace,
-          "--kubeconfig",
-          portForwarding.kubeConfig,
-          `${portForwarding.objectType}/${portForwarding.objectName}`,
-          `${portForwarding.localPort}:${portForwarding.objectPort}`,
-          `--address=${portForwarding.address}`,
-        ];
-        const command = Command.create("kubectl", args);
+      let info: ActivePortForwarding;
+      try {
+        info = await invoke<ActivePortForwarding>("start_port_forward", {
+          spec: portForwarding,
+        });
+      } catch (e) {
+        throw new Error(
+          typeof e === "string" ? e : e instanceof Error ? e.message : String(e)
+        );
+      }
+      upsertForward(info);
 
-        let child: Child | null = null;
-
-        command.stdout.on("data", async (data: string) => {
-          if (child !== null) {
-            if (
-              state.activePortForwardings.find((pf) => pf.pid === child?.pid)
-            ) {
-              return;
-            }
-
-            state.activePortForwardings.push({
-              ...portForwarding,
-              pid: child.pid,
-              child,
-            });
-
+      return new Promise<ActivePortForwarding>((resolve, reject) => {
+        // The back-end may have emitted ready/error before we stored the
+        // resolver (events and the invoke reply are independent IPC messages).
+        // Make sure the dialog does not hang in that case.
+        const current = state.activePortForwardings.find(
+          (pf) => pf.id === info.id
+        );
+        if (current && current.status !== "starting") {
+          if (current.status === "error") {
+            reject(new Error(current.error ?? "Port forwarding failed"));
+          } else {
             if (openInBrowser) {
-              open(
-                `http://${portForwarding.address}:${portForwarding.localPort}`
+              open(`http://${current.address}:${current.localPort}`).catch(
+                (e) => logError(e)
               );
             }
-
-            resolve(
-              state.activePortForwardings[
-                state.activePortForwardings.length - 1
-              ]
-            );
+            resolve(current);
           }
-        });
+          return;
+        }
 
-        command.stderr.on("data", (data: string) => {
-          error(`Failed to add port forwarding: ${data}`);
-          child?.kill();
-          reject(data);
-        });
-
-        command.spawn().then((childProcess: Child) => {
-          child = childProcess;
-        });
+        pendingForwards.set(info.id, { resolve, reject, openInBrowser });
       });
     };
 
     const removePortForwarding = (
       activePortForwarding: ActivePortForwarding
     ) => {
-      activePortForwarding.child.kill();
-      state.activePortForwardings = state.activePortForwardings.filter(
-        (pf) => pf.pid !== activePortForwarding.pid
+      removeForward(activePortForwarding.id);
+      invoke("stop_port_forward", { id: activePortForwarding.id }).catch((e) =>
+        logError(
+          `Failed to stop port forward ${activePortForwarding.id}: ${e}`
+        )
       );
     };
 

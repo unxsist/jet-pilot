@@ -28,6 +28,22 @@ import { open } from "@tauri-apps/plugin-shell";
 const openInBrowser = (portForwarding: ActivePortForwarding) => {
   open(`http://${portForwarding.address}:${portForwarding.localPort}`);
 };
+
+const readyCount = computed(
+  () =>
+    activePortForwardings.value.filter((pf) => pf.status === "ready").length
+);
+
+const formatExpiry = (expiresAtMs: number | null): string | null => {
+  if (!expiresAtMs) return null;
+  const diff = expiresAtMs - Date.now();
+  if (diff <= 0) return "now";
+  const hours = Math.floor(diff / 3_600_000);
+  const minutes = Math.floor((diff % 3_600_000) / 60_000);
+  if (hours > 0) return `in ${hours}h ${minutes}m`;
+  if (minutes > 0) return `in ${minutes}m`;
+  return "in <1m";
+};
 </script>
 <template>
   <div v-if="activePortForwardings.length > 0" class="w-full mt-0 mb-4 pr-2">
@@ -37,8 +53,8 @@ const openInBrowser = (portForwarding: ActivePortForwarding) => {
           class="text-foreground relative overflow-hidden flex justify-center flex-col w-full text-xs bg-orange-500 rounded-lg p-2 text-left hover:bg-orange-600"
         >
           <span
-            >{{ activePortForwardings.length }} Active Port Forwarding{{
-              activePortForwardings.length > 1 ? "s" : ""
+            >{{ readyCount }} Active Port Forwarding{{
+              readyCount > 1 ? "s" : ""
             }}</span
           >
           <Vue3Lottie
@@ -53,20 +69,36 @@ const openInBrowser = (portForwarding: ActivePortForwarding) => {
         <div class="grid" tabindex="0">
           <template
             v-for="portForwarding in activePortForwardings"
-            :key="portForwarding.pid"
+            :key="portForwarding.id"
           >
             <div
               class="border-b last:border-b-0 p-3 flex justify-between items-center"
             >
               <div>
                 <div class="text-sm font-semibold">
-                  {{ portForwarding.objectName }}:{{
-                    portForwarding.objectPort
+                  {{
+                    `${portForwarding.objectName}:${portForwarding.objectPort} -> ${portForwarding.address}:${portForwarding.localPort}`
                   }}
-                  -> {{ portForwarding.address }}:{{ portForwarding.localPort }}
                 </div>
                 <div class="text-xs font-mono">
                   {{ portForwarding.context }} / {{ portForwarding.namespace }}
+                </div>
+                <div class="text-xs">
+                  <span v-if="portForwarding.status === 'starting'">
+                    Starting…
+                  </span>
+                  <span
+                    v-if="portForwarding.status === 'error'"
+                    class="text-red-500"
+                  >
+                    {{ portForwarding.error }}
+                  </span>
+                  <span
+                    v-if="portForwarding.expiresAtMs"
+                    class="text-muted-foreground"
+                  >
+                    auto-stops {{ formatExpiry(portForwarding.expiresAtMs) }}
+                  </span>
                 </div>
               </div>
               <div class="flex items-center space-x-2">
@@ -75,6 +107,7 @@ const openInBrowser = (portForwarding: ActivePortForwarding) => {
                     <TooltipTrigger>
                       <Button
                         variant="secondary"
+                        :disabled="portForwarding.status !== 'ready'"
                         @click="openInBrowser(portForwarding)"
                       >
                         <BrowserIcon class="h-5" />
