@@ -5,13 +5,15 @@ import { BaseDialogInterface } from "@/providers/DialogProvider";
 import { Kubernetes } from "@/services/Kubernetes";
 import { useToast } from "@/components/ui/toast";
 
-export function actions<T extends V1CronJob>(
+export function actions<
+  T extends V1CronJob & {
+    metadata: { context: string; kubeConfig: string };
+  }
+>(
   addTab: any,
   spawnDialog: any,
   setSidePanelComponent: any,
-  router: Router,
-  context: string,
-  kubeConfig: string
+  router: Router
 ): RowAction<T>[] {
   return [
     {
@@ -32,7 +34,7 @@ export function actions<T extends V1CronJob>(
               label: "Trigger",
               handler: (dialog) => {
                 Kubernetes.triggerCronJob(
-                  context,
+                  row.metadata.context,
                   row.metadata?.namespace || "",
                   row.metadata?.name || ""
                 )

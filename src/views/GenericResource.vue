@@ -7,11 +7,12 @@ import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { ColumnDef } from "@tanstack/vue-table";
 import { columns as defaultGenericColumns } from "@/components/tables/generic";
 import { namespaceColumn } from "@/components/tables/namespace";
+import { multiContextColumns } from "@/components/tables/multicontext";
 
 const route = useRoute();
 const router = useRouter();
 const { toast, toasts, dismiss } = useToast();
-const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
+const { context, namespace, kubeConfig, contexts } = injectStrict(KubeContextStateKey);
 
 const actions = ref(null);
 const currentResource = ref(route.query.resource as string);
@@ -39,12 +40,22 @@ const rowActions = ref<RowAction<any>[]>([]);
 const refreshKey = ref<number>(0);
 
 const tableColumns = computed<ColumnDef<any>[]>(() => {
-  // Global namespace selection is empty when "All namespaces" is active.
-  if (namespace.value) {
-    return columns.value;
+  /*
+   * Multi-context columns are always present (hidden by default); the
+   * VirtualDataTable toggles them based on the active context state. In
+   * legacy single-context mode (no active contexts) we additionally prepend
+   * the Namespace column when "All namespaces" is selected.
+   */
+  if (contexts.value.size > 0) {
+    return [...multiContextColumns, ...columns.value];
   }
 
-  return [namespaceColumn, ...columns.value];
+  // Global namespace selection is empty when "All namespaces" is active.
+  if (namespace.value) {
+    return [...multiContextColumns, ...columns.value];
+  }
+
+  return [...multiContextColumns, namespaceColumn, ...columns.value];
 });
 
 const initColumns = async (resource: string) => {
@@ -61,14 +72,7 @@ const initColumns = async (resource: string) => {
 const initRowActions = async (resource: string) => {
   try {
     rowActions.value = [
-      ...getDefaultActions<any>(
-        addTab,
-        spawnDialog,
-        setSidePanelComponent,
-        context.value,
-        kubeConfig.value,
-        true
-      ),
+      ...getDefaultActions<any>(addTab, spawnDialog, setSidePanelComponent, true),
     ];
 
     actions.value = null;
@@ -81,9 +85,7 @@ const initRowActions = async (resource: string) => {
             addTab,
             spawnDialog,
             setSidePanelComponent,
-            router,
-            context.value,
-            kubeConfig.value
+            router
           )
         : []),
     ];
@@ -189,7 +191,16 @@ const getResourceData = async (refresh = false) => {
       return;
     }
 
-    resourceData.value = JSON.parse(data).items;
+    /*
+     * Rows are self-describing: tag each with the context + kubeconfig it was
+     * fetched with so row actions (edit/delete/describe/...) target the right
+     * cluster.
+     */
+    resourceData.value = JSON.parse(data).items.map((row: any) => {
+      row.metadata.context = context.value;
+      row.metadata.kubeConfig = kubeConfig.value;
+      return row;
+    });
   } catch (e) {
     resourceData.value = [];
     toast({

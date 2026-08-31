@@ -7,10 +7,11 @@ import { onMounted } from "vue";
 import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { ColumnDef } from "@tanstack/vue-table";
 import { columns as defaultGenericColumns } from "@/components/tables/generic";
+import { multiContextColumns } from "@/components/tables/multicontext";
 
 const route = useRoute();
 const router = useRouter();
-const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
+const { context, namespace, kubeConfig, contexts } = injectStrict(KubeContextStateKey);
 
 const actions = ref(null);
 const resourceData = ref<object[]>([]);
@@ -31,6 +32,16 @@ const setSidePanelComponent = injectStrict(
 
 const columns = ref<ColumnDef<any>[]>([]);
 const rowActions = ref<RowAction<any>[]>([]);
+
+const tableColumns = computed<ColumnDef<any>[]>(() => {
+  // Helm releases carry their own Namespace column; only add the Context one.
+  const multiColumns =
+    route.query.resource === "release"
+      ? multiContextColumns.slice(0, 1)
+      : multiContextColumns;
+
+  return [...multiColumns, ...columns.value];
+});
 
 const initColumns = async (resource: string) => {
   try {
@@ -59,9 +70,7 @@ const initRowActions = async (resource: string) => {
             addTab,
             spawnDialog,
             setSidePanelComponent,
-            router,
-            context.value,
-            kubeConfig.value
+            router
           )
         : []),
     ];
@@ -134,7 +143,19 @@ const fetchHelmResource = (resource: string) => {
   command.stdout.on("data", (data) => {
     const parsedData = JSON.parse(data);
 
-    resourceData.value = parsedData;
+    /*
+     * Rows are self-describing: tag each with the context + kubeconfig it was
+     * fetched with so row actions (rollback/delete) target the right cluster.
+     */
+    resourceData.value = (Array.isArray(parsedData) ? parsedData : []).map(
+      (row: any) => ({
+        ...row,
+        metadata: {
+          context: context.value,
+          kubeConfig: kubeConfig.value,
+        },
+      })
+    );
   });
 
   command.stderr.on("data", (data) => {
@@ -161,7 +182,7 @@ onUnmounted(() => {
   <DataTable
     :key="`${route.query.resource}-${resourceData.length}`"
     :data="resourceData"
-    :columns="columns"
+    :columns="tableColumns"
     :allow-filter="true"
     :sticky-headers="true"
     :row-actions="rowActions"
