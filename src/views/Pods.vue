@@ -218,7 +218,7 @@ async function getPods(): Promise<V1Pod[]> {
     kubeConfig.value,
   ];
 
-  if (namespace.value !== "all") {
+  if (namespace.value) {
     args.push("--namespace", namespace.value);
   } else {
     args.push("--all-namespaces");
@@ -239,7 +239,7 @@ async function getPodMetrics(): Promise<PodMetric[]> {
     kubeConfig.value,
   ];
 
-  if (namespace.value !== "all") {
+  if (namespace.value) {
     args.push("--namespace", namespace.value);
   } else {
     args.push("--all-namespaces");

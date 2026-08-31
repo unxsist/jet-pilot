@@ -450,13 +450,17 @@ const fetchResourceObjects = (resource: V1APIResource): Promise<void> => {
       formatResourceKind(resource.kind).toLowerCase(),
       "--context",
       context.value,
-      "-n",
-      namespace.value,
       "-o",
       "json",
       "--kubeconfig",
       kubeConfig.value,
     ];
+
+    if (namespace.value) {
+      args.push("--namespace", namespace.value);
+    } else {
+      args.push("--all-namespaces");
+    }
 
     try {
       const result = await Kubernetes.kubectl(args);
