@@ -13,11 +13,34 @@ export const KubeContextSetNamespaceKey: InjectionKey<
   (namespace: string) => void
 > = Symbol("KubeContextSetNamespace");
 
+/**
+ * Set (upsert) or remove the active namespaces for a context.
+ *
+ * - Passing an empty array deactivates the context entirely.
+ * - Pass `["all"]` for "all namespaces" (per context).
+ */
+export const KubeContextSetActiveNamespacesKey: InjectionKey<
+  (context: string, kubeConfig: string, namespaces: string[]) => void
+> = Symbol("KubeContextSetActiveNamespaces");
+
+export const KubeContextIsContextActiveKey: InjectionKey<
+  (context: string) => boolean
+> = Symbol("KubeContextIsContextActive");
+
+export const KubeContextIsNamespaceActiveKey: InjectionKey<
+  (context: string, namespace: string) => boolean
+> = Symbol("KubeContextIsNamespaceActive");
+
 export interface KubeContextState {
   context: string;
   namespace: string | "all";
   kubeConfig: string;
   authenticated: boolean;
+
+  /** context -> list of active namespaces; ["all"] means all namespaces. */
+  contexts: Map<string, string[]>;
+  /** context -> kubeconfig the context was activated with. */
+  contextKubeConfigMapping: Map<string, string>;
 }
 
 export default {
@@ -30,6 +53,8 @@ export default {
       namespace: settings.value.lastNamespace || "",
       kubeConfig: settings.value.lastKubeConfig || "",
       authenticated: true,
+      contexts: new Map<string, string[]>(),
+      contextKubeConfigMapping: new Map<string, string>(),
     });
 
     provide(KubeContextStateKey, toRefs(state));
@@ -48,8 +73,65 @@ export default {
       settings.value.lastNamespace = namespace;
     };
 
-    provide(KubeContextSetContextKey, setContext);
-    provide(KubeContextSetNamespaceKey, setNamespace);
+    const setActiveNamespaces = (
+      context: string,
+      kubeConfig: string,
+      namespaces: string[]
+    ) => {
+      if (namespaces.length === 0) {
+        state.contexts.delete(context);
+        state.contextKubeConfigMapping.delete(context);
+        return;
+      }
+
+      if (!state.contexts.has(context)) {
+        state.contexts.set(context, []);
+      }
+
+      if (!state.contextKubeConfigMapping.has(context)) {
+        state.contextKubeConfigMapping.set(context, kubeConfig);
+      }
+
+      state.contexts.set(context, namespaces);
+    };
+    provide(KubeContextSetActiveNamespacesKey, setActiveNamespaces);
+
+    const isContextActive = (context: string): boolean => {
+      return state.contexts.has(context);
+    };
+    provide(KubeContextIsContextActiveKey, isContextActive);
+
+    const isNamespaceActive = (context: string, namespace: string): boolean => {
+      if (!state.contexts.has(context)) {
+        return false;
+      }
+
+      return (
+        state.contexts.get(context)?.includes(namespace) ||
+        state.contexts.get(context)?.includes("all") ||
+        false
+      );
+    };
+    provide(KubeContextIsNamespaceActiveKey, isNamespaceActive);
+
+    /*
+     * Seed the multi-context activation state so the app stays usable on
+     * startup (single-context UX) while allowing any combination via the
+     * context switcher. "" namespace means all namespaces -> ["all"].
+     */
+    const seedActivation = (
+      context: string,
+      kubeConfig: string,
+      namespace: string | "all" | null
+    ) => {
+      if (!context) return;
+
+      state.contexts.set(
+        context,
+        namespace ? [namespace] : ["all"]
+      );
+      state.contextKubeConfigMapping.set(context, kubeConfig);
+    };
 
     if (state.context.length === 0) {
       Kubernetes.getCurrentContext().then((context) => {
@@ -58,12 +140,23 @@ export default {
           kubeConfig: settings.value.lastKubeConfig || "",
         });
         setNamespace("");
+        seedActivation(
+          context,
+          settings.value.lastKubeConfig || "",
+          settings.value.lastNamespace || ""
+        );
       });
     } else {
       state.kubeConfig = settings.value.lastKubeConfig || "";
       Kubernetes.setCurrentKubeConfig(settings.value.lastKubeConfig || "");
+
+      seedActivation(
+        settings.value.lastContext || "",
+        settings.value.lastKubeConfig || "",
+        settings.value.lastNamespace || ""
+      );
     }
-  },
+  }, 
   render(): any {
     return this.$slots.default();
   },

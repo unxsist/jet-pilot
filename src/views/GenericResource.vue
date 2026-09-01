@@ -7,11 +7,18 @@ import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { ColumnDef } from "@tanstack/vue-table";
 import { columns as defaultGenericColumns } from "@/components/tables/generic";
 import { namespaceColumn } from "@/components/tables/namespace";
+import { multiContextColumns } from "@/components/tables/multicontext";
 
 const route = useRoute();
 const router = useRouter();
 const { toast, toasts, dismiss } = useToast();
-const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
+const {
+  context,
+  namespace,
+  kubeConfig,
+  contexts,
+  contextKubeConfigMapping,
+} = injectStrict(KubeContextStateKey);
 
 const actions = ref(null);
 const currentResource = ref(route.query.resource as string);
@@ -39,12 +46,22 @@ const rowActions = ref<RowAction<any>[]>([]);
 const refreshKey = ref<number>(0);
 
 const tableColumns = computed<ColumnDef<any>[]>(() => {
-  // Global namespace selection is empty when "All namespaces" is active.
-  if (namespace.value) {
-    return columns.value;
+  /*
+   * Multi-context columns are always present (hidden by default); the
+   * VirtualDataTable toggles them based on the active context state. In
+   * legacy single-context mode (no active contexts) we additionally prepend
+   * the Namespace column when "All namespaces" is selected.
+   */
+  if (contexts.value.size > 0) {
+    return [...multiContextColumns, ...columns.value];
   }
 
-  return [namespaceColumn, ...columns.value];
+  // Global namespace selection is empty when "All namespaces" is active.
+  if (namespace.value) {
+    return [...multiContextColumns, ...columns.value];
+  }
+
+  return [...multiContextColumns, namespaceColumn, ...columns.value];
 });
 
 const initColumns = async (resource: string) => {
@@ -61,14 +78,7 @@ const initColumns = async (resource: string) => {
 const initRowActions = async (resource: string) => {
   try {
     rowActions.value = [
-      ...getDefaultActions<any>(
-        addTab,
-        spawnDialog,
-        setSidePanelComponent,
-        context.value,
-        kubeConfig.value,
-        true
-      ),
+      ...getDefaultActions<any>(addTab, spawnDialog, setSidePanelComponent, true),
     ];
 
     actions.value = null;
@@ -81,9 +91,7 @@ const initRowActions = async (resource: string) => {
             addTab,
             spawnDialog,
             setSidePanelComponent,
-            router,
-            context.value,
-            kubeConfig.value
+            router
           )
         : []),
     ];
@@ -154,6 +162,53 @@ const dismissAllToasts = () => {
   toasts.value.forEach((t) => dismiss(t.id));
 };
 
+const fetchResourceForContext = async (
+  ctx: string,
+  namespaces: string[],
+  resource: string
+): Promise<object[]> => {
+  const kubeConfig = contextKubeConfigMapping.value.get(ctx);
+  if (!kubeConfig) {
+    return [];
+  }
+
+  const fetchArgs = (nsScope: string | null): string[] => {
+    const args = ["get", resource, "-o", "json"];
+    args.push("--context", ctx);
+    args.push("--kubeconfig", kubeConfig);
+    args.push(nsScope ? "--namespace" : "--all-namespaces");
+    if (nsScope) {
+      args.push(nsScope);
+    }
+    return args;
+  };
+
+  const scopes: (string | null)[] =
+    namespaces.includes("all") ? [null] : namespaces;
+
+  const rows: object[] = [];
+  for (const nsScope of scopes) {
+    const data = await Kubernetes.kubectl(fetchArgs(nsScope));
+
+    /*
+     * Make sure we never show data that's not related to the current resource
+     * e.g. due to route switching mid-fetch
+     */
+    if (currentResource.value !== resource) {
+      throw new Error("resource-changed");
+    }
+
+    const items = JSON.parse(data).items || [];
+    for (const row of items) {
+      row.metadata.context = ctx;
+      row.metadata.kubeConfig = kubeConfig;
+      rows.push(row);
+    }
+  }
+
+  return rows;
+};
+
 const getResourceData = async (refresh = false) => {
   if (!refresh) {
     resourceData.value = [];
@@ -161,40 +216,100 @@ const getResourceData = async (refresh = false) => {
 
   const fetchingResource = currentResource.value;
 
-  const args = [
-    "get",
-    fetchingResource,
-    "--context",
-    context.value,
-    "-o",
-    "json",
-    "--kubeconfig",
-    kubeConfig.value,
-  ];
+  /*
+   * Legacy single-context mode: no contexts activated through the switcher.
+   * Fetch using the global context/namespace selection as before.
+   */
+  if (contexts.value.size === 0) {
+    const args = [
+      "get",
+      fetchingResource,
+      "--context",
+      context.value,
+      "-o",
+      "json",
+      "--kubeconfig",
+      kubeConfig.value,
+    ];
 
-  if (namespace.value) {
-    args.push("--namespace", namespace.value);
-  } else {
-    args.push("--all-namespaces");
-  }
-
-  try {
-    const data = await Kubernetes.kubectl(args);
-
-    /*
-     * Make sure we never show data that's not related to the current resource
-     * e.g. due to route switching mid-fetch
-     */
-    if (fetchingResource !== currentResource.value) {
-      return;
+    if (namespace.value) {
+      args.push("--namespace", namespace.value);
+    } else {
+      args.push("--all-namespaces");
     }
 
-    resourceData.value = JSON.parse(data).items;
-  } catch (e) {
-    resourceData.value = [];
+    try {
+      const data = await Kubernetes.kubectl(args);
+
+      /*
+       * Make sure we never show data that's not related to the current resource
+       * e.g. due to route switching mid-fetch
+       */
+      if (fetchingResource !== currentResource.value) {
+        return;
+      }
+
+      /*
+       * Rows are self-describing: tag each with the context + kubeconfig it was
+       * fetched with so row actions (edit/delete/describe/...) target the right
+       * cluster.
+       */
+      resourceData.value = JSON.parse(data).items.map((row: any) => {
+        row.metadata.context = context.value;
+        row.metadata.kubeConfig = kubeConfig.value;
+        return row;
+      });
+    } catch (e) {
+      resourceData.value = [];
+      toast({
+        title: "An error occured",
+        description: e,
+        variant: "destructive",
+        action: h(
+          ToastAction,
+          { altText: "Retry", onClick: () => startRefreshing() },
+          { default: () => "Retry" }
+        ),
+      });
+      stopRefreshing();
+
+      return;
+    }
+    return;
+  }
+
+  /*
+   * Multi-context mode: aggregate rows across every activated (context,
+   * namespace) combination.
+   */
+  const aggregated: object[] = [];
+  let failedContexts = 0;
+
+  for (const [ctx, namespaces] of contexts.value) {
+    try {
+      const rows = await fetchResourceForContext(ctx, namespaces, fetchingResource);
+      aggregated.push(...rows);
+    } catch (e: any) {
+      if (e?.message === "resource-changed") {
+        return;
+      }
+
+      failedContexts++;
+      error(`Failed to fetch ${fetchingResource} for context ${ctx}: ${e}`);
+    }
+  }
+
+  if (fetchingResource !== currentResource.value) {
+    return;
+  }
+
+  resourceData.value = aggregated;
+
+  if (failedContexts === contexts.value.size && aggregated.length === 0) {
     toast({
       title: "An error occured",
-      description: e,
+      description:
+        "Failed to fetch the resource from any of the active contexts",
       variant: "destructive",
       action: h(
         ToastAction,
@@ -203,8 +318,6 @@ const getResourceData = async (refresh = false) => {
       ),
     });
     stopRefreshing();
-
-    return;
   }
 };
 
@@ -216,7 +329,7 @@ onMounted(async () => {
 const { startRefreshing, stopRefreshing, isRefreshing } = useDataRefresher(
   getResourceData,
   5000,
-  [context, namespace]
+  [contexts.value, contextKubeConfigMapping.value]
 );
 </script>
 <template>
