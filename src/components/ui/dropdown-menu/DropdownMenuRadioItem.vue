@@ -8,6 +8,7 @@ import {
 } from 'radix-vue'
 import { DotFilledIcon } from '@radix-icons/vue'
 import { cn } from '@/lib/utils'
+import { menuIndicator, menuItem } from '@/components/ui/overlay-styles'
 
 const props = defineProps<DropdownMenuRadioItemProps & { class?: string }>()
 
@@ -18,14 +19,15 @@ const emits = defineEmits<DropdownMenuRadioItemEmits>()
   <DropdownMenuRadioItem
     v-bind="{ ...props, ...useEmitAsProps(emits) }"
     :class="cn(
-      'flex relative items-center rounded-md transition-colors data-[disabled]:opacity-50 data-[disabled]:pointer-events-none data-[highlighted]:bg-outline-hover pl-7 py-1.5 text-sm outline-none select-none cursor-default',
+      menuItem,
+      'pl-7',
       props.class,
     )"
   >
-    <span class="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+    <span :class="menuIndicator">
 
       <DropdownMenuItemIndicator>
-        <DotFilledIcon class="h-4 w-4 fill-current" />
+        <DotFilledIcon class="h-3.5 w-3.5 fill-current" />
       </DropdownMenuItemIndicator>
     </span>
     <slot />

@@ -19,8 +19,8 @@ export default {
 </script>
 
 <template>
-  <div class="flex items-center border-b px-3" cmdk-input-wrapper>
-    <MagnifyingGlassIcon class="mr-2 h-4 w-4 shrink-0 opacity-50" />
+  <div class="flex items-center gap-2.5 border-b px-4" cmdk-input-wrapper>
+    <MagnifyingGlassIcon class="h-4 w-4 shrink-0 text-muted-foreground" />
     <ComboboxInput
       v-bind="{ ...props, ...$attrs }"
       auto-focus
@@ -31,7 +31,7 @@ export default {
       @focusout="refocus"
       :class="
         cn(
-          'flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50',
+          'flex h-12 w-full bg-transparent py-3 text-[0.9375rem] text-foreground outline-none placeholder:text-muted-foreground/80 disabled:cursor-not-allowed disabled:opacity-50',
           $attrs.class ?? ''
         )
       "

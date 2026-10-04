@@ -1,17 +1,23 @@
 <script setup lang="ts">
 import { DropdownMenuItem, type DropdownMenuItemProps } from 'radix-vue'
 import { cn } from '@/lib/utils'
+import { menuItem, menuItemDestructive } from '@/components/ui/overlay-styles'
 
-const props = defineProps<DropdownMenuItemProps & { inset?: boolean; class?: string }>()
+const props = defineProps<DropdownMenuItemProps & {
+  inset?: boolean
+  class?: string
+  variant?: 'default' | 'destructive'
+}>()
 </script>
 
 <template>
   <DropdownMenuItem
-    v-bind="props"
+    v-bind="{ ...props, variant: undefined }"
     :class="[
       cn(
-        'relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
-        inset && 'pl-8',
+        menuItem,
+        variant === 'destructive' && menuItemDestructive,
+        inset && 'pl-7',
         props.class,
       ),
     ]"

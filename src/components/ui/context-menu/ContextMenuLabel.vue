@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ContextMenuLabel, type ContextMenuLabelProps } from 'radix-vue'
 import { cn } from '@/lib/utils'
+import { menuLabel } from '@/components/ui/overlay-styles'
 
 const props = defineProps<ContextMenuLabelProps & { class?: string; inset?: boolean }>()
 </script>
@@ -9,8 +10,8 @@ const props = defineProps<ContextMenuLabelProps & { class?: string; inset?: bool
   <ContextMenuLabel
     v-bind="props"
     :class="
-      cn('px-2 py-1.5 text-sm font-semibold text-foreground',
-         inset && 'pl-8', props.class ?? '',
+      cn(menuLabel,
+         inset && 'pl-7', props.class ?? '',
       )"
   >
     <slot />

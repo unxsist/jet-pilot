@@ -3,13 +3,22 @@ import type { DialogRootEmits, DialogRootProps } from "radix-vue";
 import { DialogDescription, useEmitAsProps } from "radix-vue";
 import Command from "./Command.vue";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Kbd } from "@/components/ui/kbd";
 import Fuse from "fuse.js";
 
 const value = ref("");
-const props = defineProps<DialogRootProps>();
+const props = withDefaults(
+  defineProps<DialogRootProps & { hints?: boolean }>(),
+  { hints: true }
+);
 const emits = defineEmits<DialogRootEmits>();
 
 const emitsAsProps = useEmitAsProps(emits);
+
+const rootProps = computed(() => {
+  const { hints: _, ...rest } = props;
+  return rest;
+});
 
 const filter = (
   list: (typeof Command)[],
@@ -35,17 +44,35 @@ const filter = (
 </script>
 
 <template>
-  <Dialog v-bind="{ ...props, ...emitsAsProps }">
-    <DialogContent class="p-0 shadow-lg">
+  <Dialog v-bind="{ ...rootProps, ...emitsAsProps }">
+    <DialogContent
+      :closeable="false"
+      position="top"
+      class="max-w-[640px] gap-0 overflow-visible p-0 shadow-xl"
+    >
       <DialogTitle v-show="false" />
       <DialogDescription v-show="false" />
       <Command
         v-model="value"
         @update:modelValue="value = ''"
         :filterFunction="filter"
-        class="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-group]]:px-2 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5"
+        class="rounded-xl bg-transparent"
       >
         <slot />
+        <div
+          v-if="props.hints"
+          class="flex h-9 shrink-0 items-center gap-4 border-t px-3 text-xs text-muted-foreground"
+        >
+          <span class="flex items-center gap-1.5"
+            ><Kbd :keys="['↑', '↓']" size="sm" /> Navigate</span
+          >
+          <span class="flex items-center gap-1.5"
+            ><Kbd size="sm">↵</Kbd> Select</span
+          >
+          <span class="ml-auto flex items-center gap-1.5"
+            ><Kbd size="sm">esc</Kbd> Close</span
+          >
+        </div>
       </Command>
     </DialogContent>
   </Dialog>

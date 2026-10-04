@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { TooltipProvider, type TooltipProviderProps } from 'radix-vue'
 
-const props = defineProps<TooltipProviderProps>()
+// Fast by default: tooltips are hints, not interruptions.
+const props = withDefaults(defineProps<TooltipProviderProps>(), {
+  delayDuration: 300,
+  skipDelayDuration: 150,
+})
 </script>
 
 <template>

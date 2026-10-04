@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { cn } from '@/lib/utils'
+import { menuShortcut } from '@/components/ui/overlay-styles'
 </script>
 
 <template>
-  <span :class="cn('ml-auto text-xs tracking-widest text-muted-foreground', $attrs.class ?? '')">
+  <span :class="cn(menuShortcut, $attrs.class ?? '')">
     <slot />
   </span>
 </template>
