@@ -27,7 +27,7 @@ export interface CommandPaletteState {
   open: boolean;
   callStack: Map<Command, Command[]>;
   commands: Command[];
-  commandCache: Map<string, Command[]>;
+  commandCache: Map<string, { key: string; commands: Command[] }>;
   loading: boolean;
   executionError: string | null;
 }
@@ -41,7 +41,7 @@ export default {
       open: false,
       callStack: new Map<Command, Command[]>(),
       commands: [],
-      commandCache: new Map<string, Command[]>(),
+      commandCache: new Map<string, { key: string; commands: Command[] }>(),
       loading: false,
       executionError: null,
     });
@@ -115,14 +115,26 @@ export default {
       if (command.commands) {
         state.loading = true;
 
-        if (state.commandCache.has(command.id)) {
-          push(command, state.commandCache.get(command.id) as Command[]);
+        // Show the cached options while refreshing, unless they were cached
+        // for different app state (their closures would act on stale state).
+        const cacheKey = command.cacheKey?.() ?? "";
+        const cached = state.commandCache.get(command.id);
+        if (cached && cached.key === cacheKey) {
+          push(command, cached.commands);
+        } else {
+          state.commandCache.delete(command.id);
         }
 
         command
           .commands()
           .then((commands: Command[]) => {
-            state.commandCache.set(command.id, commands);
+            // The state changed while fetching: these options are stale.
+            if ((command.cacheKey?.() ?? "") !== cacheKey) {
+              state.loading = false;
+              return;
+            }
+
+            state.commandCache.set(command.id, { key: cacheKey, commands });
 
             if (state.callStack.has(command)) {
               state.callStack.delete(command);
