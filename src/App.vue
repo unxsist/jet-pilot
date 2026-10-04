@@ -13,6 +13,7 @@ import PortForwardingProvider from "./providers/PortForwardingProvider";
 import CommandPaletteProvider from "./providers/CommandPaletteProvider";
 import PanelProvider from "./providers/PanelProvider";
 import DialogProvider from "./providers/DialogProvider";
+import WorkspaceProvider from "./providers/WorkspaceProvider";
 import DialogHandler from "./components/DialogHandler.vue";
 import AppSkeleton from "./components/skeletons/AppSkeleton.vue";
 import TerminalLauncher from "./components/TerminalLauncher.vue";
@@ -56,34 +57,36 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
               <PortForwardingProvider>
                 <PanelProvider>
                   <CommandPaletteProvider>
-                    <Navigation />
-                    <!--
-                      Content sits on an inset canvas: the app chrome
-                      (sidebar colour) frames it on the right, top and
-                      bottom. The gutter is a window drag region.
-                    -->
-                    <div
-                      class="flex min-w-0 flex-1 py-1.5 pr-1.5"
-                      data-tauri-drag-region
-                    >
+                    <WorkspaceProvider>
+                      <Navigation />
+                      <!--
+                        Content sits on an inset canvas: the app chrome
+                        (sidebar colour) frames it on the right, top and
+                        bottom. The gutter is a window drag region.
+                      -->
                       <div
-                        class="flex min-w-0 flex-1 overflow-hidden rounded-lg border bg-background shadow-xs"
+                        class="flex min-w-0 flex-1 py-1.5 pr-1.5"
+                        data-tauri-drag-region
                       >
-                        <ResizablePanelGroup direction="horizontal">
-                          <ResizablePanel><RouterViewport /></ResizablePanel>
-                          <ResizableHandle />
-                          <SidePanel />
-                        </ResizablePanelGroup>
+                        <div
+                          class="flex min-w-0 flex-1 overflow-hidden rounded-lg border bg-background shadow-xs"
+                        >
+                          <ResizablePanelGroup direction="horizontal">
+                            <ResizablePanel><RouterViewport /></ResizablePanel>
+                            <ResizableHandle />
+                            <SidePanel />
+                          </ResizablePanelGroup>
+                        </div>
                       </div>
-                    </div>
-                    <Toaster />
-                    <CommandPalette />
-                    <DialogHandler />
-                    <template v-if="idle">
-                      <UpdateHandler />
-                      <WhatsNew />
-                    </template>
-                    <TerminalLauncher />
+                      <Toaster />
+                      <CommandPalette />
+                      <DialogHandler />
+                      <template v-if="idle">
+                        <UpdateHandler />
+                        <WhatsNew />
+                      </template>
+                      <TerminalLauncher />
+                    </WorkspaceProvider>
                   </CommandPaletteProvider>
                 </PanelProvider>
               </PortForwardingProvider>

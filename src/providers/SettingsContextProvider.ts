@@ -22,6 +22,7 @@ import { error } from "@/lib/logger";
 import { perfMark } from "@/lib/perf";
 import type { TabSession } from "@/lib/tabDescriptors";
 import type { PortForwardProfile } from "@/lib/portForwardProfiles";
+import type { Workspace } from "@/lib/workspaces";
 
 export const SettingsContextStateKey: InjectionKey<
   ToRefs<SettingsContextState>
@@ -75,6 +76,9 @@ export interface SettingsContextState {
     openTabs: TabSession | null;
     /** Saved port forwards (optionally started on launch). */
     portForwardProfiles: PortForwardProfile[];
+    /** Named working sets, in hotbar order (Mod+Alt+1..9). */
+    workspaces: Workspace[];
+    activeWorkspaceId: string | null;
   };
 }
 
@@ -118,6 +122,8 @@ export default {
         logLevel: "error",
         openTabs: null,
         portForwardProfiles: [],
+        workspaces: [],
+        activeWorkspaceId: null,
       },
     });
     provide(SettingsContextStateKey, toRefs(state));

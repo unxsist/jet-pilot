@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import ContextSwitcher from "./ContextSwitcher.vue";
+import WorkspaceSwitcher from "./WorkspaceSwitcher.vue";
 import PortForwardingManager from "./PortForwardingManager.vue";
 import NavigationGroup from "./NavigationGroup.vue";
 import NavigationItem from "./NavigationItem.vue";
@@ -306,6 +307,7 @@ watch(clusterAuthenticated, (authenticated, wasAuthenticated) => {
     <div class="flex min-h-0 flex-1 flex-col">
       <div class="space-y-1.5 px-2 pb-3">
         <ContextSwitcher />
+        <WorkspaceSwitcher />
         <button
           type="button"
           class="group flex h-8 w-full items-center gap-2 rounded-md border bg-background/60 px-2.5 text-sm text-muted-foreground shadow-xs transition-colors duration-fast ease-out hover:border-border-strong hover:bg-background hover:text-foreground focus-ring focus-visible:ring-offset-sidebar"
