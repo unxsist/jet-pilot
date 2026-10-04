@@ -2,8 +2,6 @@
 import { getCurrentInstance } from "vue";
 import Loading from "@/components/Loading.vue";
 import { Command } from "@tauri-apps/plugin-shell";
-import { writeTextFile, remove, BaseDirectory } from "@tauri-apps/plugin-fs";
-import { tempDir, join } from "@tauri-apps/api/path";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import loader, { Monaco } from "@monaco-editor/loader";
 import LightTheme from "@/components/monaco/themes/GithubLight";
@@ -277,30 +275,18 @@ const onSave = async () => {
 };
 
 /*
- * kubectl apply / replace the editor contents. Manifests (Secrets!) go
- * through a uniquely named temp file that only the current user can read,
- * and the file is always removed afterwards. (Piping through stdin needs a
- * shell stdin permission the app does not grant.)
+ * kubectl apply / replace the editor contents. The manifest (Secrets!) is
+ * piped to kubectl over stdin by the backend, so it never touches disk.
  */
 const applyManifest = async (verb: "apply" | "replace") => {
-  const safeName = (props.name || props.type).replace(/[^a-zA-Z0-9.-]/g, "_");
-  const filename = `jet-pilot-${safeName}-${crypto.randomUUID()}.yaml`;
-
-  await writeTextFile(filename, editContents.value, {
-    baseDir: BaseDirectory.Temp,
-    createNew: true,
-    mode: 0o600,
-  });
-
-  try {
-    const path = await join(await tempDir(), filename);
-    const output = await runKubectl([verb, "-f", path, ...contextArgs()]);
-    trace(`kubectl ${verb} ${objectLabel.value}: ${output}`);
-  } finally {
-    await remove(filename, { baseDir: BaseDirectory.Temp }).catch((e) => {
-      error(`Failed to remove temporary manifest ${filename}: ${e}`);
-    });
-  }
+  const output = await Kubernetes.applyManifest(
+    props.context,
+    props.namespace,
+    editContents.value,
+    verb,
+    props.kubeConfig
+  );
+  trace(`kubectl ${verb} ${objectLabel.value}: ${output}`);
 };
 
 onUnmounted(() => {
