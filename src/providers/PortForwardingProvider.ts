@@ -119,7 +119,7 @@ export default {
       }),
       listen<{
         id: string;
-        reason: "user" | "ttl" | "exited";
+        reason: "user" | "ttl" | "exited" | "error";
         exitCode: number | null;
       }>("port_forward_stopped", (event) => {
         const { id, reason, exitCode } = event.payload;

@@ -2,13 +2,16 @@
 //!
 //! The old implementation spawned `kubectl port-forward` from the frontend via
 //! the shell plugin and treated *any* stderr output as a fatal error. That is
-//! wrong: kubectl reports "Forwarding from 127.0.0.1:8080 -> 80" on **stderr**,
-//! so the process was killed the moment it became ready and the UI showed
-//! "nothing happens" (issue #37). This module owns the child processes on the
-//! Rust side instead:
+//! wrong: kubectl reports progress ("Forwarding from 127.0.0.1:8080 -> 80" on
+//! stdout, per-connection chatter and errors on stderr), so the process was
+//! killed the moment it became ready and the UI showed "nothing happens"
+//! (issue #37). This module owns the child processes on the Rust side instead:
 //!
 //! - start/stop via dedicated commands
-//! - stderr classified into ready / error / informational lines
+//! - stdout + stderr piped and classified into ready / error / informational
+//!   lines
+//! - a forward that does not become ready within `STARTUP_TIMEOUT` is stopped
+//!   with the last kubectl output as error
 //! - optional TTL that auto-stops a forward after a number of seconds
 //! - unexpected process exit is detected and surfaced as an error
 //! - lifecycle events emitted to the frontend (`port_forward_started`,
@@ -22,7 +25,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::Emitter;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use std::process::Stdio;
+use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::{Child, Command};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -101,10 +105,9 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Lines kubectl writes to stderr while a port-forward is healthy.
-fn is_informational_line(line: &str) -> bool {
-    line.contains("Forwarding from") || line.contains("Handling connection for")
-}
+/// How long kubectl may take to report "Forwarding from ..." before the
+/// forward is considered failed.
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Lines that indicate a genuine problem with the forward.
 fn is_error_line(line: &str) -> bool {
@@ -115,6 +118,69 @@ fn is_error_line(line: &str) -> bool {
         || lower.contains("failed to")
         || lower.contains("connection refused")
         || lower.contains("address already in use")
+}
+
+/// Reads one kubectl output stream line by line and updates the forward's
+/// status. Errors are only fatal while the forward is starting: once ready,
+/// kubectl keeps running and reports per-connection failures ("an error
+/// occurred forwarding ...") that do not affect other connections.
+async fn read_forward_output<R: AsyncRead + Unpin>(
+    app: tauri::AppHandle,
+    id: String,
+    info: Arc<Mutex<PortForwardInfo>>,
+    last_output: Arc<Mutex<Option<String>>>,
+    stream: R,
+) {
+    let mut reader = BufReader::new(stream);
+    loop {
+        let mut line = String::new();
+        match reader.read_line(&mut line).await {
+            Ok(0) => break, // EOF: process closed the stream
+            Ok(_) => {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+
+                if !trimmed.contains("Handling connection for") {
+                    *last_output.lock().unwrap() = Some(trimmed.to_string());
+                }
+
+                let event = {
+                    let mut current = info.lock().unwrap();
+                    if trimmed.contains("Forwarding from") {
+                        if current.status == ForwardStatus::Starting {
+                            current.status = ForwardStatus::Ready;
+                            Some(("port_forward_ready", current.clone()))
+                        } else {
+                            None
+                        }
+                    } else if is_error_line(trimmed) {
+                        if current.status == ForwardStatus::Starting && current.error.is_none() {
+                            current.status = ForwardStatus::Error;
+                            current.error = Some(trimmed.to_string());
+                            tracing::error!("port forward {} error: {}", id, trimmed);
+                            Some(("port_forward_error", current.clone()))
+                        } else {
+                            warn!("port forward {}: {}", id, trimmed);
+                            None
+                        }
+                    } else {
+                        // "Handling connection for ..." and other chatter.
+                        None
+                    }
+                };
+
+                if let Some((name, payload)) = event {
+                    let _ = app.emit(name, payload);
+                }
+            }
+            Err(e) => {
+                warn!("Failed reading port forward {} output: {}", id, e);
+                break;
+            }
+        }
+    }
 }
 
 /// Kill a forward and tell the frontend why it stopped. Safe to call when the
@@ -179,6 +245,13 @@ pub async fn start_port_forward(
     // If this app process dies, take the forward down with us instead of
     // orphaning a kubectl process.
     command.kill_on_drop(true);
+    // Both streams must be piped: tokio inherits stdio by default, which left
+    // `child.stderr` empty and the ready line (stdout) unread, so forwards
+    // never left the "starting" state.
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     // Windows: a GUI app spawning a console-subsystem binary allocates a
     // visible console window per call unless suppressed (issue #70).
@@ -193,6 +266,7 @@ pub async fn start_port_forward(
         message
     })?;
 
+    let stdout = child.stdout.take();
     let stderr = child.stderr.take();
 
     let info = PortForwardInfo {
@@ -236,58 +310,55 @@ pub async fn start_port_forward(
 
     let _ = app.emit("port_forward_started", info.clone());
 
-    // --- stderr reader: classify output into ready / error -----------------
-    let reader_app = app.clone();
-    let reader_id = id.clone();
-    let reader_info = info_shared.clone();
+    // --- output readers: classify kubectl output into ready / error ---------
+    let last_output: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    if let Some(stdout) = stdout {
+        tokio::spawn(read_forward_output(
+            app.clone(),
+            id.clone(),
+            info_shared.clone(),
+            last_output.clone(),
+            stdout,
+        ));
+    }
+    if let Some(stderr) = stderr {
+        tokio::spawn(read_forward_output(
+            app.clone(),
+            id.clone(),
+            info_shared.clone(),
+            last_output.clone(),
+            stderr,
+        ));
+    }
+
+    // --- startup timeout: never leave the UI waiting forever --------------
+    let startup_app = app.clone();
+    let startup_id = id.clone();
+    let startup_info = info_shared.clone();
     tokio::spawn(async move {
-        let Some(stderr) = stderr else {
-            warn!("port forward {} has no stderr to read", reader_id);
-            return;
-        };
-        let mut reader = BufReader::new(stderr);
-        loop {
-            let mut line = String::new();
-            match reader.read_line(&mut line).await {
-                Ok(0) => break, // EOF: process closed stderr
-                Ok(_) => {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() {
-                        continue;
-                    }
-                    if is_error_line(trimmed) {
-                        let mut current = reader_info.lock().unwrap();
-                        if current.error.is_none() {
-                            current.status = ForwardStatus::Error;
-                            current.error = Some(trimmed.to_string());
-                            tracing::error!("port forward {} error: {}", reader_id, trimmed);
-                            let payload = current.clone();
-                            let _ = reader_app.emit("port_forward_error", payload);
-                        }
-                    } else if is_informational_line(trimmed) {
-                        // "Forwarding from 127.0.0.1:8080 -> 80", "Handling
-                        // connection for ..." — normal kubectl chatter.
-                        if trimmed.contains("Forwarding from") {
-                            let mut current = reader_info.lock().unwrap();
-                            if current.status != ForwardStatus::Ready {
-                                current.status = ForwardStatus::Ready;
-                                let payload = current.clone();
-                                let _ = reader_app.emit("port_forward_ready", payload);
-                            }
-                        }
-                    }
-                    // Everything else ("Handling connection for ...", etc.)
-                    // is informational and ignored.
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed reading port forward {} stderr: {}",
-                        reader_id, e
-                    );
-                    break;
-                }
+        tokio::time::sleep(STARTUP_TIMEOUT).await;
+        let payload = {
+            let mut current = startup_info.lock().unwrap();
+            if current.status != ForwardStatus::Starting {
+                return;
             }
-        }
+            let detail = last_output
+                .lock()
+                .unwrap()
+                .clone()
+                .map(|line| format!(" Last kubectl output: {line}"))
+                .unwrap_or_default();
+            current.status = ForwardStatus::Error;
+            current.error = Some(format!(
+                "Port forward did not become ready within {} seconds.{}",
+                STARTUP_TIMEOUT.as_secs(),
+                detail
+            ));
+            current.clone()
+        };
+        tracing::error!("port forward {} startup timed out", startup_id);
+        let _ = startup_app.emit("port_forward_error", payload);
+        let _ = terminate_forward(&startup_app, &startup_id, "error").await;
     });
 
     // --- TTL: auto-stop after the requested duration ----------------------
