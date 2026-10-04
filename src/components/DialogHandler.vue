@@ -16,7 +16,12 @@ const { dialog } = injectStrict(DialogProviderStateKey);
 </script>
 
 <template>
-  <AlertDialog v-if="dialog" :open="true">
+  <!-- Escape (and any other dismissal) closes the dialog like a Close button -->
+  <AlertDialog
+    v-if="dialog"
+    :open="true"
+    @update:open="(open: boolean) => !open && dialog?.close()"
+  >
     <AlertDialogContent>
       <AlertDialogHeader>
         <AlertDialogTitle>{{ dialog.title }}</AlertDialogTitle>

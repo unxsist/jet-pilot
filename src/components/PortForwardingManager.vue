@@ -29,10 +29,19 @@ const openInBrowser = (portForwarding: ActivePortForwarding) => {
   open(`http://${portForwarding.address}:${portForwarding.localPort}`);
 };
 
-const readyCount = computed(
-  () =>
-    activePortForwardings.value.filter((pf) => pf.status === "ready").length
-);
+const countByStatus = (status: ActivePortForwarding["status"]) =>
+  activePortForwardings.value.filter((pf) => pf.status === status).length;
+
+const readyCount = computed(() => countByStatus("ready"));
+const startingCount = computed(() => countByStatus("starting"));
+const failedCount = computed(() => countByStatus("error"));
+
+const summary = computed(() => {
+  const parts = [`${readyCount.value} active`];
+  if (startingCount.value > 0) parts.push(`${startingCount.value} starting`);
+  if (failedCount.value > 0) parts.push(`${failedCount.value} failed`);
+  return `Port forwarding: ${parts.join(", ")}`;
+});
 
 const formatExpiry = (expiresAtMs: number | null): string | null => {
   if (!expiresAtMs) return null;
@@ -50,13 +59,35 @@ const formatExpiry = (expiresAtMs: number | null): string | null => {
     <Dialog>
       <DialogTrigger as-child>
         <button
-          class="text-foreground relative overflow-hidden flex justify-center flex-col w-full text-xs bg-orange-500 rounded-lg p-2 text-left hover:bg-orange-600"
+          type="button"
+          :aria-label="summary"
+          :title="summary"
+          class="text-foreground relative overflow-hidden flex justify-center flex-col w-full text-xs bg-orange-500 rounded-lg p-2 text-left hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <span
             >{{ readyCount }} Active Port Forwarding{{
-              readyCount > 1 ? "s" : ""
+              readyCount === 1 ? "" : "s"
             }}</span
           >
+          <span
+            v-if="startingCount > 0 || failedCount > 0"
+            class="relative z-10 mt-1 flex flex-wrap gap-1"
+          >
+            <span
+              v-if="startingCount > 0"
+              class="inline-flex items-center gap-1 rounded bg-background/90 px-1.5 py-0.5 text-xxs text-foreground"
+            >
+              <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+              {{ startingCount }} starting
+            </span>
+            <span
+              v-if="failedCount > 0"
+              class="inline-flex items-center gap-1 rounded bg-background/90 px-1.5 py-0.5 text-xxs text-destructive"
+            >
+              <span class="h-1.5 w-1.5 rounded-full bg-destructive"></span>
+              {{ failedCount }} failed
+            </span>
+          </span>
           <Vue3Lottie
             class="absolute -right-2 opacity-50"
             :animation-data="PortForwardingAnimation"
@@ -84,12 +115,15 @@ const formatExpiry = (expiresAtMs: number | null): string | null => {
                   {{ portForwarding.context }} / {{ portForwarding.namespace }}
                 </div>
                 <div class="text-xs">
-                  <span v-if="portForwarding.status === 'starting'">
+                  <span
+                    v-if="portForwarding.status === 'starting'"
+                    class="text-amber-600 dark:text-amber-400"
+                  >
                     Starting…
                   </span>
                   <span
                     v-if="portForwarding.status === 'error'"
-                    class="text-red-500"
+                    class="text-destructive"
                   >
                     {{ portForwarding.error }}
                   </span>
@@ -104,9 +138,10 @@ const formatExpiry = (expiresAtMs: number | null): string | null => {
               <div class="flex items-center space-x-2">
                 <TooltipProvider>
                   <Tooltip>
-                    <TooltipTrigger>
+                    <TooltipTrigger as-child>
                       <Button
                         variant="secondary"
+                        aria-label="Open in browser"
                         :disabled="portForwarding.status !== 'ready'"
                         @click="openInBrowser(portForwarding)"
                       >
@@ -118,9 +153,10 @@ const formatExpiry = (expiresAtMs: number | null): string | null => {
                     </TooltipContent>
                   </Tooltip>
                   <Tooltip>
-                    <TooltipTrigger>
+                    <TooltipTrigger as-child>
                       <Button
                         variant="destructive"
+                        aria-label="Stop port forward"
                         @click="removePortForwarding(portForwarding)"
                       >
                         <DisconnectIcon class="h-5" />
