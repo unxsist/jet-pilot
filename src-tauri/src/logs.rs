@@ -191,11 +191,12 @@ pub mod structured_logging {
                 let key = facet_key(value);
                 if let Some(count) = facet.counts.get_mut(&key) {
                     *count = count.saturating_sub(1);
-                    if *count == 0 {
-                        // Values that no longer occur disappear from the
-                        // sidebar, so drop their filter too.
+                    // Values that no longer occur disappear from the sidebar,
+                    // unless they are part of an active filter: dropping the
+                    // filter silently would mix filtered and unfiltered rows
+                    // in the incrementally fetched view.
+                    if *count == 0 && !facet.filtered.contains(&key) {
                         facet.counts.remove(&key);
-                        facet.filtered.remove(&key);
                     }
                 }
             }
@@ -924,8 +925,10 @@ pub mod structured_logging {
             );
             assert_eq!(session.entries.len(), 3);
             assert_eq!(counts(&session).get("\"info\""), Some(&1));
-            assert_eq!(counts(&session).get("\"warn\""), None);
-            assert!(session.facets[0].filtered.is_empty());
+            // An actively filtered value is kept (count 0) instead of silently
+            // dropping the filter.
+            assert_eq!(counts(&session).get("\"warn\""), Some(&0));
+            assert!(session.facets[0].filtered.contains("\"warn\""));
             assert_eq!(session.entries.front().map(|e| e.seq), Some(3));
         }
 

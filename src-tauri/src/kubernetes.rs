@@ -1128,18 +1128,33 @@ pub mod client {
         cmd.creation_flags(0x08000000);
 
         let mut child = cmd.spawn().map_err(|e| format!("Unable to run kubectl: {}", e))?;
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(manifest.as_bytes())
-                .await
-                .map_err(|e| format!("Failed to pass manifest to kubectl: {}", e))?;
-            // Dropping stdin closes the pipe so kubectl sees EOF.
-        }
 
-        let output = tokio::time::timeout(Duration::from_secs(2 * 60), child.wait_with_output())
-            .await
-            .map_err(|_| "kubectl timed out after 2 minutes".to_string())?
-            .map_err(|e| e.to_string())?;
+        // Feed stdin while draining stdout/stderr, all under one timeout: a
+        // kubectl that stalls before reading its input (unreachable API server,
+        // exec plugin waiting for a login) must not hang this command, and
+        // kill_on_drop ends the process when the timeout drops the future.
+        let stdin = child.stdin.take();
+        let write_manifest = async move {
+            match stdin {
+                Some(mut stdin) => stdin.write_all(manifest.as_bytes()).await,
+                None => Ok(()),
+            }
+            // Dropping stdin closes the pipe so kubectl sees EOF.
+        };
+        let (write_result, output) = tokio::time::timeout(
+            Duration::from_secs(2 * 60),
+            async { tokio::join!(write_manifest, child.wait_with_output()) },
+        )
+        .await
+        .map_err(|_| "kubectl timed out after 2 minutes".to_string())?;
+        let output = output.map_err(|e| e.to_string())?;
+
+        // Prefer kubectl's own error over a broken-pipe from an early exit.
+        if output.status.success() {
+            if let Err(e) = write_result {
+                return Err(format!("Failed to pass manifest to kubectl: {}", e));
+            }
+        }
 
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).into_owned())
