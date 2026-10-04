@@ -27,19 +27,21 @@ watch(
 </script>
 <template>
   <div>
-    <div
-      class="group cursor-pointer flex justify-between items-center ml-2 mb-2 uppercase font-bold text-xs text-[#7a7a7a]"
-      @click="collapsed = !collapsed"
+    <button
       v-if="title"
+      type="button"
+      class="group w-[calc(100%-0.5rem)] cursor-pointer flex justify-between items-center ml-2 mb-2 rounded uppercase font-bold text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      :aria-expanded="!collapsed"
+      @click="collapsed = !collapsed"
     >
-      <span>{{ title }}</span>
+      <span class="truncate">{{ title }}</span>
       <div
         class="transition-all w-5 h-5 group-hover:bg-background rounded-full flex items-center justify-center mr-2"
         :class="{ 'rotate-180': !collapsed }"
       >
         <ArrowDownIcon class="w-5" />
       </div>
-    </div>
+    </button>
     <div v-show="!collapsed" class="mb-5 space-y-1">
       <slot />
     </div>
