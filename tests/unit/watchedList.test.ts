@@ -273,4 +273,112 @@ describe("WatchedListController", () => {
     expect(perDelta).toBeLessThan(20);
     list.dispose();
   });
+
+  test("pausing keeps the rows and resuming resubscribes without replacing them", async () => {
+    const { transport, emit, unsubscribed } = fakeTransport();
+    const subscribe = vi.spyOn(transport, "subscribe");
+    const { list, updates } = controller(transport);
+    list.setTargets([target("a")]);
+    await flush();
+    emit("a", ready());
+    emit("a", { type: "snapshot", scope: "", items: [pod("1"), pod("2")] });
+    await flush();
+    const rows = list.items();
+
+    list.pause();
+    expect(unsubscribed).toEqual(["a"]);
+    const published = updates.count;
+    // late messages of the dropped subscription are ignored
+    emit("a", { type: "delta", scope: "", added: [pod("9")], modified: [], deleted: [] });
+    await flush();
+    expect(updates.count).toBe(published);
+    expect(list.items()).toEqual(rows);
+
+    list.resume();
+    expect(subscribe).toHaveBeenCalledTimes(2);
+    expect(list.loading()).toBe(false);
+    await flush();
+    // warm backend watcher: status + snapshot right away, identity kept
+    emit("a", ready());
+    emit("a", { type: "snapshot", scope: "", items: [pod("1"), pod("2", "2")] });
+    const after = list.items();
+    expect(after[0]).toBe(rows[0]);
+    expect(after[1].metadata.resourceVersion).toBe("2");
+    list.dispose();
+  });
+
+  test("a subscription that resolves after pausing is dropped", async () => {
+    const { transport, unsubscribed } = fakeTransport();
+    const { list } = controller(transport);
+    list.setTargets([target("a")]);
+    list.pause();
+    await flush();
+    expect(unsubscribed).toEqual(["a"]);
+    list.dispose();
+  });
+
+  test("polling stops while paused and polls right away on resume", async () => {
+    const fallback = vi.fn(async () => [pod("1")]);
+    const { transport } = fakeTransport();
+    const { list } = controller(transport, { forcePolling: true, fallback });
+    list.setTargets([target("a")]);
+    await flush();
+    expect(fallback).toHaveBeenCalledTimes(1);
+    list.pause();
+    await list.sources.values().next().value!.poll();
+    expect(fallback).toHaveBeenCalledTimes(1);
+    list.resume();
+    await flush();
+    expect(fallback).toHaveBeenCalledTimes(2);
+    expect(list.items()).toHaveLength(1);
+    list.dispose();
+  });
+});
+
+describe("useWatchedList in a kept-alive view", () => {
+  test("unsubscribes while hidden, applies selection changes on activation", async () => {
+    const { createApp, effectScope, ref, nextTick } = await import("vue");
+    const { IsActiveViewKey } = await import("@/lib/activeView");
+    const { useWatchedList } = await import("@/composables/useWatchedList");
+    const { transport, emit, unsubscribed } = fakeTransport();
+    const subscribe = vi.spyOn(transport, "subscribe");
+    const active = ref(true);
+    const selection = ref([target("a")]);
+    const app = createApp({});
+    app.provide(IsActiveViewKey, active);
+    const scope = effectScope();
+    const list = app.runWithContext(() =>
+      scope.run(() =>
+        useWatchedList<Pod>({
+          resource: () => "pods",
+          targets: () => selection.value,
+          fallback: async () => [],
+          transport,
+        })
+      )
+    )!;
+    await flush();
+    emit("a", ready());
+    emit("a", { type: "snapshot", scope: "", items: [pod("1")] });
+    await flush();
+    expect(list.items.value).toHaveLength(1);
+
+    active.value = false;
+    await nextTick();
+    expect(unsubscribed).toEqual(["a"]);
+    selection.value = [target("a"), target("b")];
+    await nextTick();
+    expect(subscribe).toHaveBeenCalledTimes(1);
+
+    active.value = true;
+    await nextTick();
+    await flush();
+    expect(list.items.value).toHaveLength(1);
+    expect(subscribe.mock.calls.map(([request]) => request.context)).toEqual([
+      "a",
+      "a",
+      "b",
+    ]);
+    scope.stop();
+  });
 });

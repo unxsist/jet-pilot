@@ -11,7 +11,6 @@ import KeptAliveView from "@/components/KeptAliveView.vue";
 import { useRoute, type RouteLocationNormalizedLoaded } from "vue-router";
 import NoContext from "@/views/NoContext.vue";
 import { KEEP_ALIVE_MAX, KEEP_ALIVE_ROUTES } from "@/lib/activeView";
-import { markFirstData, perfMarks } from "@/lib/perf";
 
 const { context } = injectStrict(KubeContextStateKey);
 const route = useRoute();
@@ -24,30 +23,11 @@ const route = useRoute();
 const isCached = (r: RouteLocationNormalizedLoaded) =>
   KEEP_ALIVE_ROUTES.includes(String(r.name ?? ""));
 
-/*
- * Startup timeline: the first table rows rendered by any view mark
- * jet:data:first (one-shot observer, disconnected afterwards).
- */
-const viewport = ref<HTMLElement | null>(null);
-onMounted(() => {
-  if (!viewport.value || perfMarks()["data:first"] !== undefined) return;
-  const hasRows = () => !!viewport.value?.querySelector("tbody tr td");
-  if (hasRows()) {
-    markFirstData();
-    return;
-  }
-  const observer = new MutationObserver(() => {
-    if (hasRows()) {
-      markFirstData();
-      observer.disconnect();
-    }
-  });
-  observer.observe(viewport.value, { childList: true, subtree: true });
-  setTimeout(() => observer.disconnect(), 60_000);
-});
+// The startup mark jet:data:first is recorded by the data composables
+// (useWatchedList / useResourceList) once their first rows are rendered.
 </script>
 <template>
-  <div ref="viewport" class="relative flex h-full w-full flex-col bg-background">
+  <div class="relative flex h-full w-full flex-col bg-background">
     <ResizablePanelGroup direction="vertical">
       <ResizablePanel>
         <NoContext v-if="route.meta.requiresContext && context == ''" />

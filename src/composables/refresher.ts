@@ -1,4 +1,5 @@
 import { watch, onMounted, onBeforeUnmount, ref, WatchSource } from "vue";
+import { useIsActiveView } from "@/lib/activeView";
 
 /**
  * Periodically calls `method(true)` (a background refresh) every `interval`
@@ -10,6 +11,10 @@ import { watch, onMounted, onBeforeUnmount, ref, WatchSource } from "vue";
  *   polling, also when polling was stopped (e.g. after an error).
  * - Polling pauses while the document is hidden and refreshes right away when
  *   it becomes visible again.
+ * - Same for hidden kept-alive views (see @/lib/activeView): no polling while
+ *   deactivated; dependency changes in the meantime only mark the data
+ *   stale and it is reloaded on activation (otherwise refreshed right away,
+ *   keeping the rows).
  */
 export function useDataRefresher(
   method: (refresh: boolean) => void,
@@ -18,6 +23,8 @@ export function useDataRefresher(
 ) {
   let refreshInterval: ReturnType<typeof setInterval> | null = null;
   const isRefreshing = ref(false);
+  const active = useIsActiveView();
+  let stale = false;
 
   const clearTimer = () => {
     if (refreshInterval !== null) {
@@ -31,6 +38,9 @@ export function useDataRefresher(
     if (typeof document !== "undefined" && document.hidden) {
       return;
     }
+    if (!active.value) {
+      return;
+    }
     refreshInterval = setInterval(() => {
       method(true);
     }, interval);
@@ -39,7 +49,7 @@ export function useDataRefresher(
   const startRefreshing = (fetchNow = false) => {
     isRefreshing.value = true;
     startTimer();
-    if (fetchNow) {
+    if (fetchNow && active.value) {
       method(true);
     }
   };
@@ -50,7 +60,7 @@ export function useDataRefresher(
   };
 
   const handleVisibilityChange = () => {
-    if (!isRefreshing.value) {
+    if (!isRefreshing.value || !active.value) {
       return;
     }
 
@@ -62,8 +72,28 @@ export function useDataRefresher(
     }
   };
 
+  watch(active, (isActive) => {
+    if (!isActive) {
+      clearTimer();
+      return;
+    }
+    if (stale) {
+      stale = false;
+      method(false);
+      startRefreshing();
+    } else if (isRefreshing.value) {
+      method(true);
+      startTimer();
+    }
+  });
+
   onMounted(() => {
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    if (!active.value) {
+      stale = true;
+      isRefreshing.value = true;
+      return;
+    }
     method(false); // Initial fetch
     startRefreshing();
   });
@@ -76,6 +106,10 @@ export function useDataRefresher(
   // React to changes in dependencies: reload and restart polling.
   dependencies.forEach((dep) => {
     watch(dep as WatchSource, () => {
+      if (!active.value) {
+        stale = true;
+        return;
+      }
       method(false);
       startRefreshing();
     });

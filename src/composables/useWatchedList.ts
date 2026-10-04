@@ -19,6 +19,8 @@ import {
   tauriWatchTransport,
 } from "@/lib/watch";
 import { error as logError, log as logInfo } from "@/lib/logger";
+import { useIsActiveView } from "@/lib/activeView";
+import { markFirstData } from "@/lib/perf";
 
 /** One activated context and the namespaces selected for it. */
 export interface ContextTarget {
@@ -131,6 +133,10 @@ export class ContextSource<T extends Row> {
   private timer: ReturnType<typeof setInterval> | null = null;
   private inFlight = false;
   private disposed = false;
+  /** The view is hidden (kept alive): no subscription, no polling. */
+  private paused = false;
+  /** Bumped on every (re)subscribe, so a stale in-flight one is dropped. */
+  private subscribeGeneration = 0;
   private pollGeneration = 0;
   private authPending = false;
 
@@ -150,6 +156,7 @@ export class ContextSource<T extends Row> {
   }
 
   start() {
+    if (this.paused) return;
     if (this.mode === "watch") {
       this.subscribe();
     } else {
@@ -157,8 +164,29 @@ export class ContextSource<T extends Row> {
     }
   }
 
+  /**
+   * The view was hidden: stop receiving updates but keep the rows. The
+   * backend keeps the watchers warm (60 s), so resuming gets a snapshot
+   * right away, reconciled without replacing unchanged rows.
+   */
+  pause() {
+    if (this.paused || this.disposed) return;
+    this.paused = true;
+    this.subscribeGeneration++;
+    this.handle?.unsubscribe();
+    this.handle = null;
+    this.stopTimer();
+  }
+
+  resume() {
+    if (!this.paused || this.disposed) return;
+    this.paused = false;
+    this.start();
+  }
+
   dispose() {
     this.disposed = true;
+    this.subscribeGeneration++;
     this.handle?.unsubscribe();
     this.handle = null;
     this.stopTimer();
@@ -178,6 +206,7 @@ export class ContextSource<T extends Row> {
   retry() {
     this.authHandled = false;
     this.pollingStopped = false;
+    if (this.paused) return;
     if (this.mode === "watch") {
       this.handle?.restart();
     } else {
@@ -188,7 +217,7 @@ export class ContextSource<T extends Row> {
 
   /** Called on visibility changes: poll right away when shown again. */
   visibilityChanged() {
-    if (this.mode !== "poll" || this.disposed) return;
+    if (this.mode !== "poll" || this.disposed || this.paused) return;
     if (documentHidden()) {
       this.stopTimer();
     } else if (!this.pollingStopped) {
@@ -205,6 +234,12 @@ export class ContextSource<T extends Row> {
   /* ------------------------------------------------------------ watch -- */
 
   private async subscribe() {
+    const generation = ++this.subscribeGeneration;
+    const stale = () =>
+      this.disposed ||
+      this.paused ||
+      this.mode !== "watch" ||
+      generation !== this.subscribeGeneration;
     try {
       const handle = await this.options.transport.subscribe<T>(
         {
@@ -214,9 +249,11 @@ export class ContextSource<T extends Row> {
           kind: this.options.kind,
           namespaces: this.target.namespaces,
         },
-        (message) => this.onMessage(message)
+        (message) => {
+          if (generation === this.subscribeGeneration) this.onMessage(message);
+        }
       );
-      if (this.disposed || this.mode !== "watch") {
+      if (stale()) {
         handle.unsubscribe();
         return;
       }
@@ -225,7 +262,7 @@ export class ContextSource<T extends Row> {
       this.updateWatchState();
       this.options.onChange();
     } catch (e) {
-      if (this.disposed) return;
+      if (stale()) return;
       logInfo(
         `Watch for ${this.options.resource} in ${this.target.context} unavailable, polling with kubectl instead: ${reasonToString(e)}`
       );
@@ -234,7 +271,7 @@ export class ContextSource<T extends Row> {
   }
 
   private onMessage(message: WatchMessage<T>) {
-    if (this.disposed || this.mode !== "watch") return;
+    if (this.disposed || this.paused || this.mode !== "watch") return;
 
     switch (message.type) {
       case "snapshot":
@@ -353,6 +390,7 @@ export class ContextSource<T extends Row> {
 
   private switchToPolling() {
     if (this.disposed) return;
+    this.subscribeGeneration++;
     this.handle?.unsubscribe();
     this.handle = null;
     this.mode = "poll";
@@ -368,13 +406,14 @@ export class ContextSource<T extends Row> {
   /* ------------------------------------------------------------- poll -- */
 
   private startPolling() {
+    if (this.paused) return;
     this.poll();
     this.startTimer();
   }
 
   private startTimer() {
     this.stopTimer();
-    if (documentHidden() || this.disposed) return;
+    if (documentHidden() || this.disposed || this.paused) return;
     this.timer = setInterval(() => {
       if (!this.pollingStopped) this.poll();
     }, this.options.fallbackInterval);
@@ -388,12 +427,14 @@ export class ContextSource<T extends Row> {
   }
 
   async poll() {
-    if (this.inFlight || this.disposed) return;
+    if (this.inFlight || this.disposed || this.paused) return;
     this.inFlight = true;
     const generation = ++this.pollGeneration;
     try {
       const rows = await this.options.fallback(this.target);
       if (this.disposed || generation !== this.pollGeneration) return;
+      // Results of a poll that started before the view was hidden are kept
+      // (they are current), only further polls are skipped.
       this.applySnapshot("", rows);
       this.failure = null;
       this.authHandled = false;
@@ -426,6 +467,9 @@ export class WatchedListController<T extends Row> {
   private order: string[] = [];
   private notifyQueued = false;
   private disposed = false;
+  private paused = false;
+  /** A change arrived while paused (e.g. a poll that was in flight). */
+  private dirty = false;
 
   constructor(
     private readonly options: Omit<WatchedListOptions<T>, "onChange">,
@@ -442,10 +486,18 @@ export class WatchedListController<T extends Row> {
    * is published right away.
    */
   private notify = () => {
+    if (this.paused) {
+      this.dirty = true;
+      return;
+    }
     if (this.notifyQueued || this.disposed) return;
     this.notifyQueued = true;
     const publish = () => {
       this.notifyQueued = false;
+      if (this.paused) {
+        this.dirty = true;
+        return;
+      }
       this.lastPublish = now();
       if (!this.disposed) this.onUpdate();
     };
@@ -497,6 +549,7 @@ export class WatchedListController<T extends Row> {
           onChange: this.notify,
         });
         this.sources.set(key, source);
+        if (this.paused) source.pause();
         source.start();
       }
     }
@@ -558,6 +611,31 @@ export class WatchedListController<T extends Row> {
     for (const source of this.sources.values()) source.visibilityChanged();
   }
 
+  /**
+   * The view was hidden (kept alive): unsubscribe / stop polling, keep the
+   * rows, publish nothing until resumed.
+   */
+  pause() {
+    if (this.paused || this.disposed) return;
+    this.paused = true;
+    for (const source of this.sources.values()) source.pause();
+  }
+
+  /** Shown again: re-subscribe (warm watchers send a snapshot at once). */
+  resume() {
+    if (!this.paused || this.disposed) return;
+    this.paused = false;
+    for (const source of this.sources.values()) source.resume();
+    if (this.dirty) {
+      this.dirty = false;
+      this.onUpdate();
+    }
+  }
+
+  get isPaused() {
+    return this.paused;
+  }
+
   dispose() {
     this.disposed = true;
     for (const source of this.sources.values()) source.dispose();
@@ -590,7 +668,18 @@ export function useWatchedList<T extends Row>(options: UseWatchedListOptions<T>)
   const lastUpdated = ref<Date | null>(null);
   const modes = shallowRef<Map<string, SourceMode>>(new Map());
 
+  /*
+   * Hidden kept-alive views don't stream (see @/lib/activeView): the
+   * controller unsubscribes / stops polling and keeps its rows. Changes of
+   * the resource or the context selection while hidden are applied on
+   * activation.
+   */
+  const active = useIsActiveView();
+  let staleResource = false;
+  let staleTargets = false;
+
   let controller: WatchedListController<T> | null = null;
+  let firstDataMarked = false;
 
   const update = () => {
     const current = controller;
@@ -601,10 +690,18 @@ export function useWatchedList<T extends Row>(options: UseWatchedListOptions<T>)
     error.value = current.error();
     lastUpdated.value = current.lastUpdated();
     modes.value = current.modes();
-    nextTick(() => current.reportRenderCost(now() - started));
+    nextTick(() => {
+      current.reportRenderCost(now() - started);
+      if (!firstDataMarked && items.value.length > 0) {
+        firstDataMarked = true;
+        markFirstData();
+      }
+    });
   };
 
   const create = () => {
+    staleResource = false;
+    staleTargets = false;
     controller?.dispose();
     const resource = options.resource();
     if (!resource) {
@@ -625,19 +722,40 @@ export function useWatchedList<T extends Row>(options: UseWatchedListOptions<T>)
       },
       update
     );
+    if (!active.value) controller.pause();
     controller.setTargets(options.targets());
   };
 
   watch(
     () => [options.resource(), options.kind?.(), options.forcePolling?.()],
-    create,
-    { immediate: true }
+    () => {
+      if (active.value) create();
+      else staleResource = true;
+    }
   );
+  create();
 
   watch(
     () => JSON.stringify(options.targets()),
-    () => controller?.setTargets(options.targets())
+    () => {
+      if (active.value) controller?.setTargets(options.targets());
+      else staleTargets = true;
+    }
   );
+
+  watch(active, (isActive) => {
+    if (!isActive) {
+      controller?.pause();
+    } else if (staleResource) {
+      create();
+    } else {
+      controller?.resume();
+      if (staleTargets) {
+        staleTargets = false;
+        controller?.setTargets(options.targets());
+      }
+    }
+  });
 
   const onVisibilityChange = () => controller?.visibilityChanged();
   if (typeof document !== "undefined") {
