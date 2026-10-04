@@ -5,7 +5,7 @@ import NavigationGroup from "./NavigationGroup.vue";
 import NavigationItem from "./NavigationItem.vue";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Kbd } from "@/components/ui/kbd";
-import { Kubernetes } from "@/services/Kubernetes";
+import NavigationSkeleton from "@/components/skeletons/NavigationSkeleton.vue";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import {
   SettingsContextStateKey,
@@ -19,13 +19,13 @@ import {
 import { OpenCommandPaletteKey } from "@/providers/CommandPaletteProvider";
 import { Minus, Search, Square, X } from "lucide-vue-next";
 import { injectStrict } from "@/lib/utils";
-import { V1APIResource } from "@kubernetes/client-node";
+import { useDiscovery, type DiscoveredResource } from "@/lib/discovery";
+import { perfMark } from "@/lib/perf";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { getCurrentWebviewWindow as getWindow } from "@tauri-apps/api/webviewWindow";
 import { exit } from "@tauri-apps/plugin-process";
 import { formatResourceKind } from "@/lib/utils";
 import { ref } from "vue";
-import { error } from "@/lib/logger";
 import { RouteLocationRaw } from "vue-router";
 
 const targetOs = ref<string>(getOsType());
@@ -118,7 +118,33 @@ const navigationGroups: NavigationGroup[] = [
   },
 ];
 
-const clusterResources = ref<Map<string, V1APIResource[]>>(new Map());
+/*
+ * API discovery of the primary context through the shared discovery
+ * service: rendered straight from the (disk) cache, revalidated in the
+ * background.
+ */
+const discovery = useDiscovery(context, kubeConfig);
+
+const clusterResources = computed(
+  () =>
+    new Map<string, DiscoveredResource[]>(
+      Object.entries(discovery.snapshot.value?.groups ?? {})
+    )
+);
+
+/* Nothing to show yet: first discovery of this context is running. */
+const discovering = computed(
+  () =>
+    clusterResources.value.size === 0 &&
+    context.value !== "" &&
+    discovery.status.value === "loading"
+);
+
+watch(
+  () => clusterResources.value.size > 0,
+  (ready) => ready && perfMark("nav:ready"),
+  { immediate: true }
+);
 
 const getResourceByName = (resource: string) => {
   return Array.from(clusterResources.value.values())
@@ -179,69 +205,6 @@ const getNonDefaultApiGroups = () => {
     .sort((a, b) => a.localeCompare(b));
 };
 
-/*
- * API discovery of the primary context. Responses of an earlier run (e.g.
- * of the previously selected context) are discarded by generation.
- */
-let discoveryGeneration = 0;
-
-const fetchResources = () => {
-  const generation = ++discoveryGeneration;
-  const isCurrent = () => generation === discoveryGeneration;
-  const discoveryContext = context.value;
-  const discoveryKubeConfig = kubeConfig.value;
-
-  clusterResources.value = new Map();
-
-  if (discoveryContext === "") {
-    return;
-  }
-
-  Kubernetes.getCoreApiVersions(discoveryContext, discoveryKubeConfig)
-    .then((versions) => {
-      versions.forEach((version) => {
-        Kubernetes.getCoreApiResources(
-          discoveryContext,
-          version,
-          discoveryKubeConfig
-        )
-          .then((resources) => {
-            if (isCurrent()) {
-              clusterResources.value.set(version, resources);
-            }
-          })
-          .catch((e) => {
-            error(`Error fetching core resources for ${version}: ${e}`);
-          });
-      });
-    })
-    .catch((e) => {
-      error(`Error fetching core api versions: ${e}`);
-    });
-
-  Kubernetes.getApiGroups(discoveryContext, discoveryKubeConfig)
-    .then((groups) => {
-      groups.forEach((group) => {
-        Kubernetes.getApiGroupResources(
-          discoveryContext,
-          group.preferredVersion?.groupVersion ?? "",
-          discoveryKubeConfig
-        )
-          .then((resources) => {
-            if (isCurrent()) {
-              clusterResources.value.set(group.name, resources);
-            }
-          })
-          .catch((e) => {
-            error(`Error fetching resources for group ${group.name}: ${e}`);
-          });
-      });
-    })
-    .catch((e) => {
-      error(`Error fetching api groups: ${e}`);
-    });
-};
-
 const maxOrUnmaximize = () => {
   const window = getWindow();
 
@@ -280,19 +243,10 @@ const unpinResource = (resource: { name: string; kind: string }) => {
   refreshShortcuts();
 };
 
-onMounted(() => {
-  fetchResources();
-});
-
-// Discovery only depends on the cluster: namespace changes don't affect it.
-watch([context, kubeConfig], () => {
-  fetchResources();
-});
-
 // Re-discover after a successful re-authentication.
 watch(clusterAuthenticated, (authenticated, wasAuthenticated) => {
   if (authenticated && !wasAuthenticated) {
-    fetchResources();
+    discovery.refresh();
   }
 });
 </script>
@@ -366,7 +320,8 @@ watch(clusterAuthenticated, (authenticated, wasAuthenticated) => {
       </div>
       <div class="flex min-h-0 w-full flex-1 overflow-hidden">
         <ScrollArea class="w-full">
-          <div class="px-2 pb-2">
+          <NavigationSkeleton v-if="discovering" />
+          <div v-else class="px-2 pb-2">
             <NavigationGroup
               v-if="
                 settings.pinnedResources.some((resource) =>
