@@ -99,16 +99,30 @@ const toggleActiveNamespace = (
 
   if (!ctx) return;
 
+  const current = activeNamespacesOf(context, kubeConfig);
+
+  // From "All namespaces", picking a namespace narrows down to just that one.
+  if (namespace !== "all" && current.includes("all")) {
+    setActiveNamespaces(context, kubeConfig, [namespace]);
+    return;
+  }
+
   setActiveNamespaces(
     context,
     kubeConfig,
-    toggleNamespaceSelection(
-      activeNamespacesOf(context, kubeConfig),
-      ctx.namespaces,
-      namespace
-    )
+    toggleNamespaceSelection(current, ctx.namespaces, namespace)
   );
 };
+
+/*
+ * A namespace row is checked only when it is selected explicitly: with
+ * "All namespaces" active only that row shows a check mark.
+ */
+const isNamespaceExplicitlyActive = (
+  context: string,
+  kubeConfig: string,
+  namespace: string
+) => activeNamespacesOf(context, kubeConfig).includes(namespace);
 
 /* Deactivate every other context, keeping this one's namespace selection. */
 const onlyThisContext = (ctx: ContextEntry) => {
@@ -683,10 +697,10 @@ const retryNamespaces = (ctx: ContextEntry) => {
                 :key="namespace"
                 :value="namespace"
                 :checked="
-                  isNamespaceActive(
+                  isNamespaceExplicitlyActive(
                     context.context,
-                    namespace,
-                    context.kubeConfig
+                    context.kubeConfig,
+                    namespace
                   )
                 "
                 @select.prevent="
