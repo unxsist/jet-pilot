@@ -27,6 +27,10 @@ useEventListener(window, "TabOrchestrator_Expand", () => (state.open = true));
 const setActiveTab = (id: string) => {
   activeTabId.value = id;
 
+  // Restored tabs mount when they are first shown.
+  const tab = tabs.value.find((t) => t.id === id);
+  if (tab?.lazy) tab.lazy = false;
+
   if (!state.open) {
     state.open = true;
   }
@@ -170,7 +174,14 @@ const handleResize = (size: number) => {
           role="tabpanel"
           class="h-full w-full"
         >
+          <div
+            v-if="tab.lazy"
+            class="flex h-full items-center justify-center text-xs text-muted-foreground"
+          >
+            Restoring {{ tab.title }}…
+          </div>
           <component
+            v-else
             :is="tab.component"
             v-bind="tab.props"
             :tabId="tab.id"

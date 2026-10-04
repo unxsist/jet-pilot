@@ -20,6 +20,7 @@ import { homeDir } from "@tauri-apps/api/path";
 import { invoke } from "@tauri-apps/api/core";
 import { error } from "@/lib/logger";
 import { perfMark } from "@/lib/perf";
+import type { TabSession } from "@/lib/tabDescriptors";
 
 export const SettingsContextStateKey: InjectionKey<
   ToRefs<SettingsContextState>
@@ -69,6 +70,8 @@ export interface SettingsContextState {
       whatsNew: string | null;
     };
     logLevel: "error" | "warn" | "info" | "debug" | "trace";
+    /** Bottom-panel tabs of the last session, restored on start. */
+    openTabs: TabSession | null;
   };
 }
 
@@ -110,6 +113,7 @@ export default {
           whatsNew: null,
         },
         logLevel: "error",
+        openTabs: null,
       },
     });
     provide(SettingsContextStateKey, toRefs(state));
