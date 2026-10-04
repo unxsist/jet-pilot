@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { marked, type Tokens } from "marked";
+import DOMPurify from "dompurify";
 
 import { check, Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -34,6 +35,23 @@ mdRenderer.link = function (
   const text = this.parser.parseInline(tokens);
   return `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`;
 };
+
+/*
+ * Release notes come from the update server and are rendered with v-html, so
+ * sanitize the generated HTML: no scripts, event handlers, javascript: URLs
+ * or other active content can reach the webview (which has IPC access).
+ */
+const releaseNotesHtml = computed(() => {
+  const html = marked.parse(updateInfo.value?.body ?? "", {
+    renderer: mdRenderer,
+    async: false,
+  }) as string;
+
+  return DOMPurify.sanitize(html, {
+    ADD_ATTR: ["target"],
+    FORBID_TAGS: ["style", "form", "input", "button", "iframe"],
+  });
+});
 
 async function checkForUpdates(forced = false) {
   updateInfo.value = await check();
@@ -98,11 +116,7 @@ listen("check_for_updates", () => {
         <div class="text-sm">
           <div
             class="max-h-[100px] overflow-scroll release-notes"
-            v-html="
-              marked.parse(updateInfo.body ?? '', {
-                renderer: mdRenderer,
-              })
-            "
+            v-html="releaseNotesHtml"
           ></div>
         </div>
         <DialogFooter>

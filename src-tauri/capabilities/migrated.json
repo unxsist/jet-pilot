@@ -9,22 +9,15 @@
     "fs:allow-app-read",
     "fs:allow-write-file",
     "fs:allow-app-write",
-    "fs:allow-read-dir",
-    "fs:allow-copy-file",
     "fs:allow-mkdir",
     "fs:allow-remove",
-    "fs:allow-remove",
-    "fs:allow-rename",
     "fs:allow-exists",
     {
       "identifier": "fs:scope",
       "allow": [
         "$APPCONFIG/",
         "$APPCONFIG/*",
-        "$TEMP/",
-        "$TEMP/*",
-        "$TEMP/*/**",
-        "$TEMP/**"
+        "$TEMP/*.yaml"
       ]
     },
     "core:window:allow-create",
@@ -71,12 +64,6 @@
         },
         {
           "args": true,
-          "cmd": "aws",
-          "name": "aws",
-          "sidecar": false
-        },
-        {
-          "args": true,
           "cmd": "helm",
           "name": "helm",
           "sidecar": false
@@ -110,7 +97,6 @@
     "clipboard-manager:allow-write-text",
     "core:app:allow-app-show",
     "core:app:allow-app-hide",
-    "http:default",
     "clipboard-manager:default",
     "process:default",
     "shell:allow-kill",
@@ -124,7 +110,14 @@
           "sidecar": false
         },
         {
-          "args": true,
+          "args": [
+            "sso",
+            "login",
+            "--profile",
+            {
+              "validator": "[A-Za-z0-9_.@+=,:/][A-Za-z0-9_.@+=,:/-]{0,127}"
+            }
+          ],
           "cmd": "aws",
           "name": "aws",
           "sidecar": false
