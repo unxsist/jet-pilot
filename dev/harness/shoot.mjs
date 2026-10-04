@@ -108,6 +108,15 @@ const screens = {
       await wait(500);
     },
   },
+  "port-forwards": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.getByRole("button", { name: /Port forwarding/ }).click();
+      await wait(700);
+    },
+  },
+  macos: { url: "/deployments?resource=deployments&kind=Deployment&os=macos", ready: "tbody tr td" },
   settings: { url: "/settings/general", ready: "main, form, h1, h2", settle: 1200 },
   "settings-appearance": { url: "/settings/appearance", ready: "body", settle: 1200 },
   empty: { url: "/pods?scenario=empty", ready: "table", settle: 1500 },
@@ -169,7 +178,8 @@ for (const theme of ["dark", "light"]) {
     const scenario = new URL(BASE + screen.url).searchParams.get("scenario") || "default";
     const sep = screen.url.includes("?") ? "&" : "?";
     try {
-      await page.goto(`${BASE}${screen.url}${sep}theme=${theme}&scenario=${scenario}&os=linux`);
+      const os = new URL(BASE + screen.url).searchParams.get("os") || "linux";
+      await page.goto(`${BASE}${screen.url}${sep}theme=${theme}&scenario=${scenario}&os=${os}`);
       await page.waitForSelector(screen.ready, { timeout: 15000 }).catch(() => {
         console.error(`[${name}/${theme}] ready selector timed out: ${screen.ready}`);
       });

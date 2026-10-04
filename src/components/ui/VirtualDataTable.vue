@@ -68,6 +68,7 @@ import { formatAge } from "../tables/age";
 import type { ResourceListError } from "@/composables/useResourceList";
 
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
+import { type as getOsType } from "@tauri-apps/plugin-os";
 import { injectStrict } from "@/lib/utils";
 
 interface DataTableState<T> {
@@ -405,7 +406,7 @@ const after = computed(() => {
     : 0;
 });
 
-const isMac = navigator.platform.toLowerCase().includes("mac");
+const isMac = getOsType() === "macos";
 const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`);
 
 /* Label of a row action; function labels depend on the menu subject. */
