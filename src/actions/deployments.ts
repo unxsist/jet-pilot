@@ -75,7 +75,8 @@ export function actions<
                   Kubernetes.restartDeployment(
                     row.metadata.context,
                     row.metadata?.namespace || "",
-                    row.metadata?.name || ""
+                    row.metadata?.name || "",
+                    row.metadata.kubeConfig
                   )
                     .then(() => {
                       dialog.close();

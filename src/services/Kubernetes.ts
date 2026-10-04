@@ -161,10 +161,14 @@ export class Kubernetes {
     return invoke("set_current_kubeconfig", { kubeConfig: kubeConfig });
   }
 
-  static async getContexts(): Promise<
-    { name: string; context: { namespace: string } }[]
-  > {
-    return invoke("list_contexts");
+  /**
+   * Lists the contexts of `kubeConfig`, or of the globally selected kubeconfig
+   * when omitted.
+   */
+  static async getContexts(
+    kubeConfig?: string
+  ): Promise<{ name: string; context: { namespace: string } }[]> {
+    return invoke("list_contexts", { kubeConfig: kubeConfig });
   }
 
   static async getNamespaces(
@@ -214,13 +218,15 @@ export class Kubernetes {
     namespace: string,
     type: string,
     name: string,
-    object: unknown
+    object: unknown,
+    kubeConfig?: string
   ): Promise<KubernetesObject> {
     return invoke(`replace_${type.toLowerCase()}`, {
       context: context,
       namespace: namespace,
       name: name,
       object,
+      kubeConfig: kubeConfig,
     }) as Promise<KubernetesObject>;
   }
 
@@ -228,13 +234,15 @@ export class Kubernetes {
     context: string,
     namespace: string,
     name: string,
-    gracePeriodSeconds = 0
+    gracePeriodSeconds = 0,
+    kubeConfig?: string
   ): Promise<void> {
     return invoke("delete_pod", {
       context: context,
       namespace: namespace,
       name: name,
       gracePeriodSeconds: gracePeriodSeconds,
+      kubeConfig: kubeConfig,
     });
   }
 
@@ -251,24 +259,28 @@ export class Kubernetes {
   static async restartDeployment(
     context: string,
     namespace: string,
-    name: string
+    name: string,
+    kubeConfig?: string
   ): Promise<boolean> {
     return invoke("restart_deployment", {
       context: context,
       namespace: namespace,
       name: name,
+      kubeConfig: kubeConfig,
     });
   }
 
   static async restartStatefulset(
     context: string,
     namespace: string,
-    name: string
+    name: string,
+    kubeConfig?: string
   ): Promise<boolean> {
     return invoke("restart_statefulset", {
       context: context,
       namespace: namespace,
       name: name,
+      kubeConfig: kubeConfig,
     });
   }
 
@@ -352,12 +364,14 @@ export class Kubernetes {
   static async triggerCronJob(
     context: string,
     namespace: string,
-    name: string
+    name: string,
+    kubeConfig?: string
   ): Promise<boolean> {
     return invoke("trigger_cronjob", {
       context: context,
       namespace: namespace,
       name: name,
+      kubeConfig: kubeConfig,
     });
   }
 }

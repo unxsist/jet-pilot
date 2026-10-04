@@ -164,10 +164,22 @@ const toggleMultiContextColumns = () => {
     }
   }
 
-  table.setColumnVisibility({
-    context: isMultiContext,
-    namespace: isMultiContext || isMultiNamespace,
-  });
+  /*
+   * Only touch the columns that opt in through their meta flags (a view's own
+   * column may share the "namespace" id, e.g. Helm releases), and merge with
+   * the current state so columns hidden by the user stay hidden.
+   */
+  const visibility: Record<string, boolean> = {};
+  for (const column of table.getAllLeafColumns()) {
+    const meta = column.columnDef.meta;
+    if (meta?.showOnMultipleNamespaces) {
+      visibility[column.id] = isMultiContext || isMultiNamespace;
+    } else if (meta?.showOnMultipleClusters) {
+      visibility[column.id] = isMultiContext;
+    }
+  }
+
+  table.setColumnVisibility((current) => ({ ...current, ...visibility }));
 };
 
 watch(

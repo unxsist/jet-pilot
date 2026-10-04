@@ -37,10 +37,11 @@ export function actions<
               label: "Restart",
               handler: (dialog) => {
                 rows.forEach((row) => {
-                  Kubernetes.restartDeployment(
+                  Kubernetes.restartStatefulset(
                     row.metadata.context,
                     row.metadata?.namespace || "",
-                    row.metadata?.name || ""
+                    row.metadata?.name || "",
+                    row.metadata.kubeConfig
                   )
                     .then(() => {
                       dialog.close();

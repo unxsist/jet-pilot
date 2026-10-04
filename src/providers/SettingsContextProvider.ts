@@ -23,6 +23,8 @@ export interface SettingsContextState {
     lastKubeConfig: string | null;
     lastContext: string | null;
     lastNamespace: string | null;
+    /** Contexts (and their namespaces) activated in the context switcher. */
+    activeContexts: { context: string; kubeConfig: string; namespaces: string[] }[];
     PanelProvider: {
       height: number;
     };
@@ -57,6 +59,7 @@ export default {
         lastKubeConfig: null,
         lastContext: null,
         lastNamespace: null,
+        activeContexts: [],
         PanelProvider: {
           height: 50,
         },
