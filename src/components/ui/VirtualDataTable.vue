@@ -2110,6 +2110,7 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
 .vdt-sticky-select {
   left: 0;
 }
+.vdt-scrolled-x th.vdt-sticky,
 th.vdt-sticky {
   z-index: 30;
 }
