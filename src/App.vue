@@ -16,6 +16,7 @@ import DialogProvider from "./providers/DialogProvider";
 import DialogHandler from "./components/DialogHandler.vue";
 import UpdateHandler from "./components/UpdateHandler.vue";
 import WhatsNew from "./components/WhatsNew.vue";
+import TerminalLauncher from "./components/TerminalLauncher.vue";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -51,6 +52,7 @@ const osType = ref(getOsType());
                       <DialogHandler />
                       <UpdateHandler />
                       <WhatsNew />
+                      <TerminalLauncher />
                     </CommandPaletteProvider>
                   </PanelProvider>
                 </PortForwardingProvider>
