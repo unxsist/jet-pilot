@@ -41,3 +41,9 @@ jobs:
 
       - name: Run unit tests
         run: npm test
+
+      - name: Build frontend
+        run: npm run vite:build
+
+      - name: Check bundle size budget
+        run: npm run size:check
