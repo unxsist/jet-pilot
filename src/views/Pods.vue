@@ -16,6 +16,7 @@ import {
 } from "@/lib/multicontext";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { columns } from "@/components/tables/pods";
+import type { MetricsSample } from "@/components/tables/metrics";
 import { actions as podActions } from "@/actions/pods";
 import {
   ContextTarget,
@@ -59,7 +60,7 @@ type ContextAwarePod = V1Pod & {
     context: string;
     kubeConfig: string;
   };
-} & { metrics: PodMetric[] };
+} & { metrics: PodMetric[]; metricsHistory?: MetricsSample[] };
 
 type ContextAwarePodMetric = PodMetric & {
   metadata: PodMetric["metadata"] & {
@@ -374,30 +375,42 @@ const {
     handleAuthError(target.context, target.kubeConfig, message),
 });
 
-const { metrics } = usePodMetrics(targets, () => !forcePolling());
+const { metrics, history: metricsHistory } = usePodMetrics(
+  targets,
+  () => !forcePolling()
+);
 
 /*
- * Pods joined with their latest metric. A row object is reused while neither
- * the pod nor its metric changed, so the table only re-renders changed rows.
+ * Pods joined with their latest metric and usage history (the sparkline
+ * columns, see tables/metrics.ts). A row object is reused while neither the
+ * pod, its metric nor its history changed (history arrays are replaced when
+ * a sample is added), so the table only re-renders changed rows. Without a
+ * history (kubectl fallback) the columns show the single latest sample.
  */
 const rowCache = new WeakMap<
   object,
-  { metric: unknown; row: ContextAwarePod }
+  { metric: unknown; history: unknown; row: ContextAwarePod }
 >();
 const pods = computed<ContextAwarePod[]>(() => {
   const serviceMetrics = metrics.value;
   const fallbackMetrics = kubectlMetrics.value;
+  const histories = metricsHistory.value;
   return watchedPods.value.map((pod) => {
     const key = podMetricKey(pod.metadata);
     const metric = (serviceMetrics.get(key) ?? fallbackMetrics.get(key)) as
       | ContextAwarePodMetric
       | undefined;
+    const history = histories.get(key);
     const cached = rowCache.get(pod);
-    if (cached && cached.metric === metric) {
+    if (cached && cached.metric === metric && cached.history === history) {
       return cached.row;
     }
-    const row = markRaw({ ...pod, metrics: metric ? [metric] : [] });
-    rowCache.set(pod, { metric, row });
+    const row = markRaw({
+      ...pod,
+      metrics: metric ? [metric] : [],
+      ...(history ? { metricsHistory: history } : {}),
+    });
+    rowCache.set(pod, { metric, history, row });
     return row;
   });
 });
