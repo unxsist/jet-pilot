@@ -29,7 +29,7 @@ const osType = ref(getOsType());
 
 <template>
   <AppLayout
-    class="bg-accent text-sm rounded-lg border border-border overflow-hidden"
+    class="bg-sidebar text-sm text-foreground rounded-lg border border-border overflow-hidden"
     :class="`os:${osType}`"
   >
     <Suspense>
