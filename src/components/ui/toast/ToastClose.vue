@@ -9,7 +9,7 @@ const props = defineProps<{
 </script>
 
 <template>
-  <ToastClose v-bind="props" :class="cn('absolute right-1 top-1 rounded-md p-1 text-foreground/50 opacity-0 transition-opacity hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-1 group-hover:opacity-100 group-[.destructive]:text-red-300 group-[.destructive]:hover:text-red-50 group-[.destructive]:focus:ring-red-400 group-[.destructive]:focus:ring-offset-red-600', props.class)">
-    <Cross2Icon class="h-4 w-4" />
+  <ToastClose v-bind="props" :class="cn('absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-[5px] text-muted-foreground opacity-0 transition-[opacity,background-color,color] duration-fast hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100', props.class)">
+    <Cross2Icon class="h-3.5 w-3.5" />
   </ToastClose>
 </template>
