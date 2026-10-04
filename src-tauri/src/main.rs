@@ -17,6 +17,7 @@ mod port_forward;
 mod shell;
 mod util;
 mod watch;
+mod workloads;
 
 static RELOAD_HANDLE: Lazy<Arc<RwLock<reload::Handle<LevelFilter, Registry>>>> = Lazy::new(|| {
     let (_, reload_handle) = reload::Layer::new(LevelFilter::INFO);
@@ -177,6 +178,7 @@ fn main() {
             logs::structured_logging::export_structured_logging_session,
             logs::streaming::start_log_stream,
             logs::streaming::stop_log_stream,
+            workloads::run_helm_with_values,
         ])
         .setup(|_app| {
             #[cfg(target_os = "macos")]
