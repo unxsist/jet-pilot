@@ -23,6 +23,9 @@ import { ref, watch, nextTick, computed } from 'vue';
 import { useLogViewer } from '@/composables/useLogViewer';
 import { AnsiUp } from 'ansi_up';
 import Button from "@/components/ui/button/Button.vue";
+import SettingsSection from "@/components/settings/SettingsSection.vue";
+import { settingsBlock, settingsRow } from "@/components/settings/styles";
+import { Download } from "lucide-vue-next";
 
 const { settings } = injectStrict(SettingsContextStateKey);
 const { logs } = useLogViewer();
@@ -92,60 +95,65 @@ watch(logs, () => {
 });
 </script>
 <template>
-  <div class=" space-y-8">
-    <div>
-      <h2 class="font-medium text-base mb-4">Logs</h2>
+  <div class="space-y-6">
+    <SettingsSection
+      title="Logging"
+      description="What JET Pilot writes to its own application log"
+    >
       <FormField
         v-slot="{ componentField }"
         v-model="settings.logLevel"
         name="log-level"
       >
-        <FormItem>
-          <FormLabel>Log level</FormLabel>
-          <FormControl>
-            <Select
-              v-bind="componentField"
-              @update:modelValue="handleLogLevelChange"
-            >
-              <SelectTrigger class="w-32">
-                <SelectValue placeholder="Select level" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem
-                  v-for="level in logLevels"
-                  :key="level.value"
-                  :value="level.value"
-                >
-                  {{ level.label }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </FormControl>
-          <FormDescription>
-            The minimum log level to display in the application logs
-          </FormDescription>
-        </FormItem> 
+        <FormItem :class="settingsRow">
+          <div class="space-y-1">
+            <FormLabel>Log level</FormLabel>
+            <FormDescription>
+              The minimum log level to display in the application logs
+            </FormDescription>
+          </div>
+          <div class="flex sm:justify-end">
+            <FormControl>
+              <Select
+                v-bind="componentField"
+                @update:modelValue="handleLogLevelChange"
+              >
+                <SelectTrigger class="w-36">
+                  <SelectValue placeholder="Select level" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="level in logLevels"
+                    :key="level.value"
+                    :value="level.value"
+                  >
+                    {{ level.label }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </FormControl>
+          </div>
+        </FormItem>
       </FormField>
-    </div>
+    </SettingsSection>
 
-    <div>
-      <div class="flex items-center justify-between mb-4 space-x-2">
-        <h2 class="font-medium text-base">Application Logs</h2>
-        <Button 
-          size="xs"
-          variant="secondary"
-          @click="handleSaveLogs"
-        >
-          Export Logs
-        </button>
+    <SettingsSection
+      title="Application logs"
+      description="Live output of the JET Pilot backend"
+    >
+      <template #actions>
+        <Button size="sm" variant="outline" @click="handleSaveLogs">
+          <Download class="h-3.5 w-3.5" />
+          Export logs
+        </Button>
+      </template>
+      <div :class="settingsBlock">
+        <div
+          ref="logContainer"
+          class="h-[400px] w-full overflow-y-auto whitespace-pre-wrap rounded-md border bg-surface-1 p-3 font-mono text-xs leading-5 text-foreground select-text focus:outline-none"
+          v-html="logsAsHtml"
+        />
       </div>
-      <div
-        ref="logContainer"
-        class="w-full h-[400px] p-4 font-mono text-sm bg-muted rounded-md 
-               resize-none focus:outline-none overflow-y-auto whitespace-pre-wrap 
-               select-text"
-        v-html="logsAsHtml"
-      />
-    </div>
+    </SettingsSection>
   </div>
 </template>

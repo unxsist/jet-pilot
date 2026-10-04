@@ -212,3 +212,31 @@ The spacing scale is Tailwind's 4px grid. The density targets:
 5. Empty and loading states: `EmptyState` and `Skeleton` instead of bare
    "No results." text.
 6. Shortcut hints: `Kbd` in tooltips, menus and the palette.
+
+## Screen patterns (phase 2)
+
+Shared building blocks used across the screens:
+
+| Building block | Where | Use |
+| --- | --- | --- |
+| `KindIcon` / `kindIcon()` | `components/KindIcon.vue`, `lib/kindIcons.ts` | One lucide icon per resource kind or surface (`pods`, `helm`, `logs`, ...). `NavigationItemIcon` and `TabIcon` wrap it. |
+| `ContextAvatar` | `components/ContextAvatar.vue` | Cluster monogram with a name-derived hue and an optional status dot. Set `--avatar-ring` to the surface it sits on. |
+| `statusCell`, `contextCell`, `mutedCell`, `monoCell` | `components/tables/cells.ts` | Table cells: dot + label for states, muted secondary text, monospace machine values. Column `meta.numeric` right-aligns with tabular numerals. |
+| `actionIcon()`, `isDestructiveAction()` | `lib/actionIcons.ts` | Icons and destructive tone for row / context menu actions. |
+| `PanelSection` | `components/generic/PanelSection.vue` | Collapsible side panel section (small caps heading, icon, count). |
+| `SettingsSection` + `settingsRow` | `components/settings/` | Settings cards with label / description left and the control right. |
+
+Layout rules the screens follow: the sidebar and tab strip are chrome
+(`bg-sidebar` / `bg-surface-1`), content sits on an inset `bg-background`
+canvas with a hairline border, the side panel is `bg-card`. Toolbars are
+44px (`h-11`) with `size="sm"` controls; tables use ~34px rows.
+
+## Visual QA harness
+
+`npm run harness` serves the app in a browser with mocked Tauri IPC and
+fixture data (`dev/harness/`). Query parameters `theme`, `os` and
+`scenario` (`default`, `empty`, `error`, `nocontext`, `whatsnew`) switch
+variants. `node dev/harness/shoot.mjs <prefix> [screen...]` screenshots the
+key screens in dark and light with a local Chromium (needs
+`playwright-core`, which is not a project dependency). Nothing in
+`dev/harness` is part of the production build.

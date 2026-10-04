@@ -4,6 +4,8 @@ import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { injectStrict, formatResourceKind } from "@/lib/utils";
 import { onMounted } from "vue";
 import DataTable from "@/components/ui/VirtualDataTable.vue";
+import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-vue-next";
 import { ColumnDef } from "@tanstack/vue-table";
 import { columns as defaultGenericColumns } from "@/components/tables/generic";
 import { multiContextColumns } from "@/components/tables/multicontext";
@@ -213,13 +215,14 @@ onMounted(async () => {
     @retry="retry"
   >
     <template #action-buttons>
-      <button
-        class="transition-all ml-2 hover:opacity-100 opacity-50 z-50 rounded-full w-9 h-9 flex items-center justify-center bg-primary text-primary-foreground text-lg"
+      <Button
+        size="sm"
         :title="`Create ${route.query.kind || 'resource'}`"
         @click="create"
       >
-        +
-      </button>
+        <Plus class="h-3.5 w-3.5" />
+        New
+      </Button>
     </template>
   </DataTable>
 </template>

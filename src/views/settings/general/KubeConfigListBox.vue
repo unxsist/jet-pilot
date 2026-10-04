@@ -2,9 +2,7 @@
 import { homeDir, join } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
-import FolderIcon from "@/assets/icons/folder.svg";
-import BinIcon from "@/assets/icons/bin.svg";
-import PlusIcon from "@/assets/icons/plus.svg";
+import { FileKey2, FolderOpen, Plus, Trash2 } from "lucide-vue-next";
 
 const files = defineModel({
   type: Array<string>,
@@ -47,40 +45,43 @@ const removeFile = (index: number) => {
 };
 </script>
 <template>
-  <div class="border">
+  <div class="overflow-hidden rounded-md border">
     <div
       v-for="(file, index) in files"
       :key="index"
-      class="group w-full relative flex items-center border-b last:border-b-0"
+      class="group relative flex h-10 w-full items-center gap-2.5 border-b border-border-subtle bg-background pl-3 pr-1 last:border-b-0 focus-within:bg-accent/40"
     >
+      <FileKey2 class="h-4 w-4 shrink-0 text-muted-foreground" />
       <input
         v-model="files[index]"
         type="text"
         placeholder="Path to kubeconfig file"
         :aria-label="`Kubeconfig file ${index + 1}`"
-        class="bg-transparent p-2 py-3 w-full text-xs focus:outline-none"
+        class="h-full w-full bg-transparent font-mono text-xs text-foreground placeholder:text-muted-foreground/80 focus:outline-none"
       />
       <!-- Visible on hover and whenever the row has keyboard focus. -->
       <div
-        class="absolute pl-2 space-x-2 right-0.5 bg-background opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+        class="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-fast group-hover:opacity-100 group-focus-within:opacity-100"
       >
         <Button
           variant="ghost"
-          size="sm"
-          :aria-label="`Remove ${file || 'kubeconfig file'}`"
-          title="Remove"
-          @click="removeFile(index)"
-        >
-          <BinIcon class="h-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
+          size="icon-sm"
+          class="text-muted-foreground"
           aria-label="Browse for a kubeconfig file"
           title="Browse..."
           @click="selectFile(index)"
         >
-          <FolderIcon class="h-3.5" />
+          <FolderOpen class="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          :aria-label="`Remove ${file || 'kubeconfig file'}`"
+          title="Remove"
+          @click="removeFile(index)"
+        >
+          <Trash2 class="h-3.5 w-3.5" />
         </Button>
       </div>
     </div>
@@ -89,12 +90,12 @@ const removeFile = (index: number) => {
     <Button
       variant="outline"
       size="sm"
-      class="mt-2"
       aria-label="Add a kubeconfig file"
       title="Add kubeconfig file"
       @click="files.push('')"
     >
-      <PlusIcon class="h-4" />
+      <Plus class="h-3.5 w-3.5" />
+      Add kubeconfig
     </Button>
   </div>
 </template>

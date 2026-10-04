@@ -14,6 +14,7 @@ export const columns: ColumnDef<V1Job>[] = [
       return `${row.status?.succeeded ?? 0}/${row.spec?.completions}`;
     },
     enableGlobalFilter: false,
+    meta: { class: () => "tabular-nums" },
   },
   {
     header: "Duration",
@@ -23,6 +24,7 @@ export const columns: ColumnDef<V1Job>[] = [
         row.status?.completionTime || new Date()
       ),
     enableGlobalFilter: false,
+    meta: { numeric: true, class: () => "text-muted-foreground" },
   },
   ageColumn<V1Job>((row) => row.metadata?.creationTimestamp),
 ];

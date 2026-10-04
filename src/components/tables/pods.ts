@@ -11,6 +11,7 @@ import {
   toneClass,
 } from "./status";
 import PodUsageChart from "../ui/PodUsageChart.vue";
+import { monoCell, mutedCell, statusCell } from "./cells";
 
 type PodRow = V1Pod & { metrics: PodMetric[] };
 
@@ -27,7 +28,7 @@ export const columns: ColumnDef<PodRow>[] = [
     },
     enableGlobalFilter: false,
     meta: {
-      class: (row) => toneClass(getPodReadinessTone(row)),
+      class: (row) => `tabular-nums ${toneClass(getPodReadinessTone(row))}`,
     },
   },
   {
@@ -35,14 +36,16 @@ export const columns: ColumnDef<PodRow>[] = [
     accessorFn: (row) => getPodRestarts(row),
     enableGlobalFilter: false,
     meta: {
+      numeric: true,
       class: (row) => toneClass(getRestartsTone(getPodRestarts(row))),
     },
   },
   {
     header: "Status",
     accessorFn: (row) => getPodStatus(row),
-    meta: {
-      class: (row) => toneClass(getPodStatusTone(getPodStatus(row))),
+    cell: ({ row }) => {
+      const status = getPodStatus(row.original);
+      return statusCell(status, getPodStatusTone(status));
     },
   },
   {
@@ -57,10 +60,12 @@ export const columns: ColumnDef<PodRow>[] = [
     header: "IP",
     accessorFn: (row) => row.status?.podIP || "",
     enableGlobalFilter: false,
+    meta: { class: () => monoCell },
   },
   {
     header: "Node",
     accessorKey: "spec.nodeName",
+    meta: { class: () => mutedCell },
   },
   ageColumn<PodRow>((row) => row.metadata?.creationTimestamp),
 ];

@@ -6,8 +6,8 @@ import {
 } from "@/providers/PanelProvider";
 import { injectStrict } from "@/lib/utils";
 import TabIcon from "@/components/TabIcon.vue";
-import Expand from "@/assets/icons/expand.svg";
-import Close from "@/assets/icons/close.svg";
+import { ChevronDown, X } from "lucide-vue-next";
+import { Button } from "@/components/ui/button";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 
 import { ResizablePanel } from "@/components/ui/resizable";
@@ -80,23 +80,26 @@ const handleResize = (size: number) => {
     @resize="handleResize"
   >
     <div
-      class="flex h-full flex-col relative border-t border-l bg-background"
+      class="relative flex h-full flex-col bg-background"
       @keydown.stop="() => {}"
     >
-      <div class="flex items-center mb-0 text-xs py-1 px-1">
+      <div
+        class="flex h-9 shrink-0 items-stretch border-b bg-surface-1 pr-1.5"
+      >
         <div
-          class="flex space-x-3 overflow-x-auto"
+          class="flex min-w-0 flex-1 items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           role="tablist"
           aria-label="Open tabs"
         >
           <div
             v-for="tab in tabs"
             :key="tab.id"
-            class="group relative flex items-center rounded max-w-[200px] hover:bg-border"
-            :class="{
-              'bg-border': activeTabId === tab.id,
-              'text-muted-foreground': activeTabId !== tab.id,
-            }"
+            class="group relative flex min-w-[120px] max-w-[220px] shrink-0 items-center border-r border-border-subtle text-xs transition-colors duration-fast"
+            :class="
+              activeTabId === tab.id
+                ? '-mb-px bg-background text-foreground before:absolute before:inset-x-0 before:top-0 before:h-[2px] before:bg-primary'
+                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+            "
             @mousedown.middle.prevent
             @auxclick.middle.prevent="closeAndSetActiveTab(tab.id)"
           >
@@ -105,38 +108,56 @@ const handleResize = (size: number) => {
               role="tab"
               :aria-selected="activeTabId === tab.id"
               :title="tab.title"
-              class="flex items-center min-w-0 py-1 pl-2 pr-6 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              class="flex h-full min-w-0 flex-1 items-center gap-2 pl-3 pr-7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               @click="setActiveTab(tab.id)"
             >
-              <tab-icon :name="tab.icon" class="mr-1 shrink-0" />
-              <span class="truncate">{{ tab.title }}</span>
+              <tab-icon
+                :name="tab.icon"
+                :class="
+                  activeTabId === tab.id
+                    ? 'text-primary'
+                    : 'text-muted-foreground'
+                "
+              />
+              <span
+                class="truncate"
+                :class="{ 'font-medium': activeTabId === tab.id }"
+                >{{ tab.title }}</span
+              >
             </button>
             <button
               type="button"
               :aria-label="`Close ${tab.title}`"
               :title="`Close ${tab.title} (middle-click)`"
-              class="absolute right-1 p-0.5 rounded-sm text-foreground hover:bg-accent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              class="absolute right-1.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity duration-fast hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100"
+              :class="{ 'opacity-60': activeTabId === tab.id }"
               @click.stop="closeAndSetActiveTab(tab.id)"
             >
-              <Close class="h-3" />
+              <X class="h-3 w-3" />
             </button>
           </div>
         </div>
-        <button
-          type="button"
-          class="ml-auto p-1 rounded hover:bg-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          :aria-label="state.open ? 'Collapse panel' : 'Expand panel'"
-          :title="state.open ? 'Collapse panel' : 'Expand panel'"
-          :aria-expanded="state.open"
-          @click="state.open = !state.open"
-        >
-          <Expand
-            class="text-foreground h-3"
-            :class="{ 'rotate-90': !state.open, 'rotate-270': state.open }"
-          />
-        </button>
+        <div class="flex shrink-0 items-center gap-1 pl-2">
+          <span class="text-2xs tabular-nums text-muted-foreground/70">
+            {{ tabs.length }} open
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            class="text-muted-foreground"
+            :aria-label="state.open ? 'Collapse panel' : 'Expand panel'"
+            :title="state.open ? 'Collapse panel' : 'Expand panel'"
+            :aria-expanded="state.open"
+            @click="state.open = !state.open"
+          >
+            <ChevronDown
+              class="h-3.5 w-3.5 transition-transform duration-base ease-out"
+              :class="{ 'rotate-180': !state.open }"
+            />
+          </Button>
+        </div>
       </div>
-      <div class="relative flex-grow p-2 overflow-auto" v-show="state.open">
+      <div class="relative min-h-0 flex-grow overflow-auto" v-show="state.open">
         <!--
           Every tab is rendered and keyed by its id; inactive ones are only
           hidden. Closing a tab removes it from the list, which unmounts its
@@ -147,7 +168,7 @@ const handleResize = (size: number) => {
           v-show="tab.id === activeTabId"
           :key="tab.id"
           role="tabpanel"
-          class="w-full h-full"
+          class="h-full w-full"
         >
           <component
             :is="tab.component"

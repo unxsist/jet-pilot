@@ -4,9 +4,16 @@ import Loading from "@/components/Loading.vue";
 import { Command } from "@tauri-apps/plugin-shell";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import loader, { Monaco } from "@monaco-editor/loader";
-import LightTheme from "@/components/monaco/themes/GithubLight";
-import DarkTheme from "@/components/monaco/themes/BrillianceBlack";
+import {
+  JetDark,
+  JetLight,
+  editorOptions,
+} from "@/components/monaco/themes/jet";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Kbd } from "@/components/ui/kbd";
+import { StatusDot } from "@/components/ui/status";
+import { Loader2, TriangleAlert } from "lucide-vue-next";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -157,9 +164,16 @@ const initializeEditor = async () => {
     editContents.value = editorModel!.getValue();
   });
 
-  monaco.editor.defineTheme("light", LightTheme);
-  monaco.editor.defineTheme("dark", DarkTheme);
+  monaco.editor.defineTheme("light", JetLight);
+  monaco.editor.defineTheme("dark", JetDark);
+  const reducedMotion = window.matchMedia?.(
+    "(prefers-reduced-motion: reduce)"
+  ).matches;
   editorInstance = monaco.editor.create(editorElement.value, {
+    ...editorOptions,
+    ...(reducedMotion
+      ? { smoothScrolling: false, cursorBlinking: "solid" as const }
+      : {}),
     model: editorModel,
     theme: colorMode.value,
     automaticLayout: true,
@@ -299,51 +313,78 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <div class="group relative w-full h-full" @keydown="onKeydown">
-    <Loading label="loading..." v-if="loading" />
+  <div class="group relative h-full w-full bg-background" @keydown="onKeydown">
+    <Loading :label="`Loading ${objectLabel}…`" v-if="loading" />
     <div
       v-else-if="loadError"
       role="alert"
-      class="flex flex-col items-center justify-center h-full gap-3 p-4 text-center"
+      class="flex h-full items-center justify-center p-4"
     >
-      <span class="font-semibold text-destructive">
-        Failed to load {{ objectLabel }}
-      </span>
-      <pre
-        class="max-w-full whitespace-pre-wrap break-words text-xs text-muted-foreground select-text"
-        >{{ loadError }}</pre
+      <EmptyState
+        :icon="TriangleAlert"
+        :title="`Failed to load ${objectLabel}`"
+        class="max-w-xl"
       >
-      <Button variant="secondary" size="xs" @click="onClose">Close</Button>
+        <pre
+          class="whitespace-pre-wrap break-words font-mono text-xs select-text"
+          >{{ loadError }}</pre
+        >
+        <template #action>
+          <Button variant="outline" size="sm" @click="onClose">Close</Button>
+        </template>
+      </EmptyState>
     </div>
-    <div
-      v-if="hasChanges && !loadError"
-      class="z-50 absolute bottom-5 right-5 flex justify-end space-x-1"
+    <Transition
+      enter-active-class="transition duration-base ease-out"
+      enter-from-class="translate-y-2 opacity-0"
+      leave-active-class="transition duration-fast ease-in"
+      leave-to-class="translate-y-2 opacity-0"
     >
-      <Button
-        variant="default"
-        size="xs"
-        :disabled="saving"
-        :title="`${create ? 'Create' : 'Save'} (${saveShortcut})`"
-        :aria-keyshortcuts="saveShortcut === '⌘S' ? 'Meta+S' : 'Control+S'"
-        @click="onSave"
-        >{{
-          saving
-            ? create
-              ? "Creating..."
-              : "Saving..."
-            : create
-            ? "Create"
-            : "Save Changes"
-        }}</Button
+      <div
+        v-if="hasChanges && !loadError"
+        class="absolute bottom-4 right-6 z-50 flex items-center gap-1 rounded-lg border bg-popover p-1 pl-3 shadow-lg"
+        role="toolbar"
+        aria-label="Unsaved changes"
       >
-      <Button variant="secondary" size="xs" :disabled="saving" @click="onClose">{{
-        create ? "Cancel" : "Discard changes"
-      }}</Button>
-    </div>
+        <span class="mr-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <StatusDot tone="warning" />
+          {{ create ? `New ${kind || type}` : "Unsaved changes" }}
+        </span>
+        <Button variant="ghost" size="xs" :disabled="saving" @click="onClose">{{
+          create ? "Cancel" : "Discard"
+        }}</Button>
+        <Button
+          variant="default"
+          size="xs"
+          :disabled="saving"
+          :title="`${create ? 'Create' : 'Save'} (${saveShortcut})`"
+          :aria-keyshortcuts="saveShortcut === '⌘S' ? 'Meta+S' : 'Control+S'"
+          @click="onSave"
+        >
+          <Loader2 v-if="saving" class="h-3 w-3 animate-spin" />
+          {{
+            saving
+              ? create
+                ? "Creating…"
+                : "Saving…"
+              : create
+              ? "Create"
+              : "Save changes"
+          }}
+          <Kbd
+            v-if="!saving"
+            variant="ghost"
+            size="sm"
+            class="ml-0.5 text-primary-foreground"
+            >{{ saveShortcut }}</Kbd
+          >
+        </Button>
+      </div>
+    </Transition>
     <div
       v-show="!loading && !loadError"
       ref="editorElement"
-      class="w-full h-full"
+      class="h-full w-full"
     ></div>
     <AlertDialog
       :open="showUnsavedChangedDialog"
@@ -351,14 +392,15 @@ onUnmounted(() => {
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
+          <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
           <AlertDialogDescription>
-            You have unsaved changes, closing this tab will discard them.
+            You have unsaved changes to {{ objectLabel }}. Closing this tab
+            will discard them.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction @click="onClose">Close</AlertDialogAction>
+          <AlertDialogCancel>Keep editing</AlertDialogCancel>
+          <AlertDialogAction @click="onClose">Discard</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

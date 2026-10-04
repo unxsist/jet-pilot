@@ -8,8 +8,18 @@ import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { injectStrict, formatDateTimeDifference } from "@/lib/utils";
 import { ResizablePanel } from "@/components/ui/resizable";
 import NavigationItemIcon from "@/components/NavigationItemIcon.vue";
-import CloseIcon from "@/assets/icons/close.svg";
-import { Check, Copy, FileCode, FileText, ScrollText } from "lucide-vue-next";
+import ContextAvatar from "@/components/ContextAvatar.vue";
+import { Button } from "@/components/ui/button";
+import {
+  Check,
+  Clock,
+  Copy,
+  FileCode,
+  FileText,
+  FolderTree,
+  ScrollText,
+  X,
+} from "lucide-vue-next";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useRoute } from "vue-router";
 import type { KubernetesObject } from "@kubernetes/client-node";
@@ -156,91 +166,122 @@ const showLogs = () => {
   );
 };
 
-const actionClass =
-  "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 </script>
 
 <template>
   <ResizablePanel
     v-if="sidePanel !== null"
     :default-size="30"
-    class="max-h-screen !overflow-y-auto"
+    class="max-h-screen !overflow-y-auto bg-card"
   >
-    <div class="bg-background p-4 border-b space-y-3">
-      <div class="flex justify-between items-center gap-2">
-        <div class="flex items-center space-x-2 min-w-0">
+    <div
+      class="sticky top-0 z-10 space-y-3 border-b bg-card/95 px-4 pb-3 pt-3.5 backdrop-blur-sm supports-[backdrop-filter]:bg-card/85"
+    >
+      <div class="flex items-start gap-3">
+        <span
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-surface-1 text-muted-foreground shadow-xs"
+        >
           <NavigationItemIcon
             v-if="sidePanel.icon"
             :key="sidePanel.icon"
             :name="sidePanel.icon"
+            class="h-[18px] w-[18px]"
           />
-          <span class="truncate" :title="sidePanel.title">{{
-            sidePanel.title
-          }}</span>
-          <button
+        </span>
+        <div class="min-w-0 flex-1">
+          <div
             v-if="target"
-            type="button"
-            class="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            :aria-label="copied ? 'Name copied' : `Copy name ${target.name}`"
-            :title="copied ? 'Copied!' : 'Copy name'"
-            @click="copyName"
+            class="text-xs font-medium text-muted-foreground"
           >
-            <Check v-if="copied" class="h-3.5 w-3.5 text-green-600 dark:text-green-500" />
-            <Copy v-else class="h-3.5 w-3.5" />
-          </button>
-          <span class="sr-only" aria-live="polite">{{
-            copied ? "Name copied to the clipboard" : ""
-          }}</span>
+            {{ target.kind }}
+          </div>
+          <div class="flex min-w-0 items-center gap-1">
+            <h2
+              class="truncate text-base font-semibold leading-6 text-foreground select-text"
+              :title="target ? target.name : sidePanel.title"
+            >
+              {{ target ? target.name : sidePanel.title }}
+            </h2>
+            <button
+              v-if="target"
+              type="button"
+              class="shrink-0 rounded p-1 text-muted-foreground transition-colors duration-fast hover:bg-accent hover:text-foreground focus-ring focus-visible:ring-offset-card"
+              :aria-label="copied ? 'Name copied' : `Copy name ${target.name}`"
+              :title="copied ? 'Copied!' : 'Copy name'"
+              @click="copyName"
+            >
+              <Check v-if="copied" class="h-3.5 w-3.5 text-success" />
+              <Copy v-else class="h-3.5 w-3.5" />
+            </button>
+            <span class="sr-only" aria-live="polite">{{
+              copied ? "Name copied to the clipboard" : ""
+            }}</span>
+          </div>
         </div>
-        <button
-          type="button"
-          class="shrink-0 rounded p-1 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="-mr-1.5 -mt-0.5 shrink-0 text-muted-foreground"
           aria-label="Close panel"
           title="Close"
           @click="setSidePanelComponent(null)"
         >
-          <CloseIcon class="w-4 h-4" />
-        </button>
+          <X class="h-4 w-4" />
+        </Button>
       </div>
       <template v-if="target">
-        <dl
-          class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"
-        >
-          <div v-if="target.namespace" class="flex gap-1 min-w-0">
-            <dt>Namespace</dt>
-            <dd class="text-foreground truncate">{{ target.namespace }}</dd>
+        <dl class="flex flex-wrap gap-1.5 text-xs">
+          <div
+            v-if="target.namespace"
+            class="inline-flex h-6 min-w-0 items-center gap-1.5 rounded-md border bg-surface-1 px-2"
+          >
+            <dt class="sr-only">Namespace</dt>
+            <FolderTree class="h-3 w-3 shrink-0 text-muted-foreground" />
+            <dd class="truncate text-foreground">{{ target.namespace }}</dd>
           </div>
-          <div v-if="target.context" class="flex gap-1 min-w-0">
-            <dt>Context</dt>
-            <dd class="text-foreground truncate" :title="target.kubeConfig">
+          <div
+            v-if="target.context"
+            class="inline-flex h-6 min-w-0 items-center gap-1.5 rounded-md border bg-surface-1 pl-1 pr-2 [--avatar-ring:var(--surface-1)]"
+          >
+            <dt class="sr-only">Context</dt>
+            <ContextAvatar
+              :name="target.context"
+              size="sm"
+              class="h-4 w-4 text-[9px]"
+            />
+            <dd class="truncate text-foreground" :title="target.kubeConfig">
               {{ target.context }}
             </dd>
           </div>
-          <div v-if="age" class="flex gap-1">
-            <dt>Age</dt>
+          <div
+            v-if="age"
+            class="inline-flex h-6 items-center gap-1.5 rounded-md border bg-surface-1 px-2"
+          >
+            <dt class="sr-only">Age</dt>
+            <Clock class="h-3 w-3 shrink-0 text-muted-foreground" />
             <dd
-              class="text-foreground"
+              class="tabular-nums text-foreground"
               :title="resource?.metadata?.creationTimestamp?.toString()"
             >
               {{ age }}
             </dd>
           </div>
         </dl>
-        <div class="flex flex-wrap gap-2">
-          <button type="button" :class="actionClass" @click="editYaml">
-            <FileCode class="h-3.5 w-3.5" /> Edit YAML
-          </button>
-          <button type="button" :class="actionClass" @click="describe">
-            <FileText class="h-3.5 w-3.5" /> Describe
-          </button>
-          <button
+        <div class="flex flex-wrap gap-1.5">
+          <Button variant="outline" size="xs" @click="editYaml">
+            <FileCode class="h-3 w-3" /> Edit YAML
+          </Button>
+          <Button variant="outline" size="xs" @click="describe">
+            <FileText class="h-3 w-3" /> Describe
+          </Button>
+          <Button
             v-if="canShowLogs"
-            type="button"
-            :class="actionClass"
+            variant="outline"
+            size="xs"
             @click="showLogs"
           >
-            <ScrollText class="h-3.5 w-3.5" /> Logs
-          </button>
+            <ScrollText class="h-3 w-3" /> Logs
+          </Button>
         </div>
       </template>
     </div>

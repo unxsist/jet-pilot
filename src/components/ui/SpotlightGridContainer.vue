@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { useColorMode } from "@vueuse/core";
 import { onMounted, onUnmounted } from "vue";
 
-const colorMode = useColorMode();
-
-const mousePosition = ref({ x: 0, y: 0 });
+/*
+ * Canvas with a subtle dot grid; dots near the pointer are brightened by a
+ * radial mask (a static effect, so it is fine with reduced motion).
+ */
+const mousePosition = ref({ x: -1000, y: -1000 });
 const spotlightGrid = ref<HTMLDivElement | null>(null);
 
 const updateMousePosition = (ev: MouseEvent) => {
@@ -25,74 +26,51 @@ onUnmounted(() => {
   window.removeEventListener("mousemove", updateMousePosition);
 });
 
-const spotlightStyle = computed(() => ({
-  maskImage: `radial-gradient(circle 400px at ${mousePosition.value.x}px ${mousePosition.value.y}px, 
-                white, 
-                rgba(255, 255, 255, 0.3) 40%, 
-                transparent 70%)`,
-  WebkitMaskImage: `radial-gradient(circle 400px at ${mousePosition.value.x}px ${mousePosition.value.y}px, 
-                white, 
-                rgba(255, 255, 255, 0.3) 40%, 
-                transparent 70%)`,
-}));
+const spotlightStyle = computed(() => {
+  const mask = `radial-gradient(circle 320px at ${mousePosition.value.x}px ${mousePosition.value.y}px, white, rgba(255, 255, 255, 0.25) 45%, transparent 75%)`;
+  return { maskImage: mask, WebkitMaskImage: mask };
+});
 </script>
 
 <template>
-  <div
-    ref="spotlightGrid"
-    class="spotlight-grid w-full h-full"
-    :class="colorMode"
-  >
-    <div class="grid-lines"></div>
-    <div class="grid-lines spotlight" :style="spotlightStyle"></div>
+  <div ref="spotlightGrid" class="spotlight-grid relative h-full w-full">
+    <div class="grid-dots" aria-hidden="true"></div>
+    <div
+      class="grid-dots spotlight"
+      :style="spotlightStyle"
+      aria-hidden="true"
+    ></div>
     <slot />
   </div>
 </template>
 
 <style scoped>
 .spotlight-grid {
-  --grid-size: 35px;
-  --grid-offset: 12px;
-  --background-color: #1a1a1a;
-  --grid-color: rgba(255, 255, 255, 0.02);
-  --grid-color-highlight: rgba(255, 255, 255, 0.1);
-
-  &.light {
-    --background-color: #f5f5f5;
-    --grid-color: rgba(0, 0, 0, 0.02);
-    --grid-color-highlight: rgba(0, 0, 0, 0.1);
-  }
-
+  --grid-size: 20px;
   position: relative;
   width: 100%;
   height: 100%;
-  background-color: var(--background);
+  background-color: hsl(var(--background));
   overflow: hidden;
 }
 
-.grid-lines {
+.grid-dots {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-image: linear-gradient(
-      to right,
-      var(--grid-color) 1px,
-      transparent 1px
-    ),
-    linear-gradient(to bottom, var(--grid-color) 1px, transparent 1px);
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    hsl(var(--foreground) / 0.09) 1px,
+    transparent 0
+  );
   background-size: var(--grid-size) var(--grid-size);
-  background-position: var(--grid-offset) var(--grid-offset);
 }
 
-.grid-lines.spotlight {
-  background-image: linear-gradient(
-      to right,
-      var(--grid-color-highlight) 1px,
-      transparent 1px
-    ),
-    linear-gradient(to bottom, var(--grid-color-highlight) 1px, transparent 1px);
-  pointer-events: none;
+.grid-dots.spotlight {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    hsl(var(--primary) / 0.45) 1px,
+    transparent 0
+  );
 }
 </style>

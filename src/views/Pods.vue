@@ -422,7 +422,7 @@ const rowClasses = (row: V1Pod) => {
 
   // Terminating: subtle tint + dimmed, the Status column carries the colour.
   if (row.metadata?.deletionTimestamp) {
-    classes.push("bg-destructive/10 opacity-60");
+    classes.push("bg-destructive/[0.05] opacity-60");
   }
 
   return classes.join(" ");
@@ -443,6 +443,6 @@ const rowClasses = (row: V1Pod) => {
     :row-classes="rowClasses"
     @row-clicked="showDetails"
     @retry="retry"
-    :estimated-row-height="41"
+    :estimated-row-height="38"
   />
 </template>

@@ -1,7 +1,8 @@
 import { CoreV1Event } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
 import { ageColumn } from "./age";
-import { getEventLastSeen, getEventTypeTone, toneClass } from "./status";
+import { getEventLastSeen, getEventTypeTone } from "./status";
+import { mutedCell, statusCell } from "./cells";
 import { RouterLink } from "vue-router";
 import { formatResourceKind } from "@/lib/utils";
 
@@ -9,9 +10,11 @@ export const columns: ColumnDef<CoreV1Event>[] = [
   {
     accessorKey: "type",
     header: "Type",
-    meta: {
-      class: (row) => toneClass(getEventTypeTone(row.type)),
-    },
+    cell: ({ row }) =>
+      statusCell(
+        row.original.type || "",
+        getEventTypeTone(row.original.type) === "warning" ? "warning" : "muted"
+      ),
   },
   {
     accessorKey: "message",
@@ -19,16 +22,14 @@ export const columns: ColumnDef<CoreV1Event>[] = [
     size: 500,
   },
   {
-    accessorKey: "metadata.namespace",
-    header: "Namespace",
-  },
-  {
     header: "Object",
     cell: ({ row }) => {
       return h(
         RouterLink,
         {
-          class: "text-primary",
+          class:
+            "text-link underline-offset-2 hover:underline focus-visible:underline",
+          onClick: (event: MouseEvent) => event.stopPropagation(),
           to: {
             path: `/${formatResourceKind(
               row.original.involvedObject.kind as string
@@ -55,11 +56,13 @@ export const columns: ColumnDef<CoreV1Event>[] = [
   {
     accessorKey: "source.component",
     header: "Source",
+    meta: { class: () => mutedCell },
   },
   {
     accessorKey: "count",
     header: "Count",
     enableGlobalFilter: false,
+    meta: { numeric: true },
   },
   ageColumn<CoreV1Event>((row) => row.metadata?.creationTimestamp),
   ageColumn<CoreV1Event>((row) => getEventLastSeen(row), "Last seen"),

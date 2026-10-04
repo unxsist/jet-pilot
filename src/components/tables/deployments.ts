@@ -22,7 +22,7 @@ export const columns: ColumnDef<V1Deployment>[] = [
     meta: {
       class: (row) => {
         const { ready, total } = getDeploymentReadiness(row);
-        return toneClass(getReplicaTone(ready, total));
+        return `tabular-nums ${toneClass(getReplicaTone(ready, total))}`;
       },
     },
   },
@@ -34,11 +34,13 @@ export const columns: ColumnDef<V1Deployment>[] = [
       return `${ready}/${total}`;
     },
     enableGlobalFilter: false,
+    meta: { class: () => "tabular-nums text-muted-foreground" },
   },
   {
     header: "Available",
     accessorFn: (row) => row.status?.availableReplicas || "",
     enableGlobalFilter: false,
+    meta: { numeric: true },
   },
   ageColumn<V1Deployment>((row) => row.metadata?.creationTimestamp),
 ];

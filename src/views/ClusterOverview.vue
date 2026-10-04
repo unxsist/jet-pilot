@@ -17,6 +17,18 @@ import {
 import ObjectNode from "@/components/vue-flow/ObjectNode.vue";
 import PodsObjectNode from "@/components/vue-flow/PodsObjectNode.vue";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Progress } from "@/components/ui/progress";
+import ContextAvatar from "@/components/ContextAvatar.vue";
+import {
+  CloudOff,
+  Loader2,
+  Maximize,
+  RefreshCw,
+  TriangleAlert,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-vue-next";
 import specLinks from "@/lib/kubernetesSpecLinks";
 import {
   DiscoveredResource,
@@ -72,6 +84,8 @@ const scopeLabel = computed(() => {
 const nodes = ref<Node[]>([]);
 const {
   fitView,
+  zoomIn,
+  zoomOut,
   onNodeMouseEnter,
   onNodeMouseLeave,
   findEdge,
@@ -84,15 +98,33 @@ const { layout: dagreLayout } = useLayout();
 const edges = ref<Edge[]>([]);
 
 const NODE_CLASS =
-  "overflow-hidden bg-background border border-foreground-muted rounded text-foreground hover:border-foreground";
+  "overflow-hidden rounded-lg border bg-card text-foreground shadow-xs transition-[border-color,box-shadow] duration-fast hover:border-border-strong hover:shadow-md";
+
+/* Objects in the graph (pod groups count their pods). */
+const objectCount = computed<number>(() => {
+  let count = 0;
+  for (const node of nodes.value as Node[]) {
+    if (node.type === "pods-object") count += node.data.pods.length;
+    else if (node.id !== "unmapped-resources") count += 1;
+  }
+  return count;
+});
 
 const layoutNodes = (
   nodes: Node[],
-  padding = { top: 50, left: 25, bottom: 0, right: 25 }
+  padding = { top: 50, left: 12, bottom: 0, right: 0 }
 ) => {
-  const NODE_WIDTH = 150;
-  const NODE_HEIGHT = 120;
-  const MARGIN = 25;
+  const NODE_WIDTH = 190;
+  /* Leaf cards only need their header (kind + name). */
+  const NODE_HEIGHT = 44;
+  const MARGIN = 12;
+
+  /* Pod groups grow with their grid of status dots (8px dots, 6px gaps). */
+  const podsNodeHeight = (podCount: number) => {
+    const perRow = Math.max(1, Math.floor((NODE_WIDTH - 16 + 6) / 14));
+    const rows = Math.max(1, Math.ceil(podCount / perRow));
+    return 32 + 16 + rows * 8 + (rows - 1) * 6;
+  };
   const MAX_PER_ROW = 5;
 
   let nodeMap = new Map<string, Node>();
@@ -113,7 +145,10 @@ const layoutNodes = (
     let children = childrenMap.get(nodeId) || [];
 
     let width = NODE_WIDTH;
-    let height = NODE_HEIGHT;
+    let height =
+      node.type === "pods-object"
+        ? podsNodeHeight(node.data.pods.length)
+        : NODE_HEIGHT;
     let childPositions: { x: number; y: number; width: number; height: number }[] =
       [];
 
@@ -188,29 +223,146 @@ const layoutNodes = (
   return nodes;
 };
 
-const layoutGraph = () => {
-  nodes.value = layoutNodes(nodes.value);
+/* Initial / "fit" view: whole graph with some air, never zoomed past 100%. */
+const FIT_OPTIONS = { padding: 0.15, maxZoom: 1 };
 
+/* Fit once the new positions are rendered and measured. */
+const fitGraph = () => {
   nextTick(() => {
-    fitView();
+    requestAnimationFrame(() => fitView(FIT_OPTIONS));
   });
 };
 
+const layoutGraph = () => {
+  nodes.value = layoutNodes(nodes.value);
+  fitGraph();
+};
+
+/** Gap between packed groups of connected top-level objects. */
+const COMPONENT_GAP = 60;
+
+/*
+ * Top-level objects are laid out with dagre (top to bottom). Unconnected
+ * groups (e.g. one Service -> Deployment pair per app) would end up in one
+ * extremely wide row, so the connected components are packed into rows
+ * that roughly match the canvas aspect ratio.
+ */
 const layoutTopLevelNodes = () => {
   const topLevelNodes = nodes.value.filter((node) => node.data.level === 0);
-  const layoutTopLevelnodes = dagreLayout(topLevelNodes, edges.value, "TB");
+  // Only edges between top-level objects shape this layout: edges to nested
+  // objects would add phantom ranks.
+  const topLevelIds = new Set(topLevelNodes.map((node) => node.id));
+  const topLevelEdges = edges.value.filter(
+    (edge) => topLevelIds.has(edge.source) && topLevelIds.has(edge.target)
+  );
+  const sizeOf = (id: string) => {
+    const dimensions = findNode(id)?.dimensions;
+    return {
+      width: dimensions?.width || 150,
+      height: dimensions?.height || 50,
+    };
+  };
+
+  // Connected components among the top-level nodes (union-find).
+  const parent = new Map<string, string>(
+    topLevelNodes.map((node) => [node.id, node.id])
+  );
+  const root = (id: string): string => {
+    let current = id;
+    while (parent.get(current) !== current) {
+      current = parent.get(current)!;
+    }
+    return current;
+  };
+  for (const edge of topLevelEdges) {
+    parent.set(root(edge.source), root(edge.target));
+  }
+
+  const components = new Map<string, string[]>();
+  for (const node of topLevelNodes) {
+    const key = root(node.id);
+    components.set(key, [...(components.get(key) || []), node.id]);
+  }
+
+  /*
+   * dagre per component, so a tall group (e.g. unmapped resources) does not
+   * stretch the ranks of every other component. dagre positions are node
+   * centres; vue-flow positions are top-left.
+   */
+  const positions = new Map<string, { x: number; y: number }>();
+  for (const ids of components.values()) {
+    const idSet = new Set(ids);
+    const laidOut: Node[] = dagreLayout(
+      topLevelNodes.filter((node) => idSet.has(node.id)),
+      topLevelEdges.filter((edge) => idSet.has(edge.source)),
+      "TB",
+      { ranksep: 60, nodesep: 40 }
+    );
+    for (const node of laidOut) {
+      const { width, height } = sizeOf(node.id);
+      positions.set(node.id, {
+        x: node.position.x - width / 2,
+        y: node.position.y - height / 2,
+      });
+    }
+  }
+
+  const boxes = [...components.values()].map((ids) => {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const id of ids) {
+      const position = positions.get(id)!;
+      const { width, height } = sizeOf(id);
+      minX = Math.min(minX, position.x);
+      minY = Math.min(minY, position.y);
+      maxX = Math.max(maxX, position.x + width);
+      maxY = Math.max(maxY, position.y + height);
+    }
+    return { ids, minX, minY, width: maxX - minX, height: maxY - minY };
+  });
+
+  // Big groups first; rows about 1.6x as wide as the graph is tall.
+  boxes.sort((a, b) => b.height * b.width - a.height * a.width);
+  const area = boxes.reduce(
+    (sum, box) => sum + (box.width + COMPONENT_GAP) * (box.height + COMPONENT_GAP),
+    0
+  );
+  const rowWidth = Math.max(
+    Math.sqrt(area * 1.6),
+    ...boxes.map((box) => box.width)
+  );
+
+  let x = 0;
+  let y = 0;
+  let rowHeight = 0;
+  for (const box of boxes) {
+    if (x > 0 && x + box.width > rowWidth) {
+      x = 0;
+      y += rowHeight + COMPONENT_GAP;
+      rowHeight = 0;
+    }
+    for (const id of box.ids) {
+      const position = positions.get(id)!;
+      positions.set(id, {
+        x: position.x - box.minX + x,
+        y: position.y - box.minY + y,
+      });
+    }
+    x += box.width + COMPONENT_GAP;
+    rowHeight = Math.max(rowHeight, box.height);
+  }
 
   nodes.value = nodes.value.map((node) => {
-    const layoutNode = layoutTopLevelnodes.find((n: Node) => n.id === node.id);
-    if (layoutNode) {
-      node.position = layoutNode.position;
+    const position = positions.get(node.id);
+    if (position) {
+      node.position = position;
     }
     return node;
   });
 
-  nextTick(() => {
-    fitView();
-  });
+  fitGraph();
 };
 
 const topLevelObjects = () =>
@@ -780,19 +932,26 @@ onMounted(async () => {
 });
 </script>
 <template>
-  <SpotlightGridContainer>
+  <SpotlightGridContainer class="cluster-graph">
     <div
-      class="absolute top-2 left-2 z-10 flex items-center gap-2 rounded-md border bg-background/80 px-2 py-1 text-xs text-muted-foreground backdrop-blur-sm"
+      class="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-lg border bg-popover/90 py-1 pl-1 pr-2.5 text-xs text-muted-foreground shadow-md backdrop-blur-sm [--avatar-ring:var(--popover)]"
     >
-      <span class="font-semibold text-foreground">{{ context }}</span>
-      <span>·</span>
+      <ContextAvatar v-if="context" :name="context" size="sm" />
+      <span class="font-medium text-foreground">{{ context }}</span>
+      <span class="text-muted-foreground/60">/</span>
       <span>{{ scopeLabel }}</span>
       <span
+        v-if="!loadingState && !loadError && nodes.length > 0"
+        class="tabular-nums text-muted-foreground/80"
+        >· {{ objectCount }} objects</span
+      >
+      <span
         v-if="failedResources.length > 0 && !loadError"
-        class="text-destructive"
+        class="inline-flex items-center gap-1 text-destructive"
         :title="failedResources.map(qualifiedResourceName).join(', ')"
       >
-        · {{ failedResources.length }} resource type{{
+        <TriangleAlert class="h-3 w-3" />
+        {{ failedResources.length }} resource type{{
           failedResources.length === 1 ? "" : "s"
         }}
         failed to load
@@ -801,31 +960,55 @@ onMounted(async () => {
     <div
       v-if="loadError"
       role="alert"
-      class="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center"
+      class="absolute inset-0 z-10 flex items-center justify-center p-4"
     >
-      <span class="font-semibold text-destructive">
-        Failed to load the resource graph
-      </span>
-      <pre
-        class="max-w-xl whitespace-pre-wrap break-words text-xs text-muted-foreground select-text"
-        >{{ loadError }}</pre
+      <EmptyState
+        :icon="CloudOff"
+        title="Failed to load the resource graph"
+        class="max-w-xl"
       >
-      <Button variant="secondary" size="xs" @click="refresh">Retry</Button>
+        <pre
+          class="whitespace-pre-wrap break-words font-mono text-xs select-text"
+          >{{ loadError }}</pre
+        >
+        <template #action>
+          <Button variant="outline" size="sm" @click="refresh">
+            <RefreshCw class="h-3.5 w-3.5" />
+            Retry
+          </Button>
+        </template>
+      </EmptyState>
     </div>
     <div
       v-else-if="loadingState !== ''"
-      class="absolute top-0 left-0 bottom-0 right-0 flex items-center justify-center backdrop-blur-sm"
+      class="absolute inset-0 z-10 flex items-center justify-center"
+      role="status"
     >
-      {{ loadingState }}
-      <span class="ml-2" v-if="apiResources.length > 0"
-        >({{ completedResources }}/{{ apiResources.length }})</span
+      <div
+        class="w-72 rounded-xl border bg-popover p-4 text-sm shadow-lg"
       >
+        <div class="flex items-center gap-2 font-medium text-foreground">
+          <Loader2 class="h-4 w-4 animate-spin text-primary" />
+          {{ loadingState }}
+        </div>
+        <div v-if="apiResources.length > 0" class="mt-3 space-y-1.5">
+          <Progress
+            :model-value="
+              Math.round((completedResources / apiResources.length) * 100)
+            "
+          />
+          <div class="text-right text-xs tabular-nums text-muted-foreground">
+            {{ completedResources }} / {{ apiResources.length }} resource types
+          </div>
+        </div>
+      </div>
     </div>
     <VueFlow
       v-else
       :nodes="nodes"
       :edges="edges"
-      fit-view-on-init
+      :min-zoom="0.1"
+      :max-zoom="2"
       @nodes-initialized="layoutTopLevelNodes"
     >
       <template #node-kubernetes-object="props">
@@ -835,8 +1018,53 @@ onMounted(async () => {
         <PodsObjectNode v-bind="props" />
       </template>
     </VueFlow>
+    <div
+      v-if="!loadingState && !loadError && nodes.length > 0"
+      class="absolute bottom-3 left-3 z-10 flex flex-col gap-0.5 rounded-lg border bg-popover/90 p-0.5 shadow-md backdrop-blur-sm"
+      role="toolbar"
+      aria-label="Graph controls"
+    >
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Zoom in"
+        title="Zoom in"
+        @click="zoomIn()"
+      >
+        <ZoomIn class="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Zoom out"
+        title="Zoom out"
+        @click="zoomOut()"
+      >
+        <ZoomOut class="h-3.5 w-3.5" />
+      </Button>
+      <span class="mx-1 h-px bg-border" aria-hidden="true" />
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Fit to view"
+        title="Fit to view"
+        @click="fitView(FIT_OPTIONS)"
+      >
+        <Maximize class="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Reload graph"
+        title="Reload graph"
+        @click="refresh"
+      >
+        <RefreshCw class="h-3.5 w-3.5" />
+      </Button>
+    </div>
   </SpotlightGridContainer>
 </template>
+
 <style>
 /* import the necessary styles for Vue Flow to work */
 @import "@vue-flow/core/dist/style.css";
@@ -848,8 +1076,36 @@ onMounted(async () => {
   z-index: 1000 !important;
 }
 
-.vue-flow__node-kubernetes-object.selected,
-.vue-flow__node-pods-object.selected {
-  border-color: hsl(var(--foreground));
+/* Theme the default vue-flow styles with the design tokens */
+.cluster-graph .vue-flow__node-kubernetes-object,
+.cluster-graph .vue-flow__node-pods-object {
+  padding: 0;
+  font-size: inherit;
+}
+
+.cluster-graph .vue-flow__node-kubernetes-object.selected,
+.cluster-graph .vue-flow__node-pods-object.selected {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.2), var(--shadow-md);
+}
+
+.cluster-graph .vue-flow__edge-path {
+  stroke: hsl(var(--muted-foreground) / 0.45);
+  stroke-width: 1.25;
+}
+
+.cluster-graph .vue-flow__edge.animated .vue-flow__edge-path,
+.cluster-graph .vue-flow__edge.selected .vue-flow__edge-path {
+  stroke: hsl(var(--primary));
+}
+
+.cluster-graph .vue-flow__arrowhead polyline {
+  stroke: hsl(var(--muted-foreground) / 0.6);
+  fill: hsl(var(--muted-foreground) / 0.6);
+}
+
+.cluster-graph .vue-flow__node.selectable:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }
 </style>

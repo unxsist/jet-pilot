@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import Separator from "@/components/ui/separator/Separator.vue";
+import SettingsSection from "@/components/settings/SettingsSection.vue";
+import { settingsBlock } from "@/components/settings/styles";
+import ContextAvatar from "@/components/ContextAvatar.vue";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -14,7 +17,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Check, ChevronsUpDown } from "lucide-vue-next";
+import { Check, ChevronsUpDown, MousePointerClick } from "lucide-vue-next";
 import { error } from "@/lib/logger";
 import {
   FormField,
@@ -22,6 +25,7 @@ import {
   FormLabel,
   FormControl,
   FormDescription,
+  FormMessage,
 } from "@/components/ui/form";
 import {
   TagsInput,
@@ -94,29 +98,39 @@ const selectContext = (name: string) => {
 onMounted(fetchContexts);
 </script>
 <template>
-  <div class="flex items-center justify-between">
-    <div>
-      <h3 class="text-lg font-medium">Cluster specific settings</h3>
-      <p class="text-sm text-muted-foreground">
-        Settings that can be tuned per cluster
-      </p>
-    </div>
-    <div>
+  <SettingsSection
+    title="Cluster specific settings"
+    description="Settings that can be tuned per cluster"
+  >
+    <template #actions>
       <Popover v-model:open="pickerOpen">
         <PopoverTrigger as-child>
           <Button
             variant="outline"
+            size="sm"
             role="combobox"
             :aria-expanded="pickerOpen"
-            class="w-[260px] justify-between font-normal"
+            class="w-[240px] justify-between font-normal"
           >
-            <span class="truncate">{{ currentContext || "Select a cluster" }}</span>
-            <ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            <span class="flex min-w-0 items-center gap-2">
+              <ContextAvatar
+                v-if="currentContext"
+                :name="currentContext"
+                size="sm"
+                class="[--avatar-ring:var(--background)]"
+              />
+              <span
+                class="truncate"
+                :class="{ 'text-muted-foreground': !currentContext }"
+                >{{ currentContext || "Select a cluster" }}</span
+              >
+            </span>
+            <ChevronsUpDown class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           </Button>
         </PopoverTrigger>
         <PopoverContent class="w-[320px] p-0" align="end">
           <Command>
-            <CommandInput placeholder="Search clusters..." />
+            <CommandInput placeholder="Search clusters…" />
             <CommandList>
               <CommandEmpty>No clusters found.</CommandEmpty>
               <CommandGroup>
@@ -126,38 +140,42 @@ onMounted(fetchContexts);
                   :value="context.name"
                   @select="selectContext(context.name)"
                 >
+                  <ContextAvatar
+                    :name="context.name"
+                    size="sm"
+                    class="[--avatar-ring:var(--popover)]"
+                  />
+                  <div class="flex min-w-0 flex-1 flex-col">
+                    <span class="truncate">{{ context.name }}</span>
+                    <span
+                      class="truncate font-mono text-2xs text-muted-foreground"
+                      :title="context.kubeConfigs.join(', ')"
+                      >{{ context.kubeConfigs.join(", ") }}</span
+                    >
+                  </div>
                   <Check
-                    class="mr-2 h-4 w-4 shrink-0"
+                    class="h-3.5 w-3.5 shrink-0 text-primary"
                     :class="
                       currentContext === context.name
                         ? 'opacity-100'
                         : 'opacity-0'
                     "
                   />
-                  <div class="flex flex-col min-w-0">
-                    <span class="truncate">{{ context.name }}</span>
-                    <span
-                      class="text-xs text-muted-foreground truncate"
-                      :title="context.kubeConfigs.join(', ')"
-                      >{{ context.kubeConfigs.join(", ") }}</span
-                    >
-                  </div>
                 </CommandItem>
               </CommandGroup>
             </CommandList>
           </Command>
         </PopoverContent>
       </Popover>
-    </div>
-  </div>
-  <Separator />
-  <div v-if="!currentContext">
-    <p class="text-sm text-muted-foreground">
-      Select a cluster to view its specific settings
-    </p>
-  </div>
-  <div v-else>
-    <div>
+    </template>
+    <EmptyState
+      v-if="!currentContext"
+      size="sm"
+      :icon="MousePointerClick"
+      title="No cluster selected"
+      description="Select a cluster to view its specific settings"
+    />
+    <div v-else :class="settingsBlock">
       <FormField name="namespaces">
         <FormItem>
           <FormLabel>Namespaces</FormLabel>
@@ -175,7 +193,7 @@ onMounted(fetchContexts);
                 <TagsInputItemDelete />
               </TagsInputItem>
 
-              <TagsInputInput placeholder="Namespace..." />
+              <TagsInputInput placeholder="Namespace…" />
             </TagsInput>
           </FormControl>
           <FormDescription>
@@ -185,5 +203,5 @@ onMounted(fetchContexts);
         </FormItem>
       </FormField>
     </div>
-  </div>
+  </SettingsSection>
 </template>

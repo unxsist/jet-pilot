@@ -1,93 +1,74 @@
 <script setup lang="ts">
-import {
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { Activity } from "lucide-vue-next";
 import { V1Deployment } from "@kubernetes/client-node";
-import Badge from "@/components/ui/badge/Badge.vue";
+import PanelSection from "@/components/generic/PanelSection.vue";
+import { Progress } from "@/components/ui/progress";
 
-defineProps<{ resource: V1Deployment }>();
+const props = defineProps<{ resource: V1Deployment }>();
+
+const desired = computed(() => props.resource.spec?.replicas ?? 0);
+const ready = computed(() => props.resource.status?.readyReplicas ?? 0);
+
+const stats = computed(() => [
+  { label: "Ready", value: ready.value, warn: ready.value < desired.value },
+  { label: "Desired", value: desired.value, warn: false },
+  {
+    label: "Updated",
+    value: props.resource.status?.updatedReplicas ?? 0,
+    warn: false,
+  },
+  {
+    label: "Unavailable",
+    value: props.resource.status?.unavailableReplicas ?? 0,
+    warn: (props.resource.status?.unavailableReplicas ?? 0) > 0,
+  },
+]);
+
+const readyPercent = computed(() =>
+  desired.value > 0 ? Math.round((ready.value / desired.value) * 100) : 0
+);
 </script>
 <template>
-  <AccordionItem class="px-4" value="status">
-    <AccordionTrigger>
-      <div class="flex items-center gap-2">
-        <Activity class="h-4" />Status &amp; Replicas
-      </div>
-    </AccordionTrigger>
-    <AccordionContent>
-      <div class="grid grid-cols-2">
-        <div class="relative flex items-center justify-center p-2 border-b">
-          <span class="font-black text-lg">{{
-            resource.status?.readyReplicas ?? 0
-          }}</span>
-          <span
-            class="uppercase text-xs font-semibold absolute right-1.5 bottom-1.5 text-muted-foreground"
-          >
-            Available
-          </span>
-        </div>
+  <PanelSection value="status" title="Status & replicas" :icon="Activity">
+    <div class="space-y-3">
+      <div class="grid grid-cols-4 overflow-hidden rounded-lg border">
         <div
-          class="relative flex items-center justify-center p-2 border-l border-b"
+          v-for="(stat, index) in stats"
+          :key="stat.label"
+          class="bg-surface-1/60 px-3 py-2"
+          :class="{ 'border-l': index > 0 }"
         >
-          <span class="font-black text-lg">{{
-            resource.spec?.replicas ?? 0
-          }}</span>
-          <span
-            class="uppercase text-xs font-semibold absolute left-1.5 bottom-1.5 text-muted-foreground"
-          >
-            Desired
-          </span>
-        </div>
-      </div>
-      <div class="grid grid-cols-2 mb-4">
-        <div class="relative flex items-center justify-center p-2">
-          <span class="font-black text-lg">{{
-            resource.status?.unavailableReplicas ?? 0
-          }}</span>
-          <span
-            class="uppercase text-xs font-semibold absolute right-1.5 top-1.5 text-muted-foreground"
-          >
-            Unavailable
-          </span>
-        </div>
-        <div class="relative flex items-center justify-center p-2 border-l">
-          <span class="font-bold text-lg">{{
-            resource.status?.updatedReplicas ?? 0
-          }}</span>
-          <span
-            class="uppercase text-xs font-semibold absolute left-1.5 top-1.5 text-muted-foreground"
-          >
-            Updated
-          </span>
-        </div>
-      </div>
-      <div class="space-y-4">
-        <div class="flex space-x-2 col-span-3">
-          <span class="font-semibold">Update Strategy:</span>
-          <Badge variant="outline">{{ resource.spec?.strategy?.type }}</Badge>
-        </div>
-        <div class="grid grid-cols-2 text-muted-foreground">
           <div
-            class="flex space-x-1"
-            v-if="resource.spec?.strategy?.rollingUpdate"
+            class="text-lg font-semibold tabular-nums"
+            :class="stat.warn ? 'text-warning' : 'text-foreground'"
           >
-            <span class="font-semibold">Max Unavailable:</span>
-            <span>{{
-              resource.spec?.strategy?.rollingUpdate?.maxUnavailable
-            }}</span>
+            {{ stat.value }}
           </div>
-          <div
-            class="flex space-x-1"
-            v-if="resource.spec?.strategy?.rollingUpdate"
-          >
-            <span class="font-semibold">Max Surge:</span>
-            <span>{{ resource.spec?.strategy?.rollingUpdate?.maxSurge }}</span>
+          <div class="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+            {{ stat.label }}
           </div>
         </div>
       </div>
-    </AccordionContent>
-  </AccordionItem>
+      <div class="flex items-center gap-3">
+        <Progress :model-value="readyPercent" class="h-1.5 flex-1" />
+        <span class="text-xs tabular-nums text-muted-foreground"
+          >{{ readyPercent }}% ready</span
+        >
+      </div>
+      <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
+        <dt class="text-muted-foreground">Strategy</dt>
+        <dd class="font-medium">{{ resource.spec?.strategy?.type ?? "–" }}</dd>
+        <template v-if="resource.spec?.strategy?.rollingUpdate">
+          <dt class="text-muted-foreground">Max unavailable</dt>
+          <dd class="font-mono">
+            {{ resource.spec?.strategy?.rollingUpdate?.maxUnavailable }}
+          </dd>
+          <dt class="text-muted-foreground">Max surge</dt>
+          <dd class="font-mono">
+            {{ resource.spec?.strategy?.rollingUpdate?.maxSurge }}
+          </dd>
+        </template>
+      </dl>
+    </div>
+  </PanelSection>
 </template>

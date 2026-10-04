@@ -4,7 +4,7 @@ import PortForwardingManager from "./PortForwardingManager.vue";
 import NavigationGroup from "./NavigationGroup.vue";
 import NavigationItem from "./NavigationItem.vue";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
 import { Kubernetes } from "@/services/Kubernetes";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import {
@@ -17,15 +17,12 @@ import {
   resourceRoute,
 } from "@/providers/GlobalShortcutProvider";
 import { OpenCommandPaletteKey } from "@/providers/CommandPaletteProvider";
-import { Search } from "lucide-vue-next";
+import { Minus, Search, Square, X } from "lucide-vue-next";
 import { injectStrict } from "@/lib/utils";
 import { V1APIResource } from "@kubernetes/client-node";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { getCurrentWebviewWindow as getWindow } from "@tauri-apps/api/webviewWindow";
 import { exit } from "@tauri-apps/plugin-process";
-import CloseIcon from "@/assets/icons/close.svg";
-import FullScreenIcon from "@/assets/icons/full_screen.svg";
-import MinimizeIcon from "@/assets/icons/minimize.svg";
 import { formatResourceKind } from "@/lib/utils";
 import { ref } from "vue";
 import { error } from "@/lib/logger";
@@ -42,6 +39,9 @@ const flushSettings = injectStrict(SettingsContextFlushKey);
 const refreshShortcuts = injectStrict(GlobalShortcutRegisterShortcutsKey);
 const openCommandPalette = injectStrict(OpenCommandPaletteKey);
 const isMac = computed(() => targetOs.value === "macos");
+
+const windowButtonClass =
+  "inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-fast hover:bg-accent hover:text-foreground focus-ring focus-visible:ring-offset-sidebar";
 
 interface NavigationGroup {
   title: string;
@@ -298,202 +298,218 @@ watch(clusterAuthenticated, (authenticated, wasAuthenticated) => {
 </script>
 
 <template>
-  <div class="flex flex-col flex-shrink-0 relative min-w-[200px] max-w-[200px]">
+  <nav
+    aria-label="Main navigation"
+    class="relative flex w-[224px] min-w-[224px] max-w-[224px] shrink-0 flex-col"
+  >
+    <!-- Title bar: window controls on Windows / Linux, traffic lights space on macOS -->
     <div
-      v-if="targetOs !== 'macos'"
-      class="flex justify-end p-2 pb-0 -mb-1 space-x-2"
+      v-if="!isMac"
+      class="flex h-10 shrink-0 items-center justify-between pl-4 pr-2"
       data-tauri-drag-region
     >
+      <span
+        class="text-xs font-semibold tracking-tight text-muted-foreground"
+        data-tauri-drag-region
+        >JET Pilot</span
+      >
       <!-- Windows / Linux order: minimize, maximize, close -->
-      <Button
-        size="xs"
-        aria-label="Minimize window"
-        title="Minimize"
-        @click="minimize"
-      >
-        <MinimizeIcon class="h-3" />
-      </Button>
-      <Button
-        size="xs"
-        aria-label="Maximize or restore window"
-        title="Maximize / restore"
-        @click="maxOrUnmaximize"
-      >
-        <FullScreenIcon class="h-3" />
-      </Button>
-      <Button size="xs" aria-label="Quit JET Pilot" title="Quit" @click="quit">
-        <CloseIcon class="h-3" />
-      </Button>
-    </div>
-    <div class="absolute w-full h-[40px]" v-else data-tauri-drag-region></div>
-    <div
-      :class="{
-        'min-h-screen max-h-screen': targetOs === 'macos',
-        'min-h-[calc(100vh-33px)] max-h-[calc(100vh-33px)]':
-          targetOs !== 'macos',
-      }"
-      class="flex flex-col flex-grow p-2 pr-0"
-    >
-      <ContextSwitcher :class="{ 'mt-[30px]': targetOs === 'macos' }" />
-      <div class="w-full mb-4 pr-2">
+      <div class="flex items-center gap-0.5">
         <button
           type="button"
-          class="flex w-full items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          :class="windowButtonClass"
+          aria-label="Minimize window"
+          title="Minimize"
+          @click="minimize"
+        >
+          <Minus class="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          :class="windowButtonClass"
+          aria-label="Maximize or restore window"
+          title="Maximize / restore"
+          @click="maxOrUnmaximize"
+        >
+          <Square class="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          :class="[
+            windowButtonClass,
+            'hover:bg-destructive/15 hover:text-destructive',
+          ]"
+          aria-label="Quit JET Pilot"
+          title="Quit"
+          @click="quit"
+        >
+          <X class="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+    <div v-else class="h-10 shrink-0" data-tauri-drag-region></div>
+
+    <div class="flex min-h-0 flex-1 flex-col">
+      <div class="space-y-1.5 px-2 pb-3">
+        <ContextSwitcher />
+        <button
+          type="button"
+          class="group flex h-8 w-full items-center gap-2 rounded-md border bg-background/60 px-2.5 text-sm text-muted-foreground shadow-xs transition-colors duration-fast ease-out hover:border-border-strong hover:bg-background hover:text-foreground focus-ring focus-visible:ring-offset-sidebar"
           :aria-keyshortcuts="isMac ? 'Meta+K' : 'Control+K'"
           @click="openCommandPalette()"
         >
-          <span class="flex items-center gap-2 truncate">
-            <Search class="h-3.5 w-3.5 shrink-0" />
-            Search / commands
-          </span>
-          <kbd
-            class="shrink-0 rounded border bg-background px-1 font-mono text-xxs leading-4"
-            >{{ isMac ? "⌘K" : "Ctrl+K" }}</kbd
-          >
+          <Search class="h-3.5 w-3.5 shrink-0" />
+          <span class="flex-1 truncate text-left">Search or run…</span>
+          <Kbd :keys="isMac ? ['⌘', 'K'] : ['Ctrl', 'K']" size="sm" />
         </button>
+        <PortForwardingManager />
       </div>
-      <PortForwardingManager />
-      <div class="flex w-full flex-grow overflow-hidden">
-        <ScrollArea class="w-full mt-0 mb-0">
-          <div><!-- Empty div to fix width and truncation --></div>
-          <NavigationGroup
-            v-if="settings.pinnedResources.length > 0"
-            title="Pinned"
-          >
-            <template v-for="(resource, index) in settings.pinnedResources">
-              <NavigationItem
-                v-if="getResourceByName(resource.name)"
-                :key="`pin-${resource.name}`"
-                :icon="formatResourceKind(resource.kind).toLowerCase()"
-                :pinned="true"
-                :title="formatResourceKind(resource.kind)"
-                :shortcut="
-                  index < PINNED_SHORTCUT_COUNT ? index + 1 : undefined
+      <div class="flex min-h-0 w-full flex-1 overflow-hidden">
+        <ScrollArea class="w-full">
+          <div class="px-2 pb-2">
+            <NavigationGroup
+              v-if="
+                settings.pinnedResources.some((resource) =>
+                  getResourceByName(resource.name)
+                )
+              "
+              title="Pinned"
+            >
+              <template v-for="(resource, index) in settings.pinnedResources">
+                <NavigationItem
+                  v-if="getResourceByName(resource.name)"
+                  :key="`pin-${resource.name}`"
+                  :icon="formatResourceKind(resource.kind).toLowerCase()"
+                  :pinned="true"
+                  :title="formatResourceKind(resource.kind)"
+                  :shortcut="
+                    index < PINNED_SHORTCUT_COUNT ? index + 1 : undefined
+                  "
+                  :to="resourceRoute(resource.kind)"
+                  @unpinned="unpinResource(resource)"
+                />
+              </template>
+            </NavigationGroup>
+            <template v-for="(group, index) in navigationGroups" :key="index">
+              <NavigationGroup
+                :key="index"
+                :title="group.title"
+                v-if="
+                  getCoreResourcesForGroup(group).length > 0 ||
+                  getApiResourcesForGroup(group).length > 0 ||
+                  (group.customLinks && group.customLinks.length > 0)
                 "
-                :to="resourceRoute(resource.kind)"
-                @unpinned="unpinResource(resource)"
-              />
+              >
+                <template v-for="link in group.customLinks" :key="link.title">
+                  <NavigationItem
+                    :icon="link.icon"
+                    :title="link.title"
+                    :to="link.to"
+                    :can-pin="false"
+                  />
+                </template>
+                <template
+                  v-for="resource in getCoreResourcesForGroup(group)"
+                  :key="`core-${resource.name}`"
+                >
+                  <NavigationItem
+                    v-if="!isPinned(resource.name)"
+                    :icon="formatResourceKind(resource.kind).toLowerCase()"
+                    :title="formatResourceKind(resource.kind)"
+                    :to="{
+                      path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
+                      query: {
+                        resource: formatResourceKind(resource.kind).toLowerCase(),
+                        kind: resource.kind,
+                      },
+                    }"
+                    @pinned="pinResource(resource)"
+                    @unpinned="unpinResource(resource)"
+                  />
+                </template>
+                <template
+                  v-for="resource in getApiResourcesForGroup(group)"
+                  :key="`api-${resource.name}`"
+                >
+                  <NavigationItem
+                    v-if="!isPinned(resource.name)"
+                    :icon="formatResourceKind(resource.kind).toLowerCase()"
+                    :title="formatResourceKind(resource.kind)"
+                    :to="{
+                      path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
+                      query: {
+                        resource: formatResourceKind(resource.kind).toLowerCase(),
+                        kind: resource.kind,
+                      },
+                    }"
+                    @pinned="pinResource(resource)"
+                    @unpinned="unpinResource(resource)"
+                  />
+                </template>
+              </NavigationGroup>
             </template>
-          </NavigationGroup>
-          <template v-for="(group, index) in navigationGroups" :key="index">
-            <NavigationGroup
-              :key="index"
-              :title="group.title"
-              v-if="
-                getCoreResourcesForGroup(group).length > 0 ||
-                getApiResourcesForGroup(group).length > 0 ||
-                (group.customLinks && group.customLinks.length > 0)
-              "
-            >
-              <template v-for="link in group.customLinks" :key="link.title">
-                <NavigationItem
-                  :icon="link.icon"
-                  :title="link.title"
-                  :to="link.to"
-                  :can-pin="false"
-                />
-              </template>
-              <template
-                v-for="resource in getCoreResourcesForGroup(group)"
-                :key="`core-${resource.name}`"
-              >
-                <NavigationItem
-                  v-if="!isPinned(resource.name)"
-                  :icon="formatResourceKind(resource.kind).toLowerCase()"
-                  :title="formatResourceKind(resource.kind)"
-                  :to="{
-                    path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
-                    query: {
-                      resource: formatResourceKind(resource.kind).toLowerCase(),
-                      kind: resource.kind,
-                    },
-                  }"
-                  @pinned="pinResource(resource)"
-                  @unpinned="unpinResource(resource)"
-                />
-              </template>
-              <template
-                v-for="resource in getApiResourcesForGroup(group)"
-                :key="`api-${resource.name}`"
-              >
-                <NavigationItem
-                  v-if="!isPinned(resource.name)"
-                  :icon="formatResourceKind(resource.kind).toLowerCase()"
-                  :title="formatResourceKind(resource.kind)"
-                  :to="{
-                    path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
-                    query: {
-                      resource: formatResourceKind(resource.kind).toLowerCase(),
-                      kind: resource.kind,
-                    },
-                  }"
-                  @pinned="pinResource(resource)"
-                  @unpinned="unpinResource(resource)"
-                />
-              </template>
+            <NavigationGroup title="Helm">
+              <NavigationItem
+                icon="helm"
+                title="Charts"
+                custom-command-title="Helm Charts"
+                :to="{
+                  path: '/helm-charts',
+                  query: { resource: 'chart', kind: 'Chart' },
+                }"
+                :can-pin="false"
+              />
+              <NavigationItem
+                icon="helm"
+                title="Releases"
+                custom-command-title="Helm Releases"
+                :to="{
+                  path: '/helm-releases',
+                  query: { resource: 'release', kind: 'Release' },
+                }"
+                :can-pin="false"
+              />
             </NavigationGroup>
-          </template>
-          <NavigationGroup title="Helm">
-            <NavigationItem
-              icon="helm"
-              title="Charts"
-              custom-command-title="Helm Charts"
-              :to="{
-                path: '/helm-charts',
-                query: { resource: 'chart', kind: 'Chart' },
-              }"
-              :can-pin="false"
-            />
-            <NavigationItem
-              icon="helm"
-              title="Releases"
-              custom-command-title="Helm Releases"
-              :to="{
-                path: '/helm-releases',
-                query: { resource: 'release', kind: 'Release' },
-              }"
-              :can-pin="false"
-            />
-          </NavigationGroup>
-          <template
-            v-for="nonDefaultApiGroup in getNonDefaultApiGroups()"
-            :key="`non-default-group-${nonDefaultApiGroup}`"
-          >
-            <NavigationGroup
-              :title="nonDefaultApiGroup"
-              v-if="
-                getApiResourcesForNonDefaultGroup(nonDefaultApiGroup).length > 0
-              "
+            <template
+              v-for="nonDefaultApiGroup in getNonDefaultApiGroups()"
+              :key="`non-default-group-${nonDefaultApiGroup}`"
             >
-              <template
-                v-for="resource in getApiResourcesForNonDefaultGroup(
-                  nonDefaultApiGroup
-                )"
-                :key="`non-default-${resource.name}`"
+              <NavigationGroup
+                :title="nonDefaultApiGroup"
+                v-if="
+                  getApiResourcesForNonDefaultGroup(nonDefaultApiGroup).length >
+                  0
+                "
               >
-                <NavigationItem
-                  v-if="!isPinned(resource.name)"
-                  :icon="formatResourceKind(resource.kind).toLowerCase()"
-                  :title="formatResourceKind(resource.kind)"
-                  :to="{
-                    path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
-                    query: {
-                      resource: formatResourceKind(resource.kind).toLowerCase(),
-                      kind: resource.kind,
-                    },
-                  }"
-                  @pinned="pinResource(resource)"
-                  @unpinned="unpinResource(resource)"
-                />
-              </template>
-            </NavigationGroup>
-          </template>
+                <template
+                  v-for="resource in getApiResourcesForNonDefaultGroup(
+                    nonDefaultApiGroup
+                  )"
+                  :key="`non-default-${resource.name}`"
+                >
+                  <NavigationItem
+                    v-if="!isPinned(resource.name)"
+                    :icon="formatResourceKind(resource.kind).toLowerCase()"
+                    :title="formatResourceKind(resource.kind)"
+                    :to="{
+                      path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
+                      query: {
+                        resource: formatResourceKind(resource.kind).toLowerCase(),
+                        kind: resource.kind,
+                      },
+                    }"
+                    @pinned="pinResource(resource)"
+                    @unpinned="unpinResource(resource)"
+                  />
+                </template>
+              </NavigationGroup>
+            </template>
+          </div>
         </ScrollArea>
       </div>
       <div
         navigation-settings
-        :class="{ 'pb-1': targetOs === 'macos' }"
-        class="border-t -ml-2 pl-2 pt-2 pb-1 mb-0"
+        class="shrink-0 border-t border-border-subtle px-2 pb-2 pt-2"
       >
         <NavigationItem
           icon="settings"
@@ -503,5 +519,5 @@ watch(clusterAuthenticated, (authenticated, wasAuthenticated) => {
         />
       </div>
     </div>
-  </div>
+  </nav>
 </template>

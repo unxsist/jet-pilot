@@ -101,7 +101,7 @@ onUnmounted(() => clearTimeout(copiedTimer));
                     >
                       <Check
                         v-if="copiedKey === key"
-                        class="h-4 w-4 text-green-600 dark:text-green-500"
+                        class="h-4 w-4 text-success"
                       />
                       <CopyIcon v-else class="h-4" />
                     </button>

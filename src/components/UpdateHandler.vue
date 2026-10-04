@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import Logo from "@/assets/logo.png";
+import { CircleCheck, Download, Loader2, RotateCw } from "lucide-vue-next";
 import { injectStrict } from "@/lib/utils";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 
@@ -97,38 +98,54 @@ listen("check_for_updates", () => {
 </script>
 <template>
   <Dialog :open="open" @update:open="open = !open">
-    <DialogContent class="w-1/2" :closeable="closeable">
+    <DialogContent class="max-w-lg" :closeable="closeable">
       <div
         v-if="updateInfo && !isLatest && !restart && !isUpdating"
         class="grid gap-4"
       >
-        <div class="flex items-center">
-          <img :src="Logo" alt="JET Pilot" class="w-16 mr-4" />
+        <div class="flex items-center gap-4">
+          <span
+            class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border bg-surface-1 shadow-xs"
+          >
+            <img :src="Logo" alt="JET Pilot" class="h-8 w-8" />
+          </span>
           <DialogHeader>
-            <DialogTitle
-              >Update available - v{{ updateInfo.version }}</DialogTitle
+            <DialogTitle class="flex items-center gap-2"
+              >Update available
+              <span
+                class="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 font-mono text-xs font-medium text-link"
+                >v{{ updateInfo.version }}</span
+              ></DialogTitle
             >
             <DialogDescription>
               A new version of JET Pilot is available.
             </DialogDescription>
           </DialogHeader>
         </div>
-        <div class="text-sm">
-          <div
-            class="max-h-[100px] overflow-scroll release-notes"
-            v-html="releaseNotesHtml"
-          ></div>
-        </div>
+        <div
+          class="release-notes max-h-60 overflow-y-auto rounded-lg border bg-surface-1 px-4 py-3 text-sm text-muted-foreground"
+          v-html="releaseNotesHtml"
+        ></div>
         <DialogFooter>
-          <Button variant="outline" @click="open = !open">Skip for now</Button>
-          <Button @click="updateApp"> Update now </Button>
+          <Button variant="ghost" @click="open = !open">Skip for now</Button>
+          <Button @click="updateApp">
+            <Download class="h-3.5 w-3.5" />
+            Update now
+          </Button>
         </DialogFooter>
       </div>
       <div v-else-if="isLatest && !restart" class="grid gap-4">
-        <div class="flex items-center">
-          <img :src="Logo" alt="JET Pilot" class="w-16 mr-4" />
+        <div class="flex items-center gap-4">
+          <span
+            class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border bg-surface-1 shadow-xs"
+          >
+            <img :src="Logo" alt="JET Pilot" class="h-8 w-8" />
+          </span>
           <DialogHeader>
-            <DialogTitle>JET Pilot is up-to-date</DialogTitle>
+            <DialogTitle class="flex items-center gap-2">
+              JET Pilot is up to date
+              <CircleCheck class="h-4 w-4 text-success" />
+            </DialogTitle>
             <DialogDescription>
               No new updates for JET Pilot are available.
             </DialogDescription>
@@ -139,8 +156,12 @@ listen("check_for_updates", () => {
         </DialogFooter>
       </div>
       <div v-else-if="updateInfo && isUpdating" class="grid gap-4">
-        <div class="flex items-center">
-          <img :src="Logo" alt="JET Pilot" class="w-16 mr-4" />
+        <div class="flex items-center gap-4">
+          <span
+            class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border bg-surface-1 shadow-xs"
+          >
+            <Loader2 class="h-5 w-5 animate-spin text-primary" />
+          </span>
           <DialogHeader>
             <DialogTitle
               >Updating JET Pilot to v{{ updateInfo.version }}</DialogTitle
@@ -152,8 +173,12 @@ listen("check_for_updates", () => {
         </div>
       </div>
       <div v-else-if="restart" class="grid gap-4">
-        <div class="flex items-center">
-          <img :src="Logo" alt="JET Pilot" class="w-16 mr-4" />
+        <div class="flex items-center gap-4">
+          <span
+            class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border bg-surface-1 shadow-xs"
+          >
+            <img :src="Logo" alt="JET Pilot" class="h-8 w-8" />
+          </span>
           <DialogHeader>
             <DialogTitle>Update completed</DialogTitle>
             <DialogDescription>
@@ -162,7 +187,10 @@ listen("check_for_updates", () => {
           </DialogHeader>
         </div>
         <DialogFooter>
-          <Button variant="outline" @click="restartApp">Restart</Button>
+          <Button @click="restartApp">
+            <RotateCw class="h-3.5 w-3.5" />
+            Restart
+          </Button>
         </DialogFooter>
       </div>
     </DialogContent>
@@ -176,7 +204,19 @@ listen("check_for_updates", () => {
   }
 
   h3 {
-    @apply font-bold my-2;
+    @apply mb-1 mt-3 text-sm font-semibold text-foreground first:mt-0;
+  }
+
+  ul {
+    @apply list-disc space-y-0.5 pl-4;
+  }
+
+  a {
+    @apply text-link underline-offset-2 hover:underline;
+  }
+
+  code {
+    @apply rounded bg-muted px-1 font-mono text-xs;
   }
 }
 </style>

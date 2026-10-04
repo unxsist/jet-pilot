@@ -18,6 +18,7 @@ import {
   NumberFieldInput,
 } from "@/components/ui/number-field";
 import { Label } from "@/components/ui/label";
+import { Scaling } from "lucide-vue-next";
 
 type ScalableObject = (
   | V1Deployment
@@ -71,8 +72,16 @@ onMounted(() => {
 });
 </script>
 <template>
-  <NumberField v-model="replicas" class="flex items-center justify-between">
-    <Label>Replicas</Label>
+  <NumberField
+    v-model="replicas"
+    class="flex items-center justify-between rounded-lg border bg-surface-1 px-3 py-2.5"
+  >
+    <Label class="grid gap-0.5">
+      <span>Replicas</span>
+      <span class="text-xs font-normal text-muted-foreground"
+        >{{ objects.length === 1 ? "Desired pod count" : `Applied to ${objects.length} objects` }}</span
+      >
+    </Label>
     <NumberFieldContent>
       <NumberFieldDecrement />
       <NumberFieldInput />
@@ -81,6 +90,9 @@ onMounted(() => {
   </NumberField>
   <AlertDialogFooter>
     <Button variant="ghost" @click="emit('closeDialog')">Cancel</Button>
-    <Button variant="default" @click="scale">Scale</Button>
+    <Button variant="default" @click="scale">
+      <Scaling class="h-3.5 w-3.5" />
+      Scale
+    </Button>
   </AlertDialogFooter>
 </template>

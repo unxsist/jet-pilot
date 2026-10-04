@@ -1,7 +1,8 @@
 import { V1Node } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
 import { ageColumn } from "./age";
-import { getNodeStatus, getNodeStatusTone, toneClass } from "./status";
+import { getNodeStatus, getNodeStatusTone } from "./status";
+import { mutedCell, statusCell } from "./cells";
 
 export const columns: ColumnDef<V1Node>[] = [
   {
@@ -15,6 +16,7 @@ export const columns: ColumnDef<V1Node>[] = [
       return taints.length;
     },
     enableGlobalFilter: false,
+    meta: { numeric: true },
   },
   {
     header: "Roles",
@@ -28,12 +30,14 @@ export const columns: ColumnDef<V1Node>[] = [
   {
     header: "Version",
     accessorFn: (row) => row.status?.nodeInfo?.kubeletVersion,
+    meta: { class: () => `${mutedCell} font-mono text-xs` },
   },
   {
     header: "Status",
     accessorFn: (row) => getNodeStatus(row),
-    meta: {
-      class: (row) => toneClass(getNodeStatusTone(getNodeStatus(row))),
+    cell: ({ row }) => {
+      const status = getNodeStatus(row.original);
+      return statusCell(status, getNodeStatusTone(status));
     },
   },
   ageColumn<V1Node>((row) => row.metadata?.creationTimestamp),
