@@ -368,7 +368,7 @@ mockIPC(
             ]
           : [];
       case "get_current_context":
-        return CONTEXTS[0].name;
+        return scenario === "nocontext" ? "" : CONTEXTS[0].name;
       case "list_contexts":
         return CONTEXTS.map((c) => ({ name: c.name, context: { namespace: c.namespace } }));
       case "list_namespaces":
