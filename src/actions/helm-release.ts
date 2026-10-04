@@ -1,9 +1,8 @@
 import { RowAction } from "@/components/tables/types";
 import { Router } from "vue-router";
 import { DialogInterface } from "@/providers/DialogProvider";
-import { Command } from "@tauri-apps/plugin-shell";
-import { useToast } from "@/components/ui/toast";
-import { error } from "@/lib/logger";
+import { describeRows } from "@/components/tables/identity";
+import { runCliForEach } from "./command";
 
 /*
  * Helm release rows are not Kubernetes objects; they carry the context they
@@ -52,51 +51,46 @@ export function actions(
       massAction: true,
       handler: (rows: HelmReleaseRow[]) => {
         spawnDialog({
-          title: "Delete Helm Release",
-          message: `Are you sure you want to delete ${
-            rows.length > 1 ? "releases" : rows[0].name
-          }?`,
+          title:
+            rows.length === 1
+              ? `Uninstall release ${rows[0].name}?`
+              : `Uninstall ${rows.length} releases?`,
+          message:
+            "All Kubernetes resources of the release are deleted. This cannot be undone.",
+          component: defineAsyncComponent(
+            () => import("@/views/dialogs/ResourceList.vue")
+          ),
+          props: {
+            lines: describeRows(rows),
+          },
           buttons: [
             {
               label: "Cancel",
+              variant: "ghost",
               handler: (dialog: DialogInterface) => {
                 dialog.close();
               },
             },
             {
-              label: "Delete",
+              label: "Uninstall",
+              variant: "destructive",
               handler: (dialog: DialogInterface) => {
-                rows.forEach((row) => {
-                  const { toast } = useToast();
-
-                  const command = Command.create("helm", [
-                    "delete",
+                dialog.close();
+                runCliForEach("helm", rows, {
+                  args: (row) => [
+                    "uninstall",
                     row.name,
                     "--kube-context",
                     row.metadata.context,
                     "--namespace",
                     row.namespace,
-                    "--kubeconfig",
-                    row.metadata.kubeConfig,
-                  ]);
-
-                  command.stdout.on("data", (data: string) => {
-                    toast({
-                      title: "Helm Release Deleted",
-                      description: `${row.name} has been deleted`,
-                    });
-                  });
-
-                  command.stderr.on("data", (e: string) => {
-                    error(`Failed to delete Helm Release: ${e}`);
-                    toast({
-                      title: "Helm Release Delete Error",
-                      description: `Failed to delete ${row.name}`,
-                    });
-                  });
-
-                  command.spawn();
-                  dialog.close();
+                    ...(row.metadata.kubeConfig
+                      ? ["--kubeconfig", row.metadata.kubeConfig]
+                      : []),
+                  ],
+                  label: (row) => row.name,
+                  successVerb: "Uninstalled",
+                  failureVerb: "uninstall",
                 });
               },
             },
