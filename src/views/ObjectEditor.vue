@@ -3,7 +3,8 @@ import { getCurrentInstance } from "vue";
 import Loading from "@/components/Loading.vue";
 import { Command } from "@tauri-apps/plugin-shell";
 import { writeTextFile, remove, BaseDirectory } from "@tauri-apps/plugin-fs";
-import { tempDir } from "@tauri-apps/api/path";
+import { tempDir, join } from "@tauri-apps/api/path";
+import { type as getOsType } from "@tauri-apps/plugin-os";
 import loader, { Monaco } from "@monaco-editor/loader";
 import LightTheme from "@/components/monaco/themes/GithubLight";
 import DarkTheme from "@/components/monaco/themes/BrillianceBlack";
@@ -23,10 +24,11 @@ import yaml from "js-yaml";
 import { useToast } from "@/components/ui/toast";
 import { useColorMode } from "@vueuse/core";
 import { error, trace } from "@/lib/logger";
+import type { TabClosedEvent } from "@/providers/PanelProvider";
 
 const colorMode = useColorMode();
 watch(colorMode, (value) => {
-  monacoEditor?.editor.setTheme(value);
+  monacoInstance?.editor.setTheme(value);
 });
 
 const props = withDefaults(
@@ -50,13 +52,24 @@ const props = withDefaults(
   }
 );
 
-let monacoEditor: Monaco | null = null;
+type CodeEditor = ReturnType<Monaco["editor"]["create"]>;
+type TextModel = ReturnType<Monaco["editor"]["createModel"]>;
+
+let monacoInstance: Monaco | null = null;
+let editorInstance: CodeEditor | null = null;
+let editorModel: TextModel | null = null;
+let unmounted = false;
+
 const editorElement = ref<HTMLElement | null>(null);
 const originalContents = ref<string>("");
 const editContents = ref<string>("");
+const loading = ref(true);
+const loadError = ref<string | null>(null);
+const saving = ref(false);
 const showUnsavedChangedDialog = ref<boolean>(false);
 const instanceAttributes = getCurrentInstance()?.attrs || {};
 const emit = defineEmits(["forceClose"]);
+const saveShortcut = getOsType() === "macos" ? "⌘S" : "Ctrl+S";
 
 const { toast } = useToast();
 
@@ -64,54 +77,60 @@ const hasChanges = computed(() => {
   return originalContents.value !== editContents.value;
 });
 
+const objectLabel = computed(() =>
+  props.name ? `${props.type}/${props.name}` : props.kind || props.type
+);
+
 const handleCloseEvent = (e: Event) => {
-  if (instanceAttributes.tabId === e.detail.id) {
+  const event = e as CustomEvent<TabClosedEvent>;
+  if (instanceAttributes.tabId === event.detail.id) {
     if (originalContents.value !== editContents.value) {
-      e.preventDefault();
+      event.preventDefault();
       showUnsavedChangedDialog.value = true;
     }
   }
 };
 
-const fetchObject = () => {
-  return new Promise<void>((resolve, reject) => {
-    const args = [
-      "get",
-      `${props.type}/${props.name}`,
-      "--context",
-      props.context,
-      "-o",
-      "yaml",
-      "--kubeconfig",
-      props.kubeConfig,
-    ];
+const contextArgs = () => {
+  const args = ["--context", props.context, "--kubeconfig", props.kubeConfig];
+  if (props.namespace) {
+    args.push("--namespace", props.namespace);
+  }
+  return args;
+};
 
-    if (props.namespace) {
-      args.push("--namespace", props.namespace);
-    }
+/*
+ * Runs kubectl to completion. Only the exit code decides success: kubectl
+ * also writes warnings (e.g. API deprecations) to stderr.
+ */
+const runKubectl = async (args: string[]): Promise<string> => {
+  const { code, stdout, stderr } = await Command.create(
+    "kubectl",
+    args
+  ).execute();
 
-    const command = Command.create("kubectl", args);
+  if (stderr.trim()) {
+    trace(`kubectl ${args[0]} stderr: ${stderr}`);
+  }
 
-    let stdOutData = "";
-    command.stdout.on("data", (data) => {
-      stdOutData += data;
-    });
+  if (code !== 0) {
+    throw new Error(stderr.trim() || `kubectl exited with code ${code}`);
+  }
 
-    command.stderr.on("data", (e) => {
-      error(`Error fetching ${props.type}/${props.name}: ${e}`);
-      reject();
-    });
+  return stdout;
+};
 
-    command.on("close", ({ code }) => {
-      if (code === 0) {
-        originalContents.value = stdOutData;
-        editContents.value = stdOutData;
-        resolve();
-      }
-    });
+const fetchObject = async () => {
+  const contents = await runKubectl([
+    "get",
+    `${props.type}/${props.name}`,
+    "-o",
+    "yaml",
+    ...contextArgs(),
+  ]);
 
-    command.spawn();
-  });
+  originalContents.value = contents;
+  editContents.value = contents;
 };
 
 const getTemplate = (): Promise<string> => {
@@ -121,174 +140,225 @@ const getTemplate = (): Promise<string> => {
 };
 
 const getDefaultTemplate = (): Promise<string> => {
-  return import(`@/assets/spec-templates/default.ts`).then((module) => {
+  return import("@/assets/spec-templates/default").then((module) => {
     return module.default;
   });
 };
 
-const initializeEditor = () => {
-  loader.init().then((monaco) => {
-    monacoEditor = monaco;
-    const model = monaco.editor.createModel(editContents.value, "yaml");
-    model.onDidChangeContent(() => {
-      editContents.value = model.getValue();
-    });
+const initializeEditor = async () => {
+  const monaco = await loader.init();
 
-    monaco.editor.defineTheme("light", LightTheme);
-    monaco.editor.defineTheme("dark", DarkTheme);
-    monaco.editor.create(editorElement.value!, {
-      model,
-      theme: colorMode.value,
-      automaticLayout: true,
-      minimap: {
-        enabled: false,
-      },
-    });
+  // The tab may have been closed while Monaco was loading.
+  if (unmounted || !editorElement.value) {
+    return;
+  }
+
+  monacoInstance = monaco;
+  editorModel = monaco.editor.createModel(editContents.value, "yaml");
+  editorModel.onDidChangeContent(() => {
+    editContents.value = editorModel!.getValue();
   });
+
+  monaco.editor.defineTheme("light", LightTheme);
+  monaco.editor.defineTheme("dark", DarkTheme);
+  editorInstance = monaco.editor.create(editorElement.value, {
+    model: editorModel,
+    theme: colorMode.value,
+    automaticLayout: true,
+    minimap: {
+      enabled: false,
+    },
+  });
+
+  // Cmd/Ctrl+S inside the editor.
+  editorInstance.addCommand(
+    monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
+    () => onSave()
+  );
 };
 
 onMounted(async () => {
-  if (props.create !== true) {
-    await fetchObject();
-  } else {
-    try {
-      editContents.value = await getTemplate();
-    } catch (e) {
-      editContents.value = (await getDefaultTemplate())
-        .replace(/{{kind}}/g, props.kind)
-        .replace(/{{name}}/g, props.type)
-        .replace(/{{namespace}}/g, props.namespace || "default");
+  window.addEventListener("TabOrchestrator_TabClosed", handleCloseEvent);
+
+  try {
+    if (props.create !== true) {
+      await fetchObject();
+    } else {
+      try {
+        editContents.value = await getTemplate();
+      } catch (e) {
+        editContents.value = (await getDefaultTemplate())
+          .replace(/{{kind}}/g, props.kind)
+          .replace(/{{name}}/g, props.type)
+          .replace(/{{namespace}}/g, props.namespace || "default");
+      }
     }
+  } catch (e) {
+    error(`Error fetching ${objectLabel.value}: ${e}`);
+    loadError.value = e instanceof Error ? e.message : String(e);
+    loading.value = false;
+    return;
   }
 
-  initializeEditor();
-  window.addEventListener("TabOrchestrator_TabClosed", handleCloseEvent);
+  loading.value = false;
+  await nextTick();
+  try {
+    await initializeEditor();
+  } catch (e) {
+    error(`Failed to initialize the editor: ${e}`);
+    loadError.value = `Failed to initialize the editor: ${e}`;
+  }
 });
 
 const onClose = () => {
   emit("forceClose");
 };
 
-const onSave = () => {
-  props.create ? onCreate() : onUpdate();
+/* Cmd/Ctrl+S anywhere in the tab (e.g. while a button has focus). */
+const onKeydown = (event: KeyboardEvent) => {
+  if (
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    event.key.toLowerCase() === "s"
+  ) {
+    event.preventDefault();
+    onSave();
+  }
 };
 
-const onUpdate = () => {
-  if (!props.useKubeCtl) {
-    Kubernetes.replaceObject(
-      props.context,
-      props.namespace,
-      props.type,
-      props.name,
-      yaml.load(editContents.value),
-      props.kubeConfig
-    )
-      .then((result) => {
-        onClose();
-      })
-      .catch((error) => {
-        toast({
-          title: "An error occured",
-          description: error.message,
-          variant: "destructive",
-        });
-      });
-  } else {
-    const filename = `${props.name}-${crypto.randomUUID()}.yaml`;
-    writeTextFile(filename, editContents.value, {
-      baseDir: BaseDirectory.Temp,
-    }).then(async () => {
-      const tempDirectory = await tempDir();
+const onSave = async () => {
+  if (saving.value || loading.value || loadError.value) {
+    return;
+  }
+  if (!props.create && !hasChanges.value) {
+    return;
+  }
 
-      const command = Command.create("kubectl", [
-        "replace",
-        "--context",
+  saving.value = true;
+  try {
+    if (props.create) {
+      await applyManifest("apply");
+    } else if (!props.useKubeCtl) {
+      await Kubernetes.replaceObject(
         props.context,
-        "--namespace",
         props.namespace,
-        "-f",
-        `${tempDirectory}/${filename}`,
-        "--kubeconfig",
-        props.kubeConfig,
-      ]);
+        props.type,
+        props.name,
+        yaml.load(editContents.value),
+        props.kubeConfig
+      );
+    } else {
+      await applyManifest("replace");
+    }
 
-      command.stdout.on("data", (data) => {
-        trace(`Updated ${props.type}/${props.name}: ${data}`);
-      });
+    toast({
+      title: props.create ? "Created" : "Saved",
+      description: props.create
+        ? `${props.kind || props.type} created`
+        : `${objectLabel.value} updated`,
+    });
 
-      command.stderr.on("data", (e) => {
-        error(`Error updating ${props.type}/${props.name}: ${e}`);
-      });
+    // Nothing unsaved anymore: closing must not prompt.
+    originalContents.value = editContents.value;
+    onClose();
+  } catch (e: any) {
+    const message = e?.message ?? String(e);
+    error(
+      `Error ${props.create ? "creating" : "updating"} ${objectLabel.value}: ${message}`
+    );
+    toast({
+      title: props.create ? "Failed to create" : "Failed to save changes",
+      description: message,
+      variant: "destructive",
+    });
+  } finally {
+    saving.value = false;
+  }
+};
 
-      command.on("close", ({ code }) => {
-        if (code === 0) {
-          remove(filename, { baseDir: BaseDirectory.Temp });
-          onClose();
-        }
-      });
+/*
+ * kubectl apply / replace the editor contents. Manifests (Secrets!) go
+ * through a uniquely named temp file that only the current user can read,
+ * and the file is always removed afterwards. (Piping through stdin needs a
+ * shell stdin permission the app does not grant.)
+ */
+const applyManifest = async (verb: "apply" | "replace") => {
+  const safeName = (props.name || props.type).replace(/[^a-zA-Z0-9.-]/g, "_");
+  const filename = `jet-pilot-${safeName}-${crypto.randomUUID()}.yaml`;
 
-      command.spawn();
+  await writeTextFile(filename, editContents.value, {
+    baseDir: BaseDirectory.Temp,
+    createNew: true,
+    mode: 0o600,
+  });
+
+  try {
+    const path = await join(await tempDir(), filename);
+    const output = await runKubectl([verb, "-f", path, ...contextArgs()]);
+    trace(`kubectl ${verb} ${objectLabel.value}: ${output}`);
+  } finally {
+    await remove(filename, { baseDir: BaseDirectory.Temp }).catch((e) => {
+      error(`Failed to remove temporary manifest ${filename}: ${e}`);
     });
   }
 };
 
-const onCreate = () => {
-  const filename = `${props.name}-${crypto.randomUUID()}.yaml`;
-  writeTextFile(filename, editContents.value, {
-    baseDir: BaseDirectory.Temp,
-  }).then(async () => {
-    const tempDirectory = await tempDir();
-
-    const command = Command.create("kubectl", [
-      "apply",
-      "--context",
-      props.context,
-      "--namespace",
-      props.namespace,
-      "-f",
-      `${tempDirectory}/${filename}`,
-      "--kubeconfig",
-      props.kubeConfig,
-    ]);
-
-    command.stdout.on("data", (data) => {
-      trace(`Created ${props.type}/${props.name}: ${data}`);
-    });
-
-    command.stderr.on("data", (e) => {
-      error(`Error creating ${props.type}/${props.name}: ${e}`);
-    });
-
-    command.on("close", ({ code }) => {
-      if (code === 0) {
-        remove(filename, { baseDir: BaseDirectory.Temp });
-        onClose();
-      }
-    });
-
-    command.spawn();
-  });
-};
-
 onUnmounted(() => {
+  unmounted = true;
   window.removeEventListener("TabOrchestrator_TabClosed", handleCloseEvent);
+  editorInstance?.dispose();
+  editorModel?.dispose();
+  editorInstance = null;
+  editorModel = null;
 });
 </script>
 <template>
-  <div class="group relative w-full h-full">
-    <Loading label="loading..." v-if="editContents.length === 0" />
+  <div class="group relative w-full h-full" @keydown="onKeydown">
+    <Loading label="loading..." v-if="loading" />
     <div
-      v-if="hasChanges"
-      class="z-50 absolute bottom-5 right-5 flex justify-end space-x-1 transition-opacity opacity-25 group-hover:opacity-100"
+      v-else-if="loadError"
+      role="alert"
+      class="flex flex-col items-center justify-center h-full gap-3 p-4 text-center"
     >
-      <Button variant="default" size="xs" @click="onSave">{{
-        create ? "Create" : "Save Changes"
-      }}</Button>
-      <Button variant="secondary" size="xs" @click="onClose">{{
+      <span class="font-semibold text-destructive">
+        Failed to load {{ objectLabel }}
+      </span>
+      <pre
+        class="max-w-full whitespace-pre-wrap break-words text-xs text-muted-foreground select-text"
+        >{{ loadError }}</pre
+      >
+      <Button variant="secondary" size="xs" @click="onClose">Close</Button>
+    </div>
+    <div
+      v-if="hasChanges && !loadError"
+      class="z-50 absolute bottom-5 right-5 flex justify-end space-x-1"
+    >
+      <Button
+        variant="default"
+        size="xs"
+        :disabled="saving"
+        :title="`${create ? 'Create' : 'Save'} (${saveShortcut})`"
+        :aria-keyshortcuts="saveShortcut === '⌘S' ? 'Meta+S' : 'Control+S'"
+        @click="onSave"
+        >{{
+          saving
+            ? create
+              ? "Creating..."
+              : "Saving..."
+            : create
+            ? "Create"
+            : "Save Changes"
+        }}</Button
+      >
+      <Button variant="secondary" size="xs" :disabled="saving" @click="onClose">{{
         create ? "Cancel" : "Discard changes"
       }}</Button>
     </div>
-    <div ref="editorElement" class="w-full h-full"></div>
+    <div
+      v-show="!loading && !loadError"
+      ref="editorElement"
+      class="w-full h-full"
+    ></div>
     <AlertDialog
       :open="showUnsavedChangedDialog"
       @update:open="showUnsavedChangedDialog = false"
