@@ -1,7 +1,7 @@
 <script setup lang="ts">
 defineOptions({ inheritAttrs: false });
 import { getBezierPath, Position } from "@vue-flow/core";
-import { cn, injectStrict } from "@/lib/utils";
+import { injectStrict } from "@/lib/utils";
 import type { EdgeType } from "@/lib/clusterGraph";
 import { GraphViewStateKey } from "./graphState";
 
@@ -28,6 +28,8 @@ const props = defineProps<{
     problem?: boolean;
     /** Into a shared group: faint unless highlighted. */
     faint?: boolean;
+    /** Endpoints from the layout (cards have no handles). */
+    points: { sx: number; sy: number; tx: number; ty: number };
   };
 }>();
 
@@ -36,12 +38,12 @@ const state = injectStrict(GraphViewStateKey);
 const path = computed(
   () =>
     getBezierPath({
-      sourceX: props.sourceX,
-      sourceY: props.sourceY,
-      sourcePosition: props.sourcePosition,
-      targetX: props.targetX,
-      targetY: props.targetY,
-      targetPosition: props.targetPosition,
+      sourceX: props.data.points.sx,
+      sourceY: props.data.points.sy,
+      sourcePosition: Position.Right,
+      targetX: props.data.points.tx,
+      targetY: props.data.points.ty,
+      targetPosition: Position.Left,
       curvature: 0.35,
     })[0]
 );
@@ -70,29 +72,29 @@ const dimmed = computed(() => {
     :d="path"
     fill="none"
     :class="
-      cn(
+      [
         'graph-edge',
         `graph-edge--${data.type}`,
         data.missing && 'graph-edge--missing',
         (lit || hovered) && 'graph-edge--lit',
         dimmed && !hovered && 'graph-edge--dim',
         data.crossGroup && 'graph-edge--cross',
-        data.faint && !lit && !hovered && 'graph-edge--faint'
-      )
+        data.faint && !lit && !hovered && 'graph-edge--faint',
+      ]
     "
   />
   <circle
-    :cx="targetX"
-    :cy="targetY"
+    :cx="data.points.tx"
+    :cy="data.points.ty"
     r="2.5"
     :class="
-      cn(
+      [
         'graph-edge-end',
         `graph-edge-end--${data.type}`,
         data.missing && 'graph-edge-end--missing',
         dimmed && !hovered && 'graph-edge--dim',
-        data.faint && !lit && !hovered && 'graph-edge--faint'
-      )
+        data.faint && !lit && !hovered && 'graph-edge--faint',
+      ]
     "
   />
 </template>

@@ -1,10 +1,8 @@
 <script setup lang="ts">
-defineOptions({ inheritAttrs: false });
-import { Handle, Position } from "@vue-flow/core";
 import { ChevronDown, ChevronRight, History } from "lucide-vue-next";
-import KindIcon from "@/components/KindIcon.vue";
-import { StatusDot } from "@/components/ui/status";
-import { cn, formatResourceKind, injectStrict } from "@/lib/utils";
+import { statusDotClass } from "@/components/ui/status";
+import { formatResourceKind, injectStrict } from "@/lib/utils";
+import { kindIcon } from "@/lib/kindIcons";
 import { isProblem, type TopoNode } from "@/lib/clusterGraph";
 import HealthStrip from "./HealthStrip.vue";
 import {
@@ -21,6 +19,8 @@ import { GraphViewStateKey } from "./graphState";
  * specific summary and its health. Workload roots also show their pods as
  * a health strip and can be expanded into ReplicaSets / Jobs / Pods.
  */
+defineOptions({ inheritAttrs: false });
+
 const props = defineProps<{
   id: string;
   data: { node: TopoNode };
@@ -41,7 +41,9 @@ const strip = computed(() => (showStrip.value ? healthStrip(node.value) : []));
 const tone = computed(() =>
   node.value.health === "neutral" ? null : HEALTH_TONE[node.value.health]
 );
-const icon = computed(() => formatResourceKind(node.value.kind).toLowerCase());
+const icon = computed(() =>
+  kindIcon(formatResourceKind(node.value.kind).toLowerCase())
+);
 const expanded = computed(() => state.expanded.value.has(props.id));
 const oldCount = computed(() => node.value.replicaSets?.old.length || 0);
 const childCount = computed(
@@ -75,14 +77,6 @@ const matched = computed(
   () => !!state.matches.value?.has(props.id) && !state.lit.value
 );
 
-/* Overview zoom: a card is a block in its health colour. */
-const OVERVIEW_BLOCK: Record<string, string> = {
-  ok: "border-success/40 bg-success/20",
-  warning: "border-warning/60 bg-warning/35",
-  error: "border-destructive/70 bg-destructive/45",
-  neutral: "border-border-strong bg-muted",
-};
-
 const accent = computed(() => {
   if (node.value.missing) return "";
   if (node.value.health === "error") {
@@ -96,88 +90,73 @@ const accent = computed(() => {
 </script>
 
 <template>
+  <!--
+    Classes are plain arrays (no tailwind-merge): cards are mounted by the
+    hundred while zooming, every microsecond per card counts.
+  -->
   <div
-    v-if="state.overview.value"
-    :class="
-      cn(
-        'h-full w-full rounded-lg border transition-opacity duration-base',
-        OVERVIEW_BLOCK[node.missing ? 'error' : node.health],
-        node.missing && 'border-dashed',
-        dimmed && 'opacity-30'
-      )
-    "
-  >
-    <Handle type="target" :position="Position.Left" class="graph-handle" />
-    <Handle type="source" :position="Position.Right" class="graph-handle" />
-  </div>
-  <div
-    v-else
-    :class="
-      cn(
-        'graph-card relative flex h-full w-full flex-col justify-center overflow-hidden rounded-lg border bg-card text-left text-foreground',
-        'transition-[opacity,border-color,box-shadow,filter] duration-base ease-out',
-        accent,
-        node.missing &&
-          'border-dashed border-destructive/70 bg-destructive/[0.04]',
-        node.external && 'border-dashed',
-        !node.missing && !selected && 'hover:border-border-strong',
-        selected &&
-          'border-primary ring-2 ring-primary/30 ring-offset-0',
-        inPath && 'border-primary/60',
-        matched && 'border-link ring-2 ring-link/25',
-        dimmed &&
-          (state.lit.value || state.matches.value
-            ? 'opacity-[0.22] saturate-50'
-            : 'opacity-50 saturate-50'),
-        state.entering.value.has(id) && 'animate-fade-in',
-        state.far.value && 'graph-card--far'
-      )
-    "
+    :class="[
+      'graph-card relative flex h-full w-full flex-col justify-center overflow-hidden rounded-lg border text-left text-foreground',
+      'transition-[opacity,border-color,box-shadow,filter] duration-base ease-out',
+      accent,
+      node.missing
+        ? 'border-dashed border-destructive/70 bg-destructive/[0.04]'
+        : 'bg-card',
+      node.external && 'border-dashed',
+      selected
+        ? 'border-primary ring-2 ring-primary/30'
+        : inPath
+          ? 'border-primary/60'
+          : matched
+            ? 'border-link ring-2 ring-link/25'
+            : !node.missing && 'hover:border-border-strong',
+      dimmed &&
+        (state.lit.value || state.matches.value
+          ? 'opacity-[0.22] saturate-50'
+          : 'opacity-50 saturate-50'),
+      state.entering.value.has(id) && 'graph-card--enter',
+    ]"
     :data-health="node.health"
   >
-    <Handle type="target" :position="Position.Left" class="graph-handle" />
     <div
-      :class="
-        cn(
-          'flex min-w-0 items-center',
-          compact ? 'gap-2 px-2' : 'gap-2.5 px-2.5',
-          showStrip && 'pt-1'
-        )
-      "
+      :class="[
+        'flex min-w-0 items-center',
+        compact ? 'gap-2 px-2' : 'gap-2.5 px-2.5',
+        showStrip && 'pt-1',
+      ]"
     >
       <span
-        :class="
-          cn(
-            'flex shrink-0 items-center justify-center rounded-md',
-            compact ? 'h-6 w-6' : 'h-8 w-8',
-            node.missing
-              ? 'bg-destructive/10 text-destructive'
-              : CATEGORY_TILE[node.category]
-          )
-        "
+        :class="[
+          'flex shrink-0 items-center justify-center rounded-md',
+          compact ? 'h-6 w-6' : 'h-8 w-8',
+          node.missing
+            ? 'bg-destructive/10 text-destructive'
+            : CATEGORY_TILE[node.category],
+        ]"
       >
-        <KindIcon :name="icon" :class="compact ? 'h-3.5 w-3.5' : 'h-4 w-4'" />
+        <component
+          :is="icon"
+          :class="compact ? 'h-3.5 w-3.5' : 'h-4 w-4'"
+          :stroke-width="1.75"
+          aria-hidden="true"
+        />
       </span>
       <div class="min-w-0 flex-1">
         <div
-          :class="
-            cn(
-              'graph-card__name truncate font-medium leading-5',
-              compact ? 'text-xs' : 'text-sm',
-              node.missing && 'text-destructive'
-            )
-          "
+          :class="[
+            'graph-card__name truncate font-medium leading-5',
+            compact ? 'text-xs' : 'text-sm',
+            node.missing && 'text-destructive',
+          ]"
           :title="node.name"
         >
           {{ node.name }}
         </div>
         <div
-          :class="
-            cn(
-              'graph-card__meta truncate leading-4 text-muted-foreground',
-              compact ? 'text-2xs' : 'text-xs'
-            )
-          "
+          :class="[
+            'graph-card__meta truncate leading-4 text-muted-foreground',
+            compact ? 'text-2xs' : 'text-xs',
+          ]"
         >
           <template v-if="node.missing || compact">{{ subtitle }}</template>
           <template v-else-if="subtitle.startsWith(node.kind)">
@@ -199,12 +178,26 @@ const accent = computed(() => {
         class="shrink-0 rounded-sm border border-destructive/30 bg-destructive/10 px-1 text-2xs font-medium uppercase tracking-wide text-destructive"
         >Missing</span
       >
-      <StatusDot
+      <span
         v-else-if="tone"
-        :tone="tone"
-        :pulse="node.health === 'error' && !state.far.value"
-        :label="node.health"
-      />
+        class="graph-card__dot relative inline-flex h-2 w-2 shrink-0"
+        role="img"
+        :aria-label="node.health"
+      >
+        <span
+          v-if="node.health === 'error'"
+          :class="[
+            'graph-ping absolute inset-0 rounded-full opacity-60 animate-status-ping',
+            statusDotClass[tone],
+          ]"
+        />
+        <span
+          :class="[
+            'relative inline-flex h-full w-full rounded-full',
+            statusDotClass[tone],
+          ]"
+        />
+      </span>
     </div>
 
     <div
@@ -219,8 +212,12 @@ const accent = computed(() => {
       <button
         v-if="isRoot && expanded && oldCount > 0"
         type="button"
-        class="nodrag nopan inline-flex h-5 shrink-0 items-center gap-0.5 rounded px-1 text-2xs text-muted-foreground transition-colors duration-fast hover:bg-accent hover:text-foreground"
-        :class="state.history.value.has(id) && 'bg-accent text-foreground'"
+        :class="[
+          'nodrag nopan inline-flex h-5 shrink-0 items-center gap-0.5 rounded px-1 text-2xs transition-colors duration-fast hover:bg-accent hover:text-foreground',
+          state.history.value.has(id)
+            ? 'bg-accent text-foreground'
+            : 'text-muted-foreground',
+        ]"
         :title="`${state.history.value.has(id) ? 'Hide' : 'Show'} ${oldCount} old ReplicaSet${oldCount === 1 ? '' : 's'}`"
         :aria-pressed="state.history.value.has(id)"
         @click.stop="state.toggleHistory(id)"
@@ -240,6 +237,5 @@ const accent = computed(() => {
         <ChevronRight v-else class="h-3.5 w-3.5" />
       </button>
     </div>
-    <Handle type="source" :position="Position.Right" class="graph-handle" />
   </div>
 </template>

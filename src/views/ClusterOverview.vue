@@ -10,7 +10,6 @@
  */
 import type { Edge, Node, NodeMouseEvent } from "@vue-flow/core";
 import { VueFlow, useVueFlow } from "@vue-flow/core";
-import { MiniMap } from "@vue-flow/minimap";
 import Fuse from "fuse.js";
 import { useElementSize, useNow, useStorage } from "@vueuse/core";
 import {
@@ -56,6 +55,7 @@ import GroupNode from "@/components/vue-flow/GroupNode.vue";
 import LaneNode from "@/components/vue-flow/LaneNode.vue";
 import TopologyEdge from "@/components/vue-flow/TopologyEdge.vue";
 import GraphLegend from "@/components/vue-flow/GraphLegend.vue";
+import GraphMinimap from "@/components/vue-flow/GraphMinimap.vue";
 import GraphInspector from "@/components/vue-flow/GraphInspector.vue";
 import { GraphViewStateKey } from "@/components/vue-flow/graphState";
 import {
@@ -84,6 +84,7 @@ import {
 import {
   GraphLayoutCache,
   LANE_HEADER,
+  Rect,
   nodeSize,
 } from "@/lib/clusterGraphLayout";
 import {
@@ -262,30 +263,36 @@ const layout = computed(() => {
   return result;
 });
 
-const flowNodes = computed<Node[]>(() => {
-  const { nodes: positions, groups: rects, lanes } = layout.value;
-  const result: Node[] = [];
-  for (const lane of lanes) {
-    result.push({
-      id: `lane:${lane.namespace}`,
-      type: "lane",
-      position: { x: lane.x, y: lane.y },
-      width: Math.max(lane.width, 200),
-      height: LANE_HEADER - 6,
-      data: { namespace: lane.namespace, apps: lane.apps },
-      selectable: false,
-      draggable: false,
-      connectable: false,
-      focusable: false,
-      zIndex: 0,
-    });
-  }
-  const membersOf = new Map<string, string[]>();
+/*
+ * Flow elements of the whole graph. Rendering is virtualised below: only
+ * what is near the viewport is handed to vue-flow, so its per-frame work
+ * does not grow with the cluster.
+ */
+const laneNodes = computed<Node[]>(() =>
+  layout.value.lanes.map((lane) => ({
+    id: `lane:${lane.namespace}`,
+    type: "lane",
+    position: { x: lane.x, y: lane.y },
+    width: Math.max(lane.width, 200),
+    height: LANE_HEADER - 6,
+    data: { namespace: lane.namespace, apps: lane.apps },
+    selectable: false,
+    draggable: false,
+    connectable: false,
+    focusable: false,
+    zIndex: 0,
+  }))
+);
+
+const groupNodes = computed<(Node & { rect: Rect })[]>(() => {
+  const { nodes: positions, groups: rects } = layout.value;
+  const membersOf = new Map<string, TopoNode[]>();
   for (const node of visible.value.nodes) {
     const list = membersOf.get(node.group);
-    if (list) list.push(node.id);
-    else membersOf.set(node.group, [node.id]);
+    if (list) list.push(node);
+    else membersOf.set(node.group, [node]);
   }
+  const result: (Node & { rect: Rect })[] = [];
   for (const group of visible.value.groups) {
     const rect = rects.get(group.id);
     if (!rect) continue;
@@ -297,17 +304,32 @@ const flowNodes = computed<Node[]>(() => {
       pods += node.pods?.length || 0;
       if (isProblem(node.health)) issues++;
     }
+    const members = membersOf.get(group.id) || [];
     result.push({
       id: `group:${group.id}`,
       type: "group",
       position: { x: rect.x, y: rect.y },
       width: rect.width,
       height: rect.height,
+      rect,
       data: {
         group,
         pods,
         problems: issues,
-        members: membersOf.get(group.id) || [],
+        members: members.map((node) => node.id),
+        // Overview zoom: the group draws its members as health blocks.
+        blocks: members.map((node) => {
+          const position = positions.get(node.id)!;
+          const size = nodeSize(node);
+          return {
+            id: node.id,
+            x: position.x - rect.x,
+            y: position.y - rect.y,
+            width: size.width,
+            height: size.height,
+            health: node.missing ? "error" : node.health,
+          };
+        }),
       },
       selectable: false,
       draggable: false,
@@ -316,16 +338,23 @@ const flowNodes = computed<Node[]>(() => {
       zIndex: 0,
     });
   }
+  return result;
+});
+
+const cardNodes = computed(() => {
+  const positions = layout.value.nodes;
+  const cards = new Map<string, Node & { rect: Rect }>();
   for (const node of visible.value.nodes) {
     const position = positions.get(node.id);
     if (!position) continue;
     const size = nodeSize(node);
-    result.push({
+    cards.set(node.id, {
       id: node.id,
       type: "k8s",
       position,
       width: size.width,
       height: size.height,
+      rect: { ...position, ...size },
       data: { node: markRaw(node) },
       draggable: false,
       connectable: false,
@@ -334,16 +363,21 @@ const flowNodes = computed<Node[]>(() => {
       ariaLabel: `${node.kind} ${node.name}, ${HEALTH_LABEL[node.health]}`,
     });
   }
-  return result;
+  return cards;
 });
 
-const flowEdges = computed<Edge[]>(() => {
+const allEdges = computed<Edge[]>(() => {
   const nodes = topology.value?.nodes;
+  const cards = cardNodes.value;
   if (!nodes) return [];
-  return visible.value.edges.map((edge) => {
+  const result: Edge[] = [];
+  for (const edge of visible.value.edges) {
     const source = nodes.get(edge.source)!;
     const target = nodes.get(edge.target)!;
-    return {
+    const from = cards.get(edge.source)?.rect;
+    const to = cards.get(edge.target)?.rect;
+    if (!from || !to) continue;
+    result.push({
       id: edge.id,
       source: edge.source,
       target: edge.target,
@@ -353,6 +387,13 @@ const flowEdges = computed<Edge[]>(() => {
       zIndex: 1,
       data: {
         type: edge.type,
+        // Right side of the source card to the left side of the target.
+        points: {
+          sx: from.x + from.width,
+          sy: from.y + from.height / 2,
+          tx: to.x,
+          ty: to.y + to.height / 2,
+        },
         missing: !!target.missing || !!source.missing,
         crossGroup: source.group !== target.group,
         // Edges into shared / unreferenced groups (a StorageClass used by
@@ -362,8 +403,76 @@ const flowEdges = computed<Edge[]>(() => {
           topology.value!.groups.get(target.group)?.type !== "app",
         problem: isProblem(source.health) || isProblem(target.health),
       },
-    };
-  });
+    });
+  }
+  return result;
+});
+
+/** Neighbours per card: edges of a rendered card need both of their ends. */
+const neighbours = computed(() => {
+  const map = new Map<string, string[]>();
+  for (const edge of visible.value.edges) {
+    const a = map.get(edge.source);
+    if (a) a.push(edge.target);
+    else map.set(edge.source, [edge.target]);
+    const b = map.get(edge.target);
+    if (b) b.push(edge.source);
+    else map.set(edge.target, [edge.source]);
+  }
+  return map;
+});
+
+const intersects = (a: Rect, b: Rect) =>
+  a.x < b.x + b.width &&
+  b.x < a.x + a.width &&
+  a.y < b.y + b.height &&
+  b.y < a.y + a.height;
+
+/*
+ * Graph areas to render: the viewport plus a margin, snapped to a grid.
+ * Groups follow the viewport every frame (they are cheap); cards follow
+ * immediately while panning, but only once a zoom gesture settles, so
+ * zooming out does not mount hundreds of cards mid-gesture.
+ */
+const renderWindow = shallowRef<Rect | null>(null);
+const cardWindow = shallowRef<Rect | null>(null);
+
+const flowNodes = computed<Node[]>(() => {
+  const window = renderWindow.value;
+  // Overview (and before the first viewport): groups draw their members.
+  if (overview.value || !window) {
+    return [...laneNodes.value, ...groupNodes.value];
+  }
+  const cardArea = cardWindow.value || window;
+  const result: Node[] = laneNodes.value.filter((lane) =>
+    intersects(window, {
+      ...lane.position,
+      width: lane.width as number,
+      height: LANE_HEADER,
+    })
+  );
+  for (const group of groupNodes.value) {
+    if (intersects(window, group.rect)) result.push(group);
+  }
+  const rendered = new Set<string>();
+  for (const [id, card] of cardNodes.value) {
+    if (!intersects(cardArea, card.rect)) continue;
+    rendered.add(id);
+    for (const other of neighbours.value.get(id) || []) rendered.add(other);
+  }
+  for (const id of rendered) {
+    const card = cardNodes.value.get(id);
+    if (card) result.push(card);
+  }
+  return result;
+});
+
+const flowEdges = computed<Edge[]>(() => {
+  if (overview.value || !renderWindow.value) return [];
+  const rendered = new Set(flowNodes.value.map((node) => node.id));
+  return allEdges.value.filter(
+    (edge) => rendered.has(edge.source) && rendered.has(edge.target)
+  );
 });
 
 /* -------------------------------------------------------- highlighting -- */
@@ -434,22 +543,120 @@ const problemNodeIds = computed(() =>
 
 /* ---------------------------------------------------------- viewport -- */
 
-const {
-  fitView,
-  setCenter,
-  setViewport,
-  zoomIn,
-  zoomOut,
-  dimensions,
-  viewport,
-} = useVueFlow();
+const { setCenter, setViewport, zoomIn, zoomOut, dimensions, viewport } =
+  useVueFlow();
 
 watch(
   () => viewport.value.zoom,
   (value) => (zoom.value = value)
 );
 
-const FIT_OPTIONS = { padding: 0.08, maxZoom: 1, duration: 300 };
+/* Render window: recomputed at most once per frame, and only changes when
+ * the viewport moves past a grid step (small pans keep the same set). */
+const WINDOW_GRID = 400;
+let windowFrame = 0;
+const updateWindow = () => {
+  const { width, height } = dimensions.value;
+  const { x, y, zoom: scale } = viewport.value;
+  if (!width || !height || !scale) return;
+  const viewWidth = width / scale;
+  const viewHeight = height / scale;
+  const margin = Math.max(viewWidth, viewHeight) * 0.35;
+  const snap = (value: number, up: boolean) =>
+    (up ? Math.ceil(value / WINDOW_GRID) : Math.floor(value / WINDOW_GRID)) *
+    WINDOW_GRID;
+  const left = snap(-x / scale - margin, false);
+  const top = snap(-y / scale - margin, false);
+  const right = snap(-x / scale + viewWidth + margin, true);
+  const bottom = snap(-y / scale + viewHeight + margin, true);
+  const next = { x: left, y: top, width: right - left, height: bottom - top };
+  const same = (rect: Rect | null) =>
+    !!rect &&
+    rect.x === next.x &&
+    rect.y === next.y &&
+    rect.width === next.width &&
+    rect.height === next.height;
+  if (!same(renderWindow.value)) renderWindow.value = next;
+
+  clearTimeout(cardTimer);
+  if (same(cardWindow.value)) return;
+  if (scale === cardZoom || !cardWindow.value) {
+    cardWindow.value = next;
+    cardZoom = scale;
+  } else {
+    cardTimer = setTimeout(() => {
+      cardWindow.value = renderWindow.value;
+      cardZoom = viewport.value.zoom;
+    }, 160);
+  }
+};
+let cardTimer: ReturnType<typeof setTimeout> | undefined;
+let cardZoom = 0;
+watch(
+  [viewport, dimensions],
+  () => {
+    cancelAnimationFrame(windowFrame);
+    windowFrame = requestAnimationFrame(updateWindow);
+  },
+  { deep: true }
+);
+
+/* Animations pause while the view moves (cheaper frames). */
+const moving = ref(false);
+
+/* Zoom for CSS (overview label sizes), set without re-rendering the view. */
+watch(zoom, (value) =>
+  canvas.value?.style.setProperty("--graph-zoom", String(value))
+);
+
+/** Bounds of the whole graph (or of some nodes). */
+const boundsOf = (ids?: string[]): Rect | null => {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const add = (rect: Rect) => {
+    minX = Math.min(minX, rect.x);
+    minY = Math.min(minY, rect.y);
+    maxX = Math.max(maxX, rect.x + rect.width);
+    maxY = Math.max(maxY, rect.y + rect.height);
+  };
+  if (ids) {
+    for (const id of ids) {
+      const card = cardNodes.value.get(id);
+      if (card) add(card.rect);
+    }
+  } else {
+    for (const rect of layout.value.groups.values()) add(rect);
+  }
+  if (minX === Infinity) return null;
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+};
+
+/** Fit a graph area into the canvas (vue-flow only knows rendered nodes). */
+const fitRect = (
+  rect: Rect | null,
+  options: { padding?: number; maxZoom?: number; duration?: number } = {}
+) => {
+  const { width, height } = dimensions.value;
+  if (!rect || !width || !height) return;
+  const padding = options.padding ?? 0.08;
+  const scale = Math.min(
+    width / (rect.width * (1 + padding * 2)),
+    height / (rect.height * (1 + padding * 2)),
+    options.maxZoom ?? 1
+  );
+  const zoomLevel = Math.max(0.05, scale);
+  setViewport(
+    {
+      x: width / 2 - (rect.x + rect.width / 2) * zoomLevel,
+      y: height / 2 - (rect.y + rect.height / 2) * zoomLevel,
+      zoom: zoomLevel,
+    },
+    { duration: options.duration ?? 300 }
+  );
+};
+const fitAll = (duration = 300) => fitRect(boundsOf(), { duration });
 
 /*
  * Initial view: fit everything when it stays readable, else start at the
@@ -458,19 +665,14 @@ const FIT_OPTIONS = { padding: 0.08, maxZoom: 1, duration: 300 };
 const MIN_READABLE_ZOOM = 0.5;
 const initialView = () => {
   const { width, height } = dimensions.value;
-  let maxX = 0;
-  let maxY = 0;
-  for (const rect of layout.value.groups.values()) {
-    maxX = Math.max(maxX, rect.x + rect.width);
-    maxY = Math.max(maxY, rect.y + rect.height);
-  }
-  if (!width || !height || maxX === 0) return;
-  const fitZoom = Math.min(width / (maxX * 1.08), height / (maxY * 1.08));
-  if (fitZoom >= MIN_READABLE_ZOOM) {
-    fitView({ ...FIT_OPTIONS, duration: 0 });
-  } else {
-    setViewport({ x: 24, y: 16, zoom: 0.75 });
-  }
+  const bounds = boundsOf();
+  if (!width || !height || !bounds) return;
+  const fitZoom = Math.min(
+    width / (bounds.width * 1.16),
+    height / (bounds.height * 1.16)
+  );
+  if (fitZoom >= MIN_READABLE_ZOOM) fitAll(0);
+  else setViewport({ x: 24, y: 16, zoom: 0.75 });
 };
 
 const viewedScope = ref("");
@@ -489,15 +691,14 @@ const onNodesInitialized = () => {
 
 const focusNodes = (ids: string[], maxZoom = 1.1) => {
   if (ids.length === 0) return;
-  fitView({ nodes: ids, padding: 0.3, maxZoom, duration: 400 });
+  fitRect(boundsOf(ids), { padding: 0.15, maxZoom, duration: 400 });
 };
 
 const centerOn = (id: string) => {
-  const position = layout.value.nodes.get(id);
-  const node = topology.value?.nodes.get(id);
-  if (!position || !node) return;
-  const size = nodeSize(node);
-  setCenter(position.x + size.width / 2, position.y + size.height / 2, {
+  const card = cardNodes.value.get(id);
+  if (!card) return;
+  const { rect } = card;
+  setCenter(rect.x + rect.width / 2, rect.y + rect.height / 2, {
     zoom: Math.max(viewport.value.zoom, 0.9),
     duration: 400,
   });
@@ -671,7 +872,7 @@ const toggleProblems = () => {
   clearSelection();
   // Once the re-laid-out graph is rendered.
   setTimeout(
-    () => (problems.value ? fitView({ ...FIT_OPTIONS, maxZoom: 1 }) : initialView()),
+    () => (problems.value ? fitAll() : initialView()),
     150
   );
 };
@@ -789,7 +990,7 @@ const onKeydown = (event: KeyboardEvent) => {
     else if (problems.value) problems.value = false;
   } else if (event.key === "f") {
     if (selected.value && lit.value) focusNodes([...lit.value.nodes]);
-    else fitView(FIT_OPTIONS);
+    else fitAll();
   } else if (event.key === "p") {
     toggleProblems();
   }
@@ -800,6 +1001,8 @@ onBeforeUnmount(() => {
   clearTimeout(tooltipTimer);
   clearTimeout(enteringTimer);
   clearTimeout(panelTimer);
+  clearTimeout(cardTimer);
+  cancelAnimationFrame(windowFrame);
 });
 
 /* ------------------------------------------------------------ status -- */
@@ -836,11 +1039,26 @@ watchEffect(() => {
   };
 });
 
-const minimapClass = (node: Node) => {
-  if (node.type === "group") return "mm-group";
-  if (node.type === "lane") return "mm-lane";
-  return `mm-node mm-${(node.data as { node: TopoNode }).node.health}`;
-};
+/* Minimap: every group (not only the rendered ones) and the visible area. */
+const minimapGroups = computed(() =>
+  visible.value.groups
+    .map((group) => ({
+      id: group.id,
+      rect: layout.value.groups.get(group.id)!,
+      health: group.health,
+      app: group.type === "app",
+    }))
+    .filter((group) => group.rect)
+);
+const graphBounds = computed(() => boundsOf());
+const visibleArea = computed<Rect | null>(() => {
+  const { width, height } = dimensions.value;
+  const { x, y, zoom: scale } = viewport.value;
+  if (!width || !scale) return null;
+  return { x: -x / scale, y: -y / scale, width: width / scale, height: height / scale };
+});
+const navigateTo = (x: number, y: number) =>
+  setCenter(x, y, { zoom: viewport.value.zoom, duration: 0 });
 
 const showGraph = computed(
   () => !loadError.value && !loading.value && !!topology.value
@@ -1263,22 +1481,22 @@ const showGraph = computed(
           :nodes-connectable="false"
           :elements-selectable="false"
           :zoom-on-double-click="false"
-          :only-render-visible-elements="true"
+          :only-render-visible-elements="false"
           :fit-view-on-init="false"
-          :class="
-            cn(
-              'graph-flow',
-              far && 'graph-flow--far',
-              overview && 'graph-flow--overview'
-            )
-          "
-          :style="{ '--graph-zoom': zoom }"
+          :class="[
+            'graph-flow',
+            far && 'graph-flow--far',
+            overview && 'graph-flow--overview',
+            moving && 'graph-flow--moving',
+          ]"
           @node-click="onNodeClick"
           @node-double-click="onNodeDoubleClick"
           @node-mouse-enter="onNodeMouseEnter"
           @node-mouse-leave="onNodeMouseLeave"
           @pane-click="clearSelection"
           @nodes-initialized="onNodesInitialized"
+          @move-start="moving = true"
+          @move-end="moving = false"
         >
           <template #node-k8s="props">
             <ObjectNode v-bind="props" />
@@ -1292,16 +1510,6 @@ const showGraph = computed(
           <template #edge-topology="props">
             <TopologyEdge v-bind="props" />
           </template>
-          <MiniMap
-            pannable
-            zoomable
-            :node-class-name="minimapClass"
-            :node-border-radius="6"
-            :width="180"
-            :height="120"
-            class="graph-minimap"
-            aria-label="Minimap"
-          />
         </VueFlow>
 
         <!-- Hover card -->
@@ -1360,13 +1568,22 @@ const showGraph = computed(
           </div>
         </div>
 
+        <GraphMinimap
+          v-if="showGraph && graphBounds && visible.groups.length > 0"
+          class="absolute bottom-3 right-3 z-10"
+          :groups="minimapGroups"
+          :bounds="graphBounds"
+          :view="visibleArea"
+          @navigate="navigateTo"
+        />
+
         <!-- Controls + legend -->
         <div
           v-if="showGraph && visible.groups.length > 0"
           class="absolute bottom-3 left-3 z-10 flex items-end gap-2"
         >
           <div
-            class="flex flex-col gap-0.5 rounded-lg border bg-popover/90 p-0.5 shadow-md backdrop-blur-sm"
+            class="flex flex-col gap-0.5 rounded-lg border bg-popover p-0.5 shadow-md"
             role="toolbar"
             aria-label="Graph controls"
           >
@@ -1393,7 +1610,7 @@ const showGraph = computed(
               size="icon-sm"
               aria-label="Fit to view"
               title="Fit to view (F)"
-              @click="fitView(FIT_OPTIONS)"
+              @click="fitAll()"
             >
               <Maximize class="h-3.5 w-3.5" />
             </Button>
@@ -1429,7 +1646,6 @@ const showGraph = computed(
 <style>
 @import "@vue-flow/core/dist/style.css";
 @import "@vue-flow/core/dist/theme-default.css";
-@import "@vue-flow/minimap/dist/style.css";
 
 /* Nodes are fully drawn by their components. */
 .cluster-graph .vue-flow__node-k8s,
@@ -1534,6 +1750,20 @@ const showGraph = computed(
 .graph-edge-end--missing {
   fill: hsl(var(--destructive));
 }
+/* Pause continuous animations while panning / zooming. */
+.graph-flow--moving .graph-edge--routes,
+.graph-flow--moving .graph-ping {
+  animation: none;
+}
+.graph-card--enter {
+  animation: graph-enter 450ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes graph-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
 @keyframes graph-flow {
   to {
     stroke-dashoffset: -20;
@@ -1543,6 +1773,9 @@ const showGraph = computed(
   .graph-edge--routes {
     animation: none;
     stroke-dasharray: none;
+  }
+  .graph-card--enter {
+    animation: none;
   }
 }
 
@@ -1580,38 +1813,4 @@ const showGraph = computed(
   opacity: 0.35;
 }
 
-/* Minimap on the design tokens. */
-.cluster-graph .graph-minimap {
-  background: hsl(var(--popover) / 0.92);
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
-  overflow: hidden;
-}
-.cluster-graph .vue-flow__minimap-mask {
-  fill: hsl(var(--background) / 0.65);
-  stroke: hsl(var(--primary) / 0.6);
-  stroke-width: 6;
-}
-.cluster-graph .vue-flow__minimap-node {
-  stroke: none;
-}
-.cluster-graph .vue-flow__minimap-node.mm-group {
-  fill: hsl(var(--muted-foreground) / 0.12);
-}
-.cluster-graph .vue-flow__minimap-node.mm-lane {
-  fill: transparent;
-}
-.cluster-graph .vue-flow__minimap-node.mm-node {
-  fill: hsl(var(--muted-foreground) / 0.45);
-}
-.cluster-graph .vue-flow__minimap-node.mm-ok {
-  fill: hsl(var(--success) / 0.8);
-}
-.cluster-graph .vue-flow__minimap-node.mm-warning {
-  fill: hsl(var(--warning));
-}
-.cluster-graph .vue-flow__minimap-node.mm-error {
-  fill: hsl(var(--destructive));
-}
 </style>

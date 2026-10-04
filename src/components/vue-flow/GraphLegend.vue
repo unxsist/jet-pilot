@@ -17,7 +17,7 @@ const EDGES = [
 
 <template>
   <div
-    class="flex h-8 items-center gap-3 rounded-lg border bg-popover/90 pl-3 pr-1 text-xs text-muted-foreground shadow-md backdrop-blur-sm"
+    class="flex h-8 items-center gap-3 rounded-lg border bg-popover pl-3 pr-1 text-xs text-muted-foreground shadow-md"
     role="region"
     aria-label="Legend"
   >
