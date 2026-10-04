@@ -1,9 +1,7 @@
-import { V1CronJob, V1Service } from "@kubernetes/client-node";
+import { V1Service } from "@kubernetes/client-node";
 import { RowAction } from "@/components/tables/types";
 import { Router } from "vue-router";
-import { BaseDialogInterface } from "@/providers/DialogProvider";
-import { Kubernetes } from "@/services/Kubernetes";
-import { useToast } from "@/components/ui/toast";
+import { openWorkloadLogs } from "./workload";
 
 export function actions<
   T extends V1Service & {
@@ -12,10 +10,19 @@ export function actions<
 >(
   addTab: any,
   spawnDialog: any,
-  setSidePanelComponent: any,
-  router: Router
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _setSidePanelComponent: any,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _router: Router
 ): RowAction<T>[] {
   return [
+    {
+      label: "Logs",
+      // Services without a selector (external endpoints) have no pods.
+      isAvailable: (row: T) =>
+        Object.keys(row.spec?.selector ?? {}).length > 0,
+      handler: (row: T) => openWorkloadLogs(addTab, row as any),
+    },
     {
       label: "Port Forward",
       handler: (row: T) => {

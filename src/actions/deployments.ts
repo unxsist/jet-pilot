@@ -2,13 +2,12 @@ import { V1Deployment } from "@kubernetes/client-node";
 import { RowAction } from "@/components/tables/types";
 import { Router } from "vue-router";
 import { actions as scalableActions } from "./scalables";
-import { BaseDialogInterface } from "@/providers/DialogProvider";
-import { Kubernetes } from "@/services/Kubernetes";
-import { useToast } from "@/components/ui/toast";
 import {
-  getResourceTabId,
-  getResourceTabTitle,
-} from "@/components/tables/identity";
+  logsAction,
+  pauseResumeAction,
+  restartAction,
+  rolloutHistoryAction,
+} from "./workload";
 
 export function actions<
   T extends V1Deployment & {
@@ -21,23 +20,7 @@ export function actions<
   router: Router
 ): RowAction<T>[] {
   return [
-    {
-      label: "Logs",
-      handler: (row: T) => {
-        addTab(
-          getResourceTabId("logs", row),
-          getResourceTabTitle(row),
-          defineAsyncComponent(() => import("@/views/StructuredLogViewer.vue")),
-          {
-            context: row.metadata.context,
-            namespace: row.metadata?.namespace ?? "",
-            kubeConfig: row.metadata.kubeConfig,
-            object: `deployment/${row.metadata?.name}`,
-          },
-          "logs"
-        );
-      },
-    },
+    logsAction<any>(addTab),
     {
       label: "Port Forward",
       handler: (row: T) => {
@@ -57,53 +40,9 @@ export function actions<
         });
       },
     },
-    {
-      label: "Restart",
-      massAction: true,
-      handler: (rows: T[]) => {
-        const dialog: BaseDialogInterface = {
-          title: "Restart deployment",
-          message: `Are you sure you want to restart ${rows.length} deployment(s)?`,
-          buttons: [
-            {
-              label: "Cancel",
-              variant: "ghost",
-              handler: (dialog) => {
-                dialog.close();
-              },
-            },
-            {
-              label: "Restart",
-              handler: (dialog) => {
-                rows.forEach((row) => {
-                  Kubernetes.restartDeployment(
-                    row.metadata.context,
-                    row.metadata?.namespace || "",
-                    row.metadata?.name || "",
-                    row.metadata.kubeConfig
-                  )
-                    .then(() => {
-                      dialog.close();
-                    })
-                    .catch((error) => {
-                      dialog.close();
-
-                      const { toast } = useToast();
-
-                      toast({
-                        title: "An error occured",
-                        description: error.message,
-                        variant: "destructive",
-                      });
-                    });
-                });
-              },
-            },
-          ],
-        };
-        spawnDialog(dialog);
-      },
-    },
+    rolloutHistoryAction<any>(addTab),
+    restartAction<any>(spawnDialog),
+    pauseResumeAction<any>(spawnDialog),
     ...scalableActions(addTab, spawnDialog, setSidePanelComponent, router),
   ];
 }

@@ -5,6 +5,7 @@ import {
   Archive,
   BadgeCheck,
   Box,
+  Bug,
   Boxes,
   CalendarClock,
   Copy,
@@ -18,6 +19,7 @@ import {
   Gauge,
   Globe,
   HardDrive,
+  History,
   KeyRound,
   Layers3,
   Link,
@@ -121,6 +123,8 @@ const ICONS: Record<string, Component> = {
   diff: GitCompareArrows,
   logs: ScrollText,
   shell: SquareTerminal,
+  history: History,
+  debug: Bug,
 };
 
 /** Lucide icon for a resource / surface name; a neutral shape otherwise. */
