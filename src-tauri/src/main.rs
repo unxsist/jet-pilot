@@ -14,6 +14,7 @@ mod logs;
 mod port_forward;
 mod shell;
 mod util;
+mod watch;
 
 static RELOAD_HANDLE: Lazy<Arc<RwLock<reload::Handle<LevelFilter, Registry>>>> = Lazy::new(|| {
     let (_, reload_handle) = reload::Layer::new(LevelFilter::INFO);
@@ -160,6 +161,13 @@ fn main() {
             logs::structured_logging::get_columns_for_structured_logging_session,
             logs::structured_logging::set_filtered_for_facet_value,
             logs::structured_logging::get_filtered_data_for_structured_logging_session,
+            watch::watch_subscribe,
+            watch::watch_unsubscribe,
+            watch::watch_restart,
+            watch::watch_reset,
+            watch::watch_set_paused,
+            watch::watch_get,
+            watch::watch_stats,
         ])
         .setup(|_app| {
             #[cfg(target_os = "macos")]

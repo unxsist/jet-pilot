@@ -51,9 +51,9 @@ pub mod client {
 
     #[derive(Debug, Serialize)]
     pub struct SerializableKubeError {
-        message: String,
-        code: Option<u16>,
-        reason: Option<String>,
+        pub(crate) message: String,
+        pub(crate) code: Option<u16>,
+        pub(crate) reason: Option<String>,
         details: Option<String>,
     }
 
@@ -79,46 +79,7 @@ pub mod client {
                 // the user needs to complete the OIDC login. Surface it so the
                 // UI can show it instead of a generic "auth error".
                 Error::Auth(auth_error) => {
-                    let message = match &auth_error {
-                        kube::client::AuthError::ExecPluginFailed { .. } => {
-                            "Exec credential plugin did not return credentials".to_string()
-                        }
-                        kube::client::AuthError::AuthExecStart(io_err) => {
-                            format!(
-                                "Unable to run the Kubernetes exec credential plugin ({}) - it may need to be installed separately. {}",
-                                io_err,
-                                hint_for_exec_plugin(io_err)
-                            )
-                        }
-                        kube::client::AuthError::AuthExecRun { out, .. } => {
-                            let stderr = String::from_utf8_lossy(&out.stderr);
-                            let stdout = displayable_exec_stdout(&String::from_utf8_lossy(&out.stdout));
-                            if !stderr.trim().is_empty() {
-                                format!(
-                                    "The Kubernetes exec credential plugin failed: {}\n\n{}",
-                                    stderr.trim(),
-                                    "Complete the login (e.g. open the URL above in a browser and enter the code) and try again."
-                                )
-                            } else if !stdout.trim().is_empty() {
-                                format!(
-                                    "The Kubernetes exec credential plugin failed: {}\n\nComplete the login and try again.",
-                                    stdout.trim()
-                                )
-                            } else {
-                                format!(
-                                    "The Kubernetes exec credential plugin failed ({}). Complete the login and try again.",
-                                    auth_error
-                                )
-                            }
-                        }
-                        kube::client::AuthError::ExecMissingClusterInfo => {
-                            "The exec credential plugin requires cluster info that is missing from the kubeconfig".to_string()
-                        }
-                        kube::client::AuthError::MissingCommand => {
-                            "The kubeconfig exec credential plugin is missing its command".to_string()
-                        }
-                        _ => auth_error.to_string(),
-                    };
+                    let message = auth_error_message(&auth_error);
                     SerializableKubeError {
                         message,
                         code: None,
@@ -135,6 +96,50 @@ pub mod client {
                     };
                 }
             }
+        }
+    }
+
+    /// User-facing message for an auth (exec credential plugin) failure.
+    pub(crate) fn auth_error_message(auth_error: &kube::client::AuthError) -> String {
+        match auth_error {
+            kube::client::AuthError::ExecPluginFailed => {
+                "Exec credential plugin did not return credentials".to_string()
+            }
+            kube::client::AuthError::AuthExecStart(io_err) => {
+                format!(
+                    "Unable to run the Kubernetes exec credential plugin ({}) - it may need to be installed separately. {}",
+                    io_err,
+                    hint_for_exec_plugin(io_err)
+                )
+            }
+            kube::client::AuthError::AuthExecRun { out, .. } => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let stdout = displayable_exec_stdout(&String::from_utf8_lossy(&out.stdout));
+                if !stderr.trim().is_empty() {
+                    format!(
+                        "The Kubernetes exec credential plugin failed: {}\n\n{}",
+                        stderr.trim(),
+                        "Complete the login (e.g. open the URL above in a browser and enter the code) and try again."
+                    )
+                } else if !stdout.trim().is_empty() {
+                    format!(
+                        "The Kubernetes exec credential plugin failed: {}\n\nComplete the login and try again.",
+                        stdout.trim()
+                    )
+                } else {
+                    format!(
+                        "The Kubernetes exec credential plugin failed ({}). Complete the login and try again.",
+                        auth_error
+                    )
+                }
+            }
+            kube::client::AuthError::ExecMissingClusterInfo => {
+                "The exec credential plugin requires cluster info that is missing from the kubeconfig".to_string()
+            }
+            kube::client::AuthError::MissingCommand => {
+                "The kubeconfig exec credential plugin is missing its command".to_string()
+            }
+            _ => auth_error.to_string(),
         }
     }
 
@@ -356,6 +361,25 @@ pub mod client {
         }
     }
 
+    /// The exec credential plugin command (basename) a context authenticates
+    /// with, if any. Used to word watch auth errors like kubectl does
+    /// ("executable aws failed") so the frontend's re-login detection works.
+    pub(crate) fn exec_command_for_context(kube_config: Option<&str>, context: &str) -> Option<String> {
+        let path = resolve_kubeconfig_path(kube_config);
+        let config = if path.is_empty() {
+            Kubeconfig::read().ok()?
+        } else {
+            Kubeconfig::read_from(path.as_str()).ok()?
+        };
+        let command = auth_info_for_context(&config, context).ok()?.exec?.command?;
+        Some(
+            std::path::Path::new(&command)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or(command),
+        )
+    }
+
     #[tauri::command]
     pub async fn get_context_auth_info(
         context: &str,
@@ -406,7 +430,7 @@ pub mod client {
     /// Returns a (cached) client for `context`. `kube_config` selects the
     /// kubeconfig file the context lives in; when absent or empty the globally
     /// selected kubeconfig (see `set_current_kubeconfig`) is used.
-    async fn client_with_context(
+    pub(crate) async fn client_with_context(
         context: &str,
         kube_config: Option<&str>,
     ) -> Result<Client, SerializableKubeError> {
