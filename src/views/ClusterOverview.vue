@@ -101,18 +101,14 @@ const NODE_CLASS =
   "overflow-hidden rounded-lg border bg-card text-foreground shadow-xs transition-[border-color,box-shadow] duration-fast hover:border-border-strong hover:shadow-md";
 
 /* Objects in the graph (pod groups count their pods). */
-const objectCount = computed(() =>
-  nodes.value.reduce(
-    (count, node) =>
-      count +
-      (node.type === "pods-object"
-        ? node.data.pods.length
-        : node.id === "unmapped-resources"
-        ? 0
-        : 1),
-    0
-  )
-);
+const objectCount = computed<number>(() => {
+  let count = 0;
+  for (const node of nodes.value as Node[]) {
+    if (node.type === "pods-object") count += node.data.pods.length;
+    else if (node.id !== "unmapped-resources") count += 1;
+  }
+  return count;
+});
 
 const layoutNodes = (
   nodes: Node[],
