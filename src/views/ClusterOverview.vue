@@ -17,6 +17,18 @@ import {
 import ObjectNode from "@/components/vue-flow/ObjectNode.vue";
 import PodsObjectNode from "@/components/vue-flow/PodsObjectNode.vue";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Progress } from "@/components/ui/progress";
+import ContextAvatar from "@/components/ContextAvatar.vue";
+import {
+  CloudOff,
+  Loader2,
+  Maximize,
+  RefreshCw,
+  TriangleAlert,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-vue-next";
 import specLinks from "@/lib/kubernetesSpecLinks";
 import {
   DiscoveredResource,
@@ -72,6 +84,8 @@ const scopeLabel = computed(() => {
 const nodes = ref<Node[]>([]);
 const {
   fitView,
+  zoomIn,
+  zoomOut,
   onNodeMouseEnter,
   onNodeMouseLeave,
   findEdge,
@@ -84,7 +98,21 @@ const { layout: dagreLayout } = useLayout();
 const edges = ref<Edge[]>([]);
 
 const NODE_CLASS =
-  "overflow-hidden bg-background border border-foreground-muted rounded text-foreground hover:border-foreground";
+  "overflow-hidden rounded-lg border bg-card text-foreground shadow-xs transition-[border-color,box-shadow] duration-fast hover:border-border-strong hover:shadow-md";
+
+/* Objects in the graph (pod groups count their pods). */
+const objectCount = computed(() =>
+  nodes.value.reduce(
+    (count, node) =>
+      count +
+      (node.type === "pods-object"
+        ? node.data.pods.length
+        : node.id === "unmapped-resources"
+        ? 0
+        : 1),
+    0
+  )
+);
 
 const layoutNodes = (
   nodes: Node[],
@@ -780,19 +808,26 @@ onMounted(async () => {
 });
 </script>
 <template>
-  <SpotlightGridContainer>
+  <SpotlightGridContainer class="cluster-graph">
     <div
-      class="absolute top-2 left-2 z-10 flex items-center gap-2 rounded-md border bg-background/80 px-2 py-1 text-xs text-muted-foreground backdrop-blur-sm"
+      class="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-lg border bg-popover/90 py-1 pl-1 pr-2.5 text-xs text-muted-foreground shadow-md backdrop-blur-sm [--avatar-ring:var(--popover)]"
     >
-      <span class="font-semibold text-foreground">{{ context }}</span>
-      <span>·</span>
+      <ContextAvatar v-if="context" :name="context" size="sm" />
+      <span class="font-medium text-foreground">{{ context }}</span>
+      <span class="text-muted-foreground/60">/</span>
       <span>{{ scopeLabel }}</span>
       <span
+        v-if="!loadingState && !loadError && nodes.length > 0"
+        class="tabular-nums text-muted-foreground/80"
+        >· {{ objectCount }} objects</span
+      >
+      <span
         v-if="failedResources.length > 0 && !loadError"
-        class="text-destructive"
+        class="inline-flex items-center gap-1 text-destructive"
         :title="failedResources.map(qualifiedResourceName).join(', ')"
       >
-        · {{ failedResources.length }} resource type{{
+        <TriangleAlert class="h-3 w-3" />
+        {{ failedResources.length }} resource type{{
           failedResources.length === 1 ? "" : "s"
         }}
         failed to load
@@ -801,25 +836,48 @@ onMounted(async () => {
     <div
       v-if="loadError"
       role="alert"
-      class="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center"
+      class="absolute inset-0 z-10 flex items-center justify-center p-4"
     >
-      <span class="font-semibold text-destructive">
-        Failed to load the resource graph
-      </span>
-      <pre
-        class="max-w-xl whitespace-pre-wrap break-words text-xs text-muted-foreground select-text"
-        >{{ loadError }}</pre
+      <EmptyState
+        :icon="CloudOff"
+        title="Failed to load the resource graph"
+        class="max-w-xl"
       >
-      <Button variant="secondary" size="xs" @click="refresh">Retry</Button>
+        <pre
+          class="whitespace-pre-wrap break-words font-mono text-xs select-text"
+          >{{ loadError }}</pre
+        >
+        <template #action>
+          <Button variant="outline" size="sm" @click="refresh">
+            <RefreshCw class="h-3.5 w-3.5" />
+            Retry
+          </Button>
+        </template>
+      </EmptyState>
     </div>
     <div
       v-else-if="loadingState !== ''"
-      class="absolute top-0 left-0 bottom-0 right-0 flex items-center justify-center backdrop-blur-sm"
+      class="absolute inset-0 z-10 flex items-center justify-center"
+      role="status"
     >
-      {{ loadingState }}
-      <span class="ml-2" v-if="apiResources.length > 0"
-        >({{ completedResources }}/{{ apiResources.length }})</span
+      <div
+        class="w-72 rounded-xl border bg-popover p-4 text-sm shadow-lg"
       >
+        <div class="flex items-center gap-2 font-medium text-foreground">
+          <Loader2 class="h-4 w-4 animate-spin text-primary" />
+          {{ loadingState }}
+        </div>
+        <div v-if="apiResources.length > 0" class="mt-3 space-y-1.5">
+          <Progress
+            :model-value="
+              Math.round((completedResources / apiResources.length) * 100)
+            "
+          />
+          <div class="text-right text-xs tabular-nums text-muted-foreground">
+            {{ completedResources }} / {{ apiResources.length }} resource types
+          </div>
+        </div>
+      </div>
     </div>
     <VueFlow
       v-else
@@ -835,8 +893,53 @@ onMounted(async () => {
         <PodsObjectNode v-bind="props" />
       </template>
     </VueFlow>
+    <div
+      v-if="!loadingState && !loadError && nodes.length > 0"
+      class="absolute bottom-3 left-3 z-10 flex flex-col gap-0.5 rounded-lg border bg-popover/90 p-0.5 shadow-md backdrop-blur-sm"
+      role="toolbar"
+      aria-label="Graph controls"
+    >
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Zoom in"
+        title="Zoom in"
+        @click="zoomIn()"
+      >
+        <ZoomIn class="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Zoom out"
+        title="Zoom out"
+        @click="zoomOut()"
+      >
+        <ZoomOut class="h-3.5 w-3.5" />
+      </Button>
+      <span class="mx-1 h-px bg-border" aria-hidden="true" />
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Fit to view"
+        title="Fit to view"
+        @click="fitView()"
+      >
+        <Maximize class="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Reload graph"
+        title="Reload graph"
+        @click="refresh"
+      >
+        <RefreshCw class="h-3.5 w-3.5" />
+      </Button>
+    </div>
   </SpotlightGridContainer>
 </template>
+
 <style>
 /* import the necessary styles for Vue Flow to work */
 @import "@vue-flow/core/dist/style.css";
@@ -848,8 +951,36 @@ onMounted(async () => {
   z-index: 1000 !important;
 }
 
-.vue-flow__node-kubernetes-object.selected,
-.vue-flow__node-pods-object.selected {
-  border-color: hsl(var(--foreground));
+/* Theme the default vue-flow styles with the design tokens */
+.cluster-graph .vue-flow__node-kubernetes-object,
+.cluster-graph .vue-flow__node-pods-object {
+  padding: 0;
+  font-size: inherit;
+}
+
+.cluster-graph .vue-flow__node-kubernetes-object.selected,
+.cluster-graph .vue-flow__node-pods-object.selected {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.2), var(--shadow-md);
+}
+
+.cluster-graph .vue-flow__edge-path {
+  stroke: hsl(var(--muted-foreground) / 0.45);
+  stroke-width: 1.25;
+}
+
+.cluster-graph .vue-flow__edge.animated .vue-flow__edge-path,
+.cluster-graph .vue-flow__edge.selected .vue-flow__edge-path {
+  stroke: hsl(var(--primary));
+}
+
+.cluster-graph .vue-flow__arrowhead polyline {
+  stroke: hsl(var(--muted-foreground) / 0.6);
+  fill: hsl(var(--muted-foreground) / 0.6);
+}
+
+.cluster-graph .vue-flow__node.selectable:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }
 </style>
