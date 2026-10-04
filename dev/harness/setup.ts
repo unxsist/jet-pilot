@@ -7,13 +7,15 @@
  * Knobs (query string on first load, persisted in localStorage):
  *   ?theme=dark|light        colour scheme
  *   ?os=linux|macos|windows  window chrome variant
- *   ?scenario=default|empty|error|nocontext|whatsnew|large|conflict|compare
+ *   ?scenario=default|empty|error|nocontext|whatsnew|large|large-graph|conflict|compare
+ *   ?contexts=2              activate both contexts
  *   ?polling=0|1             kubectl polling instead of live watches
  *                            (settings.experimental.useKubectlPolling)
  *   ?delay=<ms>              slow down settings + discovery (skeletons)
  *
  * `large` scales the first context to 5000 pods with a stream of live
- * changes (watch deltas) to exercise the list views.
+ * changes (watch deltas) to exercise the list views; `large-graph` swaps the
+ * first context for a 2,000+ object topology for the resource graph.
  * Editor scenarios: `conflict` bumps an object's resourceVersion after its
  * first fetch (stale-edit flow); `compare` activates a second context.
  *
@@ -26,6 +28,7 @@ import yaml from "js-yaml";
 import {
   API_GROUPS,
   CLUSTERS,
+  buildLargeCluster,
   CONTEXTS,
   CORE_RESOURCES,
   HOME,
@@ -50,6 +53,14 @@ const theme = localStorage.getItem("harness-theme") || "dark";
 const os = localStorage.getItem("harness-os") || "linux";
 const scenario = localStorage.getItem("harness-scenario") || "default";
 const polling = localStorage.getItem("harness-polling") === "1";
+
+/* ?scenario=large-graph swaps the first context for a 2,000+ object cluster. */
+const clusters =
+  scenario === "large-graph"
+    ? { ...CLUSTERS, [CONTEXTS[0].name]: buildLargeCluster() }
+    : CLUSTERS;
+/* ?contexts=2 activates both contexts (multi-context mode). */
+const multiContext = params.get("contexts") === "2";
 
 // VueUse's useColorMode persists its own value; keep it in sync.
 localStorage.setItem("vueuse-color-scheme", theme);
@@ -79,7 +90,7 @@ const settings = {
       ? []
       : [
           { context: CONTEXTS[0].name, kubeConfig: KUBECONFIG, namespaces: ["all"] },
-          ...(scenario === "compare"
+          ...(multiContext || scenario === "compare"
             ? [{ context: CONTEXTS[1].name, kubeConfig: KUBECONFIG, namespaces: ["all"] }]
             : []),
         ],
@@ -149,7 +160,7 @@ const resourceKey = (resource: string) =>
 function kubectlGet(args: string[]): string {
   const context = argValue(args, "--context") || CONTEXTS[0].name;
   const namespace = argValue(args, "--namespace") || argValue(args, "-n");
-  const cluster = CLUSTERS[context];
+  const cluster = clusters[context];
   const resource = args[1];
 
   if (scenario === "error" && resourceKey(resource) !== "podmetrics") {
@@ -159,23 +170,9 @@ function kubectlGet(args: string[]): string {
   }
 
   const key = resourceKey(resource);
+  // Every fixture list is keyed by its plural resource name.
   let items: any[] =
-    scenario === "empty" && key !== "namespaces"
-      ? []
-      : ({
-          pods: cluster.pods,
-          podmetrics: cluster.podmetrics,
-          deployments: cluster.deployments,
-          replicasets: cluster.replicasets,
-          services: cluster.services,
-          nodes: cluster.nodes,
-          events: cluster.events,
-          configmaps: cluster.configmaps,
-          secrets: cluster.secrets,
-          namespaces: cluster.namespaces,
-          jobs: cluster.jobs,
-          ingresses: cluster.ingresses,
-        } as Record<string, any[]>)[key] || [];
+    scenario === "empty" && key !== "namespaces" ? [] : cluster[key] || [];
 
   if (namespace && !["nodes", "namespaces"].includes(key)) {
     items = items.filter((i) => i.metadata?.namespace === namespace);
@@ -192,7 +189,7 @@ function kubectlGet(args: string[]): string {
 
 function findObject(context: string, typeName: string) {
   const [type, name] = typeName.split("/");
-  const cluster = CLUSTERS[context] || CLUSTERS[CONTEXTS[0].name];
+  const cluster = clusters[context] || clusters[CONTEXTS[0].name];
   const key = resourceKey(type.endsWith("s") ? type : `${type}s`);
   const list: any[] = (cluster as any)[key] || cluster.pods;
   return list.find((o) => o.metadata?.name === name) || list[0];
@@ -357,7 +354,7 @@ async function shellExecute(program: string, args: string[]) {
   if (program === "helm") {
     if (args[0] === "list") {
       const ns = argValue(args, "--namespace");
-      const releases = CLUSTERS[context].helmReleases.filter((r) => !ns || r.namespace === ns);
+      const releases = clusters[context].helmReleases.filter((r) => !ns || r.namespace === ns);
       return ok(JSON.stringify(scenario === "empty" ? [] : releases));
     }
     if (args[0] === "search") {

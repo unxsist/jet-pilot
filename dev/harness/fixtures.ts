@@ -249,6 +249,8 @@ export interface Cluster {
   ingresses: any[];
   podmetrics: any[];
   helmReleases: any[];
+  /* Resource graph kinds (statefulsets, cronjobs, hpas, ...), keyed by plural resource name. */
+  [resource: string]: any[];
 }
 
 function buildCluster(context: string, scale = 1): Cluster {
@@ -486,7 +488,407 @@ function buildCluster(context: string, scale = 1): Cluster {
     { name: "feature-flags", namespace: "platform", revision: "2", updated: ago(9 * MIN).replace("T", " ").replace("Z", " +0000 UTC"), status: "pending-upgrade", chart: "feature-flags-0.22.0", app_version: "0.22.0" },
   ];
 
-  return { pods, deployments, replicasets, services, nodes, events, configmaps, secrets, namespaces, jobs, ingresses, podmetrics, helmReleases };
+  const cluster: Cluster = { pods, deployments, replicasets, services, nodes, events, configmaps, secrets, namespaces, jobs, ingresses, podmetrics, helmReleases };
+  addTopology(cluster, workloads, scale === 1);
+  return cluster;
+}
+
+/* ------------------------------------------------------ resource graph -- */
+
+/*
+ * Topology for the resource graph, added after the base data (with its own
+ * random sequence) so the existing pod names and uids stay stable: config
+ * and secret references (incl. a dangling one), service accounts,
+ * ingresses, a service without ready endpoints, a StatefulSet with PVCs, a
+ * DaemonSet, CronJobs (one failing), HPAs, PDBs, NetworkPolicies and
+ * Gateway API routes.
+ */
+const DEPS: Record<string, { envFrom?: string[]; secretEnv?: string[]; cmVolumes?: string[] }> = {
+  "payments-api": { envFrom: ["payments-config"], secretEnv: ["payments-db", "stripe-api-key"] },
+  "payments-worker": { envFrom: ["payments-config"], secretEnv: ["payments-db"] },
+  ledger: { secretEnv: ["payments-db", "ledger-signing-key"] },
+  "checkout-api": { envFrom: ["checkout-flags"] },
+  "checkout-web": { envFrom: ["checkout-flags"] },
+  grafana: { cmVolumes: ["grafana-dashboards"], secretEnv: ["grafana-admin"] },
+  coredns: { cmVolumes: ["coredns"] },
+};
+
+function withDeps(spec: any, name: string) {
+  const deps = DEPS[name] || {};
+  const containers = spec.containers.map((c: any, i: number) =>
+    i > 0
+      ? c
+      : {
+          ...c,
+          envFrom: (deps.envFrom || []).map((cm) => ({ configMapRef: { name: cm } })),
+          env: [
+            ...(c.env || []),
+            ...(deps.secretEnv || []).map((secret) => ({
+              name: secret.toUpperCase().replace(/-/g, "_"),
+              valueFrom: { secretKeyRef: { name: secret, key: "value" } },
+            })),
+          ],
+        }
+  );
+  const volumes = [
+    ...(deps.cmVolumes || []).map((cm) => ({ name: cm, configMap: { name: cm } })),
+    { name: "kube-api-access", projected: { sources: [{ serviceAccountToken: { path: "token" } }, { configMap: { name: "kube-root-ca.crt" } }] } },
+  ];
+  return { ...spec, serviceAccountName: name, containers, volumes };
+}
+
+let gseed = 7;
+const grand = () => {
+  gseed = (gseed * 48271) % 2147483647;
+  return (gseed - 1) / 2147483646;
+};
+let guidCounter = 0;
+const guid = () =>
+  `${(0x80000000 + ++guidCounter).toString(16)}-5b2c-4d3e-8f40-${Math.floor(grand() * 1e12).toString(16).padStart(12, "0")}`;
+const ghash = (len: number) =>
+  Array.from({ length: len }, () => "bcdfghjklmnpqrstvwxz2456789"[Math.floor(grand() * 27)]).join("");
+
+const ownerRef = (kind: string, obj: any, apiVersion = "apps/v1") => ({
+  apiVersion,
+  kind,
+  name: obj.metadata.name,
+  uid: obj.metadata.uid,
+  controller: true,
+  blockOwnerDeletion: true,
+});
+
+function graphPod(
+  name: string,
+  namespace: string,
+  labels: Record<string, string>,
+  owner: any,
+  spec: any,
+  opts: { state?: PodState | "failed"; node?: string; age?: number } = {}
+) {
+  const state = opts.state || "running";
+  const created = ago(opts.age ?? 5 * DAY);
+  const ready = state === "running";
+  const phase =
+    state === "completed"
+      ? "Succeeded"
+      : state === "failed"
+        ? "Failed"
+        : ["pending", "creating", "imagepull", "init"].includes(state)
+          ? "Pending"
+          : "Running";
+  return {
+    apiVersion: "v1",
+    kind: "Pod",
+    metadata: { name, namespace, uid: guid(), creationTimestamp: created, labels, ownerReferences: owner ? [owner] : undefined },
+    spec: { ...spec, nodeName: state === "pending" ? undefined : opts.node || NODE_NAMES[Math.floor(grand() * NODE_NAMES.length)] },
+    status: {
+      phase,
+      podIP: `10.42.${Math.floor(grand() * 255)}.${Math.floor(grand() * 255)}`,
+      startTime: created,
+      conditions: [
+        { type: "PodScheduled", status: state === "pending" ? "False" : "True", lastTransitionTime: created },
+        { type: "Ready", status: ready ? "True" : "False", lastTransitionTime: created },
+      ],
+      containerStatuses:
+        state === "pending"
+          ? undefined
+          : spec.containers.map((c: any) =>
+              state === "failed"
+                ? { name: c.name, image: c.image, ready: false, restartCount: 0, state: { terminated: { exitCode: 1, reason: "Error", startedAt: created, finishedAt: created } } }
+                : containerStatus(c.name, c.image, state as PodState, created)
+            ),
+    },
+  };
+}
+
+const graphMeta = (name: string, namespace: string | undefined, extra: any = {}) => ({
+  name,
+  ...(namespace ? { namespace } : {}),
+  uid: guid(),
+  creationTimestamp: ago(20 * DAY),
+  ...extra,
+});
+
+function addTopology(cluster: Cluster, workloads: WorkloadSpec[], full: boolean) {
+  const add = (resource: string, ...items: any[]) => {
+    cluster[resource] = [...(cluster[resource] || []), ...items];
+  };
+  const meta = graphMeta;
+
+  /* Pod specs reference config, secrets and their service account. */
+  for (const dep of cluster.deployments) {
+    const name = dep.metadata.name;
+    dep.spec.template.spec = withDeps(dep.spec.template.spec, name);
+    for (const pod of cluster.pods) {
+      if (pod.metadata.labels?.["app.kubernetes.io/name"] === name && pod.metadata.ownerReferences?.[0]?.kind === "ReplicaSet") {
+        pod.spec = { ...withDeps(pod.spec, name), nodeName: pod.spec.nodeName };
+      }
+    }
+  }
+  const namespaces = [...new Set(workloads.map((w) => w.namespace))];
+  add("serviceaccounts", ...workloads.map((w) => ({ apiVersion: "v1", kind: "ServiceAccount", metadata: meta(w.name, w.namespace, { labels: labelsFor(w.name) }) })));
+  add("serviceaccounts", ...namespaces.map((ns) => ({ apiVersion: "v1", kind: "ServiceAccount", metadata: meta("default", ns) })));
+  add("configmaps", ...namespaces.map((ns) => ({ apiVersion: "v1", kind: "ConfigMap", metadata: meta("kube-root-ca.crt", ns), data: { "ca.crt": "-----BEGIN CERTIFICATE-----" } })));
+
+  if (!full) return;
+
+  /* Old ReplicaSets (rollout history) for payments-api. */
+  const paymentsApi = cluster.deployments.find((d) => d.metadata.name === "payments-api");
+  for (const [i, revision] of [5, 6].entries()) {
+    add("replicasets", {
+      apiVersion: "apps/v1",
+      kind: "ReplicaSet",
+      metadata: meta(`payments-api-${ghash(9)}`, "payments", {
+        creationTimestamp: ago((30 - i * 8) * DAY),
+        labels: labelsFor("payments-api"),
+        annotations: { "deployment.kubernetes.io/revision": String(revision) },
+        ownerReferences: [ownerRef("Deployment", paymentsApi)],
+      }),
+      spec: { replicas: 0 },
+      status: { replicas: 0 },
+    });
+  }
+
+  /* Secrets the apps use (ledger-signing-key is deliberately missing). */
+  add(
+    "secrets",
+    { apiVersion: "v1", kind: "Secret", type: "kubernetes.io/tls", metadata: meta("checkout-tls", "checkout"), data: { "tls.crt": "", "tls.key": "" } },
+    { apiVersion: "v1", kind: "Secret", type: "kubernetes.io/tls", metadata: meta("api-acme-dev-tls", "payments"), data: { "tls.crt": "", "tls.key": "" } },
+    { apiVersion: "v1", kind: "Secret", type: "Opaque", metadata: meta("postgres-credentials", "payments"), data: { password: btoa("pw") } }
+  );
+
+  /* image-resizer gets a Service: none of its pods is ready. */
+  add("services", {
+    apiVersion: "v1",
+    kind: "Service",
+    metadata: meta("image-resizer", "checkout", { labels: labelsFor("image-resizer") }),
+    spec: { type: "ClusterIP", clusterIP: "172.20.88.14", ports: [{ name: "http", port: 80, targetPort: 8080, protocol: "TCP" }], selector: { "app.kubernetes.io/name": "image-resizer" } },
+    status: {},
+  });
+
+  /* Ingresses: checkout fans out to three services, legacy-site points nowhere. */
+  const path = (p: string, service: string, port = 80) => ({ path: p, pathType: "Prefix", backend: { service: { name: service, port: { number: port } } } });
+  cluster.ingresses[0].metadata.labels = { "app.kubernetes.io/instance": "checkout" };
+  cluster.ingresses[0].spec = {
+    ingressClassName: "nginx",
+    rules: [{ host: "checkout.acme.dev", http: { paths: [path("/", "checkout-web", 3000), path("/api", "checkout-api"), path("/images", "image-resizer")] } }],
+    tls: [{ hosts: ["checkout.acme.dev"], secretName: "checkout-tls" }],
+  };
+  add(
+    "ingresses",
+    {
+      apiVersion: "networking.k8s.io/v1",
+      kind: "Ingress",
+      metadata: meta("payments-api", "payments", { labels: labelsFor("payments-api") }),
+      spec: { ingressClassName: "nginx", rules: [{ host: "api.acme.dev", http: { paths: [path("/v1/payments", "payments-api"), path("/v1/ledger", "ledger", 9000)] } }], tls: [{ hosts: ["api.acme.dev"], secretName: "api-acme-dev-tls" }] },
+      status: { loadBalancer: { ingress: [{ hostname: "a1b2c3d4e5-123456789.eu-west-1.elb.amazonaws.com" }] } },
+    },
+    {
+      apiVersion: "networking.k8s.io/v1",
+      kind: "Ingress",
+      metadata: meta("grafana", "monitoring", { labels: labelsFor("grafana") }),
+      spec: { ingressClassName: "nginx", rules: [{ host: "grafana.acme.dev", http: { paths: [path("/", "grafana", 3000)] } }] },
+    },
+    {
+      apiVersion: "networking.k8s.io/v1",
+      kind: "Ingress",
+      metadata: meta("legacy-site", "default"),
+      spec: { ingressClassName: "nginx", rules: [{ host: "www.acme.dev", http: { paths: [path("/", "legacy-frontend")] } }] },
+    }
+  );
+
+  /* StatefulSet with per-replica PVCs bound to PVs of a StorageClass. */
+  const pgLabels = { "app.kubernetes.io/name": "postgres", "app.kubernetes.io/instance": "postgres", "app.kubernetes.io/managed-by": "Helm" };
+  const pgSpec = {
+    containers: [{ name: "postgres", image: "postgres:16.3", ports: [{ name: "pg", containerPort: 5432 }], env: [{ name: "POSTGRES_PASSWORD", valueFrom: { secretKeyRef: { name: "postgres-credentials", key: "password" } } }], resources: { requests: { cpu: "250m", memory: "1Gi" }, limits: { cpu: "2", memory: "4Gi" } } }],
+  };
+  const pg = {
+    apiVersion: "apps/v1",
+    kind: "StatefulSet",
+    metadata: meta("postgres", "payments", { labels: pgLabels, creationTimestamp: ago(60 * DAY) }),
+    spec: { replicas: 2, serviceName: "postgres", selector: { matchLabels: { "app.kubernetes.io/name": "postgres" } }, template: { metadata: { labels: pgLabels }, spec: pgSpec }, volumeClaimTemplates: [{ metadata: { name: "data" } }] },
+    status: { replicas: 2, readyReplicas: 2, currentReplicas: 2 },
+  };
+  add("statefulsets", pg);
+  add("storageclasses", {
+    apiVersion: "storage.k8s.io/v1",
+    kind: "StorageClass",
+    metadata: meta("gp3", undefined, { annotations: { "storageclass.kubernetes.io/is-default-class": "true" } }),
+    provisioner: "ebs.csi.aws.com",
+    reclaimPolicy: "Delete",
+    volumeBindingMode: "WaitForFirstConsumer",
+  });
+  for (const ordinal of [0, 1]) {
+    const claimName = `data-postgres-${ordinal}`;
+    const pvName = `pvc-${guid().slice(0, 8)}`;
+    add("persistentvolumes", { apiVersion: "v1", kind: "PersistentVolume", metadata: meta(pvName, undefined), spec: { capacity: { storage: "50Gi" }, storageClassName: "gp3", claimRef: { name: claimName, namespace: "payments" }, accessModes: ["ReadWriteOnce"] }, status: { phase: "Bound" } });
+    add("persistentvolumeclaims", { apiVersion: "v1", kind: "PersistentVolumeClaim", metadata: meta(claimName, "payments", { labels: pgLabels }), spec: { accessModes: ["ReadWriteOnce"], storageClassName: "gp3", volumeName: pvName, resources: { requests: { storage: "50Gi" } } }, status: { phase: "Bound", capacity: { storage: "50Gi" } } });
+    add("pods", graphPod(`postgres-${ordinal}`, "payments", { ...pgLabels, "statefulset.kubernetes.io/pod-name": `postgres-${ordinal}` }, ownerRef("StatefulSet", pg), { ...pgSpec, volumes: [{ name: "data", persistentVolumeClaim: { claimName } }] }, { age: 60 * DAY }));
+  }
+  add("services", { apiVersion: "v1", kind: "Service", metadata: meta("postgres", "payments", { labels: pgLabels }), spec: { type: "ClusterIP", clusterIP: "None", ports: [{ name: "pg", port: 5432, targetPort: 5432, protocol: "TCP" }], selector: { "app.kubernetes.io/name": "postgres" } }, status: {} });
+
+  /* Redis: its claim is stuck Pending (no such storage class). */
+  const redisLabels = { "app.kubernetes.io/name": "redis" };
+  const redisSpec = { containers: [{ name: "redis", image: "redis:7.2", ports: [{ containerPort: 6379 }] }], volumes: [{ name: "data", persistentVolumeClaim: { claimName: "data-redis-0" } }] };
+  const redis = { apiVersion: "apps/v1", kind: "StatefulSet", metadata: meta("redis", "checkout", { labels: redisLabels }), spec: { replicas: 1, selector: { matchLabels: redisLabels }, template: { metadata: { labels: redisLabels }, spec: redisSpec } }, status: { replicas: 1, readyReplicas: 0 } };
+  add("statefulsets", redis);
+  add("persistentvolumeclaims", { apiVersion: "v1", kind: "PersistentVolumeClaim", metadata: meta("data-redis-0", "checkout", { labels: redisLabels }), spec: { accessModes: ["ReadWriteOnce"], storageClassName: "fast-ssd", resources: { requests: { storage: "8Gi" } } }, status: { phase: "Pending" } });
+  add("pods", graphPod("redis-0", "checkout", redisLabels, ownerRef("StatefulSet", redis), redisSpec, { state: "pending" }));
+  add("services", { apiVersion: "v1", kind: "Service", metadata: meta("redis", "checkout", { labels: redisLabels }), spec: { type: "ClusterIP", clusterIP: "172.20.40.2", ports: [{ port: 6379, targetPort: 6379, protocol: "TCP" }], selector: redisLabels }, status: {} });
+
+  /* DaemonSet: one node exporter per node. */
+  const neLabels = { "app.kubernetes.io/name": "node-exporter", "app.kubernetes.io/instance": "node-exporter" };
+  const neSpec = { containers: [{ name: "node-exporter", image: "quay.io/prometheus/node-exporter:v1.8.1", ports: [{ containerPort: 9100 }] }] };
+  const ne = { apiVersion: "apps/v1", kind: "DaemonSet", metadata: meta("node-exporter", "monitoring", { labels: neLabels }), spec: { selector: { matchLabels: neLabels }, template: { metadata: { labels: neLabels }, spec: neSpec } }, status: { desiredNumberScheduled: 4, numberReady: 4, numberAvailable: 4 } };
+  add("daemonsets", ne);
+  NODE_NAMES.forEach((node, i) => add("pods", graphPod(`node-exporter-${ghash(5)}`, "monitoring", neLabels, ownerRef("DaemonSet", ne), neSpec, { node, age: (80 - i) * DAY })));
+
+  /* CronJobs: db-backup (owns the existing job) and a failing report. */
+  const backupJob = cluster.jobs[0];
+  const backup = { apiVersion: "batch/v1", kind: "CronJob", metadata: meta("db-backup", "payments", { labels: { "app.kubernetes.io/name": "db-backup" } }), spec: { schedule: "0 */2 * * *", jobTemplate: { spec: { template: { spec: { containers: [{ name: "backup", image: "ghcr.io/acme/pg-backup:v1.2.0", envFrom: [{ secretRef: { name: "postgres-credentials" } }] }], restartPolicy: "Never" } } } } }, status: { lastScheduleTime: ago(2 * HOUR), lastSuccessfulTime: ago(2 * HOUR - 40) } };
+  add("cronjobs", backup);
+  backupJob.metadata.ownerReferences = [ownerRef("CronJob", backup, "batch/v1")];
+  backupJob.status.conditions = [{ type: "Complete", status: "True" }];
+
+  const report = { apiVersion: "batch/v1", kind: "CronJob", metadata: meta("report-generator", "checkout", { labels: { "app.kubernetes.io/name": "report-generator" } }), spec: { schedule: "30 1 * * *", jobTemplate: { spec: { backoffLimit: 2, template: { spec: { containers: [{ name: "report", image: "ghcr.io/acme/reports:v0.4.0", envFrom: [{ configMapRef: { name: "checkout-flags" } }] }], restartPolicy: "Never" } } } } }, status: { lastScheduleTime: ago(9 * HOUR) } };
+  add("cronjobs", report);
+  const reportJob = { apiVersion: "batch/v1", kind: "Job", metadata: meta("report-generator-28745100", "checkout", { creationTimestamp: ago(9 * HOUR), ownerReferences: [ownerRef("CronJob", report, "batch/v1")] }), spec: { completions: 1, backoffLimit: 2 }, status: { failed: 3, startTime: ago(9 * HOUR), conditions: [{ type: "Failed", status: "True", reason: "BackoffLimitExceeded", message: "Job has reached the specified backoff limit" }] } };
+  add("jobs", reportJob);
+  add("pods", graphPod(`report-generator-28745100-${ghash(5)}`, "checkout", { "job-name": reportJob.metadata.name }, ownerRef("Job", reportJob, "batch/v1"), report.spec.jobTemplate.spec.template.spec, { state: "failed", age: 9 * HOUR }));
+
+  /* Autoscaling, disruption budgets and network policies. */
+  const hpa = (name: string, namespace: string, min: number, max: number, current: number) => ({
+    apiVersion: "autoscaling/v2",
+    kind: "HorizontalPodAutoscaler",
+    metadata: meta(name, namespace, { labels: labelsFor(name) }),
+    spec: { scaleTargetRef: { apiVersion: "apps/v1", kind: "Deployment", name }, minReplicas: min, maxReplicas: max, metrics: [{ type: "Resource", resource: { name: "cpu", target: { type: "Utilization", averageUtilization: 70 } } }] },
+    status: { currentReplicas: current, desiredReplicas: current, currentMetrics: [{ type: "Resource", resource: { name: "cpu", current: { averageUtilization: 63 } } }], conditions: [{ type: "AbleToScale", status: "True" }, { type: "ScalingActive", status: "True" }] },
+  });
+  add("horizontalpodautoscalers", hpa("payments-api", "payments", 2, 10, 4), hpa("checkout-web", "checkout", 3, 12, 3));
+  const pdb = (name: string, namespace: string, minAvailable: number, current: number) => ({
+    apiVersion: "policy/v1",
+    kind: "PodDisruptionBudget",
+    metadata: meta(name, namespace, { labels: labelsFor(name) }),
+    spec: { minAvailable, selector: { matchLabels: { "app.kubernetes.io/name": name } } },
+    status: { currentHealthy: current, desiredHealthy: minAvailable, disruptionsAllowed: Math.max(0, current - minAvailable), expectedPods: current },
+  });
+  add("poddisruptionbudgets", pdb("payments-api", "payments", 2, 4), pdb("checkout-api", "checkout", 3, 2));
+  add(
+    "networkpolicies",
+    { apiVersion: "networking.k8s.io/v1", kind: "NetworkPolicy", metadata: meta("ledger-allow-payments", "payments"), spec: { podSelector: { matchLabels: { "app.kubernetes.io/name": "ledger" } }, policyTypes: ["Ingress"], ingress: [{ from: [{ podSelector: { matchLabels: { "app.kubernetes.io/name": "payments-api" } } }] }] } },
+    { apiVersion: "networking.k8s.io/v1", kind: "NetworkPolicy", metadata: meta("default-deny", "payments"), spec: { podSelector: {}, policyTypes: ["Ingress"] } }
+  );
+
+  /* Gateway API: a gateway routing to feature-flags. */
+  const gw = { apiVersion: "gateway.networking.k8s.io/v1", kind: "Gateway", metadata: meta("public-gateway", "platform"), spec: { gatewayClassName: "istio", listeners: [{ name: "https", port: 443, protocol: "HTTPS", hostname: "*.acme.dev" }] }, status: { conditions: [{ type: "Programmed", status: "True" }] } };
+  add("gateways", gw);
+  add("httproutes", {
+    apiVersion: "gateway.networking.k8s.io/v1",
+    kind: "HTTPRoute",
+    metadata: meta("feature-flags", "platform", { labels: labelsFor("feature-flags") }),
+    spec: { parentRefs: [{ name: "public-gateway" }], hostnames: ["flags.acme.dev"], rules: [{ matches: [{ path: { type: "PathPrefix", value: "/" } }], backendRefs: [{ name: "feature-flags", port: 80 }] }] },
+    status: { parents: [{ parentRef: { name: "public-gateway" }, conditions: [{ type: "Accepted", status: "True" }] }] },
+  });
+}
+
+/*
+ * ?scenario=large: a synthetic cluster with 2,000+ graphable objects (apps
+ * with services, config, secrets, service accounts, ingresses, HPAs and
+ * statefulsets with volumes across 12 namespaces), to measure the resource
+ * graph. Built lazily: only the large scenario pays for it.
+ */
+export function buildLargeCluster(apps = 160): Cluster {
+  const cluster: Cluster = {
+    ...CLUSTERS["prod-eu-west-1"],
+    pods: [],
+    deployments: [],
+    replicasets: [],
+    statefulsets: [],
+    daemonsets: [],
+    cronjobs: [],
+    services: [],
+    configmaps: [],
+    secrets: [],
+    serviceaccounts: [],
+    ingresses: [],
+    jobs: [],
+    podmetrics: [],
+    persistentvolumeclaims: [],
+    persistentvolumes: [],
+    horizontalpodautoscalers: [],
+    poddisruptionbudgets: [],
+    networkpolicies: [],
+    gateways: [],
+    httproutes: [],
+  };
+  const add = (resource: string, ...items: any[]) => {
+    for (const item of items) cluster[resource].push(item);
+  };
+  const meta = graphMeta;
+  const namespaces = Array.from({ length: 12 }, (_, i) => `team-${String.fromCharCode(97 + i)}`);
+  const words = ["orders", "billing", "search", "catalog", "auth", "profile", "media", "notify", "pricing", "inventory", "reviews", "shipping", "tax", "fraud", "loyalty", "quotes"];
+  const flaky: PodState[] = ["running", "running", "running", "crashloop", "pending", "imagepull"];
+  for (let i = 0; i < apps; i++) {
+    const namespace = namespaces[i % namespaces.length];
+    const name = `${words[i % words.length]}-${["api", "worker", "web", "sync", "gateway"][Math.floor(i / words.length) % 5]}${i >= 80 ? "-v2" : ""}`;
+    const labels = { "app.kubernetes.io/name": name };
+    const replicas = 2 + Math.floor(grand() * 7);
+    const spec = {
+      serviceAccountName: name,
+      containers: [
+        {
+          name: "app",
+          image: `ghcr.io/acme/${name}:v1.${i % 9}.0`,
+          envFrom: [{ configMapRef: { name: `${name}-config` } }],
+          env: [{ name: "DB", valueFrom: { secretKeyRef: { name: i % 37 === 5 ? `${name}-db-missing` : `${name}-secrets`, key: "url" } } }],
+        },
+      ],
+    };
+    add("serviceaccounts", { apiVersion: "v1", kind: "ServiceAccount", metadata: meta(name, namespace) });
+    add("configmaps", { apiVersion: "v1", kind: "ConfigMap", metadata: meta(`${name}-config`, namespace), data: { "app.yaml": "x: 1" } });
+    add("secrets", { apiVersion: "v1", kind: "Secret", type: "Opaque", metadata: meta(`${name}-secrets`, namespace), data: { url: btoa("pg://") } });
+
+    const stateful = i % 10 === 3;
+    const workload: any = {
+      apiVersion: "apps/v1",
+      kind: stateful ? "StatefulSet" : "Deployment",
+      metadata: meta(name, namespace, { labels }),
+      spec: { replicas, selector: { matchLabels: labels }, template: { metadata: { labels }, spec } },
+      status: { replicas, readyReplicas: replicas, availableReplicas: replicas },
+    };
+    let podOwner = ownerRef(workload.kind, workload);
+    if (!stateful) {
+      const rs = { apiVersion: "apps/v1", kind: "ReplicaSet", metadata: meta(`${name}-${ghash(9)}`, namespace, { labels, ownerReferences: [ownerRef("Deployment", workload)] }), spec: { replicas }, status: { replicas, readyReplicas: replicas } };
+      const oldRs = { apiVersion: "apps/v1", kind: "ReplicaSet", metadata: meta(`${name}-${ghash(9)}`, namespace, { labels, ownerReferences: [ownerRef("Deployment", workload)] }), spec: { replicas: 0 }, status: { replicas: 0 } };
+      add("replicasets", rs, oldRs);
+      podOwner = ownerRef("ReplicaSet", rs);
+    }
+    let ready = 0;
+    for (let p = 0; p < replicas; p++) {
+      const state = i % 9 === 2 ? flaky[Math.floor(grand() * flaky.length)] : "running";
+      if (state === "running") ready++;
+      const podName = stateful ? `${name}-${p}` : `${podOwner.name}-${ghash(5)}`;
+      const podSpec = stateful ? { ...spec, volumes: [{ name: "data", persistentVolumeClaim: { claimName: `data-${name}-${p}` } }] } : spec;
+      add("pods", graphPod(podName, namespace, labels, podOwner, podSpec, { state }));
+      if (stateful) {
+        const pv = `pvc-${guid().slice(0, 8)}`;
+        add("persistentvolumeclaims", { apiVersion: "v1", kind: "PersistentVolumeClaim", metadata: meta(`data-${name}-${p}`, namespace), spec: { storageClassName: "gp3", volumeName: pv, resources: { requests: { storage: "20Gi" } } }, status: { phase: "Bound", capacity: { storage: "20Gi" } } });
+        add("persistentvolumes", { apiVersion: "v1", kind: "PersistentVolume", metadata: meta(pv, undefined), spec: { storageClassName: "gp3", capacity: { storage: "20Gi" } }, status: { phase: "Bound" } });
+      }
+    }
+    workload.status.readyReplicas = ready;
+    workload.status.availableReplicas = ready;
+    add(stateful ? "statefulsets" : "deployments", workload);
+    add("services", { apiVersion: "v1", kind: "Service", metadata: meta(name, namespace, { labels }), spec: { type: "ClusterIP", clusterIP: `172.21.${i % 255}.${(i * 7) % 255}`, ports: [{ name: "http", port: 80, targetPort: 8080, protocol: "TCP" }], selector: labels }, status: {} });
+    if (i % 3 === 0) {
+      add("ingresses", { apiVersion: "networking.k8s.io/v1", kind: "Ingress", metadata: meta(name, namespace, { labels }), spec: { ingressClassName: "nginx", rules: [{ host: `${name}.acme.dev`, http: { paths: [{ path: "/", pathType: "Prefix", backend: { service: { name, port: { number: 80 } } } }] } }] } });
+    }
+    if (i % 4 === 0) {
+      add("horizontalpodautoscalers", { apiVersion: "autoscaling/v2", kind: "HorizontalPodAutoscaler", metadata: meta(name, namespace), spec: { scaleTargetRef: { kind: workload.kind, name }, minReplicas: 2, maxReplicas: 12 }, status: { currentReplicas: replicas, conditions: [] } });
+    }
+  }
+  cluster.namespaces = namespaces.map((name) => ({ apiVersion: "v1", kind: "Namespace", metadata: { name, uid: guid() }, status: { phase: "Active" } }));
+  return cluster;
 }
 
 export const CLUSTERS: Record<string, Cluster> = {
@@ -533,6 +935,7 @@ export const API_GROUPS: { name: string; version: string; resources: any[] }[] =
   { name: "rbac.authorization.k8s.io", version: "rbac.authorization.k8s.io/v1", resources: [r("clusterrolebindings", "ClusterRoleBinding", false), r("clusterroles", "ClusterRole", false), r("rolebindings", "RoleBinding"), r("roles", "Role")] },
   { name: "apiextensions.k8s.io", version: "apiextensions.k8s.io/v1", resources: [r("customresourcedefinitions", "CustomResourceDefinition", false)] },
   { name: "metrics.k8s.io", version: "metrics.k8s.io/v1beta1", resources: [r("pods", "PodMetrics"), r("nodes", "NodeMetrics", false)] },
+  { name: "gateway.networking.k8s.io", version: "gateway.networking.k8s.io/v1", resources: [r("gateways", "Gateway"), r("httproutes", "HTTPRoute"), r("gatewayclasses", "GatewayClass", false)] },
   { name: "cert-manager.io", version: "cert-manager.io/v1", resources: [r("certificates", "Certificate"), r("clusterissuers", "ClusterIssuer", false), r("issuers", "Issuer")] },
 ];
 
