@@ -138,7 +138,161 @@ const screens = {
       await wait(900);
     },
   },
+  /* ----------------------------------------------- editor (G4) -- */
+  "editor-schema": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openEditor(page);
+      await editYaml(page, "^(\\s+)image: (.*)$", "$1image: $2\n$1imagePullPolicyy: Always");
+      await editYaml(page, "^  replicas: (.*)$", "  replicas: $1\n  re");
+      await cursorAt(page, "^  re$", "end");
+      await wait(1500);
+      await editorTrigger(page, "editor.action.triggerSuggest");
+      await wait(1500);
+    },
+  },
+  "editor-hover": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openEditor(page);
+      await cursorAt(page, "^  strategy:", 3);
+      await editorTrigger(page, "editor.action.showHover");
+      await wait(1500);
+    },
+  },
+  review: {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openEditor(page);
+      await editYaml(page, "^  replicas: (.*)$", "  replicas: 6");
+      await editYaml(page, "^(\\s+)image: (.*):v2.14.3$", "$1image: $2:v2.15.0");
+      await page.keyboard.press("Control+s");
+      await page.waitForFunction(() => /passed/.test(document.querySelector("[data-testid=dry-run-status]")?.textContent || ""), null, { timeout: 15000 }).catch(() => {});
+      await wait(1000);
+    },
+  },
+  "review-errors": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openEditor(page);
+      await editYaml(page, "^  replicas: (.*)$", "  replicas: -1");
+      await editYaml(page, "^(\\s+)image: (.*)$", "$1image: $2\n$1imagePullPolicyy: Always");
+      await page.keyboard.press("Control+s");
+      await page.waitForSelector("[data-testid=problems]", { timeout: 15000 }).catch(() => {});
+      await editYaml(page, "^(\\s+)imagePullPolicyy: Always\n", "");
+      await page.keyboard.press("Control+s");
+      await page.waitForFunction(() => /Rejected/.test(document.querySelector("[data-testid=dry-run-status]")?.textContent || ""), null, { timeout: 15000 }).catch(() => {});
+      await wait(1000);
+    },
+  },
+  "review-strict": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openEditor(page);
+      await editYaml(page, "^(\\s+)image: (.*)$", "$1image: $2\n$1imagePullPolicyy: Always");
+      await page.keyboard.press("Control+s");
+      await page.waitForSelector("[data-testid=problems]", { timeout: 15000 }).catch(() => {});
+      await wait(1000);
+    },
+  },
+  "review-conflict": {
+    url: "/deployments?resource=deployments&kind=Deployment&scenario=conflict",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openEditor(page);
+      await editYaml(page, "^  replicas: (.*)$", "  replicas: 6");
+      await page.keyboard.press("Control+s");
+      await page.waitForSelector("[data-testid=conflict]", { timeout: 15000 }).catch(() => {});
+      await wait(1000);
+    },
+  },
+  "describe-search": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Describe");
+      await page.waitForSelector("[data-testid=describe-output]", { timeout: 10000 }).catch(() => {});
+      await page.keyboard.press("Control+f");
+      await page.keyboard.type("ready");
+      await page.keyboard.press("Enter");
+      await wait(800);
+    },
+  },
+  "describe-yaml": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Describe");
+      await page.waitForSelector("[data-testid=describe-output]", { timeout: 10000 }).catch(() => {});
+      await page.getByRole("button", { name: "YAML", exact: true }).click();
+      await page.waitForSelector(".monaco-editor", { timeout: 20000 }).catch(() => {});
+      await wait(1500);
+    },
+  },
+  compare: {
+    url: "/deployments?resource=deployments&kind=Deployment&scenario=compare",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openEditor(page);
+      await page.getByRole("button", { name: /Compare/ }).click();
+      await wait(400);
+      await page.locator('[role="menuitem"]', { hasText: "staging-us-east-2" }).first().click();
+      await page.waitForSelector(".monaco-diff-editor", { timeout: 20000 }).catch(() => {});
+      await wait(2000);
+    },
+  },
 };
+
+/* Editor helpers: drive Monaco through window.monaco (harness globalAPI). */
+async function openEditor(page, rowText = "payments-api") {
+  await openRowAction(page, rowText, "Edit");
+  await page.waitForSelector(".monaco-editor", { timeout: 20000 }).catch(() => {});
+  await page
+    .waitForFunction(() => /·/.test(document.querySelector("[data-testid=schema-status]")?.textContent || ""), null, { timeout: 20000 })
+    .catch(() => console.error("schema did not load"));
+  await wait(800);
+}
+
+async function editYaml(page, search, replace) {
+  await page.evaluate(
+    ({ search, replace }) => {
+      const model = monaco.editor.getModels().find((m) => m.uri.authority === "jet-pilot");
+      const text = model.getValue().replace(new RegExp(search, "m"), replace);
+      model.pushEditOperations([], [{ range: model.getFullModelRange(), text }], () => null);
+      const editor = monaco.editor.getEditors().find((e) => e.getModel() === model && e.getContainerDomNode().offsetParent);
+      editor?.focus();
+    },
+    { search, replace }
+  );
+  await wait(300);
+}
+
+async function cursorAt(page, search, column) {
+  await page.evaluate(
+    ({ search, column }) => {
+      const model = monaco.editor.getModels().find((m) => m.uri.authority === "jet-pilot");
+      const [match] = model.findMatches(search, false, true, true, null, false);
+      const line = match.range.startLineNumber;
+      const editor = monaco.editor.getEditors().find((e) => e.getModel() === model && e.getContainerDomNode().offsetParent);
+      editor.setPosition({ lineNumber: line, column: column === "end" ? model.getLineMaxColumn(line) : column });
+      editor.revealLineInCenter(line);
+      editor.focus();
+    },
+    { search, column }
+  );
+}
+
+async function editorTrigger(page, action) {
+  await page.evaluate((action) => {
+    const editor = monaco.editor.getEditors().find((e) => e.hasTextFocus());
+    editor?.trigger("shoot", action, {});
+  }, action);
+}
 
 async function openRowAction(page, rowText, action, sub) {
   const row = page.locator("tbody tr", { hasText: rowText }).first();

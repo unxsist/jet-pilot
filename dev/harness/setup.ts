@@ -7,13 +7,15 @@
  * Knobs (query string on first load, persisted in localStorage):
  *   ?theme=dark|light        colour scheme
  *   ?os=linux|macos|windows  window chrome variant
- *   ?scenario=default|empty|error|nocontext|whatsnew|large
+ *   ?scenario=default|empty|error|nocontext|whatsnew|large|conflict|compare
  *   ?polling=0|1             kubectl polling instead of live watches
  *                            (settings.experimental.useKubectlPolling)
  *   ?delay=<ms>              slow down settings + discovery (skeletons)
  *
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views.
+ * Editor scenarios: `conflict` bumps an object's resourceVersion after its
+ * first fetch (stale-edit flow); `compare` activates a second context.
  *
  * Files the app writes (settings.json, discovery cache, ...) live in
  * sessionStorage, so a reload sees them (restored tabs, workspaces).
@@ -51,6 +53,9 @@ const polling = localStorage.getItem("harness-polling") === "1";
 
 // VueUse's useColorMode persists its own value; keep it in sync.
 localStorage.setItem("vueuse-color-scheme", theme);
+
+// Expose the (lazily loaded) Monaco API as window.monaco for shoot.mjs.
+(self as any).MonacoEnvironment = { globalAPI: true };
 document.documentElement.classList.toggle("dark", theme === "dark");
 
 (window as any).__TAURI_OS_PLUGIN_INTERNALS__ = {
@@ -72,7 +77,12 @@ const settings = {
   activeContexts:
     scenario === "nocontext"
       ? []
-      : [{ context: CONTEXTS[0].name, kubeConfig: KUBECONFIG, namespaces: ["all"] }],
+      : [
+          { context: CONTEXTS[0].name, kubeConfig: KUBECONFIG, namespaces: ["all"] },
+          ...(scenario === "compare"
+            ? [{ context: CONTEXTS[1].name, kubeConfig: KUBECONFIG, namespaces: ["all"] }]
+            : []),
+        ],
   PanelProvider: { height: 45 },
   shell: { executable: "/bin/bash" },
   logs: { tail_lines: 100 },
@@ -188,6 +198,85 @@ function findObject(context: string, typeName: string) {
   return list.find((o) => o.metadata?.name === name) || list[0];
 }
 
+/* --------------------------------------------------------------- editor -- */
+
+/* Object fetches per context/type/name, for the `conflict` scenario. */
+const yamlFetches = new Map<string, number>();
+
+function objectYaml(context: string, typeName: string): string {
+  const obj = structuredClone(findObject(context, typeName));
+  const key = `${context}/${typeName}`;
+  const count = (yamlFetches.get(key) || 0) + 1;
+  yamlFetches.set(key, count);
+  if (obj.metadata) {
+    delete obj.metadata.context;
+    delete obj.metadata.kubeConfig;
+    obj.metadata.resourceVersion = "48213";
+  }
+  delete obj.metrics;
+  if (scenario === "conflict" && count > 1 && obj.metadata) {
+    // Someone else rolled out a new image meanwhile.
+    obj.metadata.resourceVersion = "48290";
+    const containers = obj.spec?.template?.spec?.containers || obj.spec?.containers;
+    if (containers?.[0]) containers[0].image = containers[0].image.replace(/:[^:]+$/, ":v2.15.0");
+  }
+  return yaml.dump(obj, { lineWidth: 120, noArrayIndent: true });
+}
+
+/* Cluster OpenAPI v3 documents: the upstream published specs. */
+const openapiCache = new Map<string, Promise<ArrayBuffer>>();
+function openapiDocument(apiVersion: string): Promise<ArrayBuffer> {
+  const file = apiVersion.includes("/")
+    ? `apis__${apiVersion.replace("/", "__")}_openapi.json`
+    : `api__${apiVersion}_openapi.json`;
+  let doc = openapiCache.get(file);
+  if (!doc) {
+    doc = fetch(
+      `https://raw.githubusercontent.com/kubernetes/kubernetes/v1.33.0/api/openapi-spec/v3/${file}`
+    ).then((r) => {
+      if (!r.ok) throw { message: `The cluster publishes no OpenAPI v3 schema for ${apiVersion}`, reason: "NotFound" };
+      return r.arrayBuffer();
+    });
+    openapiCache.set(file, doc);
+  }
+  return doc;
+}
+
+const CONTAINER_FIELDS = new Set(
+  "name image imagePullPolicy command args workingDir ports envFrom env resources resizePolicy restartPolicy volumeMounts volumeDevices livenessProbe readinessProbe startupProbe lifecycle terminationMessagePath terminationMessagePolicy securityContext stdin stdinOnce tty".split(" ")
+);
+
+/* A small stand-in for the API server's validation + admission. */
+function applyManifest(p: any): string {
+  const obj: any = yaml.load(p.manifest);
+  const kind = obj?.kind || "Object";
+  const name = obj?.metadata?.name || "unknown";
+  const verb = p.mode === "apply" ? "creating" : "replacing";
+  const unknown: string[] = [];
+  const podSpec = kind === "Pod" ? obj.spec : obj?.spec?.template?.spec;
+  const specPath = kind === "Pod" ? "spec" : "spec.template.spec";
+  (podSpec?.containers || []).forEach((c: any, i: number) => {
+    for (const k of Object.keys(c || {})) {
+      if (!CONTAINER_FIELDS.has(k)) unknown.push(`unknown field "${specPath}.containers[${i}].${k}"`);
+    }
+  });
+  if (unknown.length) {
+    throw `Error from server (BadRequest): error when ${verb} "STDIN": ${kind} in version "v1" cannot be handled as a ${kind}: strict decoding error: ${unknown.join(", ")}`;
+  }
+  const invalid: string[] = [];
+  if (typeof obj?.spec?.replicas === "number" && obj.spec.replicas < 0) {
+    invalid.push(`spec.replicas: Invalid value: ${obj.spec.replicas}: must be greater than or equal to 0`);
+  }
+  (podSpec?.containers || []).forEach((c: any, i: number) => {
+    if (!c?.image) invalid.push(`${specPath}.containers[${i}].image: Required value`);
+  });
+  if (invalid.length) {
+    throw `The ${kind} "${name}" is invalid: ${invalid.length > 1 ? `[${invalid.join(", ")}]` : invalid[0]}`;
+  }
+  const result = `${kind.toLowerCase()}/${name} ${p.mode === "apply" ? "created" : "replaced"}`;
+  return p.dryRun ? `${result} (server dry run)\n` : `${result}\n`;
+}
+
 /* ------------------------------------------------------ structured logs -- */
 
 interface LogSession {
@@ -294,14 +383,7 @@ async function shellExecute(program: string, args: string[]) {
       return ok(describe(obj?.kind || "Pod", obj));
     }
     if (args[0] === "get" && args.includes("yaml")) {
-      const obj = { ...findObject(context, args[1]) };
-      if (obj.metadata) {
-        obj.metadata = { ...obj.metadata };
-        delete obj.metadata.context;
-        delete obj.metadata.kubeConfig;
-      }
-      delete obj.metrics;
-      return ok(yaml.dump(obj, { lineWidth: 120 }));
+      return ok(objectYaml(context, args[1]));
     }
     if (args[0] === "get") {
       return ok(kubectlGet(args));
@@ -560,6 +642,11 @@ mockIPC(
       case "run_kubectl":
         await sleep(120);
         return kubectlGet(p.args);
+      case "apply_manifest":
+        await sleep(p.dryRun ? 350 : 250);
+        return applyManifest(p);
+      case "get_openapi_v3_schema":
+        return openapiDocument(p.apiVersion);
 
       // live watches + metrics (src-tauri/src/watch, metrics.rs)
       case "watch_subscribe":
