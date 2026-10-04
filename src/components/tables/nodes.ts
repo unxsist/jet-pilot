@@ -1,6 +1,7 @@
-import { formatDateTimeDifference } from "@/lib/utils";
 import { V1Node } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
+import { ageColumn } from "./age";
+import { getNodeStatus, getNodeStatusTone, toneClass } from "./status";
 
 export const columns: ColumnDef<V1Node>[] = [
   {
@@ -30,30 +31,10 @@ export const columns: ColumnDef<V1Node>[] = [
   },
   {
     header: "Status",
-    accessorFn: (row) => {
-      if (row.spec?.taints?.find((t) => t.effect === "NoSchedule")) {
-        return "SchedulingDisabled";
-      }
-
-      return (
-        row.status?.conditions?.[row.status?.conditions.length - 1]?.type ||
-        "Unknown"
-      );
-    },
-    enableGlobalFilter: false,
-  },
-  {
-    header: "Age",
-    accessorFn: (row) =>
-      formatDateTimeDifference(
-        row.metadata?.creationTimestamp || new Date(),
-        new Date()
-      ),
-    sortingFn: (a, b) => {
-      return (
-        new Date(a.original.metadata?.creationTimestamp || 0).getTime() -
-        new Date(b.original.metadata?.creationTimestamp || 0).getTime()
-      );
+    accessorFn: (row) => getNodeStatus(row),
+    meta: {
+      class: (row) => toneClass(getNodeStatusTone(getNodeStatus(row))),
     },
   },
+  ageColumn<V1Node>((row) => row.metadata?.creationTimestamp),
 ];

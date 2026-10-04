@@ -1,6 +1,6 @@
-import { V1CronJob, V1Job } from "@kubernetes/client-node";
+import { V1CronJob } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
-import { formatDateTimeDifference } from "@/lib/utils";
+import { ageColumn } from "./age";
 
 export const columns: ColumnDef<V1CronJob>[] = [
   {
@@ -23,28 +23,6 @@ export const columns: ColumnDef<V1CronJob>[] = [
     },
     enableGlobalFilter: false,
   },
-  {
-    header: "Last Schedule",
-    accessorFn: (row) =>
-      formatDateTimeDifference(
-        row.status?.lastScheduleTime || new Date(),
-        new Date()
-      ),
-    enableGlobalFilter: false,
-  },
-  {
-    header: "Age",
-    accessorFn: (row) =>
-      formatDateTimeDifference(
-        row.metadata?.creationTimestamp || new Date(),
-        new Date()
-      ),
-    sortingFn: (a, b) => {
-      return (
-        new Date(a.original.metadata?.creationTimestamp || 0).getTime() -
-        new Date(b.original.metadata?.creationTimestamp || 0).getTime()
-      );
-    },
-    enableGlobalFilter: false,
-  },
+  ageColumn<V1CronJob>((row) => row.status?.lastScheduleTime, "Last Schedule"),
+  ageColumn<V1CronJob>((row) => row.metadata?.creationTimestamp),
 ];

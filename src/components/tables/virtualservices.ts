@@ -1,6 +1,6 @@
-import { formatDateTimeDifference } from "@/lib/utils";
 import { VirtualService } from "@kubernetes-models/istio/networking.istio.io/v1beta1";
 import { ColumnDef } from "@tanstack/vue-table";
+import { ageColumn } from "./age";
 
 export const columns: ColumnDef<VirtualService>[] = [
   {
@@ -19,19 +19,5 @@ export const columns: ColumnDef<VirtualService>[] = [
       return `${row.spec?.hosts?.join("; ")}`;
     },
   },
-  {
-    header: "Age",
-    accessorFn: (row) =>
-      formatDateTimeDifference(
-        row.metadata?.creationTimestamp || new Date(),
-        new Date()
-      ),
-    sortingFn: (a, b) => {
-      return (
-        new Date(a.original.metadata?.creationTimestamp || 0).getTime() -
-        new Date(b.original.metadata?.creationTimestamp || 0).getTime()
-      );
-    },
-    enableGlobalFilter: false,
-  },
+  ageColumn<VirtualService>((row) => row.metadata?.creationTimestamp),
 ];

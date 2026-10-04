@@ -1,6 +1,6 @@
 import { V1ConfigMap } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
-import { formatDateTimeDifference } from "@/lib/utils";
+import { ageColumn } from "./age";
 
 export const columns: ColumnDef<V1ConfigMap>[] = [
   {
@@ -14,19 +14,5 @@ export const columns: ColumnDef<V1ConfigMap>[] = [
     },
     enableGlobalFilter: false,
   },
-  {
-    header: "Age",
-    accessorFn: (row) =>
-      formatDateTimeDifference(
-        row.metadata?.creationTimestamp || new Date(),
-        new Date()
-      ),
-    sortingFn: (a, b) => {
-      return (
-        new Date(a.original.metadata?.creationTimestamp || 0).getTime() -
-        new Date(b.original.metadata?.creationTimestamp || 0).getTime()
-      );
-    },
-    enableGlobalFilter: false,
-  },
+  ageColumn<V1ConfigMap>((row) => row.metadata?.creationTimestamp),
 ];
