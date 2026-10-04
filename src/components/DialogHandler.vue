@@ -25,9 +25,10 @@ const { dialog } = injectStrict(DialogProviderStateKey);
     <AlertDialogContent>
       <AlertDialogHeader>
         <AlertDialogTitle>{{ dialog.title }}</AlertDialogTitle>
-        <AlertDialogDescription>
-          {{ dialog.message }}
-        </AlertDialogDescription>
+        <AlertDialogDescription
+          class="max-h-[50vh] overflow-y-auto whitespace-pre-line break-words"
+          >{{ dialog.message }}</AlertDialogDescription
+        >
       </AlertDialogHeader>
       <component
         :is="dialog.component"

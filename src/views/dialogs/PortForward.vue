@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ArrowRight, Cable } from "lucide-vue-next";
 import { V1Pod, V1Deployment, V1Service } from "@kubernetes/client-node";
 import { useToast } from "@/components/ui/toast";
 const { toast } = useToast();
@@ -161,20 +162,23 @@ onMounted(() => {
 });
 </script>
 <template>
-  <div class="flex items-center">
-    <div class="w-1/3 flex-shrink-0"><Label for="">Container Port</Label></div>
+  <div class="grid grid-cols-[7.5rem_1fr] items-center gap-x-4 gap-y-3">
+    <Label for="pf-container-port" class="text-muted-foreground"
+      >Container port</Label
+    >
     <Select v-model="portForwardModel.containerPort">
-      <SelectTrigger>
-        <SelectValue />
+      <SelectTrigger id="pf-container-port" class="font-mono text-xs">
+        <SelectValue placeholder="Select a port" />
       </SelectTrigger>
       <SelectContent>
         <SelectGroup>
-          <SelectLabel>Container and Port</SelectLabel>
+          <SelectLabel>Container and port</SelectLabel>
           <template v-for="container in containersWithPorts">
             <SelectItem
               v-for="port in container.ports"
               :key="port"
               :value="`${container.name}:${port}`"
+              class="font-mono text-xs"
             >
               {{ container.name }}:{{ port }}
             </SelectItem>
@@ -182,19 +186,25 @@ onMounted(() => {
         </SelectGroup>
       </SelectContent>
     </Select>
-  </div>
-  <div class="flex items-center">
-    <div class="w-1/3 flex-shrink-0"><Label for="">Local Port</Label></div>
-    <Input v-model="portForwardModel.localPort" />
-  </div>
-  <div class="flex items-center">
-    <div class="w-1/3 flex-shrink-0"><Label for="">Address</Label></div>
-    <Input v-model="portForwardModel.address" />
-  </div>
-  <div class="flex items-center">
-    <div class="w-1/3 flex-shrink-0"><Label for="">Time to live</Label></div>
+
+    <Label for="pf-local-port" class="text-muted-foreground">Local port</Label>
+    <Input
+      id="pf-local-port"
+      v-model="portForwardModel.localPort"
+      inputmode="numeric"
+      class="font-mono text-xs"
+    />
+
+    <Label for="pf-address" class="text-muted-foreground">Address</Label>
+    <Input
+      id="pf-address"
+      v-model="portForwardModel.address"
+      class="font-mono text-xs"
+    />
+
+    <Label for="pf-ttl" class="text-muted-foreground">Time to live</Label>
     <Select v-model="portForwardModel.ttlHours">
-      <SelectTrigger>
+      <SelectTrigger id="pf-ttl">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -208,19 +218,35 @@ onMounted(() => {
         </SelectGroup>
       </SelectContent>
     </Select>
+
+    <span aria-hidden="true"></span>
+    <div class="flex items-center gap-2">
+      <Checkbox
+        id="open-in-browser"
+        v-model="portForwardModel.openInBrowser"
+        :checked="portForwardModel.openInBrowser"
+        @update:checked="portForwardModel.openInBrowser = $event"
+      />
+      <Label for="open-in-browser" class="font-normal">Open in browser</Label>
+    </div>
   </div>
-  <div class="flex items-center">
-    <div class="w-1/3 flex-shrink-0"></div>
-    <Checkbox
-      id="open-in-browser"
-      v-model="portForwardModel.openInBrowser"
-      :checked="portForwardModel.openInBrowser"
-      @update:checked="portForwardModel.openInBrowser = $event"
-    />
-    <Label for="open-in-browser" class="ml-2">Open in Browser</Label>
+  <div
+    v-if="portForwardModel.containerPort && portForwardModel.localPort"
+    class="flex items-center gap-2 rounded-md border bg-surface-1 px-3 py-2 font-mono text-xs text-muted-foreground"
+  >
+    <span class="truncate text-foreground">{{
+      portForwardModel.containerPort
+    }}</span>
+    <ArrowRight class="h-3 w-3 shrink-0" />
+    <span class="shrink-0 text-link"
+      >{{ portForwardModel.address }}:{{ portForwardModel.localPort }}</span
+    >
   </div>
   <AlertDialogFooter>
     <Button variant="ghost" @click="emit('closeDialog')">Cancel</Button>
-    <Button variant="default" @click="portForward">Forward</Button>
+    <Button variant="default" @click="portForward">
+      <Cable class="h-3.5 w-3.5" />
+      Forward
+    </Button>
   </AlertDialogFooter>
 </template>

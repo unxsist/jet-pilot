@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/select";
 
 import { AlertDialogFooter } from "@/components/ui/alert-dialog";
+import { Label } from "@/components/ui/label";
+import { Loader2, Undo2 } from "lucide-vue-next";
 import { runCli, cliSucceeded, cliErrorMessage } from "@/actions/command";
 
 import { useToast } from "@/components/ui/toast";
@@ -115,30 +117,40 @@ onMounted(() => {
 });
 </script>
 <template>
-  <Select v-model="rollbackRevision">
-    <SelectTrigger>
-      <SelectValue />
-    </SelectTrigger>
-    <SelectContent>
-      <SelectGroup>
-        <SelectLabel>Revisions</SelectLabel>
-        <template v-for="revision in sortedRevisions" :key="revision.revision">
-          <SelectItem :value="revision.revision">
-            {{ revision.revision }} - {{ revision.chart }} -
-            {{ revision.app_version }} -
-            {{ formatDateTime(parseJSON(revision.updated)) }}
-          </SelectItem>
-        </template>
-      </SelectGroup>
-    </SelectContent>
-  </Select>
+  <div class="grid gap-1.5">
+    <Label for="helm-rollback-revision" class="text-muted-foreground"
+      >Roll back {{ release.name }} to</Label
+    >
+    <Select v-model="rollbackRevision">
+      <SelectTrigger id="helm-rollback-revision">
+        <SelectValue placeholder="Select a revision" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectLabel>Revisions</SelectLabel>
+          <template v-for="revision in sortedRevisions" :key="revision.revision">
+            <SelectItem :value="revision.revision">
+              <span class="font-mono tabular-nums">#{{ revision.revision }}</span>
+              · {{ revision.chart }} · {{ revision.app_version }}
+              <span class="text-muted-foreground">
+                · {{ formatDateTime(parseJSON(revision.updated)) }}</span
+              >
+            </SelectItem>
+          </template>
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  </div>
   <AlertDialogFooter>
     <Button variant="ghost" @click="emit('closeDialog')">Cancel</Button>
     <Button
       variant="default"
       :disabled="!rollbackRevision || rollingBack"
       @click="rollback"
-      >Rollback</Button
     >
+      <Loader2 v-if="rollingBack" class="h-3.5 w-3.5 animate-spin" />
+      <Undo2 v-else class="h-3.5 w-3.5" />
+      Rollback
+    </Button>
   </AlertDialogFooter>
 </template>

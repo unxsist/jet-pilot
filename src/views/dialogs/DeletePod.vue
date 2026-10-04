@@ -2,7 +2,7 @@
 import { V1Pod } from "@kubernetes/client-node";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
+import { Loader2, Trash2 } from "lucide-vue-next";
 import { AlertDialogFooter } from "@/components/ui/alert-dialog";
 import { useToast } from "@/components/ui/toast";
 import { Kubernetes } from "@/services/Kubernetes";
@@ -57,30 +57,37 @@ const deletePod = async () => {
 };
 </script>
 <template>
-  <div class="text-sm space-y-3">
+  <div class="space-y-3 text-sm">
     <p class="text-muted-foreground">
       The pod gets {{ gracePeriod }}s to shut down gracefully. Pods managed by a
       controller are recreated.
     </p>
-    <div class="flex items-start gap-2">
+    <label
+      for="force-delete-pod"
+      class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors duration-fast hover:bg-accent/50"
+      :class="{ 'border-destructive/30 bg-destructive/[0.06]': force }"
+    >
       <Checkbox
         id="force-delete-pod"
+        class="mt-0.5"
         :checked="force"
         @update:checked="force = $event === true"
       />
-      <div class="grid gap-1">
-        <Label for="force-delete-pod">Force (skip graceful shutdown)</Label>
+      <span class="grid gap-0.5">
+        <span class="font-medium">Force (skip graceful shutdown)</span>
         <span class="text-xs text-muted-foreground">
           Kills the containers immediately (grace period 0).
         </span>
-      </div>
-    </div>
+      </span>
+    </label>
   </div>
   <AlertDialogFooter>
     <Button variant="ghost" :disabled="deleting" @click="emit('closeDialog')">
       Cancel
     </Button>
     <Button variant="destructive" :disabled="deleting" @click="deletePod">
+      <Loader2 v-if="deleting" class="h-3.5 w-3.5 animate-spin" />
+      <Trash2 v-else class="h-3.5 w-3.5" />
       {{ force ? "Force delete" : "Delete" }}
     </Button>
   </AlertDialogFooter>
