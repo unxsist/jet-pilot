@@ -31,16 +31,71 @@ const props = defineProps<{
 }>();
 
 const colorMode = useColorMode();
-const theme = (mode: string) => ({
-  background: mode === "dark" ? "#000000" : "#ffffff",
-  foreground: mode === "dark" ? "#ffffff" : "#000000",
-  cursor: mode === "dark" ? "#ffffff" : "#000000",
-});
+
+/*
+ * ANSI palettes tuned to the design tokens: the canvas matches
+ * --background, the accent cursor / selection match --primary and the
+ * normal colours reuse the status hues.
+ */
+const DARK_THEME = {
+  background: "#101011",
+  foreground: "#e4e4e8",
+  cursor: "#a5a8fb",
+  cursorAccent: "#101011",
+  selectionBackground: "rgba(97, 90, 237, 0.35)",
+  black: "#27272a",
+  red: "#f26464",
+  green: "#36c984",
+  yellow: "#f6ae31",
+  blue: "#54a0f8",
+  magenta: "#c084fc",
+  cyan: "#3cc8de",
+  white: "#d4d4d8",
+  brightBlack: "#5c5c66",
+  brightRed: "#f88a8a",
+  brightGreen: "#5edc9e",
+  brightYellow: "#f9c45e",
+  brightBlue: "#7fb8fb",
+  brightMagenta: "#d4a5fd",
+  brightCyan: "#6fdcec",
+  brightWhite: "#fafafa",
+};
+
+const LIGHT_THEME = {
+  background: "#ffffff",
+  foreground: "#17171c",
+  cursor: "#5048e5",
+  cursorAccent: "#ffffff",
+  selectionBackground: "rgba(80, 72, 229, 0.2)",
+  black: "#18181b",
+  red: "#ca2121",
+  green: "#117948",
+  yellow: "#aa5409",
+  blue: "#1160d0",
+  magenta: "#8b3fd9",
+  cyan: "#0e7490",
+  white: "#a1a1aa",
+  brightBlack: "#71717a",
+  brightRed: "#dc2626",
+  brightGreen: "#15803d",
+  brightYellow: "#b45309",
+  brightBlue: "#2563eb",
+  brightMagenta: "#a855f7",
+  brightCyan: "#0891b2",
+  brightWhite: "#d4d4d8",
+};
+
+const theme = (mode: string) => (mode === "dark" ? DARK_THEME : LIGHT_THEME);
+
+const FONT_FAMILY =
+  '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace';
 
 const terminal = new Terminal({
-  cursorBlink: true,
-  fontSize: 14,
-  fontFamily: "monospace",
+  cursorBlink: !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
+  cursorStyle: "bar",
+  fontSize: 13,
+  lineHeight: 1.25,
+  fontFamily: FONT_FAMILY,
   theme: theme(colorMode.value),
 });
 const fitAddon = new FitAddon();
@@ -194,6 +249,13 @@ onMounted(() => {
   terminal.open(terminalElement.value!);
   fit();
 
+  // The bundled mono font may still be loading: re-measure once it is.
+  document.fonts?.load(`13px ${FONT_FAMILY}`).then(() => {
+    if (disposed) return;
+    terminal.options.fontFamily = FONT_FAMILY;
+    fit();
+  });
+
   if (props.banner) {
     terminal.write(terminalNotice(props.banner));
   }
@@ -219,5 +281,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="terminalElement" class="w-full h-full"></div>
+  <div class="h-full w-full bg-background py-2 pl-3 pr-1">
+    <div ref="terminalElement" class="h-full w-full"></div>
+  </div>
 </template>

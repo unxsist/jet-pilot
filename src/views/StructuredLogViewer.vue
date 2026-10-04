@@ -4,8 +4,14 @@ import { Child, Command } from "@tauri-apps/plugin-shell";
 import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import ArrowDownIcon from "@/assets/icons/arrow_down_xl.svg";
 import { Checkbox } from "@/components/ui/checkbox";
+import { StatusDot } from "@/components/ui/status";
+import {
+  ArrowDownToLine,
+  ChevronRight,
+  ListFilter,
+  Search,
+} from "lucide-vue-next";
 import { useDebounceFn } from "@vueuse/core";
 import { formatSnakeCaseToHumanReadable, injectStrict } from "@/lib/utils";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
@@ -221,13 +227,42 @@ const datatableColumns = computed(() => {
     {
       accessorKey: "timestamp",
       header: "Timestamp",
+      size: 210,
+      meta: {
+        class: () => "whitespace-nowrap tabular-nums text-muted-foreground",
+      },
     },
     {
       accessorKey: "content",
       header: "Content",
+      meta: {
+        class: (row: StructuredLogEntry) => levelClass(logLevelOf(row)),
+      },
     },
   ];
 });
+
+/* Log level of a parsed (JSON) line, if it has one. */
+const logLevelOf = (row: StructuredLogEntry): string => {
+  const data = row.data as Record<string, unknown> | null;
+  const level = data?.level ?? data?.severity ?? data?.lvl;
+  return typeof level === "string" ? level.toLowerCase() : "";
+};
+
+const levelClass = (level: string): string => {
+  if (["error", "err", "fatal", "critical", "panic"].includes(level)) {
+    return "text-destructive";
+  }
+  if (["warn", "warning"].includes(level)) return "text-warning";
+  if (["debug", "trace"].includes(level)) return "text-muted-foreground";
+  return "text-foreground";
+};
+
+/* Level facet values get the same colour as their lines. */
+const levelTextClass = (column: string, value: string) =>
+  ["level", "severity", "lvl"].includes(column)
+    ? levelClass(value.toLowerCase())
+    : "";
 
 const addFacet = async (facet: string, matchType: "AND" | "OR") => {
   await invoke("add_facet_to_structured_logging_session", {
@@ -398,110 +433,170 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <div class="absolute left-0 top-0 flex flex-row w-full h-full border-t">
-    <div
+  <div class="absolute left-0 top-0 flex h-full w-full flex-row bg-background">
+    <aside
       v-if="columns.length > 0"
-      class="overflow-y-auto h-full min-w-[300px] max-w-[300px] border-r p-2 space-y-4"
+      class="flex h-full w-64 min-w-[16rem] flex-col border-r bg-surface-1"
+      aria-label="Log filters"
     >
-      <span class="font-bold">Filters</span>
-      <div v-for="column in columns" :key="column">
-        <div
-          class="flex items-center mb-3 cursor-pointer"
-          :class="{
-            'text-foreground dark:text-white': facets.find(
-              (f) => f.property === column
-            ),
-            'text-muted-foreground': !facets.find((f) => f.property === column),
-          }"
-          @click="
-            !facets.find((f) => f.property === column)
-              ? addFacet(column, 'OR')
-              : removeFacet(column)
-          "
-        >
-          <ArrowDownIcon
-            class="h-5 mx-2"
-            :class="{
-              '-rotate-90':
-                facets.find((f) => f.property === column) === undefined,
-            }"
-          />
-          <div class="font-medium">
-            {{ formatSnakeCaseToHumanReadable(column) }}
-          </div>
-        </div>
-        <ul
-          class="border rounded-lg overflow-hidden"
-          v-if="facets.find((f) => f.property === column) !== undefined"
-        >
-          <li
-            v-for="value in (getFacetForColumn(column)?.values ?? [])
-              .slice()
-              .sort((a, b) => b.total - a.total)"
-            :key="value.value"
-            class="flex items-center justify-between p-3 border-b cursor-pointer hover:bg-gray-100/25 dark:hover:bg-gray-100/5 last:border-b-0"
-            :title="value.value"
+      <div
+        class="flex h-11 shrink-0 items-center gap-2 border-b px-3 text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground"
+      >
+        <ListFilter class="h-3.5 w-3.5" />
+        Fields
+      </div>
+      <div class="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5">
+        <div v-for="column in columns" :key="column">
+          <button
+            type="button"
+            class="flex h-7 w-full items-center gap-1.5 rounded-md px-1.5 text-left text-sm transition-colors duration-fast hover:bg-accent focus-ring"
+            :class="
+              facets.find((f) => f.property === column)
+                ? 'font-medium text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            "
+            :aria-expanded="facets.find((f) => f.property === column) !== undefined"
             @click="
-              setFilteredForFacetValue(column, value.value, !value.filtered)
+              !facets.find((f) => f.property === column)
+                ? addFacet(column, 'OR')
+                : removeFacet(column)
             "
           >
-            <label
-              :for="`facet-${column}-${value.value}`"
-              class="flex truncate space-x-2 cursor-pointer"
-            >
-              <Checkbox
-                :id="`facet-${column}-${value.value}`"
-                class="border-secondary"
-                :checked="value.filtered"
-              />
-              <span class="text-xs truncate">{{ value.value }}</span>
-            </label>
-            <span class="bg-secondary text-foreground rounded-full px-2">{{
-              value.total
+            <ChevronRight
+              class="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-base ease-out"
+              :class="{
+                'rotate-90':
+                  facets.find((f) => f.property === column) !== undefined,
+              }"
+            />
+            <span class="truncate">{{
+              formatSnakeCaseToHumanReadable(column)
             }}</span>
-          </li>
-        </ul>
+            <span
+              v-if="
+                (getFacetForColumn(column)?.values ?? []).some((v) => v.filtered)
+              "
+              class="ml-auto rounded bg-primary/15 px-1.5 text-2xs font-medium tabular-nums text-link"
+              >{{
+                (getFacetForColumn(column)?.values ?? []).filter(
+                  (v) => v.filtered
+                ).length
+              }}</span
+            >
+          </button>
+          <ul
+            v-if="facets.find((f) => f.property === column) !== undefined"
+            class="mb-1.5 ml-3 mt-0.5 space-y-px border-l border-border-subtle pl-2"
+          >
+            <li
+              v-for="value in (getFacetForColumn(column)?.values ?? [])
+                .slice()
+                .sort((a, b) => b.total - a.total)"
+              :key="value.value"
+              class="flex h-7 cursor-pointer items-center justify-between gap-2 rounded-md px-1.5 transition-colors duration-fast hover:bg-accent"
+              :title="value.value"
+              @click="
+                setFilteredForFacetValue(column, value.value, !value.filtered)
+              "
+            >
+              <label
+                :for="`facet-${column}-${value.value}`"
+                class="flex min-w-0 cursor-pointer items-center gap-2"
+              >
+                <Checkbox
+                  :id="`facet-${column}-${value.value}`"
+                  :checked="value.filtered"
+                />
+                <span
+                  class="truncate font-mono text-xs"
+                  :class="levelTextClass(column, value.value)"
+                  >{{ value.value }}</span
+                >
+              </label>
+              <span class="text-2xs tabular-nums text-muted-foreground">{{
+                value.total
+              }}</span>
+            </li>
+          </ul>
+        </div>
       </div>
-    </div>
-    <div class="relative flex flex-col w-full h-full overflow-auto">
-      <div class="flex p-2 space-x-2">
-        <Input v-model="searchQuery" type="text" placeholder="Search..." />
-        <Button variant="outline" @click="autoScroll = !autoScroll">
-          <div
-            class="w-2 h-2 rounded-full mr-2 bg-green-500"
-            :class="{ 'bg-red-600': !autoScroll }"
-          ></div>
-          Autoscroll
-        </Button>
-        <Button
-          class="flex-shrink-0"
-          variant="outline"
-          @click="setLiveTail(!liveTail)"
+    </aside>
+    <div class="relative flex h-full min-w-0 flex-1 flex-col">
+      <div
+        class="flex h-11 shrink-0 items-center gap-2 border-b px-3"
+        role="toolbar"
+        aria-label="Log controls"
+      >
+        <div class="relative flex w-full max-w-sm items-center">
+          <Search
+            class="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <Input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search logs…"
+            aria-label="Search logs"
+            class="h-7 pl-8"
+          />
+        </div>
+        <div
+          class="inline-flex h-7 items-center rounded-md bg-muted p-0.5"
+          role="group"
+          aria-label="Show logs since"
         >
-          <div
-            class="w-2 h-2 rounded-full mr-2 bg-green-500"
-            :class="{ 'bg-red-600': !liveTail }"
-          ></div>
-          Live Tail
-        </Button>
-        <Button
-          v-for="since in logsSinceOptions"
-          :key="since"
-          :variant="currentSince == since ? 'outline' : 'ghost'"
-          @click="setLogsSince(since)"
-        >
-          {{ since }}
-        </Button>
+          <button
+            v-for="since in logsSinceOptions"
+            :key="since"
+            type="button"
+            class="h-6 rounded-[5px] px-2 text-xs font-medium tabular-nums transition-colors duration-fast focus-ring"
+            :class="
+              currentSince == since
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            "
+            :aria-pressed="currentSince == since"
+            @click="setLogsSince(since)"
+          >
+            {{ since }}
+          </button>
+        </div>
+        <div class="ml-auto flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            class="flex-shrink-0"
+            :aria-pressed="liveTail"
+            @click="setLiveTail(!liveTail)"
+          >
+            <StatusDot
+              :tone="liveTail ? 'success' : 'muted'"
+              :pulse="liveTail"
+            />
+            Live tail
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            :aria-pressed="autoScroll"
+            @click="autoScroll = !autoScroll"
+          >
+            <ArrowDownToLine
+              class="h-3.5 w-3.5"
+              :class="autoScroll ? 'text-primary' : 'text-muted-foreground'"
+            />
+            Autoscroll
+          </Button>
+        </div>
       </div>
-      <!-- Hack to fix sticky header table data to shine through -->
-      <div class="absolute h-[5px] w-full bg-background z-[9999]"></div>
-      <div class="log-table-wrapper mt-0 mb-0 w-full">
+      <div class="min-h-0 w-full flex-1">
         <DataTable
           :columns="datatableColumns"
           :data="logData"
           :row-classes="() => 'font-mono text-xs select-text'"
-          :estimated-row-height="33"
+          :estimated-row-height="30"
           :auto-scroll="autoScroll"
+          resource-name="log lines"
           sticky-headers
           @sorting-change="updateSorting"
         />
@@ -509,9 +604,3 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
-
-<style scoped>
-.log-table-wrapper {
-  height: calc(100% - 55px);
-}
-</style>
