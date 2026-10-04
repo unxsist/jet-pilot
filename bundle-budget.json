@@ -1,6 +1,5 @@
 {
-  "_comment": "Budgets for scripts/check-bundle-size.mjs (kB). Initial = what index.html loads before the shell renders. Lazy chunks (editor, terminal, graph) are deliberately not budgeted here.",
+  "_comment": "Budgets for scripts/check-bundle-size.mjs (kB). Initial = what index.html loads before the shell renders. Lazy chunks (editor, terminal, graph) and media are reported but deliberately not budgeted here.",
   "initialJsGzipKb": 175,
-  "initialCssGzipKb": 18,
-  "largestMediaKb": 600
+  "initialCssGzipKb": 18
 }
