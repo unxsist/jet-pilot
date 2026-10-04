@@ -4,7 +4,7 @@
   "tailwind": {
     "config": "tailwind.config.js",
     "css": "./src/assets/main.postcss",
-    "baseColor": "neutral",
+    "baseColor": "zinc",
     "cssVariables": true
   },
   "framework": "vite",

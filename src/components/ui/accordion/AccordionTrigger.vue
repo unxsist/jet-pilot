@@ -23,7 +23,7 @@ const delegatedProps = computed(() => {
       v-bind="delegatedProps"
       :class="
         cn(
-          'flex flex-1 items-center justify-between py-4 text-sm font-medium transition-all hover:underline [&[data-state=open]>svg]:rotate-180',
+          'flex flex-1 items-center justify-between gap-2 rounded-md py-3 text-left text-sm font-medium transition-colors duration-fast hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background [&[data-state=open]>svg]:rotate-180',
           props.class,
         )
       "
@@ -31,7 +31,7 @@ const delegatedProps = computed(() => {
       <slot />
       <slot name="icon">
         <ChevronDownIcon
-          class="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200"
+          class="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-base ease-out"
         />
       </slot>
     </AccordionTrigger>

@@ -16,14 +16,14 @@ const props = defineProps<SelectItemProps & { class?: string }>()
     v-bind="props"
     :class="
       cn(
-        'relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+        'relative flex min-h-[1.75rem] w-full cursor-default select-none items-center gap-2 rounded-[5px] py-1 pl-2 pr-7 text-sm outline-none transition-colors duration-75 focus:bg-accent focus:text-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[state=checked]:font-medium data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
         props.class,
       )
     "
   >
-    <span class="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+    <span class="absolute right-2 flex h-3.5 w-3.5 items-center justify-center text-primary dark:text-link">
       <SelectItemIndicator>
-        <CheckIcon class="h-4 w-4" />
+        <CheckIcon class="h-3.5 w-3.5" />
       </SelectItemIndicator>
     </span>
 

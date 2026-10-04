@@ -16,15 +16,15 @@ const props = withDefaults(defineProps<ScrollAreaScrollbarProps>(), {
     v-bind="props"
     :class="
       cn(
-        'flex touch-none select-none transition-colors',
+        'flex touch-none select-none p-0.5 transition-colors duration-fast',
         orientation === 'vertical' &&
-          'h-full w-2.5 border-l border-l-transparent p-[1px]',
+          'h-full w-2.5',
         orientation === 'horizontal' &&
-          'h-2.5 border-t border-t-transparent p-[1px]',
+          'h-2.5 flex-col',
         $attrs.class ?? ''
       )
     "
   >
-    <ScrollAreaThumb class="relative flex-1 rounded-full bg-border" />
+    <ScrollAreaThumb class="relative flex-1 rounded-full bg-[hsl(var(--scrollbar))] transition-colors hover:bg-[hsl(var(--scrollbar-hover))]" />
   </ScrollAreaScrollbar>
 </template>

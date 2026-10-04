@@ -6,7 +6,7 @@ const props = defineProps<ToastTitleProps & { class?: string }>()
 </script>
 
 <template>
-  <ToastTitle v-bind="props" :class="cn('text-sm font-semibold [&+div]:text-xs', props.class)">
+  <ToastTitle v-bind="props" :class="cn('text-sm font-medium leading-5 text-foreground', props.class)">
     <slot />
   </ToastTitle>
 </template>

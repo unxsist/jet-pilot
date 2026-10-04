@@ -8,6 +8,7 @@ import {
 } from 'radix-vue'
 import { CheckIcon } from '@radix-icons/vue'
 import { cn } from '@/lib/utils'
+import { menuIndicator, menuItem } from '@/components/ui/overlay-styles'
 
 const props = defineProps<DropdownMenuCheckboxItemProps & { class?: string }>()
 const emits = defineEmits<DropdownMenuCheckboxItemEmits>()
@@ -17,13 +18,14 @@ const emits = defineEmits<DropdownMenuCheckboxItemEmits>()
   <DropdownMenuCheckboxItem
     v-bind="{ ...props, ...useEmitAsProps(emits) }"
     :class=" cn(
-      'relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+      menuItem,
+      'pl-7',
       props.class,
     )"
   >
-    <span class="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+    <span :class="menuIndicator">
       <DropdownMenuItemIndicator>
-        <CheckIcon class="w-4 h-4" />
+        <CheckIcon class="h-3.5 w-3.5" />
       </DropdownMenuItemIndicator>
     </span>
     <slot />

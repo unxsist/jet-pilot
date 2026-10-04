@@ -7,6 +7,8 @@ const props = withDefaults(
     class?: string;
     enableHeaderDragRegion: boolean;
     sticky: boolean;
+    /** right-align to match `numeric` cells */
+    numeric?: boolean;
   }>(),
   {
     enableHeaderDragRegion: false,
@@ -22,10 +24,11 @@ const props = withDefaults(
     "
     :class="
       cn(
-        'h-10 px-2 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]',
+        'h-8 whitespace-nowrap px-2.5 text-left align-middle text-xs font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]',
+        props.numeric && 'text-right',
         props.class,
         {
-          'top-0 z-20 sticky bg-background': props.sticky === true,
+          'sticky top-0 z-20 bg-background': props.sticky === true,
         }
       )
     "

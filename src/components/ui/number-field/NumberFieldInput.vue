@@ -2,6 +2,7 @@
 import { NumberFieldInput } from 'radix-vue'
 import type { HTMLAttributes } from 'vue'
 import { cn } from '@/lib/utils'
+import { fieldBase } from '@/components/ui/input'
 
 const props = defineProps<{
   class?: HTMLAttributes['class']
@@ -11,6 +12,6 @@ const props = defineProps<{
 <template>
   <NumberFieldInput
     data-slot="input"
-    :class="cn('flex h-9 w-full rounded-md border border-input bg-transparent py-1 text-sm text-center shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50', props.class)"
+    :class="cn(fieldBase, 'flex h-8 py-1 text-center tabular-nums', props.class)"
   />
 </template>

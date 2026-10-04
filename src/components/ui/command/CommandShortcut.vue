@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { cn } from '@/lib/utils'
+import { kbdVariants } from '@/components/ui/kbd'
 </script>
 
 <template>
-  <span :class="cn('ml-auto text-xs tracking-widest text-muted-foreground', $attrs.class ?? '')">
+  <span :class="cn(kbdVariants({ size: 'default' }), 'ml-auto', $attrs.class ?? '')">
     <slot />
   </span>
 </template>

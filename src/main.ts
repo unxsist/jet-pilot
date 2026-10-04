@@ -2,6 +2,8 @@ import { createApp } from "vue";
 import App from "./App.vue";
 import router from "./router";
 
+import "@fontsource-variable/inter";
+import "@fontsource-variable/jetbrains-mono";
 import "./assets/main.postcss";
 
 createApp(App).use(router).mount("#app");

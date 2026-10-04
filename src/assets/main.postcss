@@ -2,66 +2,161 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * JET Pilot design tokens — see docs/design-system.md.
+ *
+ * Colours are HSL channel triplets ("H S% L%") so Tailwind can apply
+ * opacity modifiers: `bg-success/10`, `border-border/60`, `ring-ring/30`.
+ *
+ * Surface ladder (elevation):
+ *   background  canvas behind content (tables, editors)
+ *   surface-1   app chrome: sidebar / navigation, tab bar, toolbars
+ *   surface-2   panels & cards: side panel, cards, grouped settings
+ *   surface-3   overlays: popovers, menus, dialogs, command palette
+ * In dark mode each step is a little lighter. In light mode content and
+ * overlays are white and chrome is a cool grey; elevation is carried by
+ * hairline borders and shadows instead of lightness.
+ */
 @layer base {
-  :root {
+  :root,
+  .light {
+    color-scheme: light;
+
+    /* Surfaces */
     --background: 0 0% 100%;
-    --foreground: 20 14.3% 4.1%;
+    --foreground: 240 10% 8%;
+    --surface-1: 240 5% 96.5%;
+    --surface-2: 0 0% 100%;
+    --surface-3: 0 0% 100%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 20 14.3% 4.1%;
+    /* Neutrals */
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 42%;
+    --accent: 240 5% 94%;
+    --accent-foreground: 240 10% 8%;
+    --secondary: 240 5% 94.5%;
+    --secondary-foreground: 240 10% 8%;
+    --sidebar-foreground: 240 6% 22%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 20 14.3% 4.1%;
+    /* Lines */
+    --border: 240 6% 90%;
+    --border-subtle: 240 6% 93.5%;
+    --border-strong: 240 5% 82%;
+    --input: 240 6% 86%;
+    --ring: 243 75% 59%;
 
-    --primary: 24.6 95% 53.1%;
-    --primary-foreground: 60 9.1% 97.8%;
+    /* Accent (indigo) */
+    --primary: 243 75% 59%;
+    --primary-foreground: 0 0% 100%;
+    --link: 243 70% 53%;
 
-    --secondary: 60 4.8% 95.9%;
-    --secondary-foreground: 24 9.8% 10%;
+    /* Status — DEFAULT is text-grade (AA on canvas and on its own /10 tint) */
+    --success: 152 76% 27%;
+    --success-foreground: 0 0% 100%;
+    --warning: 28 90% 35%;
+    --warning-foreground: 0 0% 100%;
+    --destructive: 0 72% 46%;
+    --destructive-foreground: 0 0% 100%;
+    --info: 215 85% 44%;
+    --info-foreground: 0 0% 100%;
 
-    --muted: 60 4.8% 95.9%;
-    --muted-foreground: 25 5.3% 44.7%;
+    /* Misc */
+    --tooltip: 240 10% 10%;
+    --tooltip-foreground: 0 0% 98%;
+    --overlay: 240 10% 8%;
+    --overlay-alpha: 0.28;
+    --selection: 243 75% 59%;
+    --scrollbar: 240 5% 80%;
+    --scrollbar-hover: 240 4% 64%;
 
-    --accent: 60 4.8% 95.9%;
-    --accent-foreground: 24 9.8% 10%;
+    /* Shadows */
+    --shadow-xs: 0 1px 2px 0 rgb(15 15 20 / 0.05);
+    --shadow-sm: 0 1px 2px 0 rgb(15 15 20 / 0.06), 0 1px 3px 0 rgb(15 15 20 / 0.05);
+    --shadow-md: 0 2px 4px -1px rgb(15 15 20 / 0.05), 0 8px 24px -6px rgb(15 15 20 / 0.14);
+    --shadow-lg: 0 4px 8px -2px rgb(15 15 20 / 0.06), 0 24px 48px -12px rgb(15 15 20 / 0.24);
+    --shadow-xl: 0 8px 16px -4px rgb(15 15 20 / 0.08), 0 32px 64px -16px rgb(15 15 20 / 0.3);
+    --shadow-highlight: inset 0 1px 0 0 rgb(255 255 255 / 0.16);
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 60 9.1% 97.8%;
-
-    --border: 20 5.9% 90%;
-    --input: 20 5.9% 90%;
-    --ring: 24.6 95% 53.1%;
+    /* Shape & motion */
     --radius: 0.5rem;
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in: cubic-bezier(0.4, 0, 1, 1);
+    --duration-fast: 120ms;
+    --duration-base: 160ms;
+    --duration-slow: 200ms;
   }
 
   .dark {
-    --background: 20 14.3% 4.1%;
-    --foreground: 60 9.1% 97.8%;
+    color-scheme: dark;
 
-    --card: 20 14.3% 4.1%;
-    --card-foreground: 60 9.1% 97.8%;
+    /* Surfaces */
+    --background: 240 5% 6.5%;
+    --foreground: 240 6% 93%;
+    --surface-1: 240 5% 8.5%;
+    --surface-2: 240 5% 10%;
+    --surface-3: 240 5% 12%;
 
-    --popover: 20 14.3% 4.1%;
-    --popover-foreground: 60 9.1% 97.8%;
+    /* Neutrals */
+    --muted: 240 4% 14%;
+    --muted-foreground: 240 5% 62%;
+    --accent: 240 4% 16%;
+    --accent-foreground: 240 6% 96%;
+    --secondary: 240 4% 15%;
+    --secondary-foreground: 240 6% 93%;
+    --sidebar-foreground: 240 5% 82%;
 
-    --primary: 20.5 90.2% 48.2%;
-    --primary-foreground: 60 9.1% 97.8%;
+    /* Lines */
+    --border: 240 4% 17%;
+    --border-subtle: 240 4% 13%;
+    --border-strong: 240 4% 25%;
+    --input: 240 4% 21%;
+    --ring: 243 85% 68%;
 
-    --secondary: 12 6.5% 15.1%;
-    --secondary-foreground: 60 9.1% 97.8%;
+    /* Accent (indigo) */
+    --primary: 243 80% 64%;
+    --primary-foreground: 0 0% 100%;
+    --link: 240 90% 76%;
 
-    --muted: 12 6.5% 15.1%;
-    --muted-foreground: 24 5.4% 63.9%;
+    /* Status — DEFAULT is text-grade (AA on canvas and on its own /10 tint) */
+    --success: 152 58% 50%;
+    --success-foreground: 152 60% 6%;
+    --warning: 38 92% 58%;
+    --warning-foreground: 38 80% 7%;
+    --destructive: 0 84% 67%;
+    --destructive-foreground: 0 50% 8%;
+    --info: 212 92% 65%;
+    --info-foreground: 212 80% 8%;
 
-    --accent: 240 6% 10%;
-    --accent-foreground: 60 9.1% 97.8%;
+    /* Misc */
+    --tooltip: 240 5% 18%;
+    --tooltip-foreground: 240 6% 96%;
+    --overlay: 0 0% 0%;
+    --overlay-alpha: 0.5;
+    --selection: 243 85% 68%;
+    --scrollbar: 240 4% 24%;
+    --scrollbar-hover: 240 4% 36%;
 
-    --destructive: 0 72.2% 50.6%;
-    --destructive-foreground: 60 9.1% 97.8%;
+    /* Shadows — darker, plus a faint top highlight on raised overlays */
+    --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.35), 0 1px 3px 0 rgb(0 0 0 / 0.2);
+    --shadow-md: inset 0 1px 0 0 rgb(255 255 255 / 0.04), 0 2px 4px -1px rgb(0 0 0 / 0.3), 0 12px 32px -8px rgb(0 0 0 / 0.6);
+    --shadow-lg: inset 0 1px 0 0 rgb(255 255 255 / 0.05), 0 4px 8px -2px rgb(0 0 0 / 0.35), 0 24px 64px -12px rgb(0 0 0 / 0.75);
+    --shadow-xl: inset 0 1px 0 0 rgb(255 255 255 / 0.05), 0 8px 16px -4px rgb(0 0 0 / 0.4), 0 32px 80px -16px rgb(0 0 0 / 0.8);
+    --shadow-highlight: inset 0 1px 0 0 rgb(255 255 255 / 0.14);
+  }
 
-    --border: 12 6.5% 15.1%;
-    --input: 12 6.5% 15.1%;
-    --ring: 20.5 90.2% 48.2%;
+  /*
+   * shadcn-compatible aliases. Declared for every theme scope so a nested
+   * `.dark` / `.light` subtree resolves them against its own surfaces.
+   */
+  :root,
+  .light,
+  .dark {
+    --card: var(--surface-2);
+    --card-foreground: var(--foreground);
+    --popover: var(--surface-3);
+    --popover-foreground: var(--foreground);
+    --sidebar: var(--surface-1);
   }
 }
 
@@ -69,21 +164,128 @@
   * {
     @apply border-border;
   }
+
+  html {
+    font-size: 16px; /* rem stays 16px; UI text is 13px via text-sm */
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background font-sans text-sm text-foreground;
+    /* Inter: single-storey a (cv11), open digits (ss01) */
+    font-feature-settings: "cv11", "ss01";
+    font-optical-sizing: auto;
+  }
+
+  code,
+  kbd,
+  samp,
+  pre,
+  .font-mono {
+    /* Inter's stylistic sets mean different things in JetBrains Mono */
+    font-feature-settings: "calt" 1, "liga" 0;
+  }
+
+  ::selection {
+    background-color: hsl(var(--selection) / 0.3);
+  }
+
+  /* Default keyboard focus for interactive elements that don't style their own. */
+  :where(
+      button,
+      a[href],
+      summary,
+      [role="button"],
+      [role="tab"],
+      [role="link"],
+      [role="switch"],
+      [role="checkbox"],
+      [role="radio"]
+    ):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  /* Scrollbars: thin, rounded, theme-aware */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background-color: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    min-height: 32px;
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+    background-color: hsl(var(--scrollbar));
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    border-width: 2px;
+    background-color: hsl(var(--scrollbar-hover));
+  }
+
+  ::-webkit-scrollbar-corner {
+    background-color: transparent;
+  }
+
+  ::-webkit-resizer {
+    display: none;
+    background-color: transparent;
+  }
+
+  /* Firefox only — in Chromium `scrollbar-color` would disable the rules above */
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: hsl(var(--scrollbar)) transparent;
+    }
   }
 }
 
-:root {
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
+@layer components {
+  /* Standard accent focus ring (2px, offset). Use on custom interactive elements. */
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+}
 
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
+@layer utilities {
+  /* Tabular numerals for tables, counters, timestamps */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Keep loading indicators meaningful */
+  .animate-spin,
+  .animate-spin-fast {
+    animation-duration: 1.5s !important;
+    animation-iteration-count: infinite !important;
+  }
 }
 
 html,
@@ -94,46 +296,14 @@ body,
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  border-radius: --radius;
   background: transparent;
   border: none;
   user-select: none;
   cursor: default;
-  color: --foreground;
 }
 
 #app {
   border: 1px solid transparent;
-}
-
-::-webkit-scrollbar {
-  width: 15px;
-}
-
-::-webkit-scrollbar-track {
-  background-color: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  border-radius: 20px;
-  border: 4px solid transparent;
-  background-clip: content-box;
-  @apply bg-border;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  @apply bg-border;
-}
-
-::-webkit-scrollbar-corner {
-  background-color: transparent;
-  display: none;
-}
-
-::-webkit-resizer {
-  display: none;
-  background-color: transparent;
-  display: none;
 }
 
 /* Windows specific changes */
