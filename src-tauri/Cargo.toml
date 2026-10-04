@@ -20,7 +20,7 @@ tokio = { version = "1.29.1", features = ["process", "io-util", "time", "macros"
 kube = { version = "0.93.1", features = ["socks5", "http-proxy", "oidc"] }
 k8s-openapi = { version = "0.22.0", features = ["v1_30"] }
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs", branch = "dev" }
-portable-pty = "0.8.1"
+portable-pty = "0.9.0"
 uuid = { version = "1.4.1", features = ["serde", "v4"] }
 either = "1.9.0"
 k8s-metrics = "0.16.0"
