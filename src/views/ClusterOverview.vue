@@ -517,6 +517,25 @@ watch(search, () => {
   searchOpen.value = true;
 });
 
+/*
+ * Expanding / collapsing re-lays out a group (and the groups after it):
+ * keep the toggled card where it is on screen.
+ */
+const keepInPlace = (id: string, change: () => void) => {
+  const before = layout.value.nodes.get(id);
+  change();
+  nextTick(() => {
+    const after = layout.value.nodes.get(id);
+    if (!before || !after) return;
+    const { x, y, zoom: scale } = viewport.value;
+    setViewport({
+      x: x - (after.x - before.x) * scale,
+      y: y - (after.y - before.y) * scale,
+      zoom: scale,
+    });
+  });
+};
+
 provide(GraphViewStateKey, {
   selected,
   hovered,
@@ -528,8 +547,8 @@ provide(GraphViewStateKey, {
   entering,
   far,
   overview,
-  toggleExpanded: (id: string) => toggleIn(expanded, id),
-  toggleHistory: (id: string) => toggleIn(history, id),
+  toggleExpanded: (id: string) => keepInPlace(id, () => toggleIn(expanded, id)),
+  toggleHistory: (id: string) => keepInPlace(id, () => toggleIn(history, id)),
 });
 
 const summary = computed(() =>

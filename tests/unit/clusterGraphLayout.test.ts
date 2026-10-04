@@ -9,6 +9,7 @@ import {
   CARD_WIDTH,
   GraphLayoutCache,
   flowOrder,
+  layeredLayout,
   layoutGroup,
   nodeSize,
 } from "@/lib/clusterGraphLayout";
@@ -75,6 +76,36 @@ describe("layoutGroup", () => {
         expect(overlap).toBe(false);
       }
     }
+  });
+});
+
+describe("layeredLayout", () => {
+  test("pulls sources next to their target and keeps ranks apart", () => {
+    const objects = [
+      ...app("web"),
+      object("HorizontalPodAutoscaler", "web", { spec: { scaleTargetRef: { kind: "Deployment", name: "web" }, maxReplicas: 3 }, status: {} }),
+    ];
+    const graph = visibleGraph(buildTopology(objects), none);
+    const positions = layeredLayout(graph.nodes, graph.edges)!;
+    const x = (kind: string) => positions.get(graph.nodes.find((node) => node.kind === kind)!.id)!.x;
+    // The HPA shares the Service's column, right before the Deployment.
+    expect(x("HorizontalPodAutoscaler")).toBe(x("Service"));
+    expect(x("Ingress")).toBeLessThan(x("Service"));
+    expect(x("Deployment")).toBeGreaterThan(x("Service"));
+  });
+
+  test("returns null for cycles", () => {
+    const nodes = buildTopology(app("a")).nodes;
+    const [first, second] = [...nodes.values()];
+    expect(
+      layeredLayout(
+        [first, second],
+        [
+          { id: "1", source: first.id, target: second.id, type: "owns" },
+          { id: "2", source: second.id, target: first.id, type: "owns" },
+        ]
+      )
+    ).toBeNull();
   });
 });
 

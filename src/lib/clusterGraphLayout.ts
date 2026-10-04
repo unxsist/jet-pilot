@@ -71,6 +71,116 @@ interface GroupLayout {
 const ranksFlow = (edge: TopoEdge, nodes: Map<string, TopoNode>) =>
   !(edge.type === "mounts" && nodes.get(edge.source)?.category === "traffic");
 
+/** Groups up to this size use the (much faster) layered layout. */
+const SMALL_GROUP = 40;
+
+/**
+ * Small layered layout (what dagre does, without its overhead): ranks by
+ * longest path, sources pulled next to their targets (an HPA sits right
+ * before its Deployment), barycenter ordering, ranks centred vertically.
+ * Returns null for cyclic graphs (dagre handles those).
+ */
+export function layeredLayout(
+  nodes: TopoNode[],
+  edges: TopoEdge[],
+  sizeOf: (node: TopoNode) => Size = nodeSize
+): Map<string, { x: number; y: number }> | null {
+  const ids = new Set(nodes.map((node) => node.id));
+  const out = new Map<string, string[]>();
+  const into = new Map<string, string[]>();
+  for (const id of ids) {
+    out.set(id, []);
+    into.set(id, []);
+  }
+  for (const edge of edges) {
+    if (!ids.has(edge.source) || !ids.has(edge.target)) continue;
+    if (edge.source === edge.target) continue;
+    out.get(edge.source)!.push(edge.target);
+    into.get(edge.target)!.push(edge.source);
+  }
+
+  /* Longest-path ranks (Kahn's order). */
+  const sorted = [...nodes].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+  const indegree = new Map(sorted.map((node) => [node.id, into.get(node.id)!.length]));
+  const queue = sorted.filter((node) => indegree.get(node.id) === 0).map((n) => n.id);
+  const order: string[] = [];
+  const rank = new Map<string, number>();
+  while (queue.length) {
+    const id = queue.shift()!;
+    order.push(id);
+    const r = rank.get(id) ?? 0;
+    rank.set(id, r);
+    for (const target of out.get(id)!) {
+      rank.set(target, Math.max(rank.get(target) ?? 0, r + 1));
+      indegree.set(target, indegree.get(target)! - 1);
+      if (indegree.get(target) === 0) queue.push(target);
+    }
+  }
+  if (order.length !== nodes.length) return null;
+
+  /* Pull nodes right, next to their closest target (sources first). */
+  for (const id of [...order].reverse()) {
+    const targets = out.get(id)!;
+    if (targets.length === 0) continue;
+    const closest = Math.min(...targets.map((target) => rank.get(target)!));
+    rank.set(id, Math.max(rank.get(id)!, closest - 1));
+  }
+
+  const ranks: string[][] = [];
+  for (const id of order) {
+    const r = rank.get(id)!;
+    (ranks[r] = ranks[r] || []).push(id);
+  }
+  for (const list of ranks) {
+    if (list) list.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  }
+
+  /* Barycenter sweeps to reduce crossings. */
+  const index = new Map<string, number>();
+  const reindex = () =>
+    ranks.forEach((list) => list?.forEach((id, i) => index.set(id, i)));
+  reindex();
+  const sweep = (neighbours: Map<string, string[]>, list: string[]) => {
+    const weight = new Map(
+      list.map((id) => {
+        const others = neighbours.get(id)!.filter((other) => index.has(other));
+        const value = others.length
+          ? others.reduce((sum, other) => sum + index.get(other)!, 0) / others.length
+          : index.get(id)!;
+        return [id, value];
+      })
+    );
+    list.sort((a, b) => weight.get(a)! - weight.get(b)! || index.get(a)! - index.get(b)!);
+    list.forEach((id, i) => index.set(id, i));
+  };
+  for (let pass = 0; pass < 2; pass++) {
+    for (let r = 1; r < ranks.length; r++) if (ranks[r]) sweep(into, ranks[r]);
+    for (let r = ranks.length - 2; r >= 0; r--) if (ranks[r]) sweep(out, ranks[r]);
+  }
+
+  /* Coordinates: ranks left to right, each centred on the tallest. */
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const columnHeight = (list: string[]) =>
+    list.reduce((sum, id) => sum + sizeOf(byId.get(id)!).height, 0) +
+    NODE_SEP * (list.length - 1);
+  const tallest = Math.max(...ranks.filter(Boolean).map(columnHeight));
+  const positions = new Map<string, { x: number; y: number }>();
+  let x = 0;
+  for (const list of ranks) {
+    if (!list) continue;
+    let y = (tallest - columnHeight(list)) / 2;
+    let columnWidth = 0;
+    for (const id of list) {
+      const size = sizeOf(byId.get(id)!);
+      positions.set(id, { x, y });
+      y += size.height + NODE_SEP;
+      columnWidth = Math.max(columnWidth, size.width);
+    }
+    x += columnWidth + RANK_SEP;
+  }
+  return positions;
+}
+
 /** Lays out the nodes of one group (relative coordinates). */
 export function layoutGroup(
   nodes: TopoNode[],
@@ -90,7 +200,18 @@ export function layoutGroup(
   let height = 0;
 
   const flow = nodes.filter((node) => connected.has(node.id));
-  if (flow.length > 0) {
+  const layered =
+    flow.length > 0 && flow.length <= SMALL_GROUP
+      ? layeredLayout(flow, flowEdges, sizeOf)
+      : null;
+  if (layered) {
+    for (const [id, position] of layered) {
+      const size = sizeOf(byId.get(id)!);
+      positions.set(id, position);
+      width = Math.max(width, position.x + size.width);
+      height = Math.max(height, position.y + size.height);
+    }
+  } else if (flow.length > 0) {
     const graph = new dagre.graphlib.Graph();
     graph.setGraph({
       rankdir: "LR",
@@ -235,11 +356,19 @@ export interface GraphLayout {
  */
 export class GraphLayoutCache {
   private groups = new Map<string, GroupLayout>();
+  /*
+   * Row width of the last packing, kept while the set of groups stays the
+   * same: expanding one workload must not reshuffle every lane.
+   */
+  private rowWidth: number | null = null;
+  private groupSet = "";
 
   constructor(private sizeOf: (node: TopoNode) => Size = nodeSize) {}
 
   clear() {
     this.groups.clear();
+    this.rowWidth = null;
+    this.groupSet = "";
   }
 
   layout(graph: VisibleGraph): GraphLayout {
@@ -369,10 +498,15 @@ export class GraphLayoutCache {
       widest = Math.max(widest, size.width);
       total += size.width + GROUP_GAP;
     }
-    let best = pack(widest);
-    let bestScore = Infinity;
+    const groupSet = graph.groups.map((group) => group.id).join("|");
+    const keep =
+      groupSet === this.groupSet &&
+      this.rowWidth !== null &&
+      this.rowWidth >= widest;
+    let best = pack(keep ? this.rowWidth! : widest);
+    let bestScore = keep ? -Infinity : Infinity;
     const steps = 14;
-    for (let step = 0; step <= steps && widest > 0; step++) {
+    for (let step = 0; step <= steps && widest > 0 && !keep; step++) {
       const rowWidth = widest + ((total - widest) * step) / steps;
       const candidate = pack(rowWidth);
       if (candidate.height === 0) continue;
@@ -382,8 +516,11 @@ export class GraphLayoutCache {
       if (score < bestScore - 0.01) {
         best = candidate;
         bestScore = score;
+        this.rowWidth = rowWidth;
       }
     }
+    if (!keep && bestScore === Infinity) this.rowWidth = widest;
+    this.groupSet = groupSet;
 
     const nodes = new Map<string, { x: number; y: number }>();
     for (const [id, rect] of best.rects) {
