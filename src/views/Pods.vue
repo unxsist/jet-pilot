@@ -4,21 +4,23 @@ import { PodMetric, V1Pod } from "@kubernetes/client-node";
 import { Kubernetes } from "@/services/Kubernetes";
 import { ref, h } from "vue";
 import { useToast, ToastAction } from "@/components/ui/toast";
+import { error } from "@/lib/logger";
 
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 
 import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { ColumnDef } from "@tanstack/vue-table";
-import { namespaceColumn } from "@/components/tables/namespace";
+import { multiContextColumns } from "@/components/tables/multicontext";
+import { kubectlGetForContext } from "@/lib/multicontext";
 import { columns } from "@/components/tables/pods";
 import { useDataRefresher } from "@/composables/refresher";
 import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
 
 const {
-  context,
   namespace,
-  kubeConfig,
+  contexts,
+  contextKubeConfigMapping,
   authenticated: clusterAuthenticated,
 } = injectStrict(KubeContextStateKey);
 
@@ -38,25 +40,38 @@ const setSidePanelComponent = injectStrict(
 
 const { toast } = useToast();
 
-const pods = ref<V1Pod & { metrics: PodMetric[] }[]>([]);
-const metrics = ref<Array<PodMetric[]>>([]);
+/*
+ * Pods are self-describing: each row carries the context + kubeconfig it was
+ * fetched with so actions target the right cluster.
+ */
+type ContextAwarePod = V1Pod & {
+  metadata: NonNullable<V1Pod["metadata"]> & {
+    context: string;
+    kubeConfig: string;
+  };
+} & { metrics: PodMetric[] };
 
-const tableColumns = computed<ColumnDef<any>[]>(() => {
-  // Global namespace selection is empty when "All namespaces" is active.
-  if (namespace.value) {
-    return columns;
-  }
+type ContextAwarePodMetric = PodMetric & {
+  metadata: PodMetric["metadata"] & {
+    context: string;
+    kubeConfig: string;
+  };
+};
 
-  return [namespaceColumn, ...columns];
-});
+const pods = ref<ContextAwarePod[]>([]);
 
-const rowActions: RowAction<V1Pod>[] = [
-  ...getDefaultActions<V1Pod>(
+// The VirtualDataTable toggles the Context/Namespace columns based on the
+// active context state.
+const tableColumns = computed<ColumnDef<any>[]>(() => [
+  ...multiContextColumns,
+  ...columns,
+]);
+
+const rowActions: RowAction<ContextAwarePod>[] = [
+  ...getDefaultActions<ContextAwarePod>(
     addTab,
     spawnDialog,
-    setSidePanelComponent,
-    context.value,
-    kubeConfig.value
+    setSidePanelComponent
   ),
   {
     label: "Shell",
@@ -87,8 +102,8 @@ const rowActions: RowAction<V1Pod>[] = [
                 `${row.metadata?.name}/${container.name}`,
                 defineAsyncComponent(() => import("@/views/Shell.vue")),
                 {
-                  kubeConfig: kubeConfig.value,
-                  context: context.value,
+                  kubeConfig: row.metadata.kubeConfig,
+                  context: row.metadata.context,
                   namespace: row.metadata?.namespace ?? namespace.value,
                   pod: row,
                   container: specContainer,
@@ -102,7 +117,7 @@ const rowActions: RowAction<V1Pod>[] = [
   },
   {
     label: "Port Forward",
-    handler: (row) => {
+    handler: (row: ContextAwarePod) => {
       spawnDialog({
         title: "Port Forward",
         message: "Forward ports from the pod to your local machine",
@@ -110,9 +125,9 @@ const rowActions: RowAction<V1Pod>[] = [
           () => import("@/views/dialogs/PortForward.vue")
         ),
         props: {
-          context: context.value,
+          context: row.metadata.context,
           namespace: row.metadata?.namespace ?? namespace.value,
-          kubeConfig: kubeConfig.value,
+          kubeConfig: row.metadata.kubeConfig,
           object: row,
         },
         buttons: [],
@@ -133,9 +148,9 @@ const rowActions: RowAction<V1Pod>[] = [
                 () => import("@/views/StructuredLogViewer.vue")
               ),
               {
-                context: context.value,
+                context: row.metadata.context,
                 namespace: row.metadata?.namespace ?? namespace.value,
-                kubeConfig: kubeConfig.value,
+                kubeConfig: row.metadata.kubeConfig,
                 object: row.metadata?.name,
               },
               "logs"
@@ -154,9 +169,9 @@ const rowActions: RowAction<V1Pod>[] = [
                   () => import("@/views/StructuredLogViewer.vue")
                 ),
                 {
-                  context: context.value,
+                  context: row.metadata.context,
                   namespace: row.metadata?.namespace ?? namespace.value,
-                  kubeConfig: kubeConfig.value,
+                  kubeConfig: row.metadata.kubeConfig,
                   object: row.metadata?.name,
                   container: container.name,
                 },
@@ -169,11 +184,13 @@ const rowActions: RowAction<V1Pod>[] = [
   },
   {
     label: "Kill",
-    handler: (row) => {
+    handler: (row: ContextAwarePod) => {
       Kubernetes.deletePod(
-        context.value,
+        row.metadata.context,
         row.metadata?.namespace ?? namespace.value,
-        row.metadata?.name ?? ""
+        row.metadata?.name ?? "",
+        0,
+        row.metadata.kubeConfig
       )
         .then(() => {
           toast({
@@ -206,149 +223,224 @@ const showDetails = (row: any) => {
   });
 };
 
-async function getPods(): Promise<V1Pod[]> {
-  const args = [
-    "get",
-    "pods",
-    "--context",
-    context.value,
-    "-o",
-    "json",
-    "--kubeconfig",
-    kubeConfig.value,
-  ];
+/*
+ * Offers the interactive login flow (kubelogin / OIDC exec plugins) for a
+ * context whose credentials expired. One dialog at a time; contexts whose
+ * dialog was closed are not asked again until a login completes. Refreshing
+ * keeps running so the other active contexts stay up to date.
+ */
+let authDialogOpen = false;
+const dismissedAuthContexts = new Set<string>();
 
-  if (namespace.value) {
-    args.push("--namespace", namespace.value);
-  } else {
-    args.push("--all-namespaces");
+const handleAuthError = async (
+  ctx: string,
+  kubeConfig: string,
+  reason: unknown
+): Promise<boolean> => {
+  if (authDialogOpen || dismissedAuthContexts.has(ctx)) {
+    return true;
   }
 
-  return JSON.parse(await Kubernetes.kubectl(args)).items as V1Pod[];
-}
+  const authErrorHandler = await Kubernetes.getAuthErrorHandler(
+    ctx,
+    kubeConfig,
+    String(reason)
+  );
 
-async function getPodMetrics(): Promise<PodMetric[]> {
-  const args = [
-    "get",
-    "podmetrics",
-    "--context",
-    context.value,
-    "-o",
-    "json",
-    "--kubeconfig",
-    kubeConfig.value,
-  ];
-
-  if (namespace.value) {
-    args.push("--namespace", namespace.value);
-  } else {
-    args.push("--all-namespaces");
+  if (!authErrorHandler.canHandle || authDialogOpen) {
+    return authErrorHandler.canHandle;
   }
 
-  return JSON.parse(await Kubernetes.kubectl(args)).items as PodMetric[];
-}
+  authDialogOpen = true;
+  clusterAuthenticated.value = false;
+
+  const closeAuthDialog = () => {
+    authDialogOpen = false;
+    clusterAuthenticated.value = true;
+  };
+
+  const loginCompleted = () => {
+    closeAuthDialog();
+    dismissedAuthContexts.clear();
+    loadData(true);
+  };
+
+  spawnDialog({
+    title: "Authentication required",
+    message: `Failed to authenticate with ${ctx}. Please log in to continue.`,
+    buttons: [
+      {
+        label: "Close",
+        variant: "ghost",
+        handler: (dialog) => {
+          dismissedAuthContexts.add(ctx);
+          closeAuthDialog();
+          dialog.close();
+        },
+      },
+      {
+        label: "Login",
+        handler: async (dialog) => {
+          dialog.buttons = [];
+          dialog.title = "Awaiting login";
+          dialog.message = "Please wait while we complete the login flow.";
+          authErrorHandler.callback((instructions?: string) => {
+            if (instructions) {
+              dialog.title = "Complete login in your browser";
+              dialog.message = instructions.slice(0, 2000);
+              dialog.buttons = [
+                {
+                  label: "I've completed the login",
+                  handler: (dialog) => {
+                    dialog.close();
+                    loginCompleted();
+                  },
+                },
+              ];
+            } else {
+              dialog.close();
+              loginCompleted();
+            }
+          });
+        },
+      },
+    ],
+  });
+
+  return true;
+};
+
+/*
+ * Pods and metrics for one context. Metrics are optional: clusters without
+ * metrics-server (kind, minikube, ...) fail `get podmetrics`, which must not
+ * hide the pods themselves.
+ */
+const fetchContext = async (
+  ctx: string,
+  kubeConfig: string,
+  namespaces: string[]
+): Promise<{ pods: ContextAwarePod[]; metrics: ContextAwarePodMetric[] }> => {
+  const [podsResult, metricsResult] = await Promise.allSettled([
+    kubectlGetForContext<V1Pod>("pods", ctx, kubeConfig, namespaces),
+    kubectlGetForContext<PodMetric>("podmetrics", ctx, kubeConfig, namespaces),
+  ]);
+
+  if (podsResult.status === "rejected") {
+    throw podsResult.reason;
+  }
+
+  return {
+    pods: podsResult.value.map((pod) => ({ ...pod, metrics: [] })),
+    metrics:
+      metricsResult.status === "fulfilled"
+        ? (metricsResult.value as ContextAwarePodMetric[])
+        : [],
+  };
+};
+
+/*
+ * Interval ticks are skipped while a fetch is still running; explicit reloads
+ * (context changes) always run and supersede older fetches.
+ */
+let fetchGeneration = 0;
+let fetchInFlight = false;
 
 async function loadData(refresh = false) {
+  if (refresh && fetchInFlight) {
+    return;
+  }
+
   if (!refresh) {
     pods.value = [];
   }
 
-  Promise.allSettled([getPods(), getPodMetrics()]).then(async (results) => {
-    if (results[0].status === "rejected") {
-      const authErrorHandler = await Kubernetes.getAuthErrorHandler(
-        context.value,
-        kubeConfig.value,
-        results[0].reason
-      );
+  const generation = ++fetchGeneration;
+  fetchInFlight = true;
 
-      if (authErrorHandler.canHandle) {
-        clusterAuthenticated.value = false;
-        stopRefreshing();
-        spawnDialog({
-          title: "Authentication required",
-          message:
-            "Failed to authenticate with this cluster. Please log in to continue.",
-          buttons: [
-            {
-              label: "Close",
-              variant: "ghost",
-              handler: (dialog) => {
-                dialog.close();
-              },
-            },
-            {
-              label: "Login",
-              handler: async (dialog) => {
-                dialog.buttons = [];
-                dialog.title = "Awaiting login";
-                dialog.message =
-                  "Please wait while we complete the login flow.";
-                authErrorHandler.callback((instructions?: string) => {
-                  if (instructions) {
-                    dialog.title = "Complete login in your browser";
-                    dialog.message = instructions.slice(0, 2000);
-                    dialog.buttons = [
-                      {
-                        label: "I've completed the login",
-                        handler: (dialog) => {
-                          dialog.close();
-                          clusterAuthenticated.value = true;
-                          startRefreshing();
-                        },
-                      },
-                    ];
-                  } else {
-                    dialog.close();
-                    clusterAuthenticated.value = true;
-                    startRefreshing();
-                  }
-                });
-              },
-            },
-          ],
-        });
+  try {
+    // Aggregate pods + metrics across every activated (context, namespaces).
+    const activeContexts = [...contexts.value.entries()].map(
+      ([ctx, namespaces]) => ({
+        ctx,
+        namespaces,
+        kubeConfig: contextKubeConfigMapping.value.get(ctx) || "",
+      })
+    );
+
+    const results = await Promise.allSettled(
+      activeContexts.map(({ ctx, kubeConfig, namespaces }) =>
+        fetchContext(ctx, kubeConfig, namespaces)
+      )
+    );
+
+    if (generation !== fetchGeneration) {
+      return;
+    }
+
+    const aggregatedPods: ContextAwarePod[] = [];
+    const aggregatedMetrics: ContextAwarePodMetric[] = [];
+    const failures: { ctx: string; kubeConfig: string; reason: unknown }[] =
+      [];
+
+    results.forEach((result, i) => {
+      if (result.status === "fulfilled") {
+        aggregatedPods.push(...result.value.pods);
+        aggregatedMetrics.push(...result.value.metrics);
       } else {
-        toast({
-          title: "An error occured",
-          description: results[0].reason,
-          variant: "destructive",
-          action: h(
-            ToastAction,
-            { altText: "Retry", onClick: () => startRefreshing() },
-            { default: () => "Retry" }
-          ),
-        });
-        stopRefreshing();
+        const { ctx, kubeConfig } = activeContexts[i];
+        failures.push({ ctx, kubeConfig, reason: result.reason });
+        error(`Failed to fetch pods for context ${ctx}: ${result.reason}`);
+      }
+    });
 
-        return;
+    pods.value = aggregatedPods;
+    aggregatedPods.forEach((pod) => {
+      const podMetric = aggregatedMetrics.find(
+        (m) =>
+          m.metadata?.context === pod.metadata?.context &&
+          m.metadata?.namespace === pod.metadata?.namespace &&
+          m.metadata?.name === pod.metadata?.name
+      );
+      if (podMetric) {
+        pod.metrics.push(podMetric);
+      }
+    });
+
+    let authHandled = false;
+    for (const failure of failures) {
+      if (
+        await handleAuthError(failure.ctx, failure.kubeConfig, failure.reason)
+      ) {
+        authHandled = true;
+        break;
       }
     }
 
-    pods.value = results[0].value.map((pod) => ({
-      ...pod,
-      metrics: [],
-    }));
-
-    if (results[1].status === "fulfilled") {
-      metrics.value.push(results[1].value);
-      if (metrics.value.length > 1) {
-        metrics.value.shift();
-      }
-
-      metrics.value.forEach((metric) => {
-        pods.value.forEach((pod) => {
-          const podMetric = metric.find(
-            (m) =>
-              m.metadata?.namespace === pod.metadata?.namespace &&
-              m.metadata?.name === pod.metadata?.name
-          );
-          if (podMetric) {
-            pod.metrics.push(podMetric);
-          }
-        });
+    if (
+      !authHandled &&
+      failures.length > 0 &&
+      failures.length === results.length
+    ) {
+      toast({
+        title: "An error occured",
+        description:
+          failures.length === 1
+            ? String(failures[0].reason)
+            : "Failed to fetch pods from any of the active contexts",
+        variant: "destructive",
+        action: h(
+          ToastAction,
+          { altText: "Retry", onClick: () => startRefreshing() },
+          { default: () => "Retry" }
+        ),
       });
+      stopRefreshing();
     }
-  });
+  } finally {
+    if (generation === fetchGeneration) {
+      fetchInFlight = false;
+    }
+  }
 }
 
 const rowClasses = (row: V1Pod) => {
@@ -365,9 +457,10 @@ const rowClasses = (row: V1Pod) => {
   return "";
 };
 
+// contexts and contextKubeConfigMapping always change together; watching
+// both would reload twice per selection change.
 const { startRefreshing, stopRefreshing } = useDataRefresher(loadData, 5000, [
-  context,
-  namespace,
+  contexts.value,
 ]);
 </script>
 

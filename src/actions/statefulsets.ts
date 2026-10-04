@@ -7,13 +7,15 @@ import { Kubernetes } from "@/services/Kubernetes";
 import { useToast } from "@/components/ui/toast";
 import { error } from "@/lib/logger";
 
-export function actions<T extends V1StatefulSet>(
+export function actions<
+  T extends V1StatefulSet & {
+    metadata: { context: string; kubeConfig: string };
+  }
+>(
   addTab: any,
   spawnDialog: any,
   setSidePanelComponent: any,
-  router: Router,
-  context: string,
-  kubeConfig: string
+  router: Router
 ): RowAction<T>[] {
   return [
     {
@@ -35,10 +37,11 @@ export function actions<T extends V1StatefulSet>(
               label: "Restart",
               handler: (dialog) => {
                 rows.forEach((row) => {
-                  Kubernetes.restartDeployment(
-                    context,
+                  Kubernetes.restartStatefulset(
+                    row.metadata.context,
                     row.metadata?.namespace || "",
-                    row.metadata?.name || ""
+                    row.metadata?.name || "",
+                    row.metadata.kubeConfig
                   )
                     .then(() => {
                       dialog.close();
@@ -63,6 +66,6 @@ export function actions<T extends V1StatefulSet>(
         spawnDialog(dialog);
       },
     },
-    ...scalableActions(addTab, spawnDialog, router, context, kubeConfig),
+    ...scalableActions(addTab, spawnDialog, setSidePanelComponent, router),
   ];
 }

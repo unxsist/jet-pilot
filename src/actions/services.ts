@@ -5,13 +5,15 @@ import { BaseDialogInterface } from "@/providers/DialogProvider";
 import { Kubernetes } from "@/services/Kubernetes";
 import { useToast } from "@/components/ui/toast";
 
-export function actions<T extends V1Service>(
+export function actions<
+  T extends V1Service & {
+    metadata: { context: string; kubeConfig: string };
+  }
+>(
   addTab: any,
   spawnDialog: any,
   setSidePanelComponent: any,
-  router: Router,
-  context: string,
-  kubeConfig: string
+  router: Router
 ): RowAction<T>[] {
   return [
     {
@@ -24,9 +26,9 @@ export function actions<T extends V1Service>(
             () => import("@/views/dialogs/PortForward.vue")
           ),
           props: {
-            context: context,
+            context: row.metadata.context,
             namespace: row.metadata?.namespace ?? "",
-            kubeConfig: kubeConfig,
+            kubeConfig: row.metadata.kubeConfig,
             object: row,
           },
           buttons: [],

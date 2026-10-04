@@ -180,7 +180,8 @@ const onUpdate = () => {
       props.namespace,
       props.type,
       props.name,
-      yaml.load(editContents.value)
+      yaml.load(editContents.value),
+      props.kubeConfig
     )
       .then((result) => {
         onClose();

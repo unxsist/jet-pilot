@@ -6,12 +6,19 @@ import { onMounted } from "vue";
 import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { ColumnDef } from "@tanstack/vue-table";
 import { columns as defaultGenericColumns } from "@/components/tables/generic";
-import { namespaceColumn } from "@/components/tables/namespace";
+import { multiContextColumns } from "@/components/tables/multicontext";
+import { kubectlGetForContext } from "@/lib/multicontext";
 
 const route = useRoute();
 const router = useRouter();
 const { toast, toasts, dismiss } = useToast();
-const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
+const {
+  context,
+  namespace,
+  kubeConfig,
+  contexts,
+  contextKubeConfigMapping,
+} = injectStrict(KubeContextStateKey);
 
 const actions = ref(null);
 const currentResource = ref(route.query.resource as string);
@@ -26,7 +33,6 @@ import { error } from "@/lib/logger";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
 import { PanelProviderSetSidePanelComponentKey } from "@/providers/PanelProvider";
-import { Kubernetes } from "@/services/Kubernetes";
 import { useDataRefresher } from "@/composables/refresher";
 import { useToast } from "@/components/ui/toast";
 import ToastAction from "@/components/ui/toast/ToastAction.vue";
@@ -38,14 +44,12 @@ const columns = ref<ColumnDef<any>[]>([]);
 const rowActions = ref<RowAction<any>[]>([]);
 const refreshKey = ref<number>(0);
 
-const tableColumns = computed<ColumnDef<any>[]>(() => {
-  // Global namespace selection is empty when "All namespaces" is active.
-  if (namespace.value) {
-    return columns.value;
-  }
-
-  return [namespaceColumn, ...columns.value];
-});
+// The VirtualDataTable toggles the Context/Namespace columns based on the
+// active context state.
+const tableColumns = computed<ColumnDef<any>[]>(() => [
+  ...multiContextColumns,
+  ...columns.value,
+]);
 
 const initColumns = async (resource: string) => {
   try {
@@ -61,14 +65,7 @@ const initColumns = async (resource: string) => {
 const initRowActions = async (resource: string) => {
   try {
     rowActions.value = [
-      ...getDefaultActions<any>(
-        addTab,
-        spawnDialog,
-        setSidePanelComponent,
-        context.value,
-        kubeConfig.value,
-        true
-      ),
+      ...getDefaultActions<any>(addTab, spawnDialog, setSidePanelComponent, true),
     ];
 
     actions.value = null;
@@ -81,9 +78,7 @@ const initRowActions = async (resource: string) => {
             addTab,
             spawnDialog,
             setSidePanelComponent,
-            router,
-            context.value,
-            kubeConfig.value
+            router
           )
         : []),
     ];
@@ -138,7 +133,7 @@ onBeforeRouteUpdate(async (to, from, next) => {
   currentResource.value = to.query.resource as string;
 
   dismissAllToasts();
-  getResourceData(true);
+  getResourceData();
 
   await initColumns(to.query.resource as string);
   await initRowActions(to.query.resource as string);
@@ -154,57 +149,80 @@ const dismissAllToasts = () => {
   toasts.value.forEach((t) => dismiss(t.id));
 };
 
+/*
+ * Interval ticks are skipped while a fetch is still running (slow clusters can
+ * take longer than the refresh interval); explicit reloads (route or context
+ * changes) always run and supersede older fetches via the generation counter,
+ * so stale results never overwrite newer ones.
+ */
+let fetchGeneration = 0;
+let fetchInFlight = false;
+
 const getResourceData = async (refresh = false) => {
+  if (refresh && fetchInFlight) {
+    return;
+  }
+
   if (!refresh) {
     resourceData.value = [];
   }
 
+  const generation = ++fetchGeneration;
   const fetchingResource = currentResource.value;
-
-  const args = [
-    "get",
-    fetchingResource,
-    "--context",
-    context.value,
-    "-o",
-    "json",
-    "--kubeconfig",
-    kubeConfig.value,
-  ];
-
-  if (namespace.value) {
-    args.push("--namespace", namespace.value);
-  } else {
-    args.push("--all-namespaces");
-  }
+  fetchInFlight = true;
 
   try {
-    const data = await Kubernetes.kubectl(args);
+    // Aggregate rows across every activated (context, namespaces) combination.
+    const activeContexts = [...contexts.value.entries()];
+    const results = await Promise.allSettled(
+      activeContexts.map(([ctx, namespaces]) =>
+        kubectlGetForContext<any>(
+          fetchingResource,
+          ctx,
+          contextKubeConfigMapping.value.get(ctx) || "",
+          namespaces
+        )
+      )
+    );
 
-    /*
-     * Make sure we never show data that's not related to the current resource
-     * e.g. due to route switching mid-fetch
-     */
-    if (fetchingResource !== currentResource.value) {
+    if (generation !== fetchGeneration) {
       return;
     }
 
-    resourceData.value = JSON.parse(data).items;
-  } catch (e) {
-    resourceData.value = [];
-    toast({
-      title: "An error occured",
-      description: e,
-      variant: "destructive",
-      action: h(
-        ToastAction,
-        { altText: "Retry", onClick: () => startRefreshing() },
-        { default: () => "Retry" }
-      ),
+    const aggregated: object[] = [];
+    results.forEach((result, i) => {
+      if (result.status === "fulfilled") {
+        aggregated.push(...result.value);
+      } else {
+        error(
+          `Failed to fetch ${fetchingResource} for context ${activeContexts[i][0]}: ${result.reason}`
+        );
+      }
     });
-    stopRefreshing();
 
-    return;
+    resourceData.value = aggregated;
+
+    const failures = results.filter((r) => r.status === "rejected");
+    if (results.length > 0 && failures.length === results.length) {
+      toast({
+        title: "An error occured",
+        description:
+          results.length === 1
+            ? String((failures[0] as PromiseRejectedResult).reason)
+            : "Failed to fetch the resource from any of the active contexts",
+        variant: "destructive",
+        action: h(
+          ToastAction,
+          { altText: "Retry", onClick: () => startRefreshing() },
+          { default: () => "Retry" }
+        ),
+      });
+      stopRefreshing();
+    }
+  } finally {
+    if (generation === fetchGeneration) {
+      fetchInFlight = false;
+    }
   }
 };
 
@@ -216,7 +234,9 @@ onMounted(async () => {
 const { startRefreshing, stopRefreshing, isRefreshing } = useDataRefresher(
   getResourceData,
   5000,
-  [context, namespace]
+  // contexts and contextKubeConfigMapping always change together; watching
+  // both would reload twice per selection change.
+  [contexts.value]
 );
 </script>
 <template>

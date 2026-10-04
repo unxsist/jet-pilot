@@ -5,19 +5,28 @@ import { Command } from "@tauri-apps/plugin-shell";
 import { useToast } from "@/components/ui/toast";
 import { error } from "@/lib/logger";
 
+/*
+ * Helm release rows are not Kubernetes objects; they carry the context they
+ * were fetched from in `metadata` (injected by HelmResource aggregation).
+ */
+interface HelmReleaseRow {
+  name: string;
+  namespace: string;
+  revision: number;
+  metadata: { context: string; kubeConfig: string };
+}
+
 export function actions(
   addTab: any,
   spawnDialog: any,
   setSidePanelComponent: any,
-  router: Router,
-  context: string,
-  kubeConfig: string
-): RowAction<T>[] {
+  router: Router
+): RowAction<HelmReleaseRow>[] {
   return [
     {
       label: "Rollback",
       isAvailable: (row) => row.revision > 1,
-      handler: (row: any) => {
+      handler: (row: HelmReleaseRow) => {
         spawnDialog({
           title: "Rollback Helm Release",
           message: "Please select the revision to rollback to",
@@ -25,9 +34,9 @@ export function actions(
             () => import("@/views/dialogs/HelmRollback.vue")
           ),
           props: {
-            context: context,
+            context: row.metadata.context,
             namespace: row.namespace,
-            kubeConfig: kubeConfig,
+            kubeConfig: row.metadata.kubeConfig,
             release: row,
           },
           buttons: [],
@@ -41,7 +50,7 @@ export function actions(
     {
       label: "Delete",
       massAction: true,
-      handler: (rows: any[]) => {
+      handler: (rows: HelmReleaseRow[]) => {
         spawnDialog({
           title: "Delete Helm Release",
           message: `Are you sure you want to delete ${
@@ -64,11 +73,11 @@ export function actions(
                     "delete",
                     row.name,
                     "--kube-context",
-                    context,
+                    row.metadata.context,
                     "--namespace",
                     row.namespace,
                     "--kubeconfig",
-                    kubeConfig,
+                    row.metadata.kubeConfig,
                   ]);
 
                   command.stdout.on("data", (data: string) => {

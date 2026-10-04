@@ -6,13 +6,15 @@ import { useToast } from "@/components/ui/toast";
 import { Router } from "vue-router";
 import { error } from "@/lib/logger";
 
-export function actions<T extends V1Node>(
+export function actions<
+  T extends V1Node & {
+    metadata: { context: string; kubeConfig: string };
+  }
+>(
   addTab: any,
   spawnDialog: any,
   setSidePanelComponent: any,
-  router: Router,
-  context: string,
-  kubeConfig: string
+  router: Router
 ): RowAction<T>[] {
   const isCordoned = (row: T) => {
     return row.spec?.taints?.find((t) => t.effect === "NoSchedule");
@@ -43,9 +45,9 @@ export function actions<T extends V1Node>(
                   isCordoned(row) ? "uncordon" : "cordon",
                   `${row.metadata?.name}`,
                   "--context",
-                  context,
+                  row.metadata.context,
                   "--kubeconfig",
-                  kubeConfig,
+                  row.metadata.kubeConfig,
                 ]);
 
                 command.stderr.on("data", (e: string) => {
@@ -88,9 +90,9 @@ export function actions<T extends V1Node>(
                     "--ignore-daemonsets",
                     "--delete-local-data",
                     "--context",
-                    context,
+                    row.metadata.context,
                     "--kubeconfig",
-                    kubeConfig,
+                    row.metadata.kubeConfig,
                   ]);
 
                   command.stderr.on("data", (e: string) => {

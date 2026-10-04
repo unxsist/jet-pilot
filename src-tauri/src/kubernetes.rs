@@ -154,9 +154,12 @@ pub mod client {
         }
     }
 
-    static CURRENT_CONTEXT: Mutex<Option<String>> = Mutex::new(Some(String::new()));
     static CURRENT_KUBECONFIG: Mutex<Option<String>> = Mutex::new(None);
-    static CLIENT: Mutex<Option<Client>> = Mutex::new(None);
+    /// Cached clients keyed by (kubeconfig path, context). With multiple
+    /// contexts active at once, a single cached client would be rebuilt (or,
+    /// worse, reused for the wrong kubeconfig) on every switch between rows of
+    /// different clusters. An empty kubeconfig path means default resolution.
+    static CLIENTS: Mutex<Option<HashMap<(String, String), Client>>> = Mutex::new(None);
 
     #[tauri::command]
     pub async fn get_current_context() -> Result<String, SerializableKubeError> {
@@ -178,9 +181,13 @@ pub mod client {
     }
 
     #[tauri::command]
-    pub async fn list_contexts() -> Result<Vec<NamedContext>, SerializableKubeError> {
+    pub async fn list_contexts(
+        kube_config: Option<String>,
+    ) -> Result<Vec<NamedContext>, SerializableKubeError> {
         debug!("Listing available Kubernetes contexts");
-        let kubeconfig = {
+        let kubeconfig = if let Some(path) = kube_config.filter(|p| !p.is_empty()) {
+            path
+        } else {
             let kubeconfig_guard = CURRENT_KUBECONFIG.lock().unwrap();
             kubeconfig_guard.as_ref().ok_or_else(|| {
                 error!("No kubeconfig has been set");
@@ -267,51 +274,66 @@ pub mod client {
         Ok(client)
     }
 
-    async fn client_with_context(context: &str) -> Result<Client, SerializableKubeError> {
-        debug!("Getting or creating client for context: {}", context);
-        
-        let current_context = CURRENT_CONTEXT.lock().unwrap().as_ref().unwrap().clone();
-        if context.to_string() != current_context {
-            debug!("Context switch detected: {} -> {}", current_context, context);
-            let options = KubeConfigOptions {
-                context: Some(context.to_string()),
-                cluster: None,
-                user: None,
-            };
+    /// Returns a (cached) client for `context`. `kube_config` selects the
+    /// kubeconfig file the context lives in; when absent or empty the globally
+    /// selected kubeconfig (see `set_current_kubeconfig`) is used.
+    async fn client_with_context(
+        context: &str,
+        kube_config: Option<&str>,
+    ) -> Result<Client, SerializableKubeError> {
+        let kubeconfig_path = match kube_config {
+            Some(path) if !path.is_empty() => path.to_string(),
+            _ => CURRENT_KUBECONFIG.lock().unwrap().clone().unwrap_or_default(),
+        };
+        let key = (kubeconfig_path.clone(), context.to_string());
 
-            let current_kubeconfig = CURRENT_KUBECONFIG.lock().unwrap().clone();
-            let client_config = match current_kubeconfig {
-                Some(kubeconfig) if !kubeconfig.is_empty() => {
-                    debug!("Using custom kubeconfig path");
-                    let kubeconfig = Kubeconfig::read_from(kubeconfig.clone()).map_err(|err| {
-                        error!("Failed to read custom kubeconfig: {}", err);
-                        SerializableKubeError::from(err)
-                    })?;
-                    Config::from_custom_kubeconfig(kubeconfig, &options).await.map_err(|err| {
-                        error!("Failed to create config from custom kubeconfig: {}", err);
-                        SerializableKubeError::from(err)
-                    })?
-                }
-                _ => {
-                    debug!("Using default kubeconfig path");
-                    Config::from_kubeconfig(&options).await.map_err(|err| {
-                        error!("Failed to create config from default kubeconfig: {}", err);
-                        SerializableKubeError::from(err)
-                    })?
-                }
-            };
-
-            let client = Client::try_from(client_config).map_err(|err| {
-                error!("Failed to create Kubernetes client: {}", err);
-                SerializableKubeError::from(err)
-            })?;
-
-            CURRENT_CONTEXT.lock().unwrap().replace(context.to_string());
-            CLIENT.lock().unwrap().replace(client);
-            info!("Successfully switched to context: {}", context);
+        let cached = CLIENTS
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|clients| clients.get(&key).cloned());
+        if let Some(client) = cached {
+            return Ok(client);
         }
 
-        Ok(CLIENT.lock().unwrap().clone().unwrap())
+        debug!("Creating client for context: {}", context);
+        let options = KubeConfigOptions {
+            context: Some(context.to_string()),
+            cluster: None,
+            user: None,
+        };
+
+        let client_config = if !kubeconfig_path.is_empty() {
+            debug!("Using custom kubeconfig path");
+            let kubeconfig = Kubeconfig::read_from(kubeconfig_path.clone()).map_err(|err| {
+                error!("Failed to read custom kubeconfig: {}", err);
+                SerializableKubeError::from(err)
+            })?;
+            Config::from_custom_kubeconfig(kubeconfig, &options).await.map_err(|err| {
+                error!("Failed to create config from custom kubeconfig: {}", err);
+                SerializableKubeError::from(err)
+            })?
+        } else {
+            debug!("Using default kubeconfig path");
+            Config::from_kubeconfig(&options).await.map_err(|err| {
+                error!("Failed to create config from default kubeconfig: {}", err);
+                SerializableKubeError::from(err)
+            })?
+        };
+
+        let client = Client::try_from(client_config).map_err(|err| {
+            error!("Failed to create Kubernetes client: {}", err);
+            SerializableKubeError::from(err)
+        })?;
+
+        CLIENTS
+            .lock()
+            .unwrap()
+            .get_or_insert_with(HashMap::new)
+            .insert(key, client.clone());
+        info!("Created client for context: {}", context);
+
+        Ok(client)
     }
 
     #[tauri::command]
@@ -360,7 +382,7 @@ pub mod client {
         debug!("Listing pods in namespace {} for context: {}", namespace, context);
         trace!("Using selectors - label: {}, field: {}", label_selector, field_selector);
         
-        let client = client_with_context(context).await?;
+        let client = client_with_context(context, None).await?;
         let pod_api: Api<Pod> = api_all_or_namespaced(client, namespace);
 
         let pods = pod_api.list(
@@ -382,7 +404,7 @@ pub mod client {
         namespace: &str,
     ) -> Result<Vec<PodMetrics>, SerializableKubeError> {
         debug!("Fetching pod metrics for namespace {} in context {}", namespace, context);
-        let client = client_with_context(context).await?;
+        let client = client_with_context(context, None).await?;
         let metrics_api: Api<PodMetrics> = api_all_or_namespaced(client, namespace);
 
         let metrics = metrics_api.list(&ListParams::default()).await.map_err(|err| {
@@ -401,7 +423,7 @@ pub mod client {
         name: &str,
     ) -> Result<PodMetrics, SerializableKubeError> {
         debug!("Fetching metrics for pod {}/{}", namespace, name);
-        let client = client_with_context(context).await?;
+        let client = client_with_context(context, None).await?;
         let metrics_api: Api<PodMetrics> = Api::namespaced(client, namespace);
 
         let metric = metrics_api.get(name).await.map_err(|err| {
@@ -419,7 +441,7 @@ pub mod client {
         namespace: &str,
         name: &str,
     ) -> Result<Pod, SerializableKubeError> {
-        let client = client_with_context(context).await?;
+        let client = client_with_context(context, None).await?;
         let pod_api: Api<Pod> = Api::namespaced(client, namespace);
 
         return pod_api
@@ -434,9 +456,10 @@ pub mod client {
         namespace: &str,
         name: &str,
         grace_period_seconds: u32,
+        kube_config: Option<String>,
     ) -> Result<DeletionResult, SerializableKubeError> {
         debug!("Deleting pod {}/{} with grace period {}s", namespace, name, grace_period_seconds);
-        let client = client_with_context(context).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
         let pod_api: Api<Pod> = Api::namespaced(client, namespace);
 
         match pod_api
@@ -463,7 +486,7 @@ pub mod client {
         context: &str,
         namespace: &str,
     ) -> Result<Vec<Deployment>, SerializableKubeError> {
-        let client = client_with_context(context).await?;
+        let client = client_with_context(context, None).await?;
         let deployment_api: Api<Deployment> = api_all_or_namespaced(client, namespace);
 
         return deployment_api
@@ -478,9 +501,10 @@ pub mod client {
         context: &str,
         namespace: &str,
         name: &str,
+        kube_config: Option<String>,
     ) -> Result<bool, SerializableKubeError> {
         debug!("Restarting deployment {}/{}", namespace, name);
-        let client = client_with_context(context).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
         let deployment_api: Api<Deployment> = Api::namespaced(client, namespace);
 
         match deployment_api.restart(name).await {
@@ -500,9 +524,10 @@ pub mod client {
         context: &str,
         namespace: &str,
         name: &str,
+        kube_config: Option<String>,
     ) -> Result<bool, SerializableKubeError> {
         debug!("Restarting statefulset {}/{}", namespace, name);
-        let client = client_with_context(context).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
         let statefulset_api: Api<StatefulSet> = Api::namespaced(client, namespace);
 
         match statefulset_api.restart(name).await {
@@ -522,7 +547,7 @@ pub mod client {
         context: &str,
         namespace: &str,
     ) -> Result<Vec<Service>, SerializableKubeError> {
-        let client = client_with_context(context).await?;
+        let client = client_with_context(context, None).await?;
         let services_api: Api<Service> = api_all_or_namespaced(client, namespace);
 
         return services_api
@@ -537,7 +562,7 @@ pub mod client {
         context: &str,
         namespace: &str,
     ) -> Result<Vec<Job>, SerializableKubeError> {
-        let client = client_with_context(context).await?;
+        let client = client_with_context(context, None).await?;
         let jobs_api: Api<Job> = api_all_or_namespaced(client, namespace);
 
         return jobs_api
@@ -552,7 +577,7 @@ pub mod client {
         context: &str,
         namespace: &str,
     ) -> Result<Vec<CronJob>, SerializableKubeError> {
-        let client = client_with_context(context).await?;
+        let client = client_with_context(context, None).await?;
         let cronjobs_api: Api<CronJob> = api_all_or_namespaced(client, namespace);
 
         return cronjobs_api
@@ -567,7 +592,7 @@ pub mod client {
         context: &str,
         namespace: &str,
     ) -> Result<Vec<ConfigMap>, SerializableKubeError> {
-        let client: Client = client_with_context(context).await?;
+        let client: Client = client_with_context(context, None).await?;
         let configmaps_api: Api<ConfigMap> = api_all_or_namespaced(client, namespace);
 
         return configmaps_api
@@ -582,7 +607,7 @@ pub mod client {
         context: &str,
         namespace: &str,
     ) -> Result<Vec<Secret>, SerializableKubeError> {
-        let client: Client = client_with_context(context).await?;
+        let client: Client = client_with_context(context, None).await?;
         let secrets_api: Api<Secret> = api_all_or_namespaced(client, namespace);
 
         return secrets_api
@@ -597,7 +622,7 @@ pub mod client {
         context: &str,
         namespace: &str,
     ) -> Result<Vec<Ingress>, SerializableKubeError> {
-        let client: Client = client_with_context(context).await?;
+        let client: Client = client_with_context(context, None).await?;
         let ingress_api: Api<Ingress> = api_all_or_namespaced(client, namespace);
 
         return ingress_api
@@ -612,7 +637,7 @@ pub mod client {
         context: &str,
     ) -> Result<Vec<PersistentVolume>, SerializableKubeError> {
         debug!("Listing persistent volumes in context {}", context);
-        let client: Client = client_with_context(context).await?;
+        let client: Client = client_with_context(context, None).await?;
         let pv_api: Api<PersistentVolume> = Api::all(client);
 
         let pvs = pv_api.list(&ListParams::default()).await.map_err(|err| {
@@ -629,7 +654,7 @@ pub mod client {
         context: &str,
         namespace: &str,
     ) -> Result<Vec<PersistentVolumeClaim>, SerializableKubeError> {
-        let client: Client = client_with_context(context).await?;
+        let client: Client = client_with_context(context, None).await?;
         let pvc_api: Api<PersistentVolumeClaim> = api_all_or_namespaced(client, namespace);
 
         return pvc_api
@@ -645,9 +670,10 @@ pub mod client {
         namespace: &str,
         name: &str,
         object: Pod,
+        kube_config: Option<String>,
     ) -> Result<Pod, SerializableKubeError> {
         debug!("Replacing pod {}/{}", namespace, name);
-        let client = client_with_context(context).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
         let pod_api: Api<Pod> = Api::namespaced(client, namespace);
 
         let pod = pod_api.replace(name, &Default::default(), &object).await.map_err(|err| {
@@ -687,9 +713,10 @@ pub mod client {
                 namespace: &str,
                 name: &str,
                 object: $type,
+                kube_config: Option<String>,
             ) -> Result<$type, SerializableKubeError> {
                 debug!("Replacing {} {}/{}", $resource_name, namespace, name);
-                let client = client_with_context(context).await?;
+                let client = client_with_context(context, kube_config.as_deref()).await?;
                 let api: Api<$type> = Api::namespaced(client, namespace);
 
                 let result = api.replace(name, &Default::default(), &object).await;
@@ -713,7 +740,7 @@ pub mod client {
         context: &str,
     ) -> Result<Vec<String>, SerializableKubeError> {
         debug!("Fetching core API versions for context {}", context);
-        let client = client_with_context(context).await?;
+        let client = client_with_context(context, None).await?;
 
         let versions = client.list_core_api_versions().await.map_err(|err| {
             error!("Failed to list core API versions: {}", err);
@@ -731,7 +758,7 @@ pub mod client {
         core_api_version: &str,
     ) -> Result<Vec<APIResource>, SerializableKubeError> {
         debug!("Fetching core API resources for version {} in context {}", core_api_version, context);
-        let client = client_with_context(context).await?;
+        let client = client_with_context(context, None).await?;
 
         let resources = client.list_core_api_resources(core_api_version).await.map_err(|err| {
             error!("Failed to list core API resources for version {}: {}", core_api_version, err);
@@ -745,7 +772,7 @@ pub mod client {
     #[tauri::command]
     pub async fn get_api_groups(context: &str) -> Result<Vec<APIGroup>, SerializableKubeError> {
         debug!("Fetching API groups for context {}", context);
-        let client = client_with_context(context).await?;
+        let client = client_with_context(context, None).await?;
 
         let groups = client.list_api_groups().await.map_err(|err| {
             error!("Failed to list API groups: {}", err);
@@ -762,7 +789,7 @@ pub mod client {
         api_group_version: &str,
     ) -> Result<Vec<APIResource>, SerializableKubeError> {
         debug!("Fetching API resources for group version {} in context {}", api_group_version, context);
-        let client = client_with_context(context).await?;
+        let client = client_with_context(context, None).await?;
 
         let resources = client.list_api_group_resources(api_group_version).await.map_err(|err| {
             error!("Failed to list API resources for group version {}: {}", api_group_version, err);
@@ -778,9 +805,10 @@ pub mod client {
         context: &str,
         namespace: &str,
         name: &str,
+        kube_config: Option<String>,
     ) -> Result<Job, SerializableKubeError> {
         debug!("Triggering manual run of cronjob {}/{}", namespace, name);
-        let mut client = client_with_context(context).await?;
+        let mut client = client_with_context(context, kube_config.as_deref()).await?;
 
         let cronjob_api: Api<CronJob> = Api::namespaced(client.clone(), namespace);
         let selected_cronjob = cronjob_api.get(name).await.map_err(|err| {
@@ -832,8 +860,7 @@ pub mod client {
     /// needed after an interactive exec-plugin login (kubelogin / oidc-login)
     /// completes: the cached client still holds the old, expired token.
     fn clear_cached_client() {
-        CLIENT.lock().unwrap().take();
-        CURRENT_CONTEXT.lock().unwrap().replace(String::new());
+        CLIENTS.lock().unwrap().take();
         info!("Cleared cached kube client after auth re-login");
     }
 
@@ -967,9 +994,14 @@ pub mod client {
         #[cfg(windows)]
         cmd.creation_flags(0x08000000);
 
-        let output = cmd
-            .output()
+        // A hung kubectl (unreachable API server, exec plugin waiting for an
+        // interactive login) must not block callers forever: the polling views
+        // skip refreshes while a fetch is in flight. kill_on_drop terminates the
+        // process when the timeout drops the future.
+        cmd.kill_on_drop(true);
+        let output = tokio::time::timeout(Duration::from_secs(2 * 60), cmd.output())
             .await
+            .map_err(|_| "kubectl timed out after 2 minutes".to_string())?
             .map_err(|e| e.to_string())?;
 
         if output.status.success() {
