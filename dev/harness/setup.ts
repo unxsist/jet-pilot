@@ -7,7 +7,12 @@
  * Knobs (query string on first load, persisted in localStorage):
  *   ?theme=dark|light        colour scheme
  *   ?os=linux|macos|windows  window chrome variant
- *   ?scenario=default|empty|error|nocontext|whatsnew
+ *   ?scenario=default|empty|error|nocontext|whatsnew|large
+ *   ?polling=0|1             kubectl polling instead of live watches
+ *                            (settings.experimental.useKubectlPolling)
+ *
+ * `large` scales the first context to 5000 pods with a stream of live
+ * changes (watch deltas) to exercise the list views.
  */
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import yaml from "js-yaml";
@@ -24,13 +29,14 @@ import {
 } from "./fixtures";
 
 const params = new URLSearchParams(location.search);
-for (const key of ["theme", "os", "scenario"]) {
+for (const key of ["theme", "os", "scenario", "polling"]) {
   const value = params.get(key);
   if (value) localStorage.setItem(`harness-${key}`, value);
 }
 const theme = localStorage.getItem("harness-theme") || "dark";
 const os = localStorage.getItem("harness-os") || "linux";
 const scenario = localStorage.getItem("harness-scenario") || "default";
+const polling = localStorage.getItem("harness-polling") === "1";
 
 // VueUse's useColorMode persists its own value; keep it in sync.
 localStorage.setItem("vueuse-color-scheme", theme);
@@ -70,7 +76,32 @@ const settings = {
   appearance: { colorScheme: theme },
   updates: { checkOnStartup: false, whatsNew: scenario === "whatsnew" ? "1.0.0" : "1.35.0" },
   logLevel: "error",
+  ...(polling ? { experimental: { useKubectlPolling: true } } : {}),
 };
+
+/* Synthetic large cluster: clones of the fixture pods with unique ids. */
+const LARGE_POD_COUNT = 5000;
+if (scenario === "large") {
+  const cluster = CLUSTERS[CONTEXTS[0].name];
+  const templates = cluster.pods;
+  const metricTemplates = new Map(cluster.podmetrics.map((m) => [m.metadata.name, m]));
+  const pods: any[] = [];
+  const metrics: any[] = [];
+  for (let i = 0; i < LARGE_POD_COUNT; i++) {
+    const template = templates[i % templates.length];
+    const name = `${template.metadata.name}-${i.toString(36)}`;
+    pods.push({
+      ...template,
+      metadata: { ...template.metadata, name, uid: `large-${i}`, resourceVersion: "1" },
+    });
+    const metric = metricTemplates.get(template.metadata.name);
+    if (metric) {
+      metrics.push({ ...metric, metadata: { ...metric.metadata, name } });
+    }
+  }
+  cluster.pods = pods;
+  cluster.podmetrics = metrics;
+}
 
 const encoder = new TextEncoder();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -301,6 +332,116 @@ function startPty(onEvent: any, banner: string[]) {
   }, 100);
 }
 
+/* ---------------------------------------------------------------- watch -- */
+
+/*
+ * WatchHub mock: per scope a `ready` status + snapshot, then (scenario
+ * `large`) a stream of batched deltas, like src-tauri/src/watch.
+ */
+const watchSubscriptions = new Map<number, { channel: any; context: string; key: string; scopes: string[] }>();
+let watchIds = 0;
+let resourceVersion = 1000;
+
+const tagRow = (item: any, context: string, kubeConfig: string) => ({
+  ...item,
+  metadata: {
+    resourceVersion: String(item.metadata?.resourceVersion ?? resourceVersion),
+    ...item.metadata,
+    context,
+    kubeConfig,
+  },
+});
+
+function watchSubscribe(request: any, channel: any) {
+  const { context, kubeConfig = "", resource, namespaces = [] } = request;
+  const key = resourceKey(resource);
+  const cluster = CLUSTERS[context];
+  if (!cluster) throw new Error(`context ${context} not found`);
+
+  const clusterScoped = ["nodes", "namespaces", "persistentvolumes"].includes(key);
+  const scopes: string[] =
+    clusterScoped || namespaces.length === 0 || namespaces.includes("all") ? [""] : [...namespaces].sort();
+  const id = ++watchIds;
+  watchSubscriptions.set(id, { channel, context, key, scopes });
+
+  setTimeout(() => {
+    for (const scope of scopes) {
+      if (scenario === "error" && key !== "podmetrics") {
+        sendToChannel(channel, {
+          type: "status",
+          scope,
+          state: "error",
+          message: `Unable to connect to the server: dial tcp 10.0.12.34:443: i/o timeout (context ${context})`,
+        });
+        continue;
+      }
+      const all: any[] =
+        scenario === "empty" && key !== "namespaces" ? [] : (cluster as any)[key] || [];
+      const items = all
+        .filter((i) => !scope || i.metadata?.namespace === scope)
+        .map((i) => tagRow(i, context, kubeConfig));
+      sendToChannel(channel, { type: "status", scope, state: "ready" });
+      sendToChannel(channel, { type: "snapshot", scope, items });
+    }
+  }, 60);
+
+  return { id, scopes, namespaced: !clusterScoped, apiVersion: "v1", kind: request.kind || "" };
+}
+
+if (scenario === "large") {
+  // ~20 pod changes per second, batched like the backend (150 ms). The
+  // kubectl mock serves the same mutated list, so polling sees them too.
+  setInterval(() => {
+    const cluster = CLUSTERS[CONTEXTS[0].name];
+    const modified = Array.from({ length: 3 }, () => {
+      const i = Math.floor(Math.random() * cluster.pods.length);
+      const pod = cluster.pods[i];
+      const next = {
+        ...pod,
+        metadata: { ...pod.metadata, resourceVersion: String(++resourceVersion) },
+        status: {
+          ...pod.status,
+          containerStatuses: (pod.status?.containerStatuses || []).map((c: any) => ({
+            ...c,
+            restartCount: (c.restartCount || 0) + 1,
+          })),
+        },
+      };
+      cluster.pods[i] = next;
+      return next;
+    });
+    for (const sub of watchSubscriptions.values()) {
+      if (sub.key !== "pods" || sub.context !== CONTEXTS[0].name) continue;
+      for (const scope of sub.scopes) {
+        const inScope = modified
+          .filter((p) => !scope || p.metadata.namespace === scope)
+          .map((p) => tagRow(p, sub.context, KUBECONFIG));
+        if (inScope.length) {
+          sendToChannel(sub.channel, { type: "delta", scope, added: [], modified: inScope, deleted: [] });
+        }
+      }
+    }
+  }, 150);
+}
+
+function metricsSubscribe(request: any, channel: any) {
+  const { context, kubeConfig = "", namespaces = [] } = request;
+  const cluster = CLUSTERS[context];
+  setTimeout(() => {
+    if (!cluster || scenario === "error") {
+      sendToChannel(channel, { type: "status", state: "unavailable", message: "metrics-server not installed" });
+      return;
+    }
+    const all = namespaces.length === 0 || namespaces.includes("all");
+    const pods = cluster.podmetrics
+      .filter((m) => all || namespaces.includes(m.metadata?.namespace))
+      .map((m) => tagRow(m, context, kubeConfig));
+    sendToChannel(channel, { type: "status", state: "ready" });
+    sendToChannel(channel, { type: "sample", timestamp: Date.now(), pods, nodes: [] });
+  }, 80);
+  return ++watchIds;
+}
+
 /* ------------------------------------------------------------- dispatch -- */
 
 const ptyChannels = new Map<string, any>();
@@ -391,6 +532,33 @@ mockIPC(
       case "run_kubectl":
         await sleep(120);
         return kubectlGet(p.args);
+
+      // live watches + metrics (src-tauri/src/watch, metrics.rs)
+      case "watch_subscribe":
+        await sleep(20);
+        return watchSubscribe(p.request, p.onEvent);
+      case "watch_unsubscribe":
+        watchSubscriptions.delete(p.id);
+        return null;
+      case "watch_restart":
+      case "watch_reset":
+      case "watch_set_paused":
+      case "metrics_unsubscribe":
+      case "metrics_reset":
+        return null;
+      case "watch_get": {
+        for (const cluster of Object.values(CLUSTERS)) {
+          for (const list of Object.values(cluster) as any[][]) {
+            const found = Array.isArray(list) && list.find((o) => o?.metadata?.uid === p.uid);
+            if (found) return found;
+          }
+        }
+        throw new Error(`Object ${p.uid} is not cached`);
+      }
+      case "watch_stats":
+        return { watchers: watchSubscriptions.size, subscriptions: watchSubscriptions.size, objects: 0, idle: 0, paused: false };
+      case "metrics_subscribe":
+        return metricsSubscribe(p.request, p.onEvent);
 
       // shell plugin
       case "plugin:shell|execute":
@@ -483,4 +651,4 @@ mockIPC(
   { shouldMockEvents: true }
 );
 
-(window as any).__harness = { theme, os, scenario };
+(window as any).__harness = { theme, os, scenario, polling };
