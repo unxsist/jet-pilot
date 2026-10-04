@@ -53,7 +53,32 @@ const screens = {
       await wait(600);
     },
   },
-  "cluster-overview": { url: "/cluster-overview", ready: ".vue-flow__node", settle: 2500 },
+  "cluster-overview": { url: "/cluster-overview", ready: ".vue-flow__node-k8s", settle: 2500 },
+  "graph-problems": {
+    url: "/cluster-overview",
+    ready: ".vue-flow__node-k8s",
+    settle: 2000,
+    run: async (page) => {
+      await page.keyboard.press("p");
+      await wait(900);
+    },
+  },
+  "graph-focus": {
+    url: "/cluster-overview",
+    ready: ".vue-flow__node-k8s",
+    settle: 2000,
+    run: async (page) => {
+      await page
+        .locator(".vue-flow__node-k8s")
+        .filter({ hasText: "checkout-api" })
+        .filter({ has: page.locator(".graph-card__meta", { hasText: "Deployment" }) })
+        .first()
+        .dblclick();
+      await page.mouse.move(5, 500);
+      await wait(1200);
+    },
+  },
+  "graph-large": { url: "/cluster-overview?scenario=large", ready: ".vue-flow__node-k8s", settle: 3000 },
   yaml: {
     url: "/pods",
     ready: "tbody tr td",

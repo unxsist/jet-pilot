@@ -235,7 +235,7 @@ canvas with a hairline border, the side panel is `bg-card`. Toolbars are
 
 `npm run harness` serves the app in a browser with mocked Tauri IPC and
 fixture data (`dev/harness/`). Query parameters `theme`, `os` and
-`scenario` (`default`, `empty`, `error`, `nocontext`, `whatsnew`) switch
+`scenario` (`default`, `empty`, `error`, `nocontext`, `whatsnew`, `large`: a 2,000+ object cluster for the resource graph) switch
 variants. `node dev/harness/shoot.mjs <prefix> [screen...]` screenshots the
 key screens in dark and light with a local Chromium (needs
 `playwright-core`, which is not a project dependency). Nothing in
