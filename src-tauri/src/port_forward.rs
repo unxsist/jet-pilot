@@ -31,6 +31,8 @@ use tokio::process::{Child, Command};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::util::lock;
+
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
@@ -143,11 +145,11 @@ async fn read_forward_output<R: AsyncRead + Unpin>(
                 }
 
                 if !trimmed.contains("Handling connection for") {
-                    *last_output.lock().unwrap() = Some(trimmed.to_string());
+                    *lock(&last_output) = Some(trimmed.to_string());
                 }
 
                 let event = {
-                    let mut current = info.lock().unwrap();
+                    let mut current = lock(&info);
                     if trimmed.contains("Forwarding from") {
                         if current.status == ForwardStatus::Starting {
                             current.status = ForwardStatus::Ready;
@@ -186,14 +188,14 @@ async fn read_forward_output<R: AsyncRead + Unpin>(
 /// Kill a forward and tell the frontend why it stopped. Safe to call when the
 /// forward is already gone (e.g. it exited on its own) - it becomes a no-op.
 async fn terminate_forward(app: &tauri::AppHandle, id: &str, reason: &str) -> Result<(), String> {
-    let removed = FORWARDS.lock().unwrap().remove(id);
+    let removed = lock(&FORWARDS).remove(id);
     let Some(forward) = removed else {
         return Ok(());
     };
 
     forward.stopped.store(true, Ordering::Relaxed);
 
-    let child = forward.child.lock().unwrap().take();
+    let child = lock(&forward.child).take();
     if let Some(mut child) = child {
         let _ = child.kill().await;
         let _ = child.wait().await;
@@ -210,12 +212,37 @@ async fn terminate_forward(app: &tauri::AppHandle, id: &str, reason: &str) -> Re
     Ok(())
 }
 
+/// Rejects spec values that kubectl would parse as flags (e.g. an object
+/// type of `--kubeconfig=...`, which ends up as a positional argument) and
+/// empty values where kubectl needs one.
+fn validate_spec(spec: &PortForwardSpec) -> Result<(), String> {
+    let fields = [
+        ("kubeconfig", spec.kube_config.as_str(), false),
+        ("context", spec.context.as_str(), true),
+        ("namespace", spec.namespace.as_str(), false),
+        ("object type", spec.object_type.as_str(), true),
+        ("object name", spec.object_name.as_str(), true),
+        ("address", spec.address.as_str(), true),
+    ];
+    for (field, value, required) in fields {
+        if required && value.is_empty() {
+            return Err(format!("Port forward {field} must not be empty"));
+        }
+        if value.starts_with('-') {
+            return Err(format!("Invalid port forward {field}: {value}"));
+        }
+    }
+    Ok(())
+}
+
 /// Spawn `kubectl port-forward` and start tracking it.
 #[tauri::command]
 pub async fn start_port_forward(
     app: tauri::AppHandle,
     spec: PortForwardSpec,
 ) -> Result<PortForwardInfo, String> {
+    validate_spec(&spec)?;
+
     let id = Uuid::new_v4().to_string();
     let started_at_ms = now_ms();
     let expires_at_ms = spec
@@ -288,7 +315,7 @@ pub async fn start_port_forward(
     let child_shared: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(Some(child)));
     let stopped_shared = Arc::new(AtomicBool::new(false));
 
-    FORWARDS.lock().unwrap().insert(
+    lock(&FORWARDS).insert(
         id.clone(),
         ManagedForward {
             info: info_shared.clone(),
@@ -338,13 +365,11 @@ pub async fn start_port_forward(
     tokio::spawn(async move {
         tokio::time::sleep(STARTUP_TIMEOUT).await;
         let payload = {
-            let mut current = startup_info.lock().unwrap();
+            let mut current = lock(&startup_info);
             if current.status != ForwardStatus::Starting {
                 return;
             }
-            let detail = last_output
-                .lock()
-                .unwrap()
+            let detail = lock(&last_output)
                 .clone()
                 .map(|line| format!(" Last kubectl output: {line}"))
                 .unwrap_or_default();
@@ -367,7 +392,7 @@ pub async fn start_port_forward(
         let ttl_id = id.clone();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(ttl)).await;
-            if FORWARDS.lock().unwrap().contains_key(&ttl_id) {
+            if lock(&FORWARDS).contains_key(&ttl_id) {
                 info!("Port forward {} reached its TTL, stopping", ttl_id);
                 let _ = terminate_forward(&ttl_app, &ttl_id, "ttl").await;
             }
@@ -387,7 +412,7 @@ pub async fn start_port_forward(
             }
 
             let status = {
-                let mut guard = monitor_child.lock().unwrap();
+                let mut guard = lock(&monitor_child);
                 match guard.as_mut() {
                     Some(child) => match child.try_wait() {
                         Ok(Some(status)) => Some(status),
@@ -407,13 +432,13 @@ pub async fn start_port_forward(
             match status {
                 Some(status) => {
                     let exit_code = status.code();
-                    let still_registered = FORWARDS.lock().unwrap().contains_key(&monitor_id);
+                    let still_registered = lock(&FORWARDS).contains_key(&monitor_id);
                     if !still_registered || monitor_stopped.load(Ordering::Relaxed) {
                         return;
                     }
 
                     if exit_code != Some(0) {
-                        let mut current = monitor_info.lock().unwrap();
+                        let mut current = lock(&monitor_info);
                         if current.error.is_none() {
                             current.status = ForwardStatus::Error;
                             current.error = Some(format!(
@@ -454,25 +479,63 @@ pub async fn stop_port_forward(app: tauri::AppHandle, id: String) -> Result<(), 
 /// the webview reloads (dev HMR, etc.).
 #[tauri::command]
 pub fn list_port_forwards() -> Vec<PortForwardInfo> {
-    FORWARDS
-        .lock()
-        .unwrap()
+    lock(&FORWARDS)
         .values()
-        .map(|forward| forward.info.lock().unwrap().clone())
+        .map(|forward| lock(&forward.info).clone())
         .collect()
 }
 
 /// Kill every tracked forward. Called on app exit so kubectl children do not
 /// survive the app.
 pub fn kill_all_port_forwards() {
-    let forwards = std::mem::take(&mut *FORWARDS.lock().unwrap());
+    let forwards = std::mem::take(&mut *lock(&FORWARDS));
     for (_, forward) in forwards {
         forward.stopped.store(true, Ordering::Relaxed);
-        if let Some(mut child) = forward.child.lock().unwrap().take() {
+        if let Some(mut child) = lock(&forward.child).take() {
             // `start_kill` is synchronous; dropping the child afterwards (with
             // kill_on_drop(true)) guarantees the OS process is terminated.
             let _ = child.start_kill();
         }
     }
     info!("Killed all port forwards on exit");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spec() -> PortForwardSpec {
+        PortForwardSpec {
+            kube_config: String::new(),
+            context: "ctx".into(),
+            namespace: "default".into(),
+            object_type: "service".into(),
+            object_name: "web".into(),
+            object_port: 80,
+            local_port: 8080,
+            address: "127.0.0.1".into(),
+            ttl_seconds: None,
+        }
+    }
+
+    #[test]
+    fn validate_spec_rejects_flag_injection() {
+        assert!(validate_spec(&spec()).is_ok());
+
+        let mut bad = spec();
+        bad.object_type = "--kubeconfig=/tmp/evil".into();
+        assert!(validate_spec(&bad).is_err());
+
+        let mut bad = spec();
+        bad.context = String::new();
+        assert!(validate_spec(&bad).is_err());
+    }
+
+    #[test]
+    fn error_lines_are_classified() {
+        assert!(is_error_line("error: unable to forward port"));
+        assert!(is_error_line("bind: address already in use"));
+        assert!(!is_error_line("Forwarding from 127.0.0.1:8080 -> 80"));
+        assert!(!is_error_line("Handling connection for 8080"));
+    }
 }

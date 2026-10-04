@@ -42,6 +42,7 @@ pub mod structured_logging {
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
+    #[allow(clippy::upper_case_acronyms)]
     pub enum MatchType {
         AND,
         OR,
