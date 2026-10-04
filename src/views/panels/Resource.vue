@@ -11,12 +11,29 @@ import { KubernetesObject } from "@kubernetes/client-node";
 import { Tags, NotebookPen, CalendarSearch } from "lucide-vue-next";
 import Loading from "@/components/Loading.vue";
 
+import type { Component } from "vue";
+
 defineProps<{ resource: KubernetesObject }>();
 
-const getResourceSpecificComponent = (resource: KubernetesObject) => {
-  return defineAsyncComponent(
-    () => import(`@/views/panels/resource/${resource.kind}.vue`)
-  );
+/*
+ * Kind-specific sections (resource/<Kind>.vue). Async components are created
+ * once per kind: creating one per render remounted the section (and reloaded
+ * its chunk) on every update. Kinds without a section render nothing.
+ */
+const resourceSections = import.meta.glob<{ default: Component }>(
+  "./resource/*.vue"
+);
+const sectionCache = new Map<string, Component | null>();
+
+const getResourceSpecificComponent = (
+  resource: KubernetesObject
+): Component | null => {
+  const kind = resource.kind || "";
+  if (!sectionCache.has(kind)) {
+    const loader = resourceSections[`./resource/${kind}.vue`];
+    sectionCache.set(kind, loader ? defineAsyncComponent(loader) : null);
+  }
+  return sectionCache.get(kind) ?? null;
 };
 </script>
 <template>
@@ -46,6 +63,7 @@ const getResourceSpecificComponent = (resource: KubernetesObject) => {
         </AccordionContent>
       </AccordionItem>
       <component
+        v-if="getResourceSpecificComponent(resource)"
         :is="getResourceSpecificComponent(resource)"
         :resource="resource"
       />

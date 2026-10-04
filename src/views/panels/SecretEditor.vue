@@ -11,6 +11,8 @@ import EyeOpenIcon from "@/assets/icons/eye_open.svg";
 import CopyIcon from "@/assets/icons/copy.svg";
 import { V1Secret } from "@kubernetes/client-node";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { Check } from "lucide-vue-next";
+import { error } from "@/lib/logger";
 
 const decodedKeys = ref<string[]>([]);
 const props = defineProps<{ secret: V1Secret }>();
@@ -30,6 +32,23 @@ const getSecretData = (key: string) => {
 
   return atob(props.secret.data![key]);
 };
+
+/* Briefly show a check mark on the copy button that was used. */
+const copiedKey = ref<string | null>(null);
+let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+const copySecret = async (key: string) => {
+  try {
+    await writeText(getSecretData(key));
+    copiedKey.value = key;
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => (copiedKey.value = null), 1500);
+  } catch (e) {
+    error(`Failed to copy to the clipboard: ${e}`);
+  }
+};
+
+onUnmounted(() => clearTimeout(copiedTimer));
 </script>
 
 <template>
@@ -74,24 +93,37 @@ const getSecretData = (key: string) => {
                   <div class="absolute right-0 top-0 flex">
                     <button
                       v-if="decodedKeys.includes(key)"
-                      @click="writeText(getSecretData(key))"
-                      class="p-2 border-l border-b rounded-bl-sm hover:bg-muted text-white flex items-center justify-center"
+                      type="button"
+                      :aria-label="copiedKey === key ? `${key} copied` : `Copy ${key}`"
+                      :title="copiedKey === key ? 'Copied!' : 'Copy value'"
+                      @click="copySecret(key)"
+                      class="rounded-bl-sm p-2 border-l border-b hover:bg-muted text-foreground flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     >
-                      <CopyIcon class="h-4" />
+                      <Check
+                        v-if="copiedKey === key"
+                        class="h-4 w-4 text-green-600 dark:text-green-500"
+                      />
+                      <CopyIcon v-else class="h-4" />
                     </button>
                     <button
+                      type="button"
                       :class="{
                         'rounded-bl-sm': !decodedKeys.includes(key),
                       }"
+                      :aria-label="
+                        decodedKeys.includes(key) ? `Hide ${key}` : `Reveal ${key}`
+                      "
+                      :aria-pressed="decodedKeys.includes(key)"
+                      :title="decodedKeys.includes(key) ? 'Hide value' : 'Reveal value'"
                       @click="toggleDecode(key)"
-                      class="p-2 border-l border-b hover:bg-muted text-white flex items-center justify-center"
+                      class="p-2 border-l border-b hover:bg-muted text-foreground flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     >
-                      <EyeCloseIcon
-                        v-if="decodedKeys.includes(key)"
-                        class="h-4"
-                      />
+                      <EyeCloseIcon v-if="decodedKeys.includes(key)" class="h-4" />
                       <EyeOpenIcon v-else class="h-4" />
                     </button>
+                    <span class="sr-only" aria-live="polite">{{
+                      copiedKey === key ? `${key} copied to the clipboard` : ""
+                    }}</span>
                   </div>
                 </div>
               </div>
