@@ -242,11 +242,46 @@ const after = computed(() => {
     : 0;
 });
 
+const isMac = navigator.platform.toLowerCase().includes("mac");
+const searchPlaceholder = `Type to filter (${isMac ? "⌘" : "Ctrl+"}F)`;
+const searchFocused = ref(false);
+
+const isEditableTarget = (target: EventTarget | null) => {
+  const element = target as HTMLElement | null;
+  if (!element) return false;
+
+  return (
+    element.isContentEditable ||
+    ["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName) ||
+    !!element.closest?.(".monaco-editor, .xterm")
+  );
+};
+
+/*
+ * Type-to-filter: a plain alphanumeric key press anywhere focuses the filter
+ * input. Shortcuts (Cmd/Ctrl/Alt + key), typing in other fields and keys
+ * pressed while text is selected are left alone so copying from e.g. the
+ * describe drawer keeps working (#69). Cmd/Ctrl+F focuses the filter.
+ */
 const handleSearchKeyDown = (e: KeyboardEvent) => {
-  if (searchQuery.value.length === 0 && e.key.match(/[a-z0-9]/i)) {
-    searchInput.value?.focus();
-    window.removeEventListener("keydown", handleSearchKeyDown);
+  if (!props.allowFilter || e.defaultPrevented) {
+    return;
   }
+
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "f") {
+    e.preventDefault();
+    searchInput.value?.focus();
+    searchInput.value?.select();
+    return;
+  }
+
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key.length !== 1 || !/[a-z0-9]/i.test(e.key)) return;
+  if (document.activeElement === searchInput.value) return;
+  if (isEditableTarget(e.target)) return;
+  if (window.getSelection()?.toString()) return;
+
+  searchInput.value?.focus();
 };
 
 const handleSearchInputKeydown = (e: KeyboardEvent) => {
@@ -259,18 +294,6 @@ const handleSearchInputKeydown = (e: KeyboardEvent) => {
 watch(searchQuery, () => {
   table.setGlobalFilter(String(searchQuery.value));
 });
-
-const registerFilterKeybinds = () => {
-  if (!props.allowFilter) {
-    return;
-  }
-
-  if (searchQuery.value.length > 0) {
-    return;
-  }
-
-  window.addEventListener("keydown", handleSearchKeyDown);
-};
 
 const handleRowAction = (
   rowAction: WithHandler<TData> | MassWithHandler<TData>,
@@ -294,11 +317,11 @@ const handleRowAction = (
 };
 
 onMounted(() => {
-  registerFilterKeybinds();
+  window.addEventListener("keydown", handleSearchKeyDown);
 });
 
-onUpdated(() => {
-  registerFilterKeybinds();
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", handleSearchKeyDown);
 });
 
 const getRowClasses = (row: TData) => {
@@ -500,15 +523,20 @@ const hasRowClickListener = computed(() => {
     <div
       class="bottom-5 flex items-center absolute right-4 left-4 z-50 overflow-hidden"
     >
-      <div class="w-1/3">
+      <div v-if="allowFilter" class="w-1/3">
         <input
           ref="searchInput"
           v-model="searchQuery"
           :class="{
-            'opacity-0 pointer-events-none': searchQuery.length === 0,
+            'w-48 h-8 text-xs opacity-60 border-muted':
+              searchQuery.length === 0 && !searchFocused,
+            'w-full h-10 border-primary':
+              searchQuery.length > 0 || searchFocused,
           }"
-          class="w-full h-10 py-2 px-4 bg-background border border-primary focus:border-2 rounded-full focus:outline-none"
-          placeholder="Search"
+          class="transition-all py-2 px-4 bg-background border focus:border-2 rounded-full focus:outline-none"
+          :placeholder="searchPlaceholder"
+          @focus="searchFocused = true"
+          @blur="searchFocused = false"
           autocorrect="off"
           autocomplete="off"
           autocapitalize="off"

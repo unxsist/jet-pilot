@@ -65,7 +65,7 @@ const navigationGroups: NavigationGroup[] = [
   },
   {
     title: "Workloads",
-    coreResourceKinds: ["Pod"],
+    coreResourceKinds: ["Pod", "ReplicationController"],
     apiGroupResources: ["apps", "batch"],
   },
   {
@@ -80,7 +80,7 @@ const navigationGroups: NavigationGroup[] = [
   },
   {
     title: "Storage",
-    coreResourceKinds: ["PersistentVolumeClaim"],
+    coreResourceKinds: ["PersistentVolume", "PersistentVolumeClaim"],
     apiGroupResources: ["storage.*"],
   },
   {

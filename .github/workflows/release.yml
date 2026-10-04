@@ -20,6 +20,8 @@ jobs:
             args: "--target x86_64-apple-darwin"
           - platform: "ubuntu-22.04"
             args: ""
+          - platform: "ubuntu-22.04-arm" # aarch64 Linux (#60)
+            args: ""
           - platform: "windows-latest"
             args: ""
 
@@ -34,7 +36,7 @@ jobs:
           cache: "npm"
 
       - name: install dependencies (ubuntu only)
-        if: matrix.settings.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.settings.platform, 'ubuntu')
         run: |
           sudo apt update;
           sudo apt install -y \

@@ -54,7 +54,7 @@
     "tailwindcss-animate": "^1.0.7",
     "vee-validate": "^4.12.5",
     "vite-svg-loader": "^5.1.0",
-    "vue": "3.4.7",
+    "vue": "^3.5.43",
     "vue-command-palette": "^0.2.3",
     "vue-router": "^4.2.5",
     "vue3-lottie": "^3.3.1",

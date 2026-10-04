@@ -17,6 +17,10 @@ const filter = (
 ): (typeof Command)[] => {
   const fuse = new Fuse(list, {
     threshold: 0.3,
+    // Match anywhere in the string: context names are often long (e.g. EKS
+    // ARNs) with the distinguishing part at the end, which Fuse's default
+    // location/distance scoring would reject (#20).
+    ignoreLocation: true,
     keys: [
       {
         name: "keywords",
