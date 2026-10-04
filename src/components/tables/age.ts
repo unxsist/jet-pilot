@@ -16,6 +16,10 @@ export const formatAge = (value: unknown, now = new Date()): string => {
 /**
  * Age-style column: relative time in the cell, the absolute timestamp as
  * tooltip, sorted chronologically (rows without timestamp sort first).
+ *
+ * The value is the timestamp (ms), not the formatted age: row values are
+ * cached per row (unchanged rows are reused across refreshes), so the
+ * relative text is computed at render time instead.
  */
 export function ageColumn<T>(
   getTimestamp: (row: T) => unknown,
@@ -26,7 +30,8 @@ export function ageColumn<T>(
   return {
     id: header,
     header,
-    accessorFn: (row) => formatAge(getTimestamp(row)),
+    accessorFn: (row) => time(row),
+    cell: ({ row }) => formatAge(getTimestamp(row.original)),
     sortingFn: (a, b) => time(a.original) - time(b.original),
     enableGlobalFilter: false,
     meta: {

@@ -3,6 +3,15 @@ import { ColumnDef } from "@tanstack/vue-table";
 import { ageColumn } from "./age";
 import { formatDateTimeDifference } from "@/lib/utils";
 
+const duration = (row: V1Job) => {
+  const start = row.status?.startTime;
+  if (!start) return 0;
+  const end = row.status?.completionTime
+    ? new Date(row.status.completionTime)
+    : new Date();
+  return end.getTime() - new Date(start).getTime();
+};
+
 export const columns: ColumnDef<V1Job>[] = [
   {
     accessorKey: "metadata.name",
@@ -18,11 +27,19 @@ export const columns: ColumnDef<V1Job>[] = [
   },
   {
     header: "Duration",
-    accessorFn: (row) =>
-      formatDateTimeDifference(
-        row.status?.startTime || new Date(),
-        row.status?.completionTime || new Date()
-      ),
+    // Duration in ms (running jobs: until now), formatted at render time.
+    accessorFn: (row) => duration(row),
+    cell: ({ row }) => {
+      const start = row.original.status?.startTime;
+      return start
+        ? formatDateTimeDifference(
+            new Date(start),
+            row.original.status?.completionTime
+              ? new Date(row.original.status.completionTime)
+              : new Date()
+          )
+        : "-";
+    },
     enableGlobalFilter: false,
     meta: { numeric: true, class: () => "text-muted-foreground" },
   },
