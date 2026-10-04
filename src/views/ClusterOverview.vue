@@ -112,11 +112,19 @@ const objectCount = computed<number>(() => {
 
 const layoutNodes = (
   nodes: Node[],
-  padding = { top: 50, left: 25, bottom: 0, right: 25 }
+  padding = { top: 50, left: 12, bottom: 0, right: 0 }
 ) => {
-  const NODE_WIDTH = 150;
-  const NODE_HEIGHT = 120;
-  const MARGIN = 25;
+  const NODE_WIDTH = 190;
+  /* Leaf cards only need their header (kind + name). */
+  const NODE_HEIGHT = 44;
+  const MARGIN = 12;
+
+  /* Pod groups grow with their grid of status dots (8px dots, 6px gaps). */
+  const podsNodeHeight = (podCount: number) => {
+    const perRow = Math.max(1, Math.floor((NODE_WIDTH - 16 + 6) / 14));
+    const rows = Math.max(1, Math.ceil(podCount / perRow));
+    return 32 + 16 + rows * 8 + (rows - 1) * 6;
+  };
   const MAX_PER_ROW = 5;
 
   let nodeMap = new Map<string, Node>();
@@ -137,7 +145,10 @@ const layoutNodes = (
     let children = childrenMap.get(nodeId) || [];
 
     let width = NODE_WIDTH;
-    let height = NODE_HEIGHT;
+    let height =
+      node.type === "pods-object"
+        ? podsNodeHeight(node.data.pods.length)
+        : NODE_HEIGHT;
     let childPositions: { x: number; y: number; width: number; height: number }[] =
       [];
 
@@ -212,29 +223,146 @@ const layoutNodes = (
   return nodes;
 };
 
-const layoutGraph = () => {
-  nodes.value = layoutNodes(nodes.value);
+/* Initial / "fit" view: whole graph with some air, never zoomed past 100%. */
+const FIT_OPTIONS = { padding: 0.15, maxZoom: 1 };
 
+/* Fit once the new positions are rendered and measured. */
+const fitGraph = () => {
   nextTick(() => {
-    fitView();
+    requestAnimationFrame(() => fitView(FIT_OPTIONS));
   });
 };
 
+const layoutGraph = () => {
+  nodes.value = layoutNodes(nodes.value);
+  fitGraph();
+};
+
+/** Gap between packed groups of connected top-level objects. */
+const COMPONENT_GAP = 60;
+
+/*
+ * Top-level objects are laid out with dagre (top to bottom). Unconnected
+ * groups (e.g. one Service -> Deployment pair per app) would end up in one
+ * extremely wide row, so the connected components are packed into rows
+ * that roughly match the canvas aspect ratio.
+ */
 const layoutTopLevelNodes = () => {
   const topLevelNodes = nodes.value.filter((node) => node.data.level === 0);
-  const layoutTopLevelnodes = dagreLayout(topLevelNodes, edges.value, "TB");
+  // Only edges between top-level objects shape this layout: edges to nested
+  // objects would add phantom ranks.
+  const topLevelIds = new Set(topLevelNodes.map((node) => node.id));
+  const topLevelEdges = edges.value.filter(
+    (edge) => topLevelIds.has(edge.source) && topLevelIds.has(edge.target)
+  );
+  const sizeOf = (id: string) => {
+    const dimensions = findNode(id)?.dimensions;
+    return {
+      width: dimensions?.width || 150,
+      height: dimensions?.height || 50,
+    };
+  };
+
+  // Connected components among the top-level nodes (union-find).
+  const parent = new Map<string, string>(
+    topLevelNodes.map((node) => [node.id, node.id])
+  );
+  const root = (id: string): string => {
+    let current = id;
+    while (parent.get(current) !== current) {
+      current = parent.get(current)!;
+    }
+    return current;
+  };
+  for (const edge of topLevelEdges) {
+    parent.set(root(edge.source), root(edge.target));
+  }
+
+  const components = new Map<string, string[]>();
+  for (const node of topLevelNodes) {
+    const key = root(node.id);
+    components.set(key, [...(components.get(key) || []), node.id]);
+  }
+
+  /*
+   * dagre per component, so a tall group (e.g. unmapped resources) does not
+   * stretch the ranks of every other component. dagre positions are node
+   * centres; vue-flow positions are top-left.
+   */
+  const positions = new Map<string, { x: number; y: number }>();
+  for (const ids of components.values()) {
+    const idSet = new Set(ids);
+    const laidOut: Node[] = dagreLayout(
+      topLevelNodes.filter((node) => idSet.has(node.id)),
+      topLevelEdges.filter((edge) => idSet.has(edge.source)),
+      "TB",
+      { ranksep: 60, nodesep: 40 }
+    );
+    for (const node of laidOut) {
+      const { width, height } = sizeOf(node.id);
+      positions.set(node.id, {
+        x: node.position.x - width / 2,
+        y: node.position.y - height / 2,
+      });
+    }
+  }
+
+  const boxes = [...components.values()].map((ids) => {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const id of ids) {
+      const position = positions.get(id)!;
+      const { width, height } = sizeOf(id);
+      minX = Math.min(minX, position.x);
+      minY = Math.min(minY, position.y);
+      maxX = Math.max(maxX, position.x + width);
+      maxY = Math.max(maxY, position.y + height);
+    }
+    return { ids, minX, minY, width: maxX - minX, height: maxY - minY };
+  });
+
+  // Big groups first; rows about 1.6x as wide as the graph is tall.
+  boxes.sort((a, b) => b.height * b.width - a.height * a.width);
+  const area = boxes.reduce(
+    (sum, box) => sum + (box.width + COMPONENT_GAP) * (box.height + COMPONENT_GAP),
+    0
+  );
+  const rowWidth = Math.max(
+    Math.sqrt(area * 1.6),
+    ...boxes.map((box) => box.width)
+  );
+
+  let x = 0;
+  let y = 0;
+  let rowHeight = 0;
+  for (const box of boxes) {
+    if (x > 0 && x + box.width > rowWidth) {
+      x = 0;
+      y += rowHeight + COMPONENT_GAP;
+      rowHeight = 0;
+    }
+    for (const id of box.ids) {
+      const position = positions.get(id)!;
+      positions.set(id, {
+        x: position.x - box.minX + x,
+        y: position.y - box.minY + y,
+      });
+    }
+    x += box.width + COMPONENT_GAP;
+    rowHeight = Math.max(rowHeight, box.height);
+  }
 
   nodes.value = nodes.value.map((node) => {
-    const layoutNode = layoutTopLevelnodes.find((n: Node) => n.id === node.id);
-    if (layoutNode) {
-      node.position = layoutNode.position;
+    const position = positions.get(node.id);
+    if (position) {
+      node.position = position;
     }
     return node;
   });
 
-  nextTick(() => {
-    fitView();
-  });
+  fitGraph();
 };
 
 const topLevelObjects = () =>
@@ -879,7 +1007,8 @@ onMounted(async () => {
       v-else
       :nodes="nodes"
       :edges="edges"
-      fit-view-on-init
+      :min-zoom="0.1"
+      :max-zoom="2"
       @nodes-initialized="layoutTopLevelNodes"
     >
       <template #node-kubernetes-object="props">
@@ -919,7 +1048,7 @@ onMounted(async () => {
         size="icon-sm"
         aria-label="Fit to view"
         title="Fit to view"
-        @click="fitView()"
+        @click="fitView(FIT_OPTIONS)"
       >
         <Maximize class="h-3.5 w-3.5" />
       </Button>
