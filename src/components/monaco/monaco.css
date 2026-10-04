@@ -1,0 +1,18 @@
+/* Monaco adjustments for the JET Pilot surfaces (loaded with the editor chunk). */
+
+/* The diff gutter (revert arrows) picks up a focus-coloured frame. */
+.monaco-diff-editor .gutter {
+  outline: none !important;
+}
+
+/* Hover / suggest widgets: match the app's overlay radius and font. */
+.monaco-editor .monaco-hover,
+.monaco-editor .suggest-widget {
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.monaco-editor .monaco-hover {
+  font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  font-size: 12px;
+}

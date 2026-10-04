@@ -14,6 +14,7 @@ import {
   FileCog,
   FileText,
   FolderTree,
+  GitCompareArrows,
   Gauge,
   Globe,
   HardDrive,
@@ -117,6 +118,7 @@ const ICONS: Record<string, Component> = {
   tab: AppWindow,
   edit: FileCode2,
   describe: FileText,
+  diff: GitCompareArrows,
   logs: ScrollText,
   shell: SquareTerminal,
 };

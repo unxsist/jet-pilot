@@ -261,7 +261,9 @@ export class Kubernetes {
     namespace: string,
     manifest: string,
     mode: "apply" | "replace",
-    kubeConfig?: string
+    kubeConfig?: string,
+    /** `--dry-run=server`: validate + admit without persisting. */
+    dryRun = false
   ): Promise<string> {
     return invoke("apply_manifest", {
       context: context,
@@ -269,6 +271,7 @@ export class Kubernetes {
       manifest: manifest,
       mode: mode,
       kubeConfig: kubeConfig,
+      dryRun,
     });
   }
 
