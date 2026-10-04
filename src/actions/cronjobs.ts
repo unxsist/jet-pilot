@@ -41,15 +41,23 @@ export function actions<
                 )
                   .then(() => {
                     dialog.close();
+                    const { toast } = useToast();
+                    toast({
+                      title: `Triggered ${row.metadata?.name}`,
+                      description: "A job was created from the cron job.",
+                      variant: "success",
+                      autoDismiss: true,
+                    });
                   })
                   .catch((error) => {
                     dialog.close();
                     const { toast } = useToast();
 
                     toast({
-                      title: "An error occured",
-                      description: error.message,
+                      title: `Failed to trigger ${row.metadata?.name}`,
+                      description: error?.message ?? String(error),
                       variant: "destructive",
+                      duration: 15000,
                     });
                   });
               },

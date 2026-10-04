@@ -89,8 +89,6 @@ const fetchRevisions = async () => {
   const args = [
     "history",
     props.release.name,
-    "--kubeconfig",
-    props.kubeConfig,
     "--output",
     "json",
     "--kube-context",
@@ -98,6 +96,9 @@ const fetchRevisions = async () => {
     "--namespace",
     props.release.namespace,
   ];
+  if (props.kubeConfig) {
+    args.push("--kubeconfig", props.kubeConfig);
+  }
 
   const result = await runCli("helm", args);
   if (!cliSucceeded(result)) {
