@@ -1243,25 +1243,49 @@ export function buildTopology(
   const missingRefsOf = new Map<string, string[]>();
   for (const root of rootNodes.values()) {
     const namespace = root.namespace;
-    const specs = root.object
-      ? podSpecOf(root.object)
-        ? [podSpecOf(root.object)]
-        : []
-      : (root.pods || []).map((pod) => pod.spec);
-    // Bare workloads without a template (external roots): use their pods.
-    if (specs.length === 0) {
-      for (const pod of root.pods || []) specs.push(pod.spec);
+    /*
+     * The pod template is what the workload declares: its references are
+     * judged (dangling or not). Running pods add what was injected or is
+     * per replica (StatefulSet claims), as edges only: injected references
+     * (e.g. legacy token secrets) are not the workload's to fix.
+     */
+    const template = root.object ? podSpecOf(root.object) : null;
+    const declared = new Map<string, ObjectReference>();
+    for (const ref of podSpecReferences(template)) {
+      declared.set(`${ref.kind}/${ref.name}`, ref);
     }
-    const refs = new Map<string, ObjectReference>();
-    for (const spec of specs) {
-      for (const ref of podSpecReferences(spec)) {
-        const id = `${ref.kind}/${ref.name}`;
-        const existing = refs.get(id);
-        if (existing) existing.optional = existing.optional && ref.optional;
-        else refs.set(id, { ...ref });
+    const observed = new Map<string, ObjectReference>();
+    for (const pod of root.pods || []) {
+      for (const ref of podSpecReferences(pod.spec)) {
+        observed.set(`${ref.kind}/${ref.name}`, ref);
       }
     }
-    for (const ref of refs.values()) {
+    // Workloads without a template (external roots, bare pods) declare
+    // what their pods use.
+    const judged = template ? declared : observed;
+    for (const [id, ref] of observed) {
+      const target = byKey.get(key(ref.kind, namespace, ref.name));
+      if (target && !judged.has(id)) {
+        addEdge(root.id, uidOf(target), "mounts");
+      }
+    }
+    if (root.kind === "StatefulSet" && root.object) {
+      // Claims of volumeClaimTemplates: <template>-<statefulset>-<ordinal>.
+      const replicas = root.object.spec?.replicas ?? 1;
+      for (const claimTemplate of root.object.spec?.volumeClaimTemplates || []) {
+        for (let ordinal = 0; ordinal < replicas; ordinal++) {
+          const claim = byKey.get(
+            key(
+              "PersistentVolumeClaim",
+              namespace,
+              `${claimTemplate.metadata?.name}-${root.name}-${ordinal}`
+            )
+          );
+          if (claim) addEdge(root.id, uidOf(claim), "mounts");
+        }
+      }
+    }
+    for (const ref of judged.values()) {
       const target = byKey.get(key(ref.kind, namespace, ref.name));
       if (target) {
         addEdge(root.id, uidOf(target), "mounts");
@@ -1521,6 +1545,12 @@ export function buildTopology(
     const own = node.object && appNameOf(node.object);
     if (own && sameNamespace.includes(groupId(namespaceOf(node), own))) {
       assignApp(node, own);
+      return;
+    }
+    // Entry points fanning out to several apps (an Ingress with paths to
+    // three services) are an application of their own.
+    if (sameNamespace.length > 1 && fallback === "own") {
+      assignApp(node, own || node.name);
       return;
     }
     if (sameNamespace.length > 1 || fallback === "shared") {
