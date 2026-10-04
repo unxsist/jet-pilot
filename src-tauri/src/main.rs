@@ -174,6 +174,9 @@ fn main() {
             metrics::metrics_unsubscribe,
             metrics::metrics_reset,
             manifest::get_openapi_v3_schema,
+            logs::structured_logging::export_structured_logging_session,
+            logs::streaming::start_log_stream,
+            logs::streaming::stop_log_stream,
         ])
         .setup(|_app| {
             #[cfg(target_os = "macos")]
@@ -249,6 +252,8 @@ fn main() {
             // Same for kubectl exec / local shell sessions (and their
             // temporary kubeconfigs).
             shell::tty::kill_all_tty_sessions();
+            // And backend log streams (kubectl logs --follow).
+            logs::streaming::kill_all_log_streams();
         }
     });
 }
