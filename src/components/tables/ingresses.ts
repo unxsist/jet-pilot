@@ -10,6 +10,7 @@ export const columns: ColumnDef<V1Ingress>[] = [
   {
     header: "Class",
     accessorKey: "spec.ingressClassName",
+    meta: { class: () => "text-muted-foreground" },
   },
   {
     header: "Hosts",

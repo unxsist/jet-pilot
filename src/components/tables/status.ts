@@ -15,8 +15,8 @@ import { toDate } from "./age";
 export type StatusTone = "success" | "warning" | "destructive" | "muted" | "none";
 
 export const toneClasses: Record<StatusTone, string> = {
-  success: "text-green-600 dark:text-green-500",
-  warning: "text-amber-600 dark:text-amber-500",
+  success: "text-success",
+  warning: "text-warning",
   destructive: "text-destructive",
   muted: "text-muted-foreground",
   none: "",

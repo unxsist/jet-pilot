@@ -8,4 +8,5 @@ import { ColumnDef } from "@tanstack/vue-table";
 export const namespaceColumn: ColumnDef<any> = {
   accessorKey: "metadata.namespace",
   header: "Namespace",
+  meta: { class: () => "text-muted-foreground" },
 };

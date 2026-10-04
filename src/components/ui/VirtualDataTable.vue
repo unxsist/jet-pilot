@@ -23,6 +23,7 @@ import {
   ContextMenuSub,
   ContextMenuSubTrigger,
   ContextMenuSubContent,
+  ContextMenuSeparator,
 } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
@@ -33,14 +34,22 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import SortAscendingIcon from "@/assets/icons/sort_asc.svg";
-import SortDescendingIcon from "@/assets/icons/sort_desc.svg";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Kbd } from "@/components/ui/kbd";
+import KindIcon from "@/components/KindIcon.vue";
+import { actionIcon, isDestructiveAction } from "@/lib/actionIcons";
 import {
+  ArrowDown,
+  ArrowUp,
+  CloudOff,
   Columns3,
   Loader2,
   MoreHorizontal,
   RefreshCw,
+  Search,
+  SearchX,
   TriangleAlert,
+  X,
 } from "lucide-vue-next";
 
 import {
@@ -101,8 +110,12 @@ const props = defineProps<{
 
 const emit = defineEmits(["sortingChange", "rowClicked", "retry"]);
 
+/*
+ * Row checkboxes stay out of the way until the row is hovered / focused, or
+ * while any row is selected (see the table container class).
+ */
 const checkboxClass =
-  "border-input hover:border-foreground/50 data-[state=checked]:border-primary";
+  "row-checkbox opacity-0 transition-opacity duration-fast group-hover/row:opacity-100 focus-visible:opacity-100 data-[state=checked]:opacity-100";
 
 /*
  * Trailing "⋯" column: opens the same menu as right-clicking the row by
@@ -127,7 +140,7 @@ const openRowMenu = (event: MouseEvent, row: TData) => {
 
 const actionsColumn: ColumnDef<TData, any> = {
   id: "actions",
-  size: 40,
+  size: 44,
   enableHiding: false,
   enableSorting: false,
   enableGlobalFilter: false,
@@ -137,13 +150,14 @@ const actionsColumn: ColumnDef<TData, any> = {
       Button,
       {
         variant: "ghost",
-        size: "icon",
-        class: "h-7 w-7 text-muted-foreground hover:text-foreground",
+        size: "icon-xs",
+        class:
+          "text-muted-foreground opacity-0 transition-opacity duration-fast hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100",
         title: "Actions",
         "aria-label": "Row actions",
         onClick: (event: MouseEvent) => openRowMenu(event, row.original),
       },
-      () => h(MoreHorizontal, { class: "h-4 w-4" })
+      () => h(MoreHorizontal, { class: "h-3.5 w-3.5" })
     ),
 };
 
@@ -155,12 +169,11 @@ const table = useVueTable({
     return [
       {
         id: "select",
-        size: 10,
+        size: 32,
         enableHiding: false,
         header: ({ table }: HeaderContext<TData, unknown>) => {
           // Only (de)select the rows that pass the current filter.
           return h(Checkbox, {
-            class: checkboxClass,
             "aria-label": "Select all",
             checked: table.getIsAllPageRowsSelected()
               ? true
@@ -325,11 +338,19 @@ const cellTitle = (cell: {
 
 const tableContainer = ref<HTMLDivElement | null>(null);
 
+/* Dense rows (~34px); views with taller cells pass their own height. */
+const rowHeight = computed(() => props.estimatedRowHeight || 34);
+
+const skeletonWidths = ["w-3/4", "w-1/2", "w-2/3", "w-5/12"];
+
+/* The object name column carries the row: medium weight, full contrast. */
+const PRIMARY_COLUMN_IDS = new Set(["metadata_name", "name", "Name"]);
+
 const virtualizerOptions = computed(() => {
   return {
     count: rows.value.length,
     getScrollElement: () => tableContainer.value,
-    estimateSize: () => props.estimatedRowHeight || 37,
+    estimateSize: () => rowHeight.value,
     overscan: 5,
   };
 });
@@ -372,8 +393,19 @@ const after = computed(() => {
 });
 
 const isMac = navigator.platform.toLowerCase().includes("mac");
-const searchPlaceholder = `Type to filter (${isMac ? "⌘" : "Ctrl+"}F)`;
-const searchFocused = ref(false);
+const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`);
+
+/* Label of a row action; function labels depend on the menu subject. */
+const actionLabel = (rowAction: RowAction<TData>): string => {
+  if (typeof rowAction.label === "string") {
+    return rowAction.label;
+  }
+
+  const subject =
+    (state.contextMenuSubject as TData | null) ??
+    selectedRows.value[0]?.original;
+  return subject ? rowAction.label(subject) : "";
+};
 
 const isEditableTarget = (target: EventTarget | null) => {
   const element = target as HTMLElement | null;
@@ -470,7 +502,11 @@ const getRowClasses = (row: TData) => {
       ? props.rowClasses(row)
       : props.rowClasses || "";
 
-  return [classes, hasRowClickListener.value ? "cursor-pointer" : ""].join(" ");
+  return [
+    "group/row",
+    classes,
+    hasRowClickListener.value ? "cursor-pointer" : "",
+  ].join(" ");
 };
 
 const hasRowClickListener = computed(() => {
@@ -479,28 +515,128 @@ const hasRowClickListener = computed(() => {
 </script>
 
 <template>
-  <div class="relative h-full flex flex-col">
+  <div class="relative flex h-full flex-col">
+    <!-- Toolbar: filter, count, columns and view actions -->
+    <div
+      v-if="allowFilter"
+      class="flex h-11 shrink-0 items-center gap-2 border-b px-3"
+    >
+      <div class="relative flex w-full max-w-[18rem] items-center">
+        <Search
+          class="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <input
+          ref="searchInput"
+          v-model="searchQuery"
+          :placeholder="searchPlaceholder"
+          :aria-label="`Filter ${emptyResourceName}`"
+          :aria-keyshortcuts="isMac ? 'Meta+F' : 'Control+F'"
+          class="h-7 w-full rounded-md border border-input bg-background pl-8 pr-16 text-sm text-foreground shadow-xs transition-[border-color,box-shadow] duration-fast ease-out placeholder:text-muted-foreground/80 hover:border-border-strong focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/20"
+          autocorrect="off"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+          @keydown="handleSearchInputKeydown"
+        />
+        <div class="absolute right-1.5 flex items-center">
+          <button
+            v-if="isFiltering"
+            type="button"
+            class="flex h-5 items-center gap-1 rounded px-1 text-2xs text-muted-foreground hover:bg-accent hover:text-foreground focus-ring"
+            aria-label="Clear filter"
+            title="Clear filter (Esc)"
+            @click="clearFilter"
+          >
+            <X class="h-3 w-3" />
+          </button>
+          <Kbd v-else :keys="isMac ? ['⌘', 'F'] : ['Ctrl', 'F']" size="sm" />
+        </div>
+      </div>
+      <span
+        class="whitespace-nowrap text-xs tabular-nums text-muted-foreground"
+        aria-live="polite"
+      >
+        <template v-if="isFiltering">
+          <span class="font-medium text-foreground">{{ rows.length }}</span>
+          of {{ data.length }}
+        </template>
+        <template v-else-if="data.length > 0">
+          {{ data.length }} {{ emptyResourceName }}
+        </template>
+      </span>
+      <Loader2
+        v-if="loading && data.length > 0"
+        class="h-3.5 w-3.5 animate-spin text-muted-foreground"
+        aria-label="Refreshing"
+      />
+      <div class="ml-auto flex items-center gap-1.5">
+        <DropdownMenu v-if="hideableColumns.length > 0">
+          <DropdownMenuTrigger as-child>
+            <Button
+              variant="ghost"
+              size="sm"
+              class="text-muted-foreground"
+              title="Show / hide columns"
+            >
+              <Columns3 class="h-3.5 w-3.5" />
+              Columns
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" class="min-w-[12rem]">
+            <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuCheckboxItem
+              v-for="column in hideableColumns"
+              :key="column.id"
+              :checked="column.getIsVisible()"
+              @select="(event: Event) => event.preventDefault()"
+              @update:checked="(checked: boolean) => column.toggleVisibility(checked)"
+            >
+              {{ columnLabel(column) }}
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <slot name="action-buttons" />
+      </div>
+    </div>
+
+    <!-- Load error banner -->
     <div
       v-if="error"
       role="alert"
-      class="flex items-center gap-3 px-4 py-2 border-b text-sm shrink-0"
+      class="flex shrink-0 items-start gap-3 border-b px-4 py-2.5 text-sm"
       :class="
         error.fatal
-          ? 'bg-destructive/10 border-destructive/30'
-          : 'bg-amber-500/10 border-amber-500/30'
+          ? 'border-destructive/20 bg-destructive/[0.06]'
+          : 'border-warning/20 bg-warning/[0.06]'
       "
     >
-      <TriangleAlert
-        class="h-4 w-4 shrink-0"
+      <span
+        class="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
         :class="
-          error.fatal ? 'text-destructive' : 'text-amber-600 dark:text-amber-500'
+          error.fatal
+            ? 'bg-destructive/15 text-destructive'
+            : 'bg-warning/15 text-warning'
         "
-      />
+      >
+        <TriangleAlert class="h-3 w-3" />
+      </span>
       <div class="min-w-0 flex-1">
-        <div class="truncate text-foreground" :title="error.message">
+        <div class="font-medium text-foreground">
+          {{
+            error.fatal
+              ? `Couldn't load ${emptyResourceName}`
+              : "Some contexts failed to load"
+          }}
+        </div>
+        <div
+          class="mt-0.5 truncate font-mono text-xs text-muted-foreground select-text"
+          :title="error.message"
+        >
           {{ error.message }}
         </div>
-        <div v-if="error.fatal" class="text-xs text-muted-foreground">
+        <div v-if="error.fatal" class="mt-0.5 text-xs text-muted-foreground">
           Auto-refresh paused<template v-if="lastUpdatedLabel">
             · showing data from {{ lastUpdatedLabel }} ago</template
           >
@@ -513,12 +649,17 @@ const hasRowClickListener = computed(() => {
         :disabled="loading"
         @click="emit('retry')"
       >
-        <Loader2 v-if="loading" class="h-3.5 w-3.5 mr-1.5 animate-spin" />
-        <RefreshCw v-else class="h-3.5 w-3.5 mr-1.5" />
+        <Loader2 v-if="loading" class="h-3.5 w-3.5 animate-spin" />
+        <RefreshCw v-else class="h-3.5 w-3.5" />
         Retry
       </Button>
     </div>
-    <div ref="tableContainer" class="relative flex-1 min-h-0 overflow-auto">
+
+    <div
+      ref="tableContainer"
+      class="relative min-h-0 flex-1 overflow-auto"
+      :class="{ '[&_.row-checkbox]:opacity-100': selectedRows.length > 0 }"
+    >
       <div :style="{ height: `${totalSize}px` }">
         <Table class="w-full">
           <ContextMenu>
@@ -527,6 +668,7 @@ const hasRowClickListener = computed(() => {
                 <TableRow
                   v-for="headerGroup in table.getHeaderGroups()"
                   :key="headerGroup.id"
+                  class="border-b-0 hover:bg-transparent"
                 >
                   <TableHead
                     v-for="header in headerGroup.headers"
@@ -539,29 +681,46 @@ const hasRowClickListener = computed(() => {
                           : `${header.getSize()}px`,
                     }"
                     :sticky="stickyHeaders === true"
-                    :class="
-                      header.column.getCanSort()
-                        ? 'cursor-pointer select-none'
-                        : ''
+                    :numeric="header.column.columnDef.meta?.numeric"
+                    :aria-sort="
+                      header.column.getIsSorted() === 'asc'
+                        ? 'ascending'
+                        : header.column.getIsSorted() === 'desc'
+                        ? 'descending'
+                        : undefined
                     "
+                    :class="[
+                      stickyHeaders ? 'bg-background' : '',
+                      header.column.id === 'select' ? 'pl-3' : '',
+                      header.column.getCanSort()
+                        ? 'cursor-pointer select-none transition-colors duration-fast hover:text-foreground'
+                        : '',
+                      header.column.getIsSorted() ? 'text-foreground' : '',
+                    ].join(' ')"
                     @click="header.column.getToggleSortingHandler()?.($event)"
                   >
-                    <div class="flex justify-between items-center">
+                    <div
+                      class="inline-flex items-center gap-1"
+                      :class="{
+                        'flex-row-reverse':
+                          header.column.columnDef.meta?.numeric,
+                      }"
+                    >
                       <FlexRender
                         v-if="!header.isPlaceholder"
                         :render="header.column.columnDef.header"
                         :props="header.getContext()"
                       />
-                      <div class="ml-2">
-                        <span v-if="header.column.getIsSorted() === 'asc'">
-                          <SortDescendingIcon class="w-4 h-4" />
-                        </span>
-                        <span
-                          v-else-if="header.column.getIsSorted() === 'desc'"
-                        >
-                          <SortAscendingIcon class="w-4 h-4" />
-                        </span>
-                      </div>
+                      <ArrowUp
+                        v-if="header.column.getIsSorted() === 'asc'"
+                        class="h-3 w-3"
+                        aria-hidden="true"
+                      />
+                      <ArrowDown
+                        v-else-if="header.column.getIsSorted() === 'desc'"
+                        class="h-3 w-3"
+                        aria-hidden="true"
+                      />
                     </div>
                   </TableHead>
                 </TableRow>
@@ -569,7 +728,10 @@ const hasRowClickListener = computed(() => {
             </ContextMenuTrigger>
             <ContextMenuContent>
               <ContextMenuSub>
-                <ContextMenuSubTrigger>Columns</ContextMenuSubTrigger>
+                <ContextMenuSubTrigger>
+                  <Columns3 class="h-3.5 w-3.5 text-muted-foreground" />
+                  Columns
+                </ContextMenuSubTrigger>
                 <ContextMenuSubContent>
                   <ContextMenuCheckboxItem
                     v-for="column in hideableColumns"
@@ -614,11 +776,17 @@ const hasRowClickListener = computed(() => {
                     <TableCell
                       v-for="cell in rows[row.index].getVisibleCells()"
                       :key="cell.id"
-                      :class="
+                      :numeric="cell.column.columnDef.meta?.numeric"
+                      :class="[
                         cell.column.columnDef.meta?.class?.(
                           rows[row.index].original
-                        )
-                      "
+                        ),
+                        cell.column.id === 'select' ? 'pl-3' : '',
+                        cell.column.id === 'actions' ? 'px-1.5 text-right' : '',
+                        PRIMARY_COLUMN_IDS.has(cell.column.id)
+                          ? 'font-medium text-foreground'
+                          : '',
+                      ]"
                       class="truncate overflow-hidden"
                       :title="cellTitle(cell)"
                       :style="{
@@ -643,65 +811,128 @@ const hasRowClickListener = computed(() => {
                 </template>
                 <template v-else-if="loading && data.length === 0">
                   <TableRow
-                    v-for="index in 8"
+                    v-for="index in 10"
                     :key="`skeleton-${index}`"
                     class="hover:bg-transparent"
+                    :style="{ height: `${rowHeight}px` }"
                     aria-hidden="true"
                   >
                     <TableCell
-                      v-for="column in table.getVisibleLeafColumns()"
+                      v-for="(column, columnIndex) in table.getVisibleLeafColumns()"
                       :key="column.id"
+                      :class="column.id === 'select' ? 'pl-3' : ''"
                     >
                       <Skeleton
-                        class="h-4"
-                        :class="column.id === 'select' ? 'w-4' : 'w-3/4'"
+                        class="h-3"
+                        :class="
+                          column.id === 'select'
+                            ? 'w-4'
+                            : column.id === 'actions'
+                            ? 'w-0'
+                            : skeletonWidths[(index + columnIndex) % 4]
+                        "
+                        :style="{ opacity: 1 - index * 0.07 }"
                       />
                     </TableCell>
                   </TableRow>
                 </template>
                 <template v-else>
-                  <TableRow class="hover:bg-transparent">
-                    <TableCell
-                      :colspan="visibleColumnCount"
-                      class="h-24 text-center text-muted-foreground"
-                    >
-                      <template v-if="data.length > 0 && isFiltering">
-                        No matches for “{{ searchQuery }}” ·
-                        <button
-                          class="text-primary hover:underline"
-                          @click.stop="clearFilter"
-                        >
-                          clear filter
-                        </button>
-                        (Esc)
-                      </template>
-                      <template v-else-if="error?.fatal">
-                        Could not load {{ emptyResourceName }}.
-                      </template>
-                      <template v-else>
-                        No {{ emptyResourceName }} found.
-                      </template>
+                  <TableRow class="border-b-0 hover:bg-transparent">
+                    <TableCell :colspan="visibleColumnCount" class="p-0">
+                      <EmptyState
+                        v-if="data.length > 0 && isFiltering"
+                        :icon="SearchX"
+                        title="No matches"
+                      >
+                        No {{ emptyResourceName }} match “{{ searchQuery }}”.
+                        <template #action>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            @click.stop="clearFilter"
+                          >
+                            Clear filter
+                            <Kbd size="sm">Esc</Kbd>
+                          </Button>
+                        </template>
+                      </EmptyState>
+                      <EmptyState
+                        v-else-if="error?.fatal"
+                        :icon="CloudOff"
+                        :title="`Couldn't load ${emptyResourceName}`"
+                        description="Check your connection to the cluster, then retry."
+                      >
+                        <template #action>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            :disabled="loading"
+                            @click.stop="emit('retry')"
+                          >
+                            <RefreshCw class="h-3.5 w-3.5" />
+                            Retry
+                          </Button>
+                        </template>
+                      </EmptyState>
+                      <EmptyState
+                        v-else
+                        :title="`No ${emptyResourceName}`"
+                        description="Nothing to show for the selected contexts and namespaces."
+                      >
+                        <template #icon>
+                          <KindIcon :name="emptyResourceName" />
+                        </template>
+                      </EmptyState>
                     </TableCell>
                   </TableRow>
                 </template>
               </TableBody>
             </ContextMenuTrigger>
-            <ContextMenuContent v-if="rowActions && rowActions?.length > 0">
+            <ContextMenuContent
+              v-if="rowActions && rowActions?.length > 0"
+              class="min-w-[12rem]"
+            >
               <template v-for="(rowAction, index) in rowActions" :key="index">
                 <template v-if="!rowAction.options">
+                  <ContextMenuSeparator
+                    v-if="
+                      isDestructiveAction(actionLabel(rowAction)) &&
+                      index > 0 &&
+                      !isDestructiveAction(actionLabel(rowActions[index - 1]))
+                    "
+                  />
                   <ContextMenuItem
                     v-if="isRowActionAvailable(rowAction)"
+                    :variant="
+                      isDestructiveAction(actionLabel(rowAction))
+                        ? 'destructive'
+                        : 'default'
+                    "
                     @select="handleRowAction(rowAction, true)"
-                    >{{
-                      typeof rowAction.label === "function"
-                        ? rowAction.label(state.contextMenuSubject as TData)
-                        : rowAction.label
-                    }}</ContextMenuItem
                   >
+                    <component
+                      :is="actionIcon(actionLabel(rowAction))"
+                      v-if="actionIcon(actionLabel(rowAction))"
+                      class="h-3.5 w-3.5"
+                      :class="
+                        isDestructiveAction(actionLabel(rowAction))
+                          ? ''
+                          : 'text-muted-foreground'
+                      "
+                    />
+                    <span v-else class="w-3.5" aria-hidden="true" />
+                    {{ actionLabel(rowAction) }}
+                  </ContextMenuItem>
                 </template>
                 <template v-else>
                   <ContextMenuSub>
                     <ContextMenuSubTrigger>
+                      <component
+                        :is="actionIcon(actionLabel(rowAction))"
+                        v-if="actionIcon(actionLabel(rowAction))"
+                        class="h-3.5 w-3.5 text-muted-foreground"
+                      />
+                      <span v-else class="w-3.5" aria-hidden="true" />
                       {{ rowAction.label }}
                     </ContextMenuSubTrigger>
                     <ContextMenuSubContent>
@@ -720,82 +951,54 @@ const hasRowClickListener = computed(() => {
         </Table>
       </div>
     </div>
-    <div
-      class="bottom-5 flex items-center absolute right-4 left-4 z-50 overflow-hidden"
+
+    <!-- Selection bar: mass actions for the selected (filtered) rows -->
+    <Transition
+      enter-active-class="transition duration-base ease-out"
+      enter-from-class="translate-y-2 opacity-0"
+      leave-active-class="transition duration-fast ease-in"
+      leave-to-class="translate-y-2 opacity-0"
     >
-      <div v-if="allowFilter" class="w-1/3 flex items-center gap-2">
-        <input
-          ref="searchInput"
-          v-model="searchQuery"
-          :class="{
-            'w-48 h-8 text-xs opacity-60 border-muted':
-              searchQuery.length === 0 && !searchFocused,
-            'w-full h-10 border-primary':
-              searchQuery.length > 0 || searchFocused,
-          }"
-          class="transition-all py-2 px-4 bg-background border focus:border-2 rounded-full focus:outline-none"
-          :placeholder="searchPlaceholder"
-          @focus="searchFocused = true"
-          @blur="searchFocused = false"
-          autocorrect="off"
-          autocomplete="off"
-          autocapitalize="off"
-          spellcheck="false"
-          @keydown="handleSearchInputKeydown"
-        />
-        <span
-          v-if="isFiltering"
-          class="shrink-0 text-xs text-muted-foreground bg-background/80 rounded-full px-2 py-1"
-        >
-          {{ rows.length }} of {{ data.length }}
-        </span>
-        <DropdownMenu v-if="hideableColumns.length > 0">
-          <DropdownMenuTrigger as-child>
-            <button
-              class="shrink-0 flex items-center gap-1.5 h-8 px-3 text-xs rounded-full border border-muted bg-background opacity-60 hover:opacity-100 transition-all"
-              title="Show / hide columns"
-            >
-              <Columns3 class="h-3.5 w-3.5" />
-              Columns
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" side="top">
-            <DropdownMenuLabel>Columns</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuCheckboxItem
-              v-for="column in hideableColumns"
-              :key="column.id"
-              :checked="column.getIsVisible()"
-              @select="(event: Event) => event.preventDefault()"
-              @update:checked="(checked: boolean) => column.toggleVisibility(checked)"
-            >
-              {{ columnLabel(column) }}
-            </DropdownMenuCheckboxItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
       <div
-        class="ml-auto flex items-center justify-between px-4 h-10 border bg-background rounded-full transition-all"
-        :class="{
-          'translate-y-0': selectedRows.length > 0,
-          'translate-y-full': selectedRows.length === 0,
-        }"
+        v-if="selectedRows.length > 0"
+        class="absolute bottom-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1 rounded-lg border bg-popover p-1 pl-3 text-sm shadow-lg"
+        role="toolbar"
+        aria-label="Selected rows"
       >
-        <div class="mr-4">{{ selectedRows.length }} selected</div>
-        <div class="space-x-2 -mr-2">
-          <template v-for="(rowAction, index) in massActions" :key="index">
-            <Button
-              class="rounded-full"
-              @click="handleRowAction(rowAction)"
-              size="xs"
-              >{{ rowAction.label }}</Button
-            >
-          </template>
-        </div>
+        <span class="mr-1 whitespace-nowrap tabular-nums text-muted-foreground">
+          <span class="font-medium text-foreground">{{
+            selectedRows.length
+          }}</span>
+          selected
+        </span>
+        <span class="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+        <Button
+          v-for="(rowAction, index) in massActions"
+          :key="index"
+          size="xs"
+          :variant="
+            isDestructiveAction(actionLabel(rowAction)) ? 'destructive' : 'ghost'
+          "
+          @click="handleRowAction(rowAction)"
+        >
+          <component
+            :is="actionIcon(actionLabel(rowAction))"
+            v-if="actionIcon(actionLabel(rowAction))"
+            class="h-3 w-3"
+          />
+          {{ actionLabel(rowAction) }}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          class="text-muted-foreground"
+          aria-label="Clear selection"
+          title="Clear selection"
+          @click="table.resetRowSelection()"
+        >
+          <X class="h-3.5 w-3.5" />
+        </Button>
       </div>
-
-      <slot name="action-buttons" />
-    </div>
+    </Transition>
   </div>
 </template>

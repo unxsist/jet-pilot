@@ -1,6 +1,7 @@
 import { ColumnDef } from "@tanstack/vue-table";
 import { ageColumn } from "./age";
-import { toneClass } from "./status";
+import { statusTone } from "@/components/ui/status";
+import { monoCell, mutedCell, statusCell } from "./cells";
 import { parseJSON } from "date-fns";
 
 export const columns: ColumnDef<any>[] = [
@@ -11,41 +12,31 @@ export const columns: ColumnDef<any>[] = [
   {
     accessorKey: "namespace",
     header: "Namespace",
+    meta: { class: () => mutedCell },
   },
   {
     accessorKey: "chart",
     header: "Chart",
+    meta: { class: () => monoCell },
   },
   {
     accessorKey: "revision",
     header: "Revision",
+    meta: { numeric: true },
   },
   {
     accessorKey: "app_version",
     header: "App Version",
+    meta: { class: () => monoCell },
   },
   {
     accessorKey: "status",
     header: "Status",
-    meta: {
-      class: (row: any) => {
-        switch (row.status) {
-          case "deployed":
-            return toneClass("success");
-          case "failed":
-            return toneClass("destructive");
-          case "uninstalled":
-          case "superseded":
-            return toneClass("muted");
-          case "pending-install":
-          case "pending-upgrade":
-          case "pending-rollback":
-          case "uninstalling":
-            return toneClass("warning");
-          default:
-            return "";
-        }
-      },
+    cell: ({ row }) => {
+      const status: string = row.original.status || "";
+      // uninstalled releases are history, not failures.
+      const tone = status === "uninstalled" ? "muted" : statusTone(status);
+      return statusCell(status, tone === "info" || tone === "primary" ? "none" : tone);
     },
     enableGlobalFilter: false,
   },

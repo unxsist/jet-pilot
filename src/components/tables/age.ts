@@ -30,6 +30,8 @@ export function ageColumn<T>(
     sortingFn: (a, b) => time(a.original) - time(b.original),
     enableGlobalFilter: false,
     meta: {
+      numeric: true,
+      class: () => "text-muted-foreground",
       title: (row: T) => {
         const date = toDate(getTimestamp(row));
         return date ? formatDateTime(date) : undefined;

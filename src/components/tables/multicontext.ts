@@ -1,4 +1,5 @@
 import { ColumnDef } from "@tanstack/vue-table";
+import { contextCell, mutedCell } from "./cells";
 
 /**
  * Columns shown when multiple clusters / namespaces are in play.
@@ -15,12 +16,14 @@ export const multiContextColumns: ColumnDef<any>[] = [
     },
     accessorKey: "metadata.context",
     header: "Context",
+    cell: ({ getValue }) => contextCell(String(getValue() ?? "")),
   },
   {
     id: "namespace",
     meta: {
       showOnMultipleClusters: true,
       showOnMultipleNamespaces: true,
+      class: () => mutedCell,
     },
     accessorKey: "metadata.namespace",
     header: "Namespace",

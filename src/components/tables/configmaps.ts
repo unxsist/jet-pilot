@@ -13,6 +13,7 @@ export const columns: ColumnDef<V1ConfigMap>[] = [
       return `${Object.keys(row.data || {}).length}`;
     },
     enableGlobalFilter: false,
+    meta: { numeric: true },
   },
   ageColumn<V1ConfigMap>((row) => row.metadata?.creationTimestamp),
 ];

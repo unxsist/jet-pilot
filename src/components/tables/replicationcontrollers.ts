@@ -20,6 +20,7 @@ export const columns: ColumnDef<V1ReplicationController>[] = [
     header: "Desired Replicas",
     accessorKey: "spec.replicas",
     enableGlobalFilter: false,
+    meta: { numeric: true },
   },
   ageColumn<V1ReplicationController>((row) => row.metadata?.creationTimestamp),
 ];

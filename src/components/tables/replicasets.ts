@@ -11,6 +11,7 @@ export const columns: ColumnDef<V1ReplicaSet>[] = [
     header: "Desired",
     accessorKey: "spec.replicas",
     enableGlobalFilter: false,
+    meta: { numeric: true },
   },
   {
     header: "Ready",

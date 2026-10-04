@@ -10,6 +10,7 @@ export const columns: ColumnDef<V1Secret>[] = [
   {
     header: "Type",
     accessorKey: "type",
+    meta: { class: () => "font-mono text-xs text-muted-foreground" },
   },
   {
     header: "Data",
@@ -17,6 +18,7 @@ export const columns: ColumnDef<V1Secret>[] = [
       return `${Object.keys(row.data || {}).length}`;
     },
     enableGlobalFilter: false,
+    meta: { numeric: true },
   },
   ageColumn<V1Secret>((row) => row.metadata?.creationTimestamp),
 ];
