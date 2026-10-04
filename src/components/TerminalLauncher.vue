@@ -69,6 +69,7 @@ registerCommand({
   name: "Open terminal",
   description: "Open a local terminal with kubectl set to the current context",
   keywords: ["terminal", "shell", "console", "kubectl"],
+  shortcut: ["Ctrl", "`"],
   execute: () => openTerminal(),
 });
 

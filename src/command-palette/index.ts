@@ -3,6 +3,8 @@ type BaseCommand = {
   name: string;
   description?: string;
   keywords?: string[];
+  /** Keyboard shortcut shown as a hint, e.g. ["Ctrl", "1"]. */
+  shortcut?: string[];
   /**
    * Options of a command are cached and shown while they are re-fetched.
    * When the options depend on app state (e.g. the current context), return

@@ -8,15 +8,23 @@ import Fuse from "fuse.js";
 
 const value = ref("");
 const props = withDefaults(
-  defineProps<DialogRootProps & { hints?: boolean }>(),
-  { hints: true }
+  defineProps<
+    DialogRootProps & {
+      hints?: boolean;
+      /** Replaces the default fuzzy filter (list of item values, query). */
+      filter?: (list: any[], query: string) => any[];
+    }
+  >(),
+  { hints: true, filter: undefined }
 );
+/** The text typed in the input. */
+const searchTerm = defineModel<string>("searchTerm", { default: "" });
 const emits = defineEmits<DialogRootEmits>();
 
 const emitsAsProps = useEmitAsProps(emits);
 
 const rootProps = computed(() => {
-  const { hints: _, ...rest } = props;
+  const { hints: _, filter: __, ...rest } = props;
   return rest;
 });
 
@@ -55,7 +63,8 @@ const filter = (
       <Command
         v-model="value"
         @update:modelValue="value = ''"
-        :filterFunction="filter"
+        v-model:searchTerm="searchTerm"
+        :filterFunction="props.filter ?? filter"
         class="rounded-xl bg-transparent"
       >
         <slot />

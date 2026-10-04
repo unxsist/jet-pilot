@@ -79,6 +79,8 @@ export interface SettingsContextState {
     /** Named working sets, in hotbar order (Mod+Alt+1..9). */
     workspaces: Workspace[];
     activeWorkspaceId: string | null;
+    /** Command palette "Recent" items (most recent first). */
+    recentCommands: string[];
   };
 }
 
@@ -124,6 +126,7 @@ export default {
         portForwardProfiles: [],
         workspaces: [],
         activeWorkspaceId: null,
+        recentCommands: [],
       },
     });
     provide(SettingsContextStateKey, toRefs(state));

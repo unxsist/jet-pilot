@@ -157,8 +157,11 @@ export default {
 
     /* ------------------------------------------------- command palette -- */
 
+    const isMac = getOsType() === "macos";
+
     registerCommand({
       id: "switch-workspace",
+      shortcut: isMac ? ["⌘", "⌥", "1–9"] : ["Ctrl", "Alt", "1–9"],
       name: "Switch workspace",
       description: "Contexts, namespaces, tabs and port forwards",
       keywords: ["workspace", "hotbar", "profile", "layout"],
@@ -198,7 +201,6 @@ export default {
 
     /* ------------------------------------------------------- shortcuts -- */
 
-    const isMac = getOsType() === "macos";
     const onKeydown = (event: KeyboardEvent) => {
       const modifier = isMac ? event.metaKey : event.ctrlKey;
       if (!modifier || !event.altKey || event.shiftKey || event.repeat) {
