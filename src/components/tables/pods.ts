@@ -1,82 +1,48 @@
 import { PodMetric, V1Pod } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
-import { formatDateTimeDifference } from "@/lib/utils";
+import { ageColumn } from "./age";
+import {
+  getPodReadiness,
+  getPodReadinessTone,
+  getPodRestarts,
+  getPodStatus,
+  getPodStatusTone,
+  getRestartsTone,
+  toneClass,
+} from "./status";
 import PodUsageChart from "../ui/PodUsageChart.vue";
 
-export const columns: ColumnDef<V1Pod & { metrics: PodMetric[] }>[] = [
+type PodRow = V1Pod & { metrics: PodMetric[] };
+
+export const columns: ColumnDef<PodRow>[] = [
   {
     accessorKey: "metadata.name",
     header: "Name",
-    meta: {
-      class: (row: V1Pod) => {
-        return row.status?.phase === "Pending" ? "text-orange-500" : "";
-      },
-    },
   },
   {
     header: "Ready",
-    accessorFn: (row) =>
-      `${row.status?.containerStatuses?.reduce((acc, curr) => {
-        return curr.ready ? acc + 1 : acc;
-      }, 0)} / ${row.status?.containerStatuses?.length}`,
+    accessorFn: (row) => {
+      const { ready, total } = getPodReadiness(row);
+      return `${ready}/${total}`;
+    },
     enableGlobalFilter: false,
     meta: {
-      class: (row: V1Pod) => {
-        return row.status?.containerStatuses?.filter((c) => c.ready).length ===
-          row.status?.containerStatuses?.length
-          ? ""
-          : "text-red-500";
-      },
+      class: (row) => toneClass(getPodReadinessTone(row)),
     },
   },
   {
     header: "Restarts",
-    accessorFn: (row) =>
-      `${row.status?.containerStatuses?.reduce((acc, curr) => {
-        return acc + curr.restartCount;
-      }, 0)}`,
+    accessorFn: (row) => getPodRestarts(row),
     enableGlobalFilter: false,
+    meta: {
+      class: (row) => toneClass(getRestartsTone(getPodRestarts(row))),
+    },
   },
   {
     header: "Status",
-    accessorFn: (row) => {
-      if (row.metadata?.deletionTimestamp) {
-        return "Terminating";
-      }
-
-      return (
-        row.status?.containerStatuses?.reduce((acc, curr) => {
-          return acc || curr.state.waiting || curr.state.terminated;
-        }, null)?.reason ||
-        row.status?.phase ||
-        "Unknown"
-      );
-    },
-    enableGlobalFilter: false,
+    accessorFn: (row) => getPodStatus(row),
     meta: {
-      class: (row: V1Pod) => {
-        if (row.metadata?.deletionTimestamp) {
-          return "text-red-500";
-        }
-
-        const status =
-          row.status?.containerStatuses?.reduce((acc, curr) => {
-            return acc || curr.state.waiting || curr.state.terminated;
-          }, null)?.reason ||
-          row.status?.phase ||
-          "Unknown";
-
-        switch (status) {
-          case "Running":
-            return "text-green-500";
-          case "CrashLoopBackOff":
-            return "text-red-500";
-          case "Error":
-            return "text-red-500";
-          default:
-            return;
-        }
-      },
+      class: (row) => toneClass(getPodStatusTone(getPodStatus(row))),
     },
   },
   {
@@ -96,19 +62,5 @@ export const columns: ColumnDef<V1Pod & { metrics: PodMetric[] }>[] = [
     header: "Node",
     accessorKey: "spec.nodeName",
   },
-  {
-    header: "Age",
-    accessorFn: (row) =>
-      formatDateTimeDifference(
-        row.metadata?.creationTimestamp || new Date(),
-        new Date()
-      ),
-    sortingFn: (a, b) => {
-      return (
-        new Date(a.original.metadata?.creationTimestamp || 0).getTime() -
-        new Date(b.original.metadata?.creationTimestamp || 0).getTime()
-      );
-    },
-    enableGlobalFilter: false,
-  },
+  ageColumn<PodRow>((row) => row.metadata?.creationTimestamp),
 ];

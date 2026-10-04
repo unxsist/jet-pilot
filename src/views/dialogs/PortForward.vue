@@ -220,7 +220,7 @@ onMounted(() => {
     <Label for="open-in-browser" class="ml-2">Open in Browser</Label>
   </div>
   <AlertDialogFooter>
-    <Button variant="default" @click="emit('closeDialog')">Cancel</Button>
+    <Button variant="ghost" @click="emit('closeDialog')">Cancel</Button>
     <Button variant="default" @click="portForward">Forward</Button>
   </AlertDialogFooter>
 </template>

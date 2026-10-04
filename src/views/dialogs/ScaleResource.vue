@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { Button } from "@/components/ui/button";
 import { AlertDialogFooter } from "@/components/ui/alert-dialog";
-import { Command } from "@tauri-apps/plugin-shell";
-
-import { useToast } from "@/components/ui/toast";
+import { runCliForEach } from "@/actions/command";
+import { getResourceTabTitle } from "@/components/tables/identity";
 import {
   V1Deployment,
   V1ReplicaSet,
@@ -19,9 +18,13 @@ import {
   NumberFieldInput,
 } from "@/components/ui/number-field";
 import { Label } from "@/components/ui/label";
-import { error } from "@/lib/logger";
 
-const { toast } = useToast();
+type ScalableObject = (
+  | V1Deployment
+  | V1StatefulSet
+  | V1ReplicaSet
+  | V1ReplicationController
+) & { metadata: { context: string; kubeConfig: string } };
 
 const props = defineProps<{
   objects:
@@ -37,35 +40,28 @@ const replicas = ref(0);
 
 const emit = defineEmits(["closeDialog"]);
 
-const scale = () => {
-  props.objects.forEach((object) => {
-    const args = [
-      "scale",
-      `--replicas=${replicas.value}`,
-      `${object.kind}/${object.metadata?.name}`,
-      "--context",
-      object.metadata.context,
-      "--namespace",
-      object.metadata?.namespace || "",
-      "--kubeconfig",
-      object.metadata.kubeConfig,
-    ];
-
-    const command = Command.create("kubectl", args);
-    command.stdout.on("data", (data) => {
-      emit("closeDialog");
-    });
-
-    command.stderr.on("data", (data) => {
-      error(`Error scaling ${object.kind}/${object.metadata?.name}: ${data}`);
-      toast({
-        title: "Error",
-        description: data,
-        variant: "destructive",
-      });
-    });
-
-    command.spawn();
+const scale = async () => {
+  emit("closeDialog");
+  await runCliForEach("kubectl", props.objects as ScalableObject[], {
+    args: (object) => {
+      const args = [
+        "scale",
+        `--replicas=${replicas.value}`,
+        `${object.kind}/${object.metadata?.name}`,
+        "--context",
+        object.metadata.context,
+      ];
+      if (object.metadata?.namespace) {
+        args.push("--namespace", object.metadata.namespace);
+      }
+      if (object.metadata.kubeConfig) {
+        args.push("--kubeconfig", object.metadata.kubeConfig);
+      }
+      return args;
+    },
+    label: (object) => getResourceTabTitle(object),
+    successVerb: "Scaled",
+    failureVerb: "scale",
   });
 };
 
@@ -84,7 +80,7 @@ onMounted(() => {
     </NumberFieldContent>
   </NumberField>
   <AlertDialogFooter>
-    <Button variant="default" @click="emit('closeDialog')">Cancel</Button>
+    <Button variant="ghost" @click="emit('closeDialog')">Cancel</Button>
     <Button variant="default" @click="scale">Scale</Button>
   </AlertDialogFooter>
 </template>

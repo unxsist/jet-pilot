@@ -5,6 +5,10 @@ import { actions as scalableActions } from "./scalables";
 import { BaseDialogInterface } from "@/providers/DialogProvider";
 import { Kubernetes } from "@/services/Kubernetes";
 import { useToast } from "@/components/ui/toast";
+import {
+  getResourceTabId,
+  getResourceTabTitle,
+} from "@/components/tables/identity";
 
 export function actions<
   T extends V1Deployment & {
@@ -21,8 +25,8 @@ export function actions<
       label: "Logs",
       handler: (row: T) => {
         addTab(
-          `logs_${row.metadata?.name}`,
-          `${row.metadata?.name}`,
+          getResourceTabId("logs", row),
+          getResourceTabTitle(row),
           defineAsyncComponent(() => import("@/views/StructuredLogViewer.vue")),
           {
             context: row.metadata.context,

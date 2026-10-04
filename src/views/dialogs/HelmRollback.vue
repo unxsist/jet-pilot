@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/select";
 
 import { AlertDialogFooter } from "@/components/ui/alert-dialog";
-import { Command } from "@tauri-apps/plugin-shell";
+import { runCli, cliSucceeded, cliErrorMessage } from "@/actions/command";
 
 import { useToast } from "@/components/ui/toast";
 const { toast } = useToast();
@@ -37,39 +37,50 @@ const props = defineProps<{
 
 const emit = defineEmits(["closeDialog"]);
 
-const rollback = () => {
+const rollingBack = ref(false);
+
+const rollback = async () => {
+  if (!rollbackRevision.value) {
+    return;
+  }
+
   const args = [
     "rollback",
     props.release.name,
     rollbackRevision.value.toString(),
-    "--kubeconfig",
-    props.kubeConfig,
     "--kube-context",
     props.context,
     "--namespace",
     props.release.namespace,
   ];
+  if (props.kubeConfig) {
+    args.push("--kubeconfig", props.kubeConfig);
+  }
 
-  const command = Command.create("helm", args);
-  command.stdout.on("data", (data) => {
+  rollingBack.value = true;
+  const result = await runCli("helm", args);
+  rollingBack.value = false;
+
+  if (cliSucceeded(result)) {
     toast({
       title: "Rollback successful",
-      description: `Rollback of ${props.release.name} to revision ${rollbackRevision.value} was successful`,
+      description: `Rolled back ${props.release.name} to revision ${rollbackRevision.value}`,
       autoDismiss: true,
     });
     emit("closeDialog");
-  });
+    return;
+  }
 
-  command.stderr.on("data", (data) => {
-    error(`Error rolling back release ${props.release.name} to revision ${rollbackRevision.value}: ${data}`);
-    toast({
-      title: "Error",
-      description: data,
-      variant: "destructive",
-    });
+  const message = cliErrorMessage(result);
+  error(
+    `Error rolling back release ${props.release.name} to revision ${rollbackRevision.value}: ${message}`
+  );
+  toast({
+    title: `Rollback of ${props.release.name} failed`,
+    description: message,
+    variant: "destructive",
+    duration: 15000,
   });
-
-  command.spawn();
 };
 
 const fetchRevisions = async () => {
@@ -86,18 +97,17 @@ const fetchRevisions = async () => {
     props.release.namespace,
   ];
 
-  const command = Command.create("helm", args);
-  command.stdout.on("data", (data) => {
-    const parsedData = JSON.parse(data);
+  const result = await runCli("helm", args);
+  if (!cliSucceeded(result)) {
+    error(`Error fetching Helm release history: ${cliErrorMessage(result)}`);
+    return;
+  }
 
-    revisions.value = parsedData;
-  });
-
-  command.stderr.on("data", (data) => {
-    error(`Error fetching Helm release history: ${data}`);
-  });
-
-  command.spawn();
+  try {
+    revisions.value = JSON.parse(result.stdout);
+  } catch (e) {
+    error(`Error parsing Helm release history: ${e}`);
+  }
 };
 
 onMounted(() => {
@@ -123,7 +133,12 @@ onMounted(() => {
     </SelectContent>
   </Select>
   <AlertDialogFooter>
-    <Button variant="default" @click="emit('closeDialog')">Cancel</Button>
-    <Button variant="default" @click="rollback">Rollback</Button>
+    <Button variant="ghost" @click="emit('closeDialog')">Cancel</Button>
+    <Button
+      variant="default"
+      :disabled="!rollbackRevision || rollingBack"
+      @click="rollback"
+      >Rollback</Button
+    >
   </AlertDialogFooter>
 </template>

@@ -1,5 +1,6 @@
 import { ColumnDef } from "@tanstack/vue-table";
-import { formatDateTimeDifference } from "@/lib/utils";
+import { ageColumn } from "./age";
+import { toneClass } from "./status";
 import { parseJSON } from "date-fns";
 
 export const columns: ColumnDef<any>[] = [
@@ -30,13 +31,17 @@ export const columns: ColumnDef<any>[] = [
       class: (row: any) => {
         switch (row.status) {
           case "deployed":
-            return "text-green-500";
-          case "uninstalled":
-            return "text-red-500";
-          case "superseded":
-            return "text-yellow-500";
+            return toneClass("success");
           case "failed":
-            return "text-red-500";
+            return toneClass("destructive");
+          case "uninstalled":
+          case "superseded":
+            return toneClass("muted");
+          case "pending-install":
+          case "pending-upgrade":
+          case "pending-rollback":
+          case "uninstalling":
+            return toneClass("warning");
           default:
             return "";
         }
@@ -44,19 +49,8 @@ export const columns: ColumnDef<any>[] = [
     },
     enableGlobalFilter: false,
   },
-  {
-    header: "Updated",
-    accessorFn: (row) =>
-      formatDateTimeDifference(
-        parseJSON(row.updated) || new Date(),
-        new Date()
-      ),
-    sortingFn: (a, b) => {
-      return (
-        parseJSON(a.original.updated).getTime() -
-        parseJSON(b.original.updated).getTime()
-      );
-    },
-    enableGlobalFilter: false,
-  },
+  ageColumn<any>(
+    (row) => (row.updated ? parseJSON(row.updated) : undefined),
+    "Updated"
+  ),
 ];

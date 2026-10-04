@@ -10,5 +10,7 @@ declare module "@tanstack/table-core" {
     showOnMultipleNamespaces?: boolean;
     /** Cell class function used by VirtualDataTable. */
     class?: (row: TData) => string;
+    /** Cell tooltip; defaults to the cell value (useful for truncated cells). */
+    title?: (row: TData) => string | undefined;
   }
 }

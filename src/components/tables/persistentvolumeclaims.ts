@@ -1,6 +1,6 @@
 import { V1PersistentVolumeClaim } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
-import { formatDateTimeDifference } from "@/lib/utils";
+import { ageColumn } from "./age";
 
 export const columns: ColumnDef<V1PersistentVolumeClaim>[] = [
   {
@@ -21,19 +21,5 @@ export const columns: ColumnDef<V1PersistentVolumeClaim>[] = [
     accessorKey: "status.phase",
     enableGlobalFilter: false,
   },
-  {
-    header: "Age",
-    accessorFn: (row) =>
-      formatDateTimeDifference(
-        row.metadata?.creationTimestamp || new Date(),
-        new Date()
-      ),
-    sortingFn: (a, b) => {
-      return (
-        new Date(a.original.metadata?.creationTimestamp || 0).getTime() -
-        new Date(b.original.metadata?.creationTimestamp || 0).getTime()
-      );
-    },
-    enableGlobalFilter: false,
-  },
+  ageColumn<V1PersistentVolumeClaim>((row) => row.metadata?.creationTimestamp),
 ];

@@ -1,6 +1,11 @@
-import { formatDateTimeDifference } from "@/lib/utils";
 import { V1Deployment } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
+import { ageColumn } from "./age";
+import {
+  getDeploymentReadiness,
+  getReplicaTone,
+  toneClass,
+} from "./status";
 
 export const columns: ColumnDef<V1Deployment>[] = [
   {
@@ -10,11 +15,16 @@ export const columns: ColumnDef<V1Deployment>[] = [
   {
     header: "Ready",
     accessorFn: (row) => {
-      const ready = row.status?.readyReplicas || 0;
-      const total = row.status?.replicas || 0;
+      const { ready, total } = getDeploymentReadiness(row);
       return `${ready}/${total}`;
     },
     enableGlobalFilter: false,
+    meta: {
+      class: (row) => {
+        const { ready, total } = getDeploymentReadiness(row);
+        return toneClass(getReplicaTone(ready, total));
+      },
+    },
   },
   {
     header: "Up-to-date",
@@ -30,19 +40,5 @@ export const columns: ColumnDef<V1Deployment>[] = [
     accessorFn: (row) => row.status?.availableReplicas || "",
     enableGlobalFilter: false,
   },
-  {
-    header: "Age",
-    accessorFn: (row) =>
-      formatDateTimeDifference(
-        row.metadata?.creationTimestamp || new Date(),
-        new Date()
-      ),
-    sortingFn: (a, b) => {
-      return (
-        new Date(a.original.metadata?.creationTimestamp || 0).getTime() -
-        new Date(b.original.metadata?.creationTimestamp || 0).getTime()
-      );
-    },
-    enableGlobalFilter: false,
-  },
+  ageColumn<V1Deployment>((row) => row.metadata?.creationTimestamp),
 ];

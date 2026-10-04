@@ -1,12 +1,17 @@
+import { CoreV1Event } from "@kubernetes/client-node";
 import { ColumnDef } from "@tanstack/vue-table";
-import { formatDateTimeDifference } from "@/lib/utils";
+import { ageColumn } from "./age";
+import { getEventLastSeen, getEventTypeTone, toneClass } from "./status";
 import { RouterLink } from "vue-router";
 import { formatResourceKind } from "@/lib/utils";
 
-export const columns: ColumnDef<any>[] = [
+export const columns: ColumnDef<CoreV1Event>[] = [
   {
     accessorKey: "type",
     header: "Type",
+    meta: {
+      class: (row) => toneClass(getEventTypeTone(row.type)),
+    },
   },
   {
     accessorKey: "message",
@@ -42,6 +47,10 @@ export const columns: ColumnDef<any>[] = [
       );
     },
     enableGlobalFilter: false,
+    meta: {
+      title: (row) =>
+        `${row.involvedObject.kind}/${row.involvedObject.name}`,
+    },
   },
   {
     accessorKey: "source.component",
@@ -52,31 +61,6 @@ export const columns: ColumnDef<any>[] = [
     header: "Count",
     enableGlobalFilter: false,
   },
-  {
-    header: "Age",
-    accessorFn: (row) =>
-      formatDateTimeDifference(
-        row.metadata?.creationTimestamp || new Date(),
-        new Date()
-      ),
-    sortingFn: (a, b) => {
-      return (
-        new Date(a.original.metadata?.creationTimestamp || 0).getTime() -
-        new Date(b.original.metadata?.creationTimestamp || 0).getTime()
-      );
-    },
-    enableGlobalFilter: false,
-  },
-  {
-    header: "Last seen",
-    accessorFn: (row) =>
-      formatDateTimeDifference(row.lastTimestamp || new Date(), new Date()),
-    sortingFn: (a, b) => {
-      return (
-        new Date(a.original.metadata?.creationTimestamp || 0).getTime() -
-        new Date(b.original.metadata?.creationTimestamp || 0).getTime()
-      );
-    },
-    enableGlobalFilter: false,
-  },
+  ageColumn<CoreV1Event>((row) => row.metadata?.creationTimestamp),
+  ageColumn<CoreV1Event>((row) => getEventLastSeen(row), "Last seen"),
 ];

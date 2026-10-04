@@ -1,39 +1,57 @@
 <script setup lang="ts">
-import { formatDateTimeDifference, injectStrict } from "@/lib/utils";
+import { formatDateTime, injectStrict } from "@/lib/utils";
+import { formatAge } from "@/components/tables/age";
+import { getEventLastSeen } from "@/components/tables/status";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { Kubernetes } from "@/services/Kubernetes";
 import { CoreV1Event, KubernetesObject } from "@kubernetes/client-node";
 
 const { context, kubeConfig } = injectStrict(KubeContextStateKey);
 
-const props = defineProps<{ object: KubernetesObject }>();
+/*
+ * Rows carry the context + kubeconfig they were fetched from; fall back to
+ * the primary context for objects that are not context-tagged.
+ */
+type ContextTaggedObject = KubernetesObject & {
+  metadata?: KubernetesObject["metadata"] & {
+    context?: string;
+    kubeConfig?: string;
+  };
+};
+
+const props = defineProps<{ object: ContextTaggedObject }>();
 
 const events = ref<CoreV1Event[]>([]);
 
 const fetchEvents = async () => {
+  const objectContext = props.object.metadata?.context || context.value;
+  const objectKubeConfig =
+    props.object.metadata?.kubeConfig ||
+    (props.object.metadata?.context ? "" : kubeConfig.value);
+
   const args = [
     "events",
     "--for",
     `${props.object.kind}/${props.object.metadata?.name}`,
     "--context",
-    context.value,
-    "-n",
-    props.object.metadata?.namespace,
+    objectContext,
     "-o",
     "json",
-    "--kubeconfig",
-    kubeConfig.value,
   ];
+  if (props.object.metadata?.namespace) {
+    args.push("-n", props.object.metadata.namespace);
+  }
+  if (objectKubeConfig) {
+    args.push("--kubeconfig", objectKubeConfig);
+  }
 
   try {
     const data = await Kubernetes.kubectl(args);
-    events.value = JSON.parse(data).items.sort(
-      (a: CoreV1Event, b: CoreV1Event) => {
-        return (
-          new Date(b.firstTimestamp || new Date()).getTime() -
-          new Date(a.firstTimestamp || new Date()).getTime()
-        );
-      }
+    // Most recently seen first.
+    events.value = (JSON.parse(data).items as CoreV1Event[]).sort(
+      (a, b) =>
+        (getEventLastSeen(b)?.getTime() ?? 0) -
+        (getEventLastSeen(a)?.getTime() ?? 0)
     );
   } catch (error) {
     // ignore
@@ -51,13 +69,11 @@ await fetchEvents();
     >
       <div class="flex items-center justify-between mb-1">
         <div class="font-bold">{{ event.reason }}</div>
-        <div :title="event.firstTimestamp">
-          {{
-            formatDateTimeDifference(
-              event.firstTimestamp || new Date(),
-              new Date()
-            )
-          }}
+        <div
+          :title="formatDateTime(getEventLastSeen(event) ?? new Date())"
+          class="text-muted-foreground"
+        >
+          {{ formatAge(getEventLastSeen(event)) }}
         </div>
       </div>
       <div class="text-xs">

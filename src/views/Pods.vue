@@ -2,8 +2,6 @@
 import { injectStrict } from "@/lib/utils";
 import { PodMetric, V1Pod } from "@kubernetes/client-node";
 import { Kubernetes } from "@/services/Kubernetes";
-import { ref, h } from "vue";
-import { useToast, ToastAction } from "@/components/ui/toast";
 import { error } from "@/lib/logger";
 
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
@@ -14,7 +12,15 @@ import { ColumnDef } from "@tanstack/vue-table";
 import { multiContextColumns } from "@/components/tables/multicontext";
 import { kubectlGetForContext } from "@/lib/multicontext";
 import { columns } from "@/components/tables/pods";
-import { useDataRefresher } from "@/composables/refresher";
+import {
+  useResourceList,
+  ContextFailure,
+  ResourceListResult,
+} from "@/composables/useResourceList";
+import {
+  getResourceTabId,
+  getResourceTabTitle,
+} from "@/components/tables/identity";
 import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
 
 const {
@@ -38,8 +44,6 @@ const setSidePanelComponent = injectStrict(
   PanelProviderSetSidePanelComponentKey
 );
 
-const { toast } = useToast();
-
 /*
  * Pods are self-describing: each row carries the context + kubeconfig it was
  * fetched with so actions target the right cluster.
@@ -58,14 +62,12 @@ type ContextAwarePodMetric = PodMetric & {
   };
 };
 
-const pods = ref<ContextAwarePod[]>([]);
-
 // The VirtualDataTable toggles the Context/Namespace columns based on the
 // active context state.
-const tableColumns = computed<ColumnDef<any>[]>(() => [
-  ...multiContextColumns,
-  ...columns,
-]);
+const tableColumns = computed(
+  () =>
+    [...multiContextColumns, ...columns] as ColumnDef<ContextAwarePod, any>[]
+);
 
 const rowActions: RowAction<ContextAwarePod>[] = [
   ...getDefaultActions<ContextAwarePod>(
@@ -98,8 +100,8 @@ const rowActions: RowAction<ContextAwarePod>[] = [
             label: container.name,
             handler: () => {
               addTab(
-                `shell_${row.metadata?.name}_${container.name}`,
-                `${row.metadata?.name}/${container.name}`,
+                getResourceTabId("shell", row, container.name),
+                getResourceTabTitle(row, container.name),
                 defineAsyncComponent(() => import("@/views/Shell.vue")),
                 {
                   kubeConfig: row.metadata.kubeConfig,
@@ -142,8 +144,8 @@ const rowActions: RowAction<ContextAwarePod>[] = [
           label: "All containers",
           handler: () => {
             addTab(
-              `logs_${row.metadata?.name}`,
-              `${row.metadata?.name}`,
+              getResourceTabId("logs", row),
+              getResourceTabTitle(row),
               defineAsyncComponent(
                 () => import("@/views/StructuredLogViewer.vue")
               ),
@@ -163,8 +165,8 @@ const rowActions: RowAction<ContextAwarePod>[] = [
             label: container.name,
             handler: () => {
               addTab(
-                `logs_${row.metadata?.name}_${container.name}`,
-                `${row.metadata?.name}/${container.name}`,
+                getResourceTabId("logs", row, container.name),
+                getResourceTabTitle(row, container.name),
                 defineAsyncComponent(
                   () => import("@/views/StructuredLogViewer.vue")
                 ),
@@ -185,27 +187,17 @@ const rowActions: RowAction<ContextAwarePod>[] = [
   {
     label: "Kill",
     handler: (row: ContextAwarePod) => {
-      Kubernetes.deletePod(
-        row.metadata.context,
-        row.metadata?.namespace ?? namespace.value,
-        row.metadata?.name ?? "",
-        0,
-        row.metadata.kubeConfig
-      )
-        .then(() => {
-          toast({
-            title: "Pod deleted",
-            autoDismiss: true,
-            description: `Pod ${row.metadata?.name} was deleted`,
-          });
-        })
-        .catch((error) => {
-          toast({
-            title: "An error occured",
-            description: error.message,
-            variant: "destructive",
-          });
-        });
+      spawnDialog({
+        title: `Delete pod ${row.metadata?.name}?`,
+        message: `${row.metadata.context} › ${row.metadata?.namespace}`,
+        component: defineAsyncComponent(
+          () => import("@/views/dialogs/DeletePod.vue")
+        ),
+        props: {
+          pod: row,
+        },
+        buttons: [],
+      });
     },
   },
 ];
@@ -262,7 +254,7 @@ const handleAuthError = async (
   const loginCompleted = () => {
     closeAuthDialog();
     dismissedAuthContexts.clear();
-    loadData(true);
+    retry();
   };
 
   spawnDialog({
@@ -339,140 +331,118 @@ const fetchContext = async (
 };
 
 /*
- * Interval ticks are skipped while a fetch is still running; explicit reloads
- * (context changes) always run and supersede older fetches.
+ * Aggregates pods + metrics across every activated (context, namespaces).
+ * Superseded fetches, interval skipping and error state are handled by
+ * useResourceList. Authentication failures that open the login dialog are not
+ * reported as errors (refreshing keeps running for the other contexts).
  */
-let fetchGeneration = 0;
-let fetchInFlight = false;
+const loadPods = async (
+  isCurrent: () => boolean
+): Promise<ResourceListResult<ContextAwarePod>> => {
+  const activeContexts = [...contexts.value.entries()].map(
+    ([ctx, namespaces]) => ({
+      ctx,
+      namespaces,
+      kubeConfig: contextKubeConfigMapping.value.get(ctx) || "",
+    })
+  );
 
-async function loadData(refresh = false) {
-  if (refresh && fetchInFlight) {
-    return;
-  }
+  const results = await Promise.allSettled(
+    activeContexts.map(({ ctx, kubeConfig, namespaces }) =>
+      fetchContext(ctx, kubeConfig, namespaces)
+    )
+  );
 
-  if (!refresh) {
-    pods.value = [];
-  }
+  const aggregatedPods: ContextAwarePod[] = [];
+  const metricsByPod = new Map<string, ContextAwarePodMetric>();
+  const failures: (ContextFailure & { kubeConfig: string })[] = [];
 
-  const generation = ++fetchGeneration;
-  fetchInFlight = true;
-
-  try {
-    // Aggregate pods + metrics across every activated (context, namespaces).
-    const activeContexts = [...contexts.value.entries()].map(
-      ([ctx, namespaces]) => ({
-        ctx,
-        namespaces,
-        kubeConfig: contextKubeConfigMapping.value.get(ctx) || "",
-      })
-    );
-
-    const results = await Promise.allSettled(
-      activeContexts.map(({ ctx, kubeConfig, namespaces }) =>
-        fetchContext(ctx, kubeConfig, namespaces)
-      )
-    );
-
-    if (generation !== fetchGeneration) {
-      return;
+  results.forEach((result, i) => {
+    if (result.status === "fulfilled") {
+      aggregatedPods.push(...result.value.pods);
+      for (const metric of result.value.metrics) {
+        metricsByPod.set(podKey(metric.metadata), metric);
+      }
+    } else {
+      const { ctx, kubeConfig } = activeContexts[i];
+      failures.push({ context: ctx, kubeConfig, reason: result.reason });
+      error(`Failed to fetch pods for context ${ctx}: ${result.reason}`);
     }
+  });
 
-    const aggregatedPods: ContextAwarePod[] = [];
-    const aggregatedMetrics: ContextAwarePodMetric[] = [];
-    const failures: { ctx: string; kubeConfig: string; reason: unknown }[] =
-      [];
+  for (const pod of aggregatedPods) {
+    const podMetric = metricsByPod.get(podKey(pod.metadata));
+    if (podMetric) {
+      pod.metrics.push(podMetric);
+    }
+  }
 
-    results.forEach((result, i) => {
-      if (result.status === "fulfilled") {
-        aggregatedPods.push(...result.value.pods);
-        aggregatedMetrics.push(...result.value.metrics);
-      } else {
-        const { ctx, kubeConfig } = activeContexts[i];
-        failures.push({ ctx, kubeConfig, reason: result.reason });
-        error(`Failed to fetch pods for context ${ctx}: ${result.reason}`);
-      }
-    });
-
-    pods.value = aggregatedPods;
-    aggregatedPods.forEach((pod) => {
-      const podMetric = aggregatedMetrics.find(
-        (m) =>
-          m.metadata?.context === pod.metadata?.context &&
-          m.metadata?.namespace === pod.metadata?.namespace &&
-          m.metadata?.name === pod.metadata?.name
-      );
-      if (podMetric) {
-        pod.metrics.push(podMetric);
-      }
-    });
-
-    let authHandled = false;
+  if (isCurrent()) {
     for (const failure of failures) {
       if (
-        await handleAuthError(failure.ctx, failure.kubeConfig, failure.reason)
+        await handleAuthError(
+          failure.context,
+          failure.kubeConfig,
+          failure.reason
+        )
       ) {
-        authHandled = true;
-        break;
+        return { items: aggregatedPods, attempted: results.length };
       }
     }
-
-    if (
-      !authHandled &&
-      failures.length > 0 &&
-      failures.length === results.length
-    ) {
-      toast({
-        title: "An error occured",
-        description:
-          failures.length === 1
-            ? String(failures[0].reason)
-            : "Failed to fetch pods from any of the active contexts",
-        variant: "destructive",
-        action: h(
-          ToastAction,
-          { altText: "Retry", onClick: () => startRefreshing() },
-          { default: () => "Retry" }
-        ),
-      });
-      stopRefreshing();
-    }
-  } finally {
-    if (generation === fetchGeneration) {
-      fetchInFlight = false;
-    }
-  }
-}
-
-const rowClasses = (row: V1Pod) => {
-  if (route.query.uid) {
-    return row.metadata?.uid === route.query.uid
-      ? "animate-pulse-highlight-once"
-      : "";
   }
 
-  if (row.metadata?.deletionTimestamp) {
-    return "bg-red-500";
-  }
-
-  return "";
+  return { items: aggregatedPods, failures, attempted: results.length };
 };
 
-// contexts and contextKubeConfigMapping always change together; watching
-// both would reload twice per selection change.
-const { startRefreshing, stopRefreshing } = useDataRefresher(loadData, 5000, [
-  contexts.value,
-]);
+const podKey = (metadata?: {
+  context?: string;
+  namespace?: string;
+  name?: string;
+}) => `${metadata?.context}/${metadata?.namespace}/${metadata?.name}`;
+
+const {
+  items: pods,
+  loading,
+  error: loadError,
+  lastUpdated,
+  retry,
+} = useResourceList(loadPods, {
+  interval: 5000,
+  // contexts and contextKubeConfigMapping always change together; watching
+  // both would reload twice per selection change.
+  dependencies: [contexts.value],
+});
+
+const rowClasses = (row: V1Pod) => {
+  const classes: string[] = [];
+
+  if (route.query.uid && row.metadata?.uid === route.query.uid) {
+    classes.push("animate-pulse-highlight-once");
+  }
+
+  // Terminating: subtle tint + dimmed, the Status column carries the colour.
+  if (row.metadata?.deletionTimestamp) {
+    classes.push("bg-destructive/10 opacity-60");
+  }
+
+  return classes.join(" ");
+};
 </script>
 
 <template>
   <DataTable
     :data="pods"
+    :loading="loading"
+    :error="loadError"
+    :last-updated="lastUpdated"
+    resource-name="pods"
     :columns="tableColumns"
     :allow-filter="true"
     :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"
     @row-clicked="showDetails"
+    @retry="retry"
     :estimated-row-height="41"
   />
 </template>

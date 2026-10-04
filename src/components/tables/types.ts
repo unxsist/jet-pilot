@@ -1,9 +1,13 @@
 import { BaseDialogInterface } from "@/providers/DialogProvider";
-import { Command } from "@tauri-apps/plugin-shell";
 import { VirtualService } from "@kubernetes-models/istio/networking.istio.io/v1beta1";
 import { KubernetesObject } from "@kubernetes/client-node";
-import { error } from "@/lib/logger";
 import { formatResourceKind } from "@/lib/utils";
+import { runCliForEach } from "@/actions/command";
+import {
+  describeRows,
+  getResourceTabId,
+  getResourceTabTitle,
+} from "./identity";
 
 /*
  * Rows fetched in (multi-)context mode carry the context + kubeconfig they
@@ -61,7 +65,7 @@ export function getDefaultActions<
       handler: (row: T) => {
         setSidePanelComponent({
           title: `${row.kind}: ${row.metadata?.name}`,
-          icon: formatResourceKind(row.kind).toLowerCase(),
+          icon: formatResourceKind(row.kind || "").toLowerCase(),
           component: defineAsyncComponent(
             () => import("@/views/panels/Resource.vue")
           ),
@@ -75,8 +79,8 @@ export function getDefaultActions<
       label: "Edit YAML",
       handler: (row: T) => {
         addTab(
-          `edit_${row.metadata?.name}`,
-          `${row.metadata?.name}`,
+          getResourceTabId("edit", row),
+          getResourceTabTitle(row),
           defineAsyncComponent(() => import("@/views/ObjectEditor.vue")),
           {
             context: row.metadata.context,
@@ -94,8 +98,8 @@ export function getDefaultActions<
       label: "Describe",
       handler: (row: T) => {
         addTab(
-          `describe_${row.metadata?.name}`,
-          `${row.metadata?.name}`,
+          getResourceTabId("describe", row),
+          getResourceTabTitle(row),
           defineAsyncComponent(() => import("@/views/Describe.vue")),
           {
             context: row.metadata.context,
@@ -113,36 +117,49 @@ export function getDefaultActions<
       massAction: true,
       handler: (rows: T[]) => {
         const dialog: BaseDialogInterface = {
-          title: "Delete",
-          message: `Are you sure you want to delete ${rows.length} selected items?`,
+          title:
+            rows.length === 1
+              ? `Delete ${getResourceTabTitle(rows[0])}?`
+              : `Delete ${rows.length} resources?`,
+          message: "This cannot be undone.",
+          component: defineAsyncComponent(
+            () => import("@/views/dialogs/ResourceList.vue")
+          ),
+          props: {
+            lines: describeRows(rows),
+          },
           buttons: [
             {
               label: "Cancel",
+              variant: "ghost",
               handler: (dialog) => {
                 dialog.close();
               },
             },
             {
               label: "Delete",
+              variant: "destructive",
               handler: (dialog) => {
-                rows.forEach((row) => {
-                  const command = Command.create("kubectl", [
-                    "delete",
-                    `${row.kind}/${row.metadata?.name}`,
-                    "--context",
-                    row.metadata.context,
-                    "--namespace",
-                    row.metadata?.namespace || "",
-                    "--kubeconfig",
-                    row.metadata.kubeConfig,
-                  ]);
-
-                  command.stderr.on("data", (e: string) => {
-                    error(`Failed to delete resource: ${e}`);
-                  });
-
-                  command.spawn();
-                  dialog.close();
+                dialog.close();
+                runCliForEach("kubectl", rows, {
+                  args: (row) => {
+                    const args = [
+                      "delete",
+                      `${row.kind}/${row.metadata?.name}`,
+                      "--context",
+                      row.metadata.context,
+                    ];
+                    if (row.metadata.kubeConfig) {
+                      args.push("--kubeconfig", row.metadata.kubeConfig);
+                    }
+                    if (row.metadata?.namespace) {
+                      args.push("--namespace", row.metadata.namespace);
+                    }
+                    return args;
+                  },
+                  label: (row) => getResourceTabTitle(row),
+                  successVerb: "Deleted",
+                  failureVerb: "delete",
                 });
               },
             },
