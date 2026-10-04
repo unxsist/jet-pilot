@@ -21,6 +21,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { error } from "@/lib/logger";
 import { perfMark } from "@/lib/perf";
 import type { TabSession } from "@/lib/tabDescriptors";
+import type { PortForwardProfile } from "@/lib/portForwardProfiles";
 
 export const SettingsContextStateKey: InjectionKey<
   ToRefs<SettingsContextState>
@@ -72,6 +73,8 @@ export interface SettingsContextState {
     logLevel: "error" | "warn" | "info" | "debug" | "trace";
     /** Bottom-panel tabs of the last session, restored on start. */
     openTabs: TabSession | null;
+    /** Saved port forwards (optionally started on launch). */
+    portForwardProfiles: PortForwardProfile[];
   };
 }
 
@@ -114,6 +117,7 @@ export default {
         },
         logLevel: "error",
         openTabs: null,
+        portForwardProfiles: [],
       },
     });
     provide(SettingsContextStateKey, toRefs(state));
