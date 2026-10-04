@@ -19,6 +19,8 @@
 //! not delivered; they are flushed on resume.
 
 mod batch;
+#[cfg(test)]
+mod bench;
 mod discovery;
 mod entry;
 mod object;
