@@ -9,30 +9,30 @@ default-run = "jet_pilot"
 edition = "2021"
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.7.1", features = [] }
 cc = "1.0.106"
 
 [dependencies]
 serde_json = "1.0.100"
 serde = { version = "1.0.167", features = ["derive"] }
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2.12.1", features = ["macos-private-api"] }
 tokio = { version = "1.29.1", features = ["process", "io-util", "time", "macros"] }
 kube = { version = "0.93.1", features = ["socks5", "http-proxy", "oidc"] }
 k8s-openapi = { version = "0.22.0", features = ["v1_30"] }
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs", branch = "dev" }
 portable-pty = "0.8.1"
-uuid = { version = "1.4.1", features = ["serde"] }
+uuid = { version = "1.4.1", features = ["serde", "v4"] }
 either = "1.9.0"
 k8s-metrics = "0.16.0"
 access_log_parser = { version = "0.8.0", path = "src/crates/access_log_parser" }
-tauri-plugin-http = "2"
-tauri-plugin-clipboard-manager = "2.2.0"
-tauri-plugin-process = "2"
-tauri-plugin-notification = "2"
-tauri-plugin-shell = "2"
-tauri-plugin-dialog = "2"
-tauri-plugin-os = "2"
-tauri-plugin-fs = "2"
+tauri-plugin-http = "2.8.0"
+tauri-plugin-clipboard-manager = "2.4.1"
+tauri-plugin-process = "2.4.0"
+tauri-plugin-notification = "2.5.1"
+tauri-plugin-shell = "2.4.0"
+tauri-plugin-dialog = "2.8.1"
+tauri-plugin-os = "2.4.0"
+tauri-plugin-fs = "2.6.0"
 rand = "0.8.5"
 tracing = "0.1"
 tracing-subscriber ="0.3"
@@ -45,8 +45,8 @@ tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2"
 window-vibrancy = "0.4.2"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-tauri-plugin-global-shortcut = "2"
-tauri-plugin-updater = "2"
+tauri-plugin-global-shortcut = "2.4.0"
+tauri-plugin-updater = "2.13.1"
 
 [features]
 # by default Tauri runs in production mode
