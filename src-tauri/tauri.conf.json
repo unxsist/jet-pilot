@@ -43,7 +43,20 @@
     ],
     "macOSPrivateApi": true,
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self' ipc: http://ipc.localhost https://ipc.localhost",
+        "script-src": "'self' https://cdn.jsdelivr.net",
+        "style-src": "'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+        "img-src": "'self' asset: http://asset.localhost https://asset.localhost data: blob:",
+        "font-src": "'self' data: https://cdn.jsdelivr.net",
+        "connect-src": "'self' ipc: http://ipc.localhost https://ipc.localhost https://cdn.jsdelivr.net",
+        "worker-src": "'self' blob:",
+        "object-src": "'none'",
+        "frame-src": "'none'",
+        "base-uri": "'self'",
+        "form-action": "'none'"
+      },
+      "dangerousDisableAssetCspModification": ["style-src"]
     }
   }
 }
