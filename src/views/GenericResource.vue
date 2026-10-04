@@ -11,18 +11,15 @@ import { kubectlGetForContext } from "@/lib/multicontext";
 
 const route = useRoute();
 const router = useRouter();
-const { toast, toasts, dismiss } = useToast();
 const {
   context,
-  namespace,
   kubeConfig,
   contexts,
   contextKubeConfigMapping,
 } = injectStrict(KubeContextStateKey);
 
-const actions = ref(null);
+const actions = ref<any>(null);
 const currentResource = ref(route.query.resource as string);
-const resourceData = ref<any[]>([]);
 
 import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
@@ -33,9 +30,12 @@ import { error } from "@/lib/logger";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
 import { PanelProviderSetSidePanelComponentKey } from "@/providers/PanelProvider";
-import { useDataRefresher } from "@/composables/refresher";
-import { useToast } from "@/components/ui/toast";
-import ToastAction from "@/components/ui/toast/ToastAction.vue";
+import {
+  useResourceList,
+  ContextFailure,
+  ResourceListResult,
+} from "@/composables/useResourceList";
+import { resolveCreateTarget } from "@/components/tables/identity";
 const setSidePanelComponent = injectStrict(
   PanelProviderSetSidePanelComponentKey
 );
@@ -111,148 +111,111 @@ const showDetails = (row: any) => {
 };
 
 const create = () => {
+  const kind = String(route.query.kind || "");
+  const target = resolveCreateTarget(
+    context.value,
+    kubeConfig.value,
+    contexts.value,
+    contextKubeConfigMapping.value
+  );
+
   addTab(
     `create_` + Math.random().toString(36).substring(7),
-    `New ${route.query.kind}`,
+    `New ${kind}`,
     defineAsyncComponent(() => import("@/views/ObjectEditor.vue")),
     {
-      context: context,
-      namespace: namespace.value === "all" ? "" : namespace,
-      kubeConfig: kubeConfig,
+      ...target,
       create: true,
-      type: route.query.kind.toLowerCase(),
-      kind: route.query.kind,
+      type: kind.toLowerCase(),
+      kind,
       useKubeCtl: false,
     },
     "edit"
   );
 };
 
-onBeforeRouteUpdate(async (to, from, next) => {
-  resourceData.value = [];
-  currentResource.value = to.query.resource as string;
+/*
+ * Aggregates rows across every activated (context, namespaces) combination.
+ * Superseded fetches, interval skipping and error state are handled by
+ * useResourceList.
+ */
+const loadResources = async (): Promise<ResourceListResult<object>> => {
+  const fetchingResource = currentResource.value;
+  const activeContexts = [...contexts.value.entries()];
 
-  dismissAllToasts();
-  getResourceData();
+  const results = await Promise.allSettled(
+    activeContexts.map(([ctx, namespaces]) =>
+      kubectlGetForContext<any>(
+        fetchingResource,
+        ctx,
+        contextKubeConfigMapping.value.get(ctx) || "",
+        namespaces
+      )
+    )
+  );
+
+  const items: object[] = [];
+  const failures: ContextFailure[] = [];
+  results.forEach((result, i) => {
+    if (result.status === "fulfilled") {
+      items.push(...result.value);
+    } else {
+      failures.push({ context: activeContexts[i][0], reason: result.reason });
+      error(
+        `Failed to fetch ${fetchingResource} for context ${activeContexts[i][0]}: ${result.reason}`
+      );
+    }
+  });
+
+  return { items, failures, attempted: activeContexts.length };
+};
+
+const {
+  items: resourceData,
+  loading,
+  error: loadError,
+  lastUpdated,
+  retry,
+} = useResourceList(loadResources, {
+  interval: 5000,
+  // contexts and contextKubeConfigMapping always change together; watching
+  // both would reload twice per selection change. Switching resources (route
+  // update) reloads through currentResource.
+  dependencies: [contexts.value, currentResource],
+});
+
+onBeforeRouteUpdate(async (to) => {
+  currentResource.value = to.query.resource as string;
 
   await initColumns(to.query.resource as string);
   await initRowActions(to.query.resource as string);
-
-  next();
-
-  if (!isRefreshing.value) {
-    startRefreshing();
-  }
 });
-
-const dismissAllToasts = () => {
-  toasts.value.forEach((t) => dismiss(t.id));
-};
-
-/*
- * Interval ticks are skipped while a fetch is still running (slow clusters can
- * take longer than the refresh interval); explicit reloads (route or context
- * changes) always run and supersede older fetches via the generation counter,
- * so stale results never overwrite newer ones.
- */
-let fetchGeneration = 0;
-let fetchInFlight = false;
-
-const getResourceData = async (refresh = false) => {
-  if (refresh && fetchInFlight) {
-    return;
-  }
-
-  if (!refresh) {
-    resourceData.value = [];
-  }
-
-  const generation = ++fetchGeneration;
-  const fetchingResource = currentResource.value;
-  fetchInFlight = true;
-
-  try {
-    // Aggregate rows across every activated (context, namespaces) combination.
-    const activeContexts = [...contexts.value.entries()];
-    const results = await Promise.allSettled(
-      activeContexts.map(([ctx, namespaces]) =>
-        kubectlGetForContext<any>(
-          fetchingResource,
-          ctx,
-          contextKubeConfigMapping.value.get(ctx) || "",
-          namespaces
-        )
-      )
-    );
-
-    if (generation !== fetchGeneration) {
-      return;
-    }
-
-    const aggregated: object[] = [];
-    results.forEach((result, i) => {
-      if (result.status === "fulfilled") {
-        aggregated.push(...result.value);
-      } else {
-        error(
-          `Failed to fetch ${fetchingResource} for context ${activeContexts[i][0]}: ${result.reason}`
-        );
-      }
-    });
-
-    resourceData.value = aggregated;
-
-    const failures = results.filter((r) => r.status === "rejected");
-    if (results.length > 0 && failures.length === results.length) {
-      toast({
-        title: "An error occured",
-        description:
-          results.length === 1
-            ? String((failures[0] as PromiseRejectedResult).reason)
-            : "Failed to fetch the resource from any of the active contexts",
-        variant: "destructive",
-        action: h(
-          ToastAction,
-          { altText: "Retry", onClick: () => startRefreshing() },
-          { default: () => "Retry" }
-        ),
-      });
-      stopRefreshing();
-    }
-  } finally {
-    if (generation === fetchGeneration) {
-      fetchInFlight = false;
-    }
-  }
-};
 
 onMounted(async () => {
   initColumns(route.query.resource as string);
   initRowActions(route.query.resource as string);
 });
-
-const { startRefreshing, stopRefreshing, isRefreshing } = useDataRefresher(
-  getResourceData,
-  5000,
-  // contexts and contextKubeConfigMapping always change together; watching
-  // both would reload twice per selection change.
-  [contexts.value]
-);
 </script>
 <template>
   <DataTable
     :key="`${route.query.resource}-${refreshKey}`"
     :data="resourceData"
+    :loading="loading"
+    :error="loadError"
+    :last-updated="lastUpdated"
+    :resource-name="currentResource"
     :columns="tableColumns"
     :allow-filter="true"
     :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"
     @row-clicked="showDetails"
+    @retry="retry"
   >
     <template #action-buttons>
       <button
-        class="transition-all ml-2 hover:opacity-100 opacity-50 z-50 rounded-full w-9 h-9 flex items-center justify-center bg-primary text-white text-lg"
+        class="transition-all ml-2 hover:opacity-100 opacity-50 z-50 rounded-full w-9 h-9 flex items-center justify-center bg-primary text-primary-foreground text-lg"
+        :title="`Create ${route.query.kind || 'resource'}`"
         @click="create"
       >
         +

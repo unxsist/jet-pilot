@@ -4,52 +4,25 @@ import { Command } from "@tauri-apps/plugin-shell";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { injectStrict } from "@/lib/utils";
 import { onMounted } from "vue";
-import { useToast, ToastAction } from "@/components/ui/toast";
-import { h } from "vue";
 import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { ColumnDef } from "@tanstack/vue-table";
 import { columns as defaultGenericColumns } from "@/components/tables/generic";
 import { multiContextColumns } from "@/components/tables/multicontext";
+import {
+  useResourceList,
+  ContextFailure,
+  ResourceListResult,
+} from "@/composables/useResourceList";
 
 const route = useRoute();
 const router = useRouter();
-const {
-  context,
-  namespace,
-  kubeConfig,
-  contexts,
-  contextKubeConfigMapping,
-} = injectStrict(KubeContextStateKey);
+const { context, kubeConfig, contexts, contextKubeConfigMapping } =
+  injectStrict(KubeContextStateKey);
 
-const { toast } = useToast();
-
-const actions = ref(null);
-const resourceData = ref<any[]>([]);
-const refreshIntervalRef = ref<ReturnType<typeof setInterval> | null>(null);
-const isFetchingRef = ref(false);
+const actions = ref<any>(null);
 const currentResource = ref(route.query.resource as string);
 
-/*
- * HelmResource drives its own watcher interval (helm has no kubectl-style
- * single-shot invocation in this view), so start/stop are local: stopping
- * halts periodic refreshes, starting resumes them via a fresh fetch.
- */
-const stopRefreshing = () => {
-  if (refreshIntervalRef.value) {
-    clearInterval(refreshIntervalRef.value);
-    refreshIntervalRef.value = null;
-  }
-};
-
-const startRefreshing = () => {
-  if (refreshIntervalRef.value) {
-    return;
-  }
-  isFetchingRef.value = false;
-  initiateHelmWatcher(route.query.resource as string);
-};
-
-import { RowAction, getDefaultActions } from "@/components/tables/types";
+import { RowAction } from "@/components/tables/types";
 import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
 const addTab = injectStrict(PanelProviderAddTabKey);
 
@@ -121,34 +94,6 @@ const rowClasses = (row: any) => {
   return "";
 };
 
-onBeforeRouteUpdate(async (to, from, next) => {
-  currentResource.value = to.query.resource as string;
-
-  if (refreshIntervalRef.value) {
-    clearInterval(refreshIntervalRef.value);
-  }
-
-  isFetchingRef.value = false;
-  initiateHelmWatcher(to.query.resource as string);
-  await initColumns(to.query.resource as string);
-  await initRowActions(to.query.resource as string);
-
-  next();
-});
-
-const initiateHelmWatcher = (resource: string) => {
-  resourceData.value = [];
-
-  fetchHelmResource(resource);
-  refreshIntervalRef.value = setInterval(() => {
-    /* Skip overlapping runs: helm can be slow across multiple contexts. */
-    if (isFetchingRef.value) {
-      return;
-    }
-    fetchHelmResource(resource);
-  }, 2500);
-};
-
 const tagRows = (rows: any[], ctx: string, kc: string) => {
   return rows.map((row: any) => ({
     ...row,
@@ -159,175 +104,126 @@ const tagRows = (rows: any[], ctx: string, kc: string) => {
   }));
 };
 
+/* Runs helm and parses its JSON output; non-zero exits throw with stderr. */
+const helmJson = async (args: string[]): Promise<any[]> => {
+  const { stdout, stderr, code } = await Command.create("helm", args).execute();
+  if (code !== 0) {
+    throw new Error(stderr.trim() || `helm ${args[0]} exited with code ${code}`);
+  }
+
+  const parsed = JSON.parse(stdout || "[]");
+  return Array.isArray(parsed) ? parsed : [];
+};
+
 /*
- * `helm list`: per-context aggregation of releases. Each row carries the
- * context + kubeconfig it was fetched with so rollback/delete target the
- * right cluster.
+ * `helm list` for one context; namespace scopes are fetched in parallel. Each
+ * row carries the context + kubeconfig it was fetched with so rollback /
+ * delete target the right cluster.
  */
 const fetchHelmReleasesForContext = async (
   ctx: string,
   namespaces: string[]
 ): Promise<object[]> => {
-  const kubeConfig = contextKubeConfigMapping.value.get(ctx);
-  if (!kubeConfig) {
-    return [];
+  const kubeConfig = contextKubeConfigMapping.value.get(ctx) || "";
+  const baseArgs = ["list", "--kube-context", ctx, "-o", "json"];
+  if (kubeConfig) {
+    baseArgs.push("--kubeconfig", kubeConfig);
   }
 
-  const baseArgs = [
-    "list",
-    "--kube-context",
-    ctx,
-    "-o",
-    "json",
-    "--kubeconfig",
-    kubeConfig,
-  ];
+  const scopes: (string | null)[] = namespaces.includes("all")
+    ? [null]
+    : namespaces;
 
-  const scopes: (string | null)[] =
-    namespaces.includes("all") ? [null] : namespaces;
+  const results = await Promise.all(
+    scopes.map((nsScope) =>
+      helmJson([
+        ...baseArgs,
+        ...(nsScope ? ["--namespace", nsScope] : ["--all-namespaces"]),
+      ])
+    )
+  );
 
-  const rows: object[] = [];
-  for (const nsScope of scopes) {
-    const args = [...baseArgs];
-    if (nsScope) {
-      args.push("--namespace", nsScope);
-    } else {
-      args.push("--all-namespaces");
-    }
-
-    const { stdout, code } = await Command.create("helm", args).execute();
-    if (code !== 0) {
-      throw new Error(
-        `helm list exited with code ${code} for context ${ctx}`
-      );
-    }
-
-    const parsed = JSON.parse(stdout);
-    rows.push(...tagRows(Array.isArray(parsed) ? parsed : [], ctx, kubeConfig));
-  }
-
-  return rows;
+  return tagRows(results.flat(), ctx, kubeConfig);
 };
 
-const fetchHelmResource = async (resource: string) => {
-  isFetchingRef.value = true;
-  const fetchingResource = resource;
+/*
+ * Releases are aggregated per active context (in parallel). `helm search
+ * repo` searches the local repository cache - it is not cluster-scoped, so it
+ * runs once using the primary context. Superseded fetches (resource or
+ * context switches mid-fetch) are dropped by useResourceList.
+ */
+const loadHelmResource = async (): Promise<ResourceListResult<object>> => {
+  const resource = currentResource.value;
 
-  try {
-    let rows: object[] = [];
+  if (resource === "release") {
+    const activeContexts = [...contexts.value.entries()];
+    const results = await Promise.allSettled(
+      activeContexts.map(([ctx, namespaces]) =>
+        fetchHelmReleasesForContext(ctx, namespaces)
+      )
+    );
 
-    /*
-     * `helm search repo` searches the local repository cache - it is not
-     * cluster-scoped, so it is fetched once using the global selection even
-     * in multi-context mode (per-context runs would duplicate identical
-     * rows).
-     */
-    if (resource === "release" && contexts.value.size > 0) {
-      let failedContexts = 0;
-      const aggregated: object[] = [];
-
-      for (const [ctx, namespaces] of contexts.value) {
-        try {
-          aggregated.push(
-            ...(await fetchHelmReleasesForContext(ctx, namespaces))
-          );
-        } catch (e) {
-          failedContexts++;
-          error(`Failed to fetch helm releases for context ${ctx}: ${e}`);
-        }
+    const items: object[] = [];
+    const failures: ContextFailure[] = [];
+    results.forEach((result, i) => {
+      if (result.status === "fulfilled") {
+        items.push(...result.value);
+      } else {
+        const ctx = activeContexts[i][0];
+        failures.push({ context: ctx, reason: result.reason });
+        error(`Failed to fetch helm releases for context ${ctx}: ${result.reason}`);
       }
+    });
 
-      rows = aggregated;
-
-      if (failedContexts === contexts.value.size && rows.length === 0) {
-        toast({
-          title: "An error occured",
-          description:
-            "Failed to fetch helm releases from any of the active contexts",
-          variant: "destructive",
-          action: h(
-            ToastAction,
-            { altText: "Retry", onClick: () => startRefreshing() },
-            { default: () => "Retry" }
-          ),
-        });
-        stopRefreshing();
-      }
-    } else {
-      const args =
-        resource === "release"
-          ? [
-              "list",
-              "--kube-context",
-              context.value,
-              "-o",
-              "json",
-              "--kubeconfig",
-              kubeConfig.value,
-            ]
-          : [
-              "search",
-              "repo",
-              "--kube-context",
-              context.value,
-              "-o",
-              "json",
-              "--kubeconfig",
-              kubeConfig.value,
-            ];
-
-      if (namespace.value) {
-        args.push("--namespace", namespace.value);
-      } else if (resource === "release") {
-        args.push("--all-namespaces");
-      }
-
-      const { stdout } = await Command.create("helm", args).execute();
-      const parsed = JSON.parse(stdout);
-      rows = tagRows(
-        Array.isArray(parsed) ? parsed : [],
-        context.value,
-        kubeConfig.value
-      );
-    }
-
-    /*
-     * Make sure we never show data that's not related to the current resource
-     * e.g. due to route switching mid-fetch.
-     */
-    if (fetchingResource !== currentResource.value) {
-      return;
-    }
-
-    resourceData.value = rows;
-  } catch (e) {
-    error(`Error fetching Helm ${resource}: ${e}`);
-  } finally {
-    isFetchingRef.value = false;
+    return { items, failures, attempted: activeContexts.length };
   }
+
+  const args = ["search", "repo", "-o", "json"];
+  const rows = await helmJson(args);
+  return { items: tagRows(rows, context.value, kubeConfig.value) };
 };
+
+const {
+  items: resourceData,
+  loading,
+  error: loadError,
+  lastUpdated,
+  retry,
+} = useResourceList(loadHelmResource, {
+  // helm is comparatively slow (it decodes release secrets), poll gently.
+  interval: 10000,
+  dependencies: [contexts.value, currentResource],
+});
+
+const resourceName = computed(() =>
+  currentResource.value === "release" ? "releases" : "charts"
+);
+
+onBeforeRouteUpdate(async (to) => {
+  currentResource.value = to.query.resource as string;
+
+  await initColumns(to.query.resource as string);
+  await initRowActions(to.query.resource as string);
+});
 
 onMounted(() => {
   initColumns(route.query.resource as string);
   initRowActions(route.query.resource as string);
-
-  initiateHelmWatcher(route.query.resource as string);
-});
-
-onUnmounted(() => {
-  if (refreshIntervalRef.value) {
-    clearInterval(refreshIntervalRef.value);
-  }
 });
 </script>
 <template>
   <DataTable
-    :key="`${route.query.resource}-${resourceData.length}`"
+    :key="currentResource"
     :data="resourceData"
+    :loading="loading"
+    :error="loadError"
+    :last-updated="lastUpdated"
+    :resource-name="resourceName"
     :columns="tableColumns"
     :allow-filter="true"
     :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"
+    @retry="retry"
   />
 </template>
