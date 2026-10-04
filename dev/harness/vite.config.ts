@@ -11,11 +11,16 @@ import baseConfig from "../../vite.config";
 
 const injectHarness = (): Plugin => ({
   name: "jet-pilot-harness",
-  transformIndexHtml(html) {
-    return html.replace(
-      '<script type="module" src="/src/main.ts"></script>',
-      '<script type="module" src="/dev/harness/setup.ts"></script>\n    <script type="module" src="/src/main.ts"></script>'
-    );
+  // A module script in <head> runs before the app entry in <body>.
+  transformIndexHtml: {
+    order: "pre",
+    handler: () => [
+      {
+        tag: "script",
+        attrs: { type: "module", src: "/dev/harness/setup.ts" },
+        injectTo: "head",
+      },
+    ],
   },
 });
 
