@@ -69,3 +69,27 @@ export async function kubectlGetForContext<T extends { metadata?: any }>(
 
   return items;
 }
+
+/**
+ * The active (context, kubeconfig, namespaces) combinations, in selection
+ * order, as consumed by useWatchedList / usePodMetrics.
+ */
+export function activeTargets(
+  contexts: Map<string, string[]>,
+  contextKubeConfigMapping: Map<string, string>
+): { context: string; kubeConfig: string; namespaces: string[] }[] {
+  return [...contexts.entries()].map(([context, namespaces]) => ({
+    context,
+    kubeConfig: contextKubeConfigMapping.get(context) || "",
+    namespaces: [...namespaces],
+  }));
+}
+
+/**
+ * Whether list views should poll with kubectl instead of using live watches
+ * (settings.json: `"experimental": { "useKubectlPolling": true }`).
+ */
+export function kubectlPollingForced(settings: unknown): boolean {
+  return !!(settings as { experimental?: { useKubectlPolling?: boolean } })
+    ?.experimental?.useKubectlPolling;
+}
