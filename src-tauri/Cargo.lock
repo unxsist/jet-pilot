@@ -2474,6 +2474,7 @@ dependencies = [
  "k8s-metrics",
  "k8s-openapi",
  "kube",
+ "libc",
  "once_cell",
  "portable-pty",
  "rand 0.8.5",

@@ -9,10 +9,15 @@
 //! - the pty master is kept alive for the lifetime of the session: dropping it
 //!   on Windows closes the pseudo console while the child is still starting
 //!   (STATUS_DLL_INIT_FAILED / 0xc0000142)
+//! - input is queued to a per-session writer thread, so a child that stops
+//!   reading (full pty buffer) cannot block the main thread or other commands
 //! - errors are returned to the frontend instead of panicking
-//! - sessions are killed when their tab closes and when the app exits
-//! - local terminals get a temporary single-context kubeconfig (0600) via
-//!   `KUBECONFIG`, removed again when the session ends
+//! - sessions are killed when their tab closes and when the app exits; on
+//!   unix a child that ignores SIGHUP is SIGKILLed after a grace period
+//! - local terminals get a temporary single-context kubeconfig via
+//!   `KUBECONFIG` (owner-only 0600 permissions on unix; on Windows it lives in
+//!   the per-user temp directory), removed again when the session ends and
+//!   swept at startup in case a previous run crashed
 
 pub mod tty {
     use once_cell::sync::Lazy;
@@ -23,6 +28,7 @@ pub mod tty {
     use std::io::{Read, Write};
     use std::path::{Path, PathBuf};
     use std::process::Command;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{mpsc, Arc, Mutex};
     use std::thread;
     use std::time::Duration;
@@ -37,17 +43,29 @@ pub mod tty {
     const DEFAULT_COLS: u16 = 80;
     const MAX_DIMENSION: u16 = 1000;
     const TEMP_KUBECONFIG_PREFIX: &str = "jet-pilot-terminal-";
+    const TEMP_KUBECONFIG_SUFFIX: &str = ".yaml";
+    /// How long a stopped child gets to exit after SIGHUP before it is killed.
+    #[cfg(unix)]
+    const KILL_GRACE_PERIOD: Duration = Duration::from_secs(2);
 
+    /// The parts of a session are locked independently: a writer blocked on a
+    /// full pty must never keep stop / resize / exit cleanup waiting.
     struct TtySession {
+        /// Input for the writer thread; dropping it ends that thread.
+        input: mpsc::Sender<Vec<u8>>,
         /// Kept alive on purpose: dropping the master closes the pty (and on
         /// Windows the pseudo console, which kills the child).
-        master: Box<dyn MasterPty + Send>,
-        writer: Box<dyn Write + Send>,
-        killer: Box<dyn ChildKiller + Send + Sync>,
+        master: Mutex<Box<dyn MasterPty + Send>>,
+        killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+        #[cfg_attr(not(unix), allow(dead_code))]
+        pid: Option<u32>,
+        /// Set by the waiter thread once the child has been reaped.
+        #[cfg_attr(not(unix), allow(dead_code))]
+        exited: Arc<AtomicBool>,
         temp_files: Vec<PathBuf>,
     }
 
-    static TTY_SESSIONS: Lazy<Mutex<HashMap<String, Arc<Mutex<TtySession>>>>> =
+    static TTY_SESSIONS: Lazy<Mutex<HashMap<String, Arc<TtySession>>>> =
         Lazy::new(|| Mutex::new(HashMap::new()));
 
     /// JSON message sent on the session channel when the process has exited.
@@ -65,20 +83,60 @@ pub mod tty {
         },
     }
 
-    fn lock_sessions() -> std::sync::MutexGuard<'static, HashMap<String, Arc<Mutex<TtySession>>>> {
-        // A panic while holding the lock must not take every terminal down.
-        TTY_SESSIONS.lock().unwrap_or_else(|e| e.into_inner())
+    // A panic while holding a lock must not take every terminal down.
+    fn lock<T: ?Sized>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+        mutex.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn get_session(session_id: &str) -> Result<Arc<Mutex<TtySession>>, String> {
+    fn lock_sessions() -> std::sync::MutexGuard<'static, HashMap<String, Arc<TtySession>>> {
+        lock(&TTY_SESSIONS)
+    }
+
+    fn get_session(session_id: &str) -> Result<Arc<TtySession>, String> {
         lock_sessions()
             .get(session_id)
             .cloned()
             .ok_or_else(|| format!("Terminal session {} not found", session_id))
     }
 
-    fn remove_session(session_id: &str) -> Option<Arc<Mutex<TtySession>>> {
+    fn remove_session(session_id: &str) -> Option<Arc<TtySession>> {
         lock_sessions().remove(session_id)
+    }
+
+    /// SIGKILL the child's process group (the child is a session leader, so
+    /// its pgid is its pid) and the child itself.
+    #[cfg(unix)]
+    fn force_kill(pid: u32) {
+        let Ok(pid) = libc::pid_t::try_from(pid) else {
+            return;
+        };
+        unsafe {
+            libc::kill(-pid, libc::SIGKILL);
+            libc::kill(pid, libc::SIGKILL);
+        }
+    }
+
+    /// Ask the child to stop (SIGHUP on unix, TerminateProcess on Windows).
+    /// On unix a child still running after `KILL_GRACE_PERIOD` is SIGKILLed,
+    /// so the waiter always returns and the session always ends.
+    fn terminate(session: &TtySession) -> std::io::Result<()> {
+        let result = lock(&session.killer).kill();
+
+        #[cfg(unix)]
+        if let Some(pid) = session.pid {
+            let exited = session.exited.clone();
+            let _ = thread::Builder::new()
+                .name(format!("tty-kill-{}", pid))
+                .spawn(move || {
+                    thread::sleep(KILL_GRACE_PERIOD);
+                    if !exited.load(Ordering::SeqCst) {
+                        warn!("TTY process {} ignored SIGHUP, killing it", pid);
+                        force_kill(pid);
+                    }
+                });
+        }
+
+        result
     }
 
     fn remove_temp_files(files: &[PathBuf]) {
@@ -189,7 +247,7 @@ pub mod tty {
             Ok((pair.master, child, killer, reader, writer))
         })();
 
-        let (master, mut child, killer, mut reader, writer) = match result {
+        let (master, mut child, killer, mut reader, mut writer) = match result {
             Ok(parts) => parts,
             Err(e) => {
                 remove_temp_files(&temp_files);
@@ -200,14 +258,41 @@ pub mod tty {
         let session_id = Uuid::new_v4().to_string();
         info!("Started TTY session {} running {}", session_id, program);
 
+        // Writes block when the child stops reading (full pty buffer), so they
+        // happen on a dedicated thread fed by a queue. The thread ends when the
+        // session is dropped (queue closed) or the pty is gone.
+        let (input_tx, input_rx) = mpsc::channel::<Vec<u8>>();
+        let spawned_writer = thread::Builder::new()
+            .name(format!("tty-writer-{}", session_id))
+            .spawn(move || {
+                for data in input_rx {
+                    if writer
+                        .write_all(&data)
+                        .and_then(|_| writer.flush())
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            });
+        if let Err(e) = spawned_writer {
+            let mut killer = killer;
+            let _ = killer.kill();
+            remove_temp_files(&temp_files);
+            return Err(format!("Failed to start the terminal writer: {}", e));
+        }
+
+        let exited = Arc::new(AtomicBool::new(false));
         lock_sessions().insert(
             session_id.clone(),
-            Arc::new(Mutex::new(TtySession {
-                master,
-                writer,
-                killer,
+            Arc::new(TtySession {
+                input: input_tx,
+                master: Mutex::new(master),
+                killer: Mutex::new(killer),
+                pid: child.process_id(),
+                exited: exited.clone(),
                 temp_files: temp_files.clone(),
-            })),
+            }),
         );
 
         let (reader_done_tx, reader_done_rx) = mpsc::channel::<()>();
@@ -232,11 +317,7 @@ pub mod tty {
 
         if let Err(e) = spawned_reader {
             if let Some(session) = remove_session(&session_id) {
-                let _ = session
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .killer
-                    .kill();
+                let _ = terminate(&session);
             }
             remove_temp_files(&temp_files);
             return Err(format!("Failed to start the terminal reader: {}", e));
@@ -247,6 +328,7 @@ pub mod tty {
             .name(format!("tty-waiter-{}", session_id))
             .spawn(move || {
                 let status = child.wait();
+                exited.store(true, Ordering::SeqCst);
 
                 // Closing the master is what makes the reader see EOF on
                 // Windows (ClosePseudoConsole); on unix it is a no-op for the
@@ -365,25 +447,18 @@ pub mod tty {
             return Ok(());
         };
 
-        let mut session = session.lock().unwrap_or_else(|e| e.into_inner());
-        session
-            .killer
-            .kill()
-            .map_err(|e| format!("Failed to stop the terminal process: {}", e))
+        terminate(&session).map_err(|e| format!("Failed to stop the terminal process: {}", e))
     }
 
-    // Deliberately synchronous: sync commands run in order, so keystrokes
-    // cannot be reordered. Never log the data, it may contain passwords.
+    // Deliberately synchronous so keystrokes stay in order; it only queues
+    // the data for the writer thread and never blocks. Never log the data, it
+    // may contain passwords.
     #[tauri::command]
     pub fn write_to_pty(session_id: String, data: String) -> Result<(), String> {
-        let session = get_session(&session_id)?;
-        let mut session = session.lock().unwrap_or_else(|e| e.into_inner());
-
-        session
-            .writer
-            .write_all(data.as_bytes())
-            .and_then(|_| session.writer.flush())
-            .map_err(|e| format!("Failed to write to the terminal: {}", e))
+        get_session(&session_id)?
+            .input
+            .send(data.into_bytes())
+            .map_err(|_| "The terminal is no longer accepting input".to_string())
     }
 
     #[tauri::command]
@@ -393,10 +468,9 @@ pub mod tty {
         }
 
         let session = get_session(&session_id)?;
-        let session = session.lock().unwrap_or_else(|e| e.into_inner());
+        let master = lock(&session.master);
 
-        session
-            .master
+        master
             .resize(pty_size(Some(rows), Some(cols)))
             .map_err(|e| format!("Failed to resize the terminal: {}", e))
     }
@@ -404,13 +478,61 @@ pub mod tty {
     /// Kill every running session and remove their temporary kubeconfigs.
     /// Called on app exit so no `kubectl exec` / shell processes are orphaned.
     pub fn kill_all_tty_sessions() {
-        let sessions: Vec<_> = lock_sessions().drain().collect();
+        let sessions: Vec<_> = lock_sessions().drain().map(|(_, s)| s).collect();
 
-        for (session_id, session) in sessions {
-            info!("Killing TTY session {} on exit", session_id);
-            let mut session = session.lock().unwrap_or_else(|e| e.into_inner());
-            let _ = session.killer.kill();
+        for session in &sessions {
+            let _ = lock(&session.killer).kill();
             remove_temp_files(&session.temp_files);
+        }
+
+        // The app is about to exit, so the grace period threads of
+        // `terminate` would never run: wait briefly here instead.
+        #[cfg(unix)]
+        {
+            let deadline = std::time::Instant::now() + Duration::from_millis(500);
+            while std::time::Instant::now() < deadline
+                && sessions.iter().any(|s| !s.exited.load(Ordering::SeqCst))
+            {
+                thread::sleep(Duration::from_millis(20));
+            }
+            for session in &sessions {
+                if !session.exited.load(Ordering::SeqCst) {
+                    if let Some(pid) = session.pid {
+                        force_kill(pid);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Remove temporary kubeconfigs left behind by a previous run that did
+    /// not exit cleanly (they contain flattened credentials). Returns the
+    /// number of removed files.
+    pub(crate) fn sweep_temp_kubeconfigs(dir: &Path) -> usize {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return 0;
+        };
+
+        let stale: Vec<PathBuf> = entries
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().map_or(false, |t| t.is_file()))
+            .filter(|entry| {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                name.starts_with(TEMP_KUBECONFIG_PREFIX) && name.ends_with(TEMP_KUBECONFIG_SUFFIX)
+            })
+            .map(|entry| entry.path())
+            .collect();
+
+        remove_temp_files(&stale);
+        stale.iter().filter(|path| !path.exists()).count()
+    }
+
+    /// Startup cleanup, see `sweep_temp_kubeconfigs`.
+    pub fn sweep_stale_temp_kubeconfigs() {
+        let removed = sweep_temp_kubeconfigs(&std::env::temp_dir());
+        if removed > 0 {
+            info!("Removed {} stale temporary terminal kubeconfig(s)", removed);
         }
     }
 
@@ -493,7 +615,12 @@ pub mod tty {
     }
 
     pub(crate) fn temp_kubeconfig_path(dir: &Path) -> PathBuf {
-        dir.join(format!("{}{}.yaml", TEMP_KUBECONFIG_PREFIX, Uuid::new_v4()))
+        dir.join(format!(
+            "{}{}{}",
+            TEMP_KUBECONFIG_PREFIX,
+            Uuid::new_v4(),
+            TEMP_KUBECONFIG_SUFFIX
+        ))
     }
 
     /// `kubectl config view --minify --flatten` of a single context, written to
@@ -830,6 +957,90 @@ pub mod tty {
             let result = spawn_session(cmd, pty_size(None, None), channel, vec![temp_file.clone()]);
             assert!(result.is_err());
             assert!(!temp_file.exists());
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn writes_never_block_when_the_child_stops_reading() {
+            let cmd = build_command(
+                vec!["/bin/sh".into(), "-c".into(), "sleep 30".into()],
+                HashMap::new(),
+            )
+            .unwrap();
+            let (channel, rx) = collecting_channel();
+            let session_id = spawn_session(cmd, pty_size(None, None), channel, Vec::new()).unwrap();
+
+            // Far more than the pty buffer holds; nobody reads it.
+            let started = std::time::Instant::now();
+            let chunk = "x".repeat(64 * 1024);
+            for _ in 0..32 {
+                write_to_pty(session_id.clone(), chunk.clone()).unwrap();
+            }
+            resize_pty(session_id.clone(), 30, 90).unwrap();
+            assert!(started.elapsed() < Duration::from_secs(2));
+
+            stop_tty_session(session_id).unwrap();
+            let (_, exit) = collect_until_exit(&rx);
+            assert!(exit.contains(r#""type":"exit""#), "exit: {exit}");
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn stop_kills_a_child_that_ignores_sighup() {
+            let cmd = build_command(
+                vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "trap '' HUP; echo ready; sleep 30; echo survived".into(),
+                ],
+                HashMap::new(),
+            )
+            .unwrap();
+            let (channel, rx) = collecting_channel();
+            let session_id = spawn_session(cmd, pty_size(None, None), channel, Vec::new()).unwrap();
+
+            let mut output = Vec::new();
+            while !String::from_utf8_lossy(&output).contains("ready") {
+                match rx.recv_timeout(Duration::from_secs(10)).expect("no output") {
+                    InvokeResponseBody::Raw(bytes) => output.extend(bytes),
+                    InvokeResponseBody::Json(json) => panic!("unexpected exit: {json}"),
+                }
+            }
+
+            let started = std::time::Instant::now();
+            stop_tty_session(session_id).unwrap();
+            let (rest, exit) = collect_until_exit(&rx);
+            assert!(exit.contains(r#""type":"exit""#), "exit: {exit}");
+            assert!(!rest.contains("survived"));
+            assert!(started.elapsed() >= KILL_GRACE_PERIOD);
+            assert!(started.elapsed() < Duration::from_secs(10));
+        }
+
+        #[test]
+        fn sweep_removes_only_terminal_kubeconfigs() {
+            let dir = std::env::temp_dir().join(format!("jet-pilot-sweep-test-{}", Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).unwrap();
+
+            let stale = [temp_kubeconfig_path(&dir), temp_kubeconfig_path(&dir)];
+            for path in &stale {
+                write_private_file(path, b"apiVersion: v1\n").unwrap();
+            }
+            let unrelated = dir.join("kubeconfig.yaml");
+            std::fs::write(&unrelated, b"").unwrap();
+            let other_suffix = dir.join(format!("{}notes.txt", TEMP_KUBECONFIG_PREFIX));
+            std::fs::write(&other_suffix, b"").unwrap();
+            let directory = dir.join(format!(
+                "{}dir{}",
+                TEMP_KUBECONFIG_PREFIX, TEMP_KUBECONFIG_SUFFIX
+            ));
+            std::fs::create_dir(&directory).unwrap();
+
+            assert_eq!(sweep_temp_kubeconfigs(&dir), 2);
+            assert!(stale.iter().all(|path| !path.exists()));
+            assert!(unrelated.exists() && other_suffix.exists() && directory.exists());
+            assert_eq!(sweep_temp_kubeconfigs(&dir.join("missing")), 0);
+
+            std::fs::remove_dir_all(dir).unwrap();
         }
 
         #[test]

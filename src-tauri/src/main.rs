@@ -139,6 +139,10 @@ fn main() {
 
     let _ = fix_path_env::fix();
 
+    // Temporary terminal kubeconfigs contain flattened credentials: remove
+    // the ones a crashed previous run left behind.
+    shell::tty::sweep_stale_temp_kubeconfigs();
+
     let ctx = tauri::generate_context!();
 
     let builder = tauri::Builder::default()
