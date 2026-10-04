@@ -16,6 +16,7 @@ import {
 } from "@/lib/multicontext";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { columns } from "@/components/tables/pods";
+import { actions as podActions } from "@/actions/pods";
 import {
   ContextTarget,
   useWatchedList,
@@ -189,6 +190,7 @@ const rowActions: RowAction<ContextAwarePod>[] = [
       ];
     },
   },
+  ...podActions<ContextAwarePod>(addTab, spawnDialog),
   {
     label: "Kill",
     handler: (row: ContextAwarePod) => {

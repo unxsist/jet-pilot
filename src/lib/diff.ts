@@ -95,7 +95,7 @@ function myers(a: string[], b: string[]): DiffOp[] {
 
   const max = n + m;
   const offset = max;
-  let v = new Int32Array(2 * max + 2);
+  let v: Int32Array = new Int32Array(2 * max + 2);
   const trace: Int32Array[] = [];
 
   let found = false;
