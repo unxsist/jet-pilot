@@ -8,19 +8,24 @@ defineProps<{
 <template>
   <div>
     <div class="flex items-center space-x-2 text-xxs">
-      <span class="w-[10px] text-center leading-none">{{ text }}</span>
-      <div class="relative w-full h-[5px] bg-gray-800">
+      <span class="w-[10px] text-center leading-none text-muted-foreground">{{
+        text
+      }}</span>
+      <div class="relative h-[5px] w-full overflow-hidden rounded-full bg-muted">
         <div
-          class="w-0 h-[5px] bg-green-500"
-          :class="{
-            'bg-red-500': value >= 90,
-            'bg-yellow-500': value >= 70 && value < 90,
-          }"
+          class="h-[5px] w-0 rounded-full transition-[width] duration-300 ease-out"
+          :class="
+            value >= 90
+              ? 'bg-destructive'
+              : value >= 70
+              ? 'bg-warning'
+              : 'bg-success'
+          "
           :style="{ width: `${value}%` }"
         ></div>
         <div
           v-if="threshold"
-          class="absolute top-0 w-[1px] h-[5px] bg-white opacity-50"
+          class="absolute top-0 h-[5px] w-px bg-foreground opacity-50"
           :style="{ left: `${threshold}%` }"
         ></div>
       </div>

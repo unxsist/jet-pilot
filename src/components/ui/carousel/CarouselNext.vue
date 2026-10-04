@@ -15,14 +15,14 @@ const { orientation, canScrollNext, scrollNext } = useCarousel();
     :disabled="!canScrollNext"
     :class="
       cn(
-        'touch-manipulation absolute h-8 w-8 p-0',
+        'touch-manipulation absolute h-7 w-7 rounded-full p-0 shadow-sm',
         orientation === 'horizontal'
           ? '-right-12 top-1/2 -translate-y-1/2 mr-2'
           : '-bottom-12 left-1/2 -translate-x-1/2 rotate-90',
         props.class
       )
     "
-    variant="default"
+    variant="outline"
     @click="scrollNext"
   >
     <slot>

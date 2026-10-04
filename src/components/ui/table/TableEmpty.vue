@@ -19,7 +19,7 @@ const props = withDefaults(defineProps<Props>(), {
     <TableCell
       :class="
         cn(
-          'p-4 whitespace-nowrap align-middle text-sm text-foreground',
+          'p-4 whitespace-nowrap align-middle text-sm text-muted-foreground',
           props.class,
         )
       "
