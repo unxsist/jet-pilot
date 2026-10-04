@@ -499,11 +499,15 @@ const fetchResourceObjects = (resource: V1APIResource): Promise<void> => {
 const fetchAllResources = async () => {
   loadingState.value = "Fetching resources...";
 
-  const versions = await Kubernetes.getCoreApiVersions(context.value);
+  const versions = await Kubernetes.getCoreApiVersions(
+    context.value,
+    kubeConfig.value
+  );
   for (const version of versions) {
     const resources = await Kubernetes.getCoreApiResources(
       context.value,
-      version
+      version,
+      kubeConfig.value
     );
 
     apiResources.value.push(
@@ -523,11 +527,12 @@ const fetchAllResources = async () => {
       index === self.findIndex((r) => r.kind === resource.kind)
   );
 
-  const groups = await Kubernetes.getApiGroups(context.value);
+  const groups = await Kubernetes.getApiGroups(context.value, kubeConfig.value);
   for (const group of groups) {
     const resources = await Kubernetes.getApiGroupResources(
       context.value,
-      group.preferredVersion?.groupVersion || ""
+      group.preferredVersion?.groupVersion || "",
+      kubeConfig.value
     );
 
     apiResources.value.push(

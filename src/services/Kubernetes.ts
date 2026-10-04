@@ -14,7 +14,6 @@ import {
   V1Secret,
   V1Service,
 } from "@kubernetes/client-node";
-import { VirtualService } from "@kubernetes-models/istio/networking.istio.io/v1beta1";
 import { invoke } from "@tauri-apps/api/core";
 import { Command } from "@tauri-apps/plugin-shell";
 
@@ -27,8 +26,18 @@ export interface KubernetesError {
 
 export interface ExecAuthOutput {
   command: string;
+  // Only non-credential plugin output; the ExecCredential is never returned.
   stdout: string;
   stderr: string;
+}
+
+/**
+ * Secret-free summary of a context's auth configuration, as returned by the
+ * `get_context_auth_info` command.
+ */
+export interface ContextAuthSummary {
+  execCommand: string | null;
+  awsProfile: string | null;
 }
 
 // Exec credential plugin binaries the app can trigger a login flow for.
@@ -36,8 +45,8 @@ export interface ExecAuthOutput {
 // OIDC) and gke-gcloud-auth-plugin (GKE).
 const EXEC_AUTH_PLUGINS = ["kubelogin", "oidc-login"];
 
-function getExecCommand(authInfo: any): string | null {
-  const command = authInfo?.exec?.command;
+function getExecCommand(authInfo: ContextAuthSummary): string | null {
+  const command = authInfo.execCommand;
   if (typeof command !== "string") return null;
   const basename = command.split(/[\\/]/).pop() || command;
   return basename;
@@ -60,21 +69,21 @@ export class Kubernetes {
         errorMessage.includes("profile has expired") ||
         errorMessage.includes("Error when retrieving token from sso"))
     ) {
-      const context_auth_info = (await invoke("get_context_auth_info", {
-        context: context,
-        kubeConfig: kubeConfig,
-      })) as any;
+      const context_auth_info = await invoke<ContextAuthSummary>(
+        "get_context_auth_info",
+        {
+          context: context,
+          kubeConfig: kubeConfig,
+        }
+      );
 
-      let aws_profile = null;
-      try {
-        aws_profile = context_auth_info.user.exec.env.find(
-          (env: any) => env.name === "AWS_PROFILE"
-        ).value;
-      } catch {}
+      const aws_profile = context_auth_info.awsProfile;
 
       return {
         canHandle: aws_profile !== null,
         callback: async (authCompletedCallback?) => {
+          if (aws_profile === null) return;
+          // Must match the `aws` shell scope in capabilities/migrated.json.
           const command = Command.create("aws", [
             "sso",
             "login",
@@ -95,16 +104,19 @@ export class Kubernetes {
     // interactively (device-code / browser flow), which can't happen in the GUI
     // app - so we surface the plugin output (the URL / code) to the user and
     // let them complete the login, then retry.
-    const context_auth_info = (await invoke("get_context_auth_info", {
-      context: context,
-      kubeConfig: kubeConfig,
-    })) as any;
+    const context_auth_info = await invoke<ContextAuthSummary>(
+      "get_context_auth_info",
+      {
+        context: context,
+        kubeConfig: kubeConfig,
+      }
+    );
 
     const execCommand = getExecCommand(context_auth_info);
     const isExecPluginAuth =
       execCommand !== null &&
       (EXEC_AUTH_PLUGINS.includes(execCommand) ||
-        kubeconfigAuthFlowFailed(errorMessage));
+        Kubernetes.kubeconfigAuthFlowFailed(errorMessage));
 
     if (isExecPluginAuth) {
       return {
@@ -153,8 +165,12 @@ export class Kubernetes {
     );
   }
 
-  static async getCurrentContext(): Promise<string> {
-    return invoke("get_current_context", {});
+  /**
+   * The current-context of `kubeConfig`, or of the globally selected
+   * kubeconfig (falling back to kube's default resolution) when omitted.
+   */
+  static async getCurrentContext(kubeConfig?: string): Promise<string> {
+    return invoke("get_current_context", { kubeConfig: kubeConfig });
   }
 
   static async setCurrentKubeConfig(kubeConfig: string): Promise<void> {
@@ -185,31 +201,74 @@ export class Kubernetes {
     return invoke("run_kubectl", { args: args });
   }
 
-  static async getCoreApiVersions(context: string): Promise<string[]> {
-    return invoke("get_core_api_versions", { context: context });
+  /*
+   * Context-scoped commands accept an optional `kubeConfig`: the kubeconfig
+   * file the context lives in. When omitted the backend falls back to the
+   * globally selected kubeconfig, which is wrong for contexts from another
+   * file in multi-context mode - pass it whenever it is known.
+   */
+
+  static async getCoreApiVersions(
+    context: string,
+    kubeConfig?: string
+  ): Promise<string[]> {
+    return invoke("get_core_api_versions", {
+      context: context,
+      kubeConfig: kubeConfig,
+    });
   }
 
   static async getCoreApiResources(
     context: string,
-    core_api_version: string
+    core_api_version: string,
+    kubeConfig?: string
   ): Promise<V1APIResource[]> {
     return invoke("get_core_api_resources", {
       context: context,
       coreApiVersion: core_api_version,
+      kubeConfig: kubeConfig,
     });
   }
 
-  static async getApiGroups(context: string): Promise<V1APIGroup[]> {
-    return invoke("get_api_groups", { context: context });
+  static async getApiGroups(
+    context: string,
+    kubeConfig?: string
+  ): Promise<V1APIGroup[]> {
+    return invoke("get_api_groups", {
+      context: context,
+      kubeConfig: kubeConfig,
+    });
   }
 
   static async getApiGroupResources(
     context: string,
-    api_group_version: string
+    api_group_version: string,
+    kubeConfig?: string
   ): Promise<V1APIResource[]> {
     return invoke("get_api_group_resources", {
       context: context,
       apiGroupVersion: api_group_version,
+      kubeConfig: kubeConfig,
+    });
+  }
+
+  /**
+   * Runs `kubectl apply|replace -f -` with the manifest on stdin, so edited
+   * objects never touch a temp file.
+   */
+  static async applyManifest(
+    context: string,
+    namespace: string,
+    manifest: string,
+    mode: "apply" | "replace",
+    kubeConfig?: string
+  ): Promise<string> {
+    return invoke("apply_manifest", {
+      context: context,
+      namespace: namespace,
+      manifest: manifest,
+      mode: mode,
+      kubeConfig: kubeConfig,
     });
   }
 
@@ -248,11 +307,13 @@ export class Kubernetes {
 
   static async getDeployments(
     context: string,
-    namespace: string
+    namespace: string,
+    kubeConfig?: string
   ): Promise<V1Deployment[]> {
     return invoke("list_deployments", {
       context: context,
       namespace: namespace,
+      kubeConfig: kubeConfig,
     });
   }
 
@@ -284,80 +345,87 @@ export class Kubernetes {
     });
   }
 
-  static async getJobs(context: string, namespace: string): Promise<V1Job[]> {
+  static async getJobs(
+    context: string,
+    namespace: string,
+    kubeConfig?: string
+  ): Promise<V1Job[]> {
     return invoke("list_jobs", {
       context: context,
       namespace: namespace,
+      kubeConfig: kubeConfig,
     });
   }
 
   static async getCronJobs(
     context: string,
-    namespace: string
+    namespace: string,
+    kubeConfig?: string
   ): Promise<V1CronJob[]> {
     return invoke("list_cronjobs", {
       context: context,
       namespace: namespace,
+      kubeConfig: kubeConfig,
     });
   }
 
   static async getConfigMaps(
     context: string,
-    namespace: string
+    namespace: string,
+    kubeConfig?: string
   ): Promise<V1ConfigMap[]> {
     return invoke("list_configmaps", {
       context: context,
       namespace: namespace,
+      kubeConfig: kubeConfig,
     });
   }
 
   static async getSecrets(
     context: string,
-    namespace: string
+    namespace: string,
+    kubeConfig?: string
   ): Promise<V1Secret[]> {
     return invoke("list_secrets", {
       context: context,
       namespace: namespace,
+      kubeConfig: kubeConfig,
     });
   }
 
   static async getServices(
     context: string,
-    namespace: string
+    namespace: string,
+    kubeConfig?: string
   ): Promise<V1Service[]> {
     return invoke("list_services", {
       context: context,
       namespace: namespace,
-    });
-  }
-
-  static async getVirtualServices(
-    context: string,
-    namespace: string
-  ): Promise<VirtualService[]> {
-    return invoke("list_virtual_services", {
-      context: context,
-      namespace: namespace,
+      kubeConfig: kubeConfig,
     });
   }
 
   static async getIngresses(
     context: string,
-    namespace: string
+    namespace: string,
+    kubeConfig?: string
   ): Promise<V1Ingress[]> {
     return invoke("list_ingresses", {
       context: context,
       namespace: namespace,
+      kubeConfig: kubeConfig,
     });
   }
 
   static async getPersistentVolumeClaims(
     context: string,
-    namespace: string
+    namespace: string,
+    kubeConfig?: string
   ): Promise<V1PersistentVolumeClaim[]> {
     return invoke("list_persistentvolumeclaims", {
       context: context,
       namespace: namespace,
+      kubeConfig: kubeConfig,
     });
   }
 

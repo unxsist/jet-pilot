@@ -140,6 +140,7 @@ fn main() {
             kubernetes::client::get_pod_metric,
             kubernetes::client::trigger_cronjob,
             kubernetes::client::run_kubectl,
+            kubernetes::client::apply_manifest,
             port_forward::start_port_forward,
             port_forward::stop_port_forward,
             port_forward::list_port_forwards,

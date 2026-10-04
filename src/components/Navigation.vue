@@ -26,6 +26,7 @@ const targetOs = ref<string>(getOsType());
 const {
   context,
   namespace,
+  kubeConfig,
   authenticated: clusterAuthenticated,
 } = injectStrict(KubeContextStateKey);
 const { settings } = injectStrict(SettingsContextStateKey);
@@ -173,9 +174,9 @@ const fetchResources = () => {
   }
 
   clusterResources.value.clear();
-  Kubernetes.getCoreApiVersions(context.value).then((results) => {
+  Kubernetes.getCoreApiVersions(context.value, kubeConfig.value).then((results) => {
     results.forEach((version) => {
-      Kubernetes.getCoreApiResources(context.value, version).then(
+      Kubernetes.getCoreApiResources(context.value, version, kubeConfig.value).then(
         (resources) => {
           clusterResources.value.set(version, resources);
         }
@@ -183,12 +184,13 @@ const fetchResources = () => {
     });
   });
 
-  Kubernetes.getApiGroups(context.value)
+  Kubernetes.getApiGroups(context.value, kubeConfig.value)
     .then((results) => {
       results.forEach((group) => {
         Kubernetes.getApiGroupResources(
           context.value,
-          group.preferredVersion?.groupVersion ?? ""
+          group.preferredVersion?.groupVersion ?? "",
+          kubeConfig.value
         )
           .then((resources) => {
             clusterResources.value.set(group.name, resources);

@@ -194,7 +194,7 @@ export default {
     };
 
     if (state.context.length === 0) {
-      Kubernetes.getCurrentContext().then((context) => {
+      Kubernetes.getCurrentContext(state.kubeConfig || undefined).then((context) => {
         setContext({ context, kubeConfig: state.kubeConfig });
         setNamespace("");
         restoreActivation();

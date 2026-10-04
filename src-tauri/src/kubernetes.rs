@@ -9,17 +9,22 @@ pub mod client {
     use k8s_openapi::api::networking::v1::Ingress;
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::{APIGroup, APIResource};
     use kube::api::{DeleteParams, ListParams, ObjectMeta, PostParams};
-    use kube::config::{KubeConfigOptions, Kubeconfig, KubeconfigError, NamedAuthInfo, NamedContext};
+    use kube::config::{KubeConfigOptions, Kubeconfig, KubeconfigError, NamedContext};
     use k8s_openapi::NamespaceResourceScope;
     use kube::{api::Api, Client, Config, Error, Resource};
+    use once_cell::sync::Lazy;
     use rand::distributions::DistString;
-    use serde::Serialize;
+    use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
-    use std::io;
-    use std::sync::Mutex;
-    use std::time::Duration;
+    use std::process::Stdio;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, SystemTime};
+    use tokio::io::AsyncWriteExt;
     use tokio::process::Command;
-    use tracing::{debug, error, info, trace, warn};
+    use tokio::sync::OnceCell;
+    use tracing::{debug, error, info, trace};
+
+    use crate::util::lock;
 
     #[cfg(windows)]
     use std::os::windows::process::CommandExt;
@@ -87,7 +92,7 @@ pub mod client {
                         }
                         kube::client::AuthError::AuthExecRun { out, .. } => {
                             let stderr = String::from_utf8_lossy(&out.stderr);
-                            let stdout = String::from_utf8_lossy(&out.stdout);
+                            let stdout = displayable_exec_stdout(&String::from_utf8_lossy(&out.stdout));
                             if !stderr.trim().is_empty() {
                                 format!(
                                     "The Kubernetes exec credential plugin failed: {}\n\n{}",
@@ -133,6 +138,22 @@ pub mod client {
         }
     }
 
+    /// Exec credential plugins print the `ExecCredential` (bearer token /
+    /// client key) on stdout. That must never reach the webview, so stdout is
+    /// only surfaced when it doesn't look like a credential document.
+    pub(crate) fn displayable_exec_stdout(stdout: &str) -> String {
+        let trimmed = stdout.trim();
+        let looks_like_credential = trimmed.contains("ExecCredential")
+            || serde_json::from_str::<serde_json::Value>(trimmed).is_ok()
+            || trimmed.contains("\"token\"")
+            || trimmed.contains("clientKeyData");
+        if looks_like_credential {
+            String::new()
+        } else {
+            trimmed.to_string()
+        }
+    }
+
     fn hint_for_exec_plugin(io_err: &std::io::Error) -> &'static str {
         if io_err.kind() == std::io::ErrorKind::NotFound {
             "Make sure the plugin binary (e.g. kubelogin, gke-gcloud-auth-plugin) is installed and on your PATH."
@@ -155,16 +176,94 @@ pub mod client {
     }
 
     static CURRENT_KUBECONFIG: Mutex<Option<String>> = Mutex::new(None);
+
+    /// A cached client slot. The `OnceCell` makes concurrent first calls for
+    /// the same key share a single build (and so a single exec-plugin run)
+    /// instead of racing check-then-insert. `stamp` is the kubeconfig's
+    /// modification time when the slot was created: when the file changes
+    /// (new token, edited context) the slot is replaced.
+    struct CachedClient {
+        stamp: Option<SystemTime>,
+        cell: Arc<OnceCell<Client>>,
+    }
+
     /// Cached clients keyed by (kubeconfig path, context). With multiple
     /// contexts active at once, a single cached client would be rebuilt (or,
     /// worse, reused for the wrong kubeconfig) on every switch between rows of
     /// different clusters. An empty kubeconfig path means default resolution.
-    static CLIENTS: Mutex<Option<HashMap<(String, String), Client>>> = Mutex::new(None);
+    static CLIENTS: Lazy<Mutex<HashMap<(String, String), CachedClient>>> =
+        Lazy::new(|| Mutex::new(HashMap::new()));
+
+    fn no_kubeconfig_error() -> SerializableKubeError {
+        SerializableKubeError {
+            message: "No kubeconfig has been set".to_string(),
+            code: None,
+            reason: Some("NoKubeconfig".to_string()),
+            details: None,
+        }
+    }
+
+    /// The kubeconfig path a command should use: the explicit `kube_config`
+    /// argument when given, otherwise the globally selected one (empty string
+    /// = kube's default resolution via $KUBECONFIG / ~/.kube/config).
+    fn resolve_kubeconfig_path(kube_config: Option<&str>) -> String {
+        match kube_config {
+            Some(path) if !path.is_empty() => path.to_string(),
+            _ => lock(&CURRENT_KUBECONFIG).clone().unwrap_or_default(),
+        }
+    }
+
+    /// Kubeconfig files kube would read for `path` (empty = default
+    /// resolution).
+    fn kubeconfig_files(path: &str) -> Vec<std::path::PathBuf> {
+        if !path.is_empty() {
+            return vec![path.into()];
+        }
+
+        if let Some(paths) = std::env::var_os("KUBECONFIG").filter(|p| !p.is_empty()) {
+            return std::env::split_paths(&paths).collect();
+        }
+
+        std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(|home| vec![std::path::Path::new(&home).join(".kube").join("config")])
+            .unwrap_or_default()
+    }
+
+    /// Latest modification time of the kubeconfig file(s) behind `path`.
+    fn kubeconfig_stamp(path: &str) -> Option<SystemTime> {
+        kubeconfig_files(path)
+            .iter()
+            .filter_map(|file| std::fs::metadata(file).and_then(|m| m.modified()).ok())
+            .max()
+    }
+
+    /// Returns the cache slot for `key`, replacing it when the kubeconfig
+    /// changed on disk since the slot was created.
+    fn client_slot(key: (String, String), stamp: Option<SystemTime>) -> Arc<OnceCell<Client>> {
+        let mut clients = lock(&CLIENTS);
+        match clients.get(&key) {
+            Some(cached) if cached.stamp == stamp => cached.cell.clone(),
+            _ => {
+                let cell = Arc::new(OnceCell::new());
+                clients.insert(key, CachedClient { stamp, cell: cell.clone() });
+                cell
+            }
+        }
+    }
 
     #[tauri::command]
-    pub async fn get_current_context() -> Result<String, SerializableKubeError> {
+    pub async fn get_current_context(
+        kube_config: Option<String>,
+    ) -> Result<String, SerializableKubeError> {
         debug!("Retrieving current Kubernetes context");
-        let config = Kubeconfig::read().map_err(|err| {
+        let kubeconfig_path = resolve_kubeconfig_path(kube_config.as_deref());
+        let config = if kubeconfig_path.is_empty() {
+            Kubeconfig::read()
+        } else {
+            Kubeconfig::read_from(kubeconfig_path.as_str())
+        }
+        .map_err(|err| {
             error!("Failed to read kubeconfig: {}", err);
             SerializableKubeError::from(err)
         })?;
@@ -175,7 +274,7 @@ pub mod client {
             reason: Some("NoCurrentContext".to_string()),
             details: None,
         })?;
-        
+
         info!("Current context retrieved: {}", context);
         Ok(context)
     }
@@ -185,20 +284,11 @@ pub mod client {
         kube_config: Option<String>,
     ) -> Result<Vec<NamedContext>, SerializableKubeError> {
         debug!("Listing available Kubernetes contexts");
-        let kubeconfig = if let Some(path) = kube_config.filter(|p| !p.is_empty()) {
-            path
-        } else {
-            let kubeconfig_guard = CURRENT_KUBECONFIG.lock().unwrap();
-            kubeconfig_guard.as_ref().ok_or_else(|| {
-                error!("No kubeconfig has been set");
-                SerializableKubeError {
-                    message: "No kubeconfig has been set".to_string(),
-                    code: None,
-                    reason: Some("NoKubeconfig".to_string()),
-                    details: None,
-                } 
-            })?.clone()
-        };
+        let kubeconfig = resolve_kubeconfig_path(kube_config.as_deref());
+        if kubeconfig.is_empty() {
+            error!("No kubeconfig has been set");
+            return Err(no_kubeconfig_error());
+        }
 
         let config = Kubeconfig::read_from(kubeconfig.as_str()).map_err(|err| {
             error!("Failed to read kubeconfig from path: {}", err);
@@ -206,96 +296,79 @@ pub mod client {
         })?;
 
         info!("Found {} contexts", config.contexts.len());
-        trace!("Available contexts: {:?}", config.contexts); 
+        trace!("Available contexts: {:?}", config.contexts);
         Ok(config.contexts)
     }
 
-    #[tauri::command]
-    pub async fn get_context_auth_info(
-        context: &str,
-        kube_config: &str,
-    ) -> Result<NamedAuthInfo, SerializableKubeError> {
-        let config = Kubeconfig::read_from(kube_config.to_string())
-            .map_err(|err| SerializableKubeError::from(err))?;
+    /// The parts of a context's auth configuration the frontend needs to
+    /// offer a re-login. Deliberately excludes tokens, client keys,
+    /// passwords and exec env values other than the AWS profile name.
+    #[derive(Debug, Default, PartialEq, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ContextAuthSummary {
+        /// The exec credential plugin command, if the context uses one.
+        pub exec_command: Option<String>,
+        /// `AWS_PROFILE` from the exec plugin env (AWS SSO re-login).
+        pub aws_profile: Option<String>,
+    }
 
-        let context_auth_info = config
+    /// Finds the auth info of `context` in `config`.
+    fn auth_info_for_context(
+        config: &Kubeconfig,
+        context: &str,
+    ) -> Result<kube::config::AuthInfo, SerializableKubeError> {
+        let user = config
             .contexts
             .iter()
             .find(|c| c.name == context)
-            .map(|c| c.clone().context.unwrap().user.clone())
-            .ok_or(SerializableKubeError {
+            .and_then(|c| c.context.as_ref())
+            .map(|c| c.user.clone())
+            .ok_or_else(|| SerializableKubeError {
                 message: "Context not found".to_string(),
                 code: None,
                 reason: None,
                 details: None,
             })?;
 
-        let auth_info = config
+        config
             .auth_infos
             .iter()
-            .find(|a| a.name == context_auth_info)
-            .ok_or(SerializableKubeError {
+            .find(|a| a.name == user)
+            .and_then(|a| a.auth_info.clone())
+            .ok_or_else(|| SerializableKubeError {
                 message: "Auth info not found".to_string(),
                 code: None,
                 reason: None,
                 details: None,
-            })?;
-
-        return Ok(auth_info.clone());
+            })
     }
 
-    async fn one_off_client_with_context(
+    fn summarize_auth_info(auth_info: &kube::config::AuthInfo) -> ContextAuthSummary {
+        let exec = auth_info.exec.as_ref();
+        ContextAuthSummary {
+            exec_command: exec.and_then(|exec| exec.command.clone()),
+            aws_profile: exec
+                .and_then(|exec| exec.env.as_ref())
+                .and_then(|envs| {
+                    envs.iter().find(|env| env.get("name").map(String::as_str) == Some("AWS_PROFILE"))
+                })
+                .and_then(|env| env.get("value").cloned()),
+        }
+    }
+
+    #[tauri::command]
+    pub async fn get_context_auth_info(
         context: &str,
         kube_config: &str,
-    ) -> Result<Client, SerializableKubeError> {
-        debug!("Creating one-off client for context: {}", context);
-        let options = KubeConfigOptions {
-            context: Some(context.to_string()),
-            cluster: None,
-            user: None,
-        };
+    ) -> Result<ContextAuthSummary, SerializableKubeError> {
+        let config = Kubeconfig::read_from(kube_config)
+            .map_err(SerializableKubeError::from)?;
 
-        let kubeconfig = Kubeconfig::read_from(kube_config.to_string()).map_err(|err| {
-            error!("Failed to read kubeconfig for context {}: {}", context, err);
-            SerializableKubeError::from(err)
-        })?;
-        
-        let client_config = Config::from_custom_kubeconfig(kubeconfig, &options).await.map_err(|err| {
-            error!("Failed to create client config for context {}: {}", context, err);
-            SerializableKubeError::from(err)
-        })?;
-
-        let client = Client::try_from(client_config).map_err(|err| {
-            error!("Failed to create client for context {}: {}", context, err);
-            SerializableKubeError::from(err)
-        })?;
-
-        debug!("Successfully created one-off client for context: {}", context);
-        Ok(client)
+        let auth_info = auth_info_for_context(&config, context)?;
+        Ok(summarize_auth_info(&auth_info))
     }
 
-    /// Returns a (cached) client for `context`. `kube_config` selects the
-    /// kubeconfig file the context lives in; when absent or empty the globally
-    /// selected kubeconfig (see `set_current_kubeconfig`) is used.
-    async fn client_with_context(
-        context: &str,
-        kube_config: Option<&str>,
-    ) -> Result<Client, SerializableKubeError> {
-        let kubeconfig_path = match kube_config {
-            Some(path) if !path.is_empty() => path.to_string(),
-            _ => CURRENT_KUBECONFIG.lock().unwrap().clone().unwrap_or_default(),
-        };
-        let key = (kubeconfig_path.clone(), context.to_string());
-
-        let cached = CLIENTS
-            .lock()
-            .unwrap()
-            .as_ref()
-            .and_then(|clients| clients.get(&key).cloned());
-        if let Some(client) = cached {
-            return Ok(client);
-        }
-
+    async fn build_client(context: &str, kubeconfig_path: &str) -> Result<Client, SerializableKubeError> {
         debug!("Creating client for context: {}", context);
         let options = KubeConfigOptions {
             context: Some(context.to_string()),
@@ -305,7 +378,7 @@ pub mod client {
 
         let client_config = if !kubeconfig_path.is_empty() {
             debug!("Using custom kubeconfig path");
-            let kubeconfig = Kubeconfig::read_from(kubeconfig_path.clone()).map_err(|err| {
+            let kubeconfig = Kubeconfig::read_from(kubeconfig_path).map_err(|err| {
                 error!("Failed to read custom kubeconfig: {}", err);
                 SerializableKubeError::from(err)
             })?;
@@ -326,24 +399,36 @@ pub mod client {
             SerializableKubeError::from(err)
         })?;
 
-        CLIENTS
-            .lock()
-            .unwrap()
-            .get_or_insert_with(HashMap::new)
-            .insert(key, client.clone());
         info!("Created client for context: {}", context);
-
         Ok(client)
+    }
+
+    /// Returns a (cached) client for `context`. `kube_config` selects the
+    /// kubeconfig file the context lives in; when absent or empty the globally
+    /// selected kubeconfig (see `set_current_kubeconfig`) is used.
+    async fn client_with_context(
+        context: &str,
+        kube_config: Option<&str>,
+    ) -> Result<Client, SerializableKubeError> {
+        let kubeconfig_path = resolve_kubeconfig_path(kube_config);
+        let stamp = kubeconfig_stamp(&kubeconfig_path);
+        let cell = client_slot((kubeconfig_path.clone(), context.to_string()), stamp);
+
+        // A failed build leaves the cell empty, so the next call retries.
+        let client = cell
+            .get_or_try_init(|| build_client(context, &kubeconfig_path))
+            .await?;
+        Ok(client.clone())
     }
 
     #[tauri::command]
     pub async fn set_current_kubeconfig(kube_config: &str) -> Result<(), SerializableKubeError> {
         debug!("Setting current kubeconfig path");
-        
+
         // Validate the kubeconfig can be read before setting it
         match Kubeconfig::read_from(kube_config.to_string()) {
             Ok(_) => {
-                CURRENT_KUBECONFIG.lock().unwrap().replace(kube_config.to_string());
+                lock(&CURRENT_KUBECONFIG).replace(kube_config.to_string());
                 info!("Successfully set new kubeconfig path");
                 Ok(())
             }
@@ -357,10 +442,10 @@ pub mod client {
     #[tauri::command]
     pub async fn list_namespaces(
         context: &str,
-        kube_config: &str,
+        kube_config: Option<String>,
     ) -> Result<Vec<Namespace>, SerializableKubeError> {
         debug!("Listing namespaces for context: {}", context);
-        let client = one_off_client_with_context(context, kube_config).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
         let namespace_api: Api<Namespace> = Api::all(client);
 
         let namespaces = namespace_api.list(&ListParams::default()).await.map_err(|err| {
@@ -378,11 +463,12 @@ pub mod client {
         namespace: &str,
         label_selector: &str,
         field_selector: &str,
+        kube_config: Option<String>,
     ) -> Result<Vec<Pod>, SerializableKubeError> {
         debug!("Listing pods in namespace {} for context: {}", namespace, context);
         trace!("Using selectors - label: {}, field: {}", label_selector, field_selector);
         
-        let client = client_with_context(context, None).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
         let pod_api: Api<Pod> = api_all_or_namespaced(client, namespace);
 
         let pods = pod_api.list(
@@ -402,9 +488,10 @@ pub mod client {
     pub async fn get_pod_metrics(
         context: &str,
         namespace: &str,
+        kube_config: Option<String>,
     ) -> Result<Vec<PodMetrics>, SerializableKubeError> {
         debug!("Fetching pod metrics for namespace {} in context {}", namespace, context);
-        let client = client_with_context(context, None).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
         let metrics_api: Api<PodMetrics> = api_all_or_namespaced(client, namespace);
 
         let metrics = metrics_api.list(&ListParams::default()).await.map_err(|err| {
@@ -421,9 +508,10 @@ pub mod client {
         context: &str,
         namespace: &str,
         name: &str,
+        kube_config: Option<String>,
     ) -> Result<PodMetrics, SerializableKubeError> {
         debug!("Fetching metrics for pod {}/{}", namespace, name);
-        let client = client_with_context(context, None).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
         let metrics_api: Api<PodMetrics> = Api::namespaced(client, namespace);
 
         let metric = metrics_api.get(name).await.map_err(|err| {
@@ -440,8 +528,9 @@ pub mod client {
         context: &str,
         namespace: &str,
         name: &str,
+        kube_config: Option<String>,
     ) -> Result<Pod, SerializableKubeError> {
-        let client = client_with_context(context, None).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
         let pod_api: Api<Pod> = Api::namespaced(client, namespace);
 
         return pod_api
@@ -485,8 +574,9 @@ pub mod client {
     pub async fn list_deployments(
         context: &str,
         namespace: &str,
+        kube_config: Option<String>,
     ) -> Result<Vec<Deployment>, SerializableKubeError> {
-        let client = client_with_context(context, None).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
         let deployment_api: Api<Deployment> = api_all_or_namespaced(client, namespace);
 
         return deployment_api
@@ -546,8 +636,9 @@ pub mod client {
     pub async fn list_services(
         context: &str,
         namespace: &str,
+        kube_config: Option<String>,
     ) -> Result<Vec<Service>, SerializableKubeError> {
-        let client = client_with_context(context, None).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
         let services_api: Api<Service> = api_all_or_namespaced(client, namespace);
 
         return services_api
@@ -561,8 +652,9 @@ pub mod client {
     pub async fn list_jobs(
         context: &str,
         namespace: &str,
+        kube_config: Option<String>,
     ) -> Result<Vec<Job>, SerializableKubeError> {
-        let client = client_with_context(context, None).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
         let jobs_api: Api<Job> = api_all_or_namespaced(client, namespace);
 
         return jobs_api
@@ -576,8 +668,9 @@ pub mod client {
     pub async fn list_cronjobs(
         context: &str,
         namespace: &str,
+        kube_config: Option<String>,
     ) -> Result<Vec<CronJob>, SerializableKubeError> {
-        let client = client_with_context(context, None).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
         let cronjobs_api: Api<CronJob> = api_all_or_namespaced(client, namespace);
 
         return cronjobs_api
@@ -591,8 +684,9 @@ pub mod client {
     pub async fn list_configmaps(
         context: &str,
         namespace: &str,
+        kube_config: Option<String>,
     ) -> Result<Vec<ConfigMap>, SerializableKubeError> {
-        let client: Client = client_with_context(context, None).await?;
+        let client: Client = client_with_context(context, kube_config.as_deref()).await?;
         let configmaps_api: Api<ConfigMap> = api_all_or_namespaced(client, namespace);
 
         return configmaps_api
@@ -606,8 +700,9 @@ pub mod client {
     pub async fn list_secrets(
         context: &str,
         namespace: &str,
+        kube_config: Option<String>,
     ) -> Result<Vec<Secret>, SerializableKubeError> {
-        let client: Client = client_with_context(context, None).await?;
+        let client: Client = client_with_context(context, kube_config.as_deref()).await?;
         let secrets_api: Api<Secret> = api_all_or_namespaced(client, namespace);
 
         return secrets_api
@@ -621,8 +716,9 @@ pub mod client {
     pub async fn list_ingresses(
         context: &str,
         namespace: &str,
+        kube_config: Option<String>,
     ) -> Result<Vec<Ingress>, SerializableKubeError> {
-        let client: Client = client_with_context(context, None).await?;
+        let client: Client = client_with_context(context, kube_config.as_deref()).await?;
         let ingress_api: Api<Ingress> = api_all_or_namespaced(client, namespace);
 
         return ingress_api
@@ -635,9 +731,10 @@ pub mod client {
     #[tauri::command]
     pub async fn list_persistentvolumes(
         context: &str,
+        kube_config: Option<String>,
     ) -> Result<Vec<PersistentVolume>, SerializableKubeError> {
         debug!("Listing persistent volumes in context {}", context);
-        let client: Client = client_with_context(context, None).await?;
+        let client: Client = client_with_context(context, kube_config.as_deref()).await?;
         let pv_api: Api<PersistentVolume> = Api::all(client);
 
         let pvs = pv_api.list(&ListParams::default()).await.map_err(|err| {
@@ -653,8 +750,9 @@ pub mod client {
     pub async fn list_persistentvolumeclaims(
         context: &str,
         namespace: &str,
+        kube_config: Option<String>,
     ) -> Result<Vec<PersistentVolumeClaim>, SerializableKubeError> {
-        let client: Client = client_with_context(context, None).await?;
+        let client: Client = client_with_context(context, kube_config.as_deref()).await?;
         let pvc_api: Api<PersistentVolumeClaim> = api_all_or_namespaced(client, namespace);
 
         return pvc_api
@@ -738,9 +836,10 @@ pub mod client {
     #[tauri::command]
     pub async fn get_core_api_versions(
         context: &str,
+        kube_config: Option<String>,
     ) -> Result<Vec<String>, SerializableKubeError> {
         debug!("Fetching core API versions for context {}", context);
-        let client = client_with_context(context, None).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
 
         let versions = client.list_core_api_versions().await.map_err(|err| {
             error!("Failed to list core API versions: {}", err);
@@ -756,9 +855,10 @@ pub mod client {
     pub async fn get_core_api_resources(
         context: &str,
         core_api_version: &str,
+        kube_config: Option<String>,
     ) -> Result<Vec<APIResource>, SerializableKubeError> {
         debug!("Fetching core API resources for version {} in context {}", core_api_version, context);
-        let client = client_with_context(context, None).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
 
         let resources = client.list_core_api_resources(core_api_version).await.map_err(|err| {
             error!("Failed to list core API resources for version {}: {}", core_api_version, err);
@@ -770,9 +870,12 @@ pub mod client {
     }
 
     #[tauri::command]
-    pub async fn get_api_groups(context: &str) -> Result<Vec<APIGroup>, SerializableKubeError> {
+    pub async fn get_api_groups(
+        context: &str,
+        kube_config: Option<String>,
+    ) -> Result<Vec<APIGroup>, SerializableKubeError> {
         debug!("Fetching API groups for context {}", context);
-        let client = client_with_context(context, None).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
 
         let groups = client.list_api_groups().await.map_err(|err| {
             error!("Failed to list API groups: {}", err);
@@ -787,9 +890,10 @@ pub mod client {
     pub async fn get_api_group_resources(
         context: &str,
         api_group_version: &str,
+        kube_config: Option<String>,
     ) -> Result<Vec<APIResource>, SerializableKubeError> {
         debug!("Fetching API resources for group version {} in context {}", api_group_version, context);
-        let client = client_with_context(context, None).await?;
+        let client = client_with_context(context, kube_config.as_deref()).await?;
 
         let resources = client.list_api_group_resources(api_group_version).await.map_err(|err| {
             error!("Failed to list API resources for group version {}: {}", api_group_version, err);
@@ -860,13 +964,15 @@ pub mod client {
     /// needed after an interactive exec-plugin login (kubelogin / oidc-login)
     /// completes: the cached client still holds the old, expired token.
     fn clear_cached_client() {
-        CLIENTS.lock().unwrap().take();
+        lock(&CLIENTS).clear();
         info!("Cleared cached kube client after auth re-login");
     }
 
     /// Serialized result of running an exec credential plugin (kubelogin,
-    /// `kubectl oidc-login`, gke-gcloud-auth-plugin, ...). stdout holds the
-    /// machine readable ExecCredential, stderr usually contains the
+    /// `kubectl oidc-login`, gke-gcloud-auth-plugin, ...). The plugin's stdout
+    /// is the machine readable ExecCredential (a bearer token / client key)
+    /// and is never returned; `stdout` is only filled when the plugin printed
+    /// something that is not a credential. stderr usually contains the
     /// human-readable device-code / browser instructions.
     #[derive(Serialize)]
     pub struct ExecAuthOutput {
@@ -880,7 +986,8 @@ pub mod client {
     ///
     /// The plugin may block while waiting for the user to finish logging in, so
     /// this command has a generous timeout (3 minutes). It returns the plugin's
-    /// stdout and stderr so the UI can show the device-code URL and code.
+    /// stderr (and non-credential stdout) so the UI can show the device-code
+    /// URL and code.
     #[tauri::command]
     pub async fn login_exec_auth(
         context: &str,
@@ -888,33 +995,10 @@ pub mod client {
     ) -> Result<ExecAuthOutput, SerializableKubeError> {
         debug!("Running exec credential plugin for context: {}", context);
 
-        let config = Kubeconfig::read_from(kube_config.to_string())
+        let config = Kubeconfig::read_from(kube_config)
             .map_err(SerializableKubeError::from)?;
 
-        let context_auth_info = config
-            .contexts
-            .iter()
-            .find(|c| c.name == context)
-            .and_then(|c| c.context.clone())
-            .map(|c| c.user)
-            .ok_or_else(|| SerializableKubeError {
-                message: "Context not found".to_string(),
-                code: None,
-                reason: None,
-                details: None,
-            })?;
-
-        let auth_info = config
-            .auth_infos
-            .iter()
-            .find(|a| a.name == context_auth_info)
-            .and_then(|a| a.auth_info.clone())
-            .ok_or_else(|| SerializableKubeError {
-                message: "Auth info not found".to_string(),
-                code: None,
-                reason: None,
-                details: None,
-            })?;
+        let auth_info = auth_info_for_context(&config, context)?;
 
         let exec = auth_info.exec.ok_or_else(|| SerializableKubeError {
             message: "This context does not use an exec credential plugin".to_string(),
@@ -950,6 +1034,11 @@ pub mod client {
         #[cfg(windows)]
         cmd.creation_flags(0x08000000);
 
+        // Without this the plugin survives the timeout below (the future is
+        // dropped, the process is not) and keeps its callback port bound, so
+        // every retry fails until the orphan exits.
+        cmd.kill_on_drop(true);
+
         let output = tokio::time::timeout(Duration::from_secs(3 * 60), cmd.output())
             .await
             .map_err(|_| SerializableKubeError {
@@ -975,9 +1064,90 @@ pub mod client {
 
         Ok(ExecAuthOutput {
             command,
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stdout: displayable_exec_stdout(&String::from_utf8_lossy(&output.stdout)),
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         })
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+    #[serde(rename_all = "lowercase")]
+    pub enum ManifestMode {
+        Apply,
+        Replace,
+    }
+
+    /// Builds the kubectl arguments for `apply_manifest`. Values are passed in
+    /// `--flag=value` form so a value starting with `-` can't be parsed as a
+    /// separate flag.
+    fn manifest_args(
+        mode: ManifestMode,
+        context: &str,
+        namespace: &str,
+        kube_config: Option<&str>,
+    ) -> Vec<String> {
+        let mut args = vec![
+            match mode {
+                ManifestMode::Apply => "apply",
+                ManifestMode::Replace => "replace",
+            }
+            .to_string(),
+            format!("--context={}", context),
+        ];
+        if !namespace.is_empty() {
+            args.push(format!("--namespace={}", namespace));
+        }
+        if let Some(kube_config) = kube_config.filter(|k| !k.is_empty()) {
+            args.push(format!("--kubeconfig={}", kube_config));
+        }
+        args.push("--filename=-".to_string());
+        args
+    }
+
+    /// Runs `kubectl apply|replace -f -` with `manifest` piped over stdin, so
+    /// edited objects (which may be Secrets) never have to be written to a
+    /// world-readable temp file. Returns kubectl's stdout.
+    #[tauri::command]
+    pub async fn apply_manifest(
+        context: &str,
+        namespace: &str,
+        manifest: String,
+        mode: ManifestMode,
+        kube_config: Option<String>,
+    ) -> Result<String, String> {
+        let args = manifest_args(mode, context, namespace, kube_config.as_deref());
+        debug!("Running kubectl {:?} with manifest on stdin", mode);
+
+        let mut cmd = Command::new("kubectl");
+        cmd.args(&args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000);
+
+        let mut child = cmd.spawn().map_err(|e| format!("Unable to run kubectl: {}", e))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin
+                .write_all(manifest.as_bytes())
+                .await
+                .map_err(|e| format!("Failed to pass manifest to kubectl: {}", e))?;
+            // Dropping stdin closes the pipe so kubectl sees EOF.
+        }
+
+        let output = tokio::time::timeout(Duration::from_secs(2 * 60), child.wait_with_output())
+            .await
+            .map_err(|_| "kubectl timed out after 2 minutes".to_string())?
+            .map_err(|e| e.to_string())?;
+
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+            error!("kubectl {:?} failed: {}", mode, stderr);
+            Err(stderr)
+        }
     }
 
     #[tauri::command]
@@ -1008,6 +1178,124 @@ pub mod client {
             Ok(String::from_utf8_lossy(&output.stdout).into_owned())
         } else {
             Err(format!("kubectl failed: {}", String::from_utf8_lossy(&output.stderr)))
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        const KUBECONFIG: &str = r#"
+apiVersion: v1
+kind: Config
+clusters:
+- name: c
+  cluster:
+    server: https://example.invalid
+contexts:
+- name: aws
+  context:
+    cluster: c
+    user: aws-user
+- name: token
+  context:
+    cluster: c
+    user: token-user
+- name: broken
+users:
+- name: aws-user
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1beta1
+      command: aws
+      args: ["eks", "get-token"]
+      env:
+      - name: AWS_PROFILE
+        value: dev
+      - name: AWS_SECRET_ACCESS_KEY
+        value: super-secret
+- name: token-user
+  user:
+    token: bearer-secret
+    client-key-data: a2V5
+"#;
+
+        #[test]
+        fn auth_summary_contains_no_secrets() {
+            let config = Kubeconfig::from_yaml(KUBECONFIG).unwrap();
+
+            let summary = summarize_auth_info(&auth_info_for_context(&config, "aws").unwrap());
+            assert_eq!(
+                summary,
+                ContextAuthSummary {
+                    exec_command: Some("aws".to_string()),
+                    aws_profile: Some("dev".to_string()),
+                }
+            );
+            let json = serde_json::to_string(&summary).unwrap();
+            assert!(!json.contains("super-secret"));
+
+            let summary = summarize_auth_info(&auth_info_for_context(&config, "token").unwrap());
+            assert_eq!(summary, ContextAuthSummary::default());
+        }
+
+        #[test]
+        fn missing_context_or_context_body_is_an_error_not_a_panic() {
+            let config = Kubeconfig::from_yaml(KUBECONFIG).unwrap();
+            assert!(auth_info_for_context(&config, "nope").is_err());
+            assert!(auth_info_for_context(&config, "broken").is_err());
+        }
+
+        #[test]
+        fn exec_credentials_are_never_displayed() {
+            let credential = r#"{"apiVersion":"client.authentication.k8s.io/v1beta1","kind":"ExecCredential","status":{"token":"abc"}}"#;
+            assert_eq!(displayable_exec_stdout(credential), "");
+            assert_eq!(displayable_exec_stdout("{\"token\": \"abc\""), "");
+            assert_eq!(
+                displayable_exec_stdout("  Open https://login.example/device and enter ABCD\n"),
+                "Open https://login.example/device and enter ABCD"
+            );
+        }
+
+        #[test]
+        fn manifest_args_use_flag_value_form() {
+            assert_eq!(
+                manifest_args(ManifestMode::Replace, "-ctx", "ns", Some("/tmp/kc")),
+                vec![
+                    "replace",
+                    "--context=-ctx",
+                    "--namespace=ns",
+                    "--kubeconfig=/tmp/kc",
+                    "--filename=-",
+                ]
+            );
+            assert_eq!(
+                manifest_args(ManifestMode::Apply, "ctx", "", None),
+                vec!["apply", "--context=ctx", "--filename=-"]
+            );
+        }
+
+        #[test]
+        fn explicit_kubeconfig_path_is_the_only_stamped_file() {
+            assert_eq!(
+                kubeconfig_files("/some/kubeconfig"),
+                vec![std::path::PathBuf::from("/some/kubeconfig")]
+            );
+            assert_eq!(kubeconfig_stamp("/definitely/not/here"), None);
+        }
+
+        #[test]
+        fn client_slot_is_shared_until_the_kubeconfig_changes() {
+            let key = ("/test/slot".to_string(), "ctx".to_string());
+            let t1 = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
+            let t2 = SystemTime::UNIX_EPOCH + Duration::from_secs(2);
+
+            let a = client_slot(key.clone(), Some(t1));
+            let b = client_slot(key.clone(), Some(t1));
+            assert!(Arc::ptr_eq(&a, &b));
+
+            let c = client_slot(key, Some(t2));
+            assert!(!Arc::ptr_eq(&a, &c));
         }
     }
 }
