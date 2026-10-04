@@ -11,6 +11,7 @@ use std::sync::{Arc, RwLock};
 mod app_log;
 mod kubernetes;
 mod logs;
+mod metrics;
 mod port_forward;
 mod shell;
 mod util;
@@ -168,6 +169,9 @@ fn main() {
             watch::watch_set_paused,
             watch::watch_get,
             watch::watch_stats,
+            metrics::metrics_subscribe,
+            metrics::metrics_unsubscribe,
+            metrics::metrics_reset,
         ])
         .setup(|_app| {
             #[cfg(target_os = "macos")]
