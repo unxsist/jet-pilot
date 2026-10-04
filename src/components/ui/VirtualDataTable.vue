@@ -59,8 +59,8 @@ const props = defineProps<{
   stickyHeaders?: boolean;
   autoScroll?: boolean;
   columns: ColumnDef<TData, TValue>[];
-  rowActions?: RowAction<TData>[];
-  rowClasses?: (row: TData) => string | string;
+  rowActions?: RowAction<NoInfer<TData>>[];
+  rowClasses?: (row: NoInfer<TData>) => string | string;
   estimatedRowHeight?: number;
   data: TData[];
   visibleColumns?: {

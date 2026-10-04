@@ -22,7 +22,7 @@ const {
 
 const actions = ref(null);
 const currentResource = ref(route.query.resource as string);
-const resourceData = ref<object[]>([]);
+const resourceData = ref<any[]>([]);
 
 import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
