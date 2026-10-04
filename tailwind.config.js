@@ -55,6 +55,17 @@ module.exports = {
       rotate: {
         270: "270deg",
       },
+      // Finer steps for tints/hover states (Tailwind 3.3 lacks these)
+      opacity: {
+        3: "0.03",
+        4: "0.04",
+        6: "0.06",
+        8: "0.08",
+        12: "0.12",
+        15: "0.15",
+        35: "0.35",
+        85: "0.85",
+      },
       backdropBlur: {
         xxs: "1px",
       },
@@ -143,6 +154,7 @@ module.exports = {
         popover: "var(--shadow-md)",
         dialog: "var(--shadow-lg)",
         highlight: "var(--shadow-highlight)",
+        button: "var(--shadow-highlight), var(--shadow-xs)",
       },
       transitionDuration: {
         DEFAULT: "150ms",
