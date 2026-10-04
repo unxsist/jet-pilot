@@ -22,8 +22,6 @@ export interface GraphViewState {
   history: Ref<Set<string>>;
   /** Nodes added by the last refresh (fade in). */
   entering: Ref<Set<string>>;
-  /** Zoomed far out: cards show less detail. */
-  far: Ref<boolean>;
   /** Zoomed out to an overview: cards are health blocks, groups titles. */
   overview: Ref<boolean>;
   toggleExpanded: (id: string) => void;

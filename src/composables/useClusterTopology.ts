@@ -269,7 +269,17 @@ export function useClusterTopology(scope: Ref<GraphScope | null>) {
       }
 
       if (resources.length > 0 && failed.size === resources.length) {
-        throw new Error("Failed to fetch any resources of this cluster");
+        const first = results.find(
+          (result): result is PromiseRejectedResult =>
+            result.status === "rejected"
+        );
+        const reason =
+          first?.reason instanceof Error
+            ? first.reason.message
+            : String(first?.reason ?? "");
+        throw new Error(
+          `Failed to fetch any resources of this cluster${reason ? `: ${reason}` : ""}`
+        );
       }
 
       const buildStarted = performance.now();

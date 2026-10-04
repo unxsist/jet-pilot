@@ -13,6 +13,7 @@ import { VueFlow, useVueFlow } from "@vue-flow/core";
 import Fuse from "fuse.js";
 import { useElementSize, useNow, useStorage } from "@vueuse/core";
 import {
+  Check,
   ChevronsDownUp,
   ChevronsUpDown,
   CloudOff,
@@ -174,10 +175,11 @@ const toggleIn = (set: Ref<Set<string>>, id: string) => {
 };
 
 /* Filters (the view preferences persist, the selection does not). */
+/* Service accounts are rarely what one looks for: hidden by default. */
+const DEFAULT_HIDDEN: NodeCategory[] = ["identity"];
 const hiddenCategories = useStorage<NodeCategory[]>(
   "graph-hidden-categories",
-  // Service accounts are rarely what one looks for: hidden by default.
-  ["identity"]
+  [...DEFAULT_HIDDEN]
 );
 const showLegend = useStorage("graph-show-legend", true);
 const namespaceFilter = ref<string[]>([]);
@@ -193,13 +195,17 @@ const filters = computed<GraphFilters>(() => ({
 const activeFilterCount = computed(
   () =>
     (namespaceFilter.value.length > 0 ? 1 : 0) +
-    hiddenCategories.value.length +
+    // Categories shown / hidden other than the defaults.
+    new Set([
+      ...hiddenCategories.value.filter((c) => !DEFAULT_HIDDEN.includes(c)),
+      ...DEFAULT_HIDDEN.filter((c) => !hiddenCategories.value.includes(c)),
+    ]).size +
     (labelFilter.value.trim() ? 1 : 0) +
     (showUnused.value ? 1 : 0)
 );
 const resetFilters = () => {
   namespaceFilter.value = [];
-  hiddenCategories.value = [];
+  hiddenCategories.value = [...DEFAULT_HIDDEN];
   labelFilter.value = "";
   showUnused.value = false;
 };
@@ -255,11 +261,12 @@ const visibleIds = computed(
 );
 
 const layoutCache = new GraphLayoutCache();
-const lastLayoutMs = ref(0);
+/* Duration of the last layout pass (for the timings), not reactive. */
+let lastLayoutMs = 0;
 const layout = computed(() => {
   const started = performance.now();
   const result = layoutCache.layout(visible.value);
-  lastLayoutMs.value = performance.now() - started;
+  lastLayoutMs = performance.now() - started;
   return result;
 });
 
@@ -545,7 +552,6 @@ provide(GraphViewStateKey, {
   expanded,
   history,
   entering,
-  far,
   overview,
   toggleExpanded: (id: string) => keepInPlace(id, () => toggleIn(expanded, id)),
   toggleHistory: (id: string) => keepInPlace(id, () => toggleIn(history, id)),
@@ -730,9 +736,6 @@ const setSidePanelComponent = injectStrict(
 );
 const { sidePanel } = injectStrict(PanelProviderStateKey);
 
-const selectedNode = computed(() =>
-  selected.value ? topology.value?.nodes.get(selected.value) || null : null
-);
 
 /*
  * The side panel shows the object's health, relationships and the regular
@@ -944,6 +947,22 @@ const onNodeMouseLeave = () => {
   clearTimeout(tooltipTimer);
   tooltip.value = null;
 };
+/* Node placement: the node of a pod, the spread of a workload's pods. */
+const tooltipPlacement = computed(() => {
+  const node = tooltip.value?.node;
+  if (!node) return "";
+  if (node.kind === "Pod") {
+    const host = node.object?.spec?.nodeName;
+    return host ? `on ${host}` : "not scheduled";
+  }
+  const pods = node.pods || [];
+  if (pods.length === 0) return "";
+  const hosts = new Set(
+    pods.map((pod) => pod.spec?.nodeName).filter(Boolean) as string[]
+  );
+  const pending = pods.filter((pod) => !pod.spec?.nodeName).length;
+  return `${pods.length} pod${pods.length === 1 ? "" : "s"} on ${hosts.size} node${hosts.size === 1 ? "" : "s"}${pending ? ` · ${pending} unscheduled` : ""}`;
+});
 const tooltipLabels = computed(() =>
   Object.entries(tooltip.value?.node.labels || {})
     .filter(([key]) =>
@@ -1000,6 +1019,15 @@ const onKeydown = (event: KeyboardEvent) => {
   // Only when the graph is on screen (not behind a dialog / in a tab).
   if (!canvas.value || canvas.value.offsetParent === null) return;
   if (document.querySelector("[role=dialog]")) return;
+  const card = (event.target as HTMLElement | null)?.closest?.(
+    ".vue-flow__node-k8s"
+  );
+  if (card && (event.key === "Enter" || event.key === " ")) {
+    event.preventDefault();
+    const id = card.getAttribute("data-id");
+    if (id) select(id);
+    return;
+  }
   if (event.key === "/") {
     event.preventDefault();
     searchInput.value?.focus();
@@ -1050,7 +1078,7 @@ watchEffect(() => {
   if (!timings.value) return;
   (window as any).__graphTimings = {
     ...timings.value,
-    layoutMs: lastLayoutMs.value,
+    layoutMs: lastLayoutMs,
     renderMs: renderMs.value,
     nodes: flowNodes.value.length,
     edges: flowEdges.value.length,
@@ -1114,6 +1142,10 @@ const showGraph = computed(
           >
             <ContextAvatar :name="name" size="sm" />
             {{ name }}
+            <Check
+              v-if="name === graphContext"
+              class="ml-auto h-3.5 w-3.5 text-link"
+            />
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -1558,6 +1590,13 @@ const showGraph = computed(
             }}</span>
             <span class="truncate text-muted-foreground">· {{ nodeSubtitle(tooltip.node) }}</span>
           </div>
+          <div
+            v-if="tooltipPlacement"
+            class="mt-1 truncate text-muted-foreground"
+            :title="tooltipPlacement"
+          >
+            {{ tooltipPlacement }}
+          </div>
           <ul v-if="tooltip.node.reasons.length > 0" class="mt-1.5 space-y-0.5">
             <li
               v-for="reason in tooltip.node.reasons.slice(0, 4)"
@@ -1687,17 +1726,6 @@ const showGraph = computed(
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
   border-radius: var(--radius);
-}
-
-/* Handles only anchor edges. */
-.cluster-graph .graph-handle {
-  opacity: 0;
-  pointer-events: none;
-  min-width: 0;
-  min-height: 0;
-  width: 1px;
-  height: 1px;
-  border: 0;
 }
 
 /* Edges: one style per relationship type. */
