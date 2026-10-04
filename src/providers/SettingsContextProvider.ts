@@ -1,4 +1,14 @@
-import { watch, provide, reactive, InjectionKey, toRefs, ToRefs } from "vue";
+import {
+  watch,
+  provide,
+  reactive,
+  ref,
+  InjectionKey,
+  Ref,
+  SetupContext,
+  toRefs,
+  ToRefs,
+} from "vue";
 import {
   BaseDirectory,
   exists,
@@ -9,6 +19,7 @@ import {
 import { homeDir } from "@tauri-apps/api/path";
 import { invoke } from "@tauri-apps/api/core";
 import { error } from "@/lib/logger";
+import { perfMark } from "@/lib/perf";
 
 export const SettingsContextStateKey: InjectionKey<
   ToRefs<SettingsContextState>
@@ -17,6 +28,10 @@ export const SettingsContextStateKey: InjectionKey<
 /** Writes pending settings changes to disk immediately (e.g. before quit). */
 export const SettingsContextFlushKey: InjectionKey<() => Promise<void>> =
   Symbol("SettingsContextFlush");
+
+/** Whether settings.json has been read (the real app tree is rendered). */
+export const SettingsContextReadyKey: InjectionKey<Readonly<Ref<boolean>>> =
+  Symbol("SettingsContextReady");
 
 /* Coalesce bursts of changes (e.g. resizing the tab panel) into one write. */
 const SAVE_DEBOUNCE_MS = 300;
@@ -59,7 +74,13 @@ export interface SettingsContextState {
 
 export default {
   name: "SettingsContextProvider",
-  async setup() {
+  /*
+   * Synchronous on purpose: the app shell must not wait (behind a
+   * <Suspense>) for the settings file. Until it is read the `fallback` slot
+   * (the app skeleton) is rendered, so nothing below this provider ever sees
+   * the defaults instead of the user's settings.
+   */
+  setup(_props: unknown, { slots }: SetupContext) {
     const settingsFile = "settings.json";
 
     const state: SettingsContextState = reactive({
@@ -145,27 +166,51 @@ export default {
 
     provide(SettingsContextFlushKey, flush);
 
-    if (await exists(settingsFile, { baseDir: BaseDirectory.AppConfig })) {
-      const fileContents = await readTextFile(settingsFile, {
-        baseDir: BaseDirectory.AppConfig,
-      });
+    const ready = ref(false);
+    provide(SettingsContextReadyKey, ready);
 
-      try {
-        // Merge initial state with file contents
-        state.settings = { ...state.settings, ...JSON.parse(fileContents) };
-        lastWritten = fileContents;
-      } catch (e) {
-        // Keep the unreadable file around before defaults overwrite it.
-        error(`Failed to parse settings, using defaults: ${e}`);
-        await writeTextFile(`${settingsFile}.corrupt`, fileContents, {
+    const load = async () => {
+      if (await exists(settingsFile, { baseDir: BaseDirectory.AppConfig })) {
+        const fileContents = await readTextFile(settingsFile, {
           baseDir: BaseDirectory.AppConfig,
-        }).catch(() => {});
+        });
+
+        try {
+          // Merge initial state with file contents
+          state.settings = { ...state.settings, ...JSON.parse(fileContents) };
+          lastWritten = fileContents;
+        } catch (e) {
+          // Keep the unreadable file around before defaults overwrite it.
+          error(`Failed to parse settings, using defaults: ${e}`);
+          await writeTextFile(`${settingsFile}.corrupt`, fileContents, {
+            baseDir: BaseDirectory.AppConfig,
+          }).catch(() => {});
+        }
+
+        invoke("update_log_level", { level: state.settings.logLevel });
       }
 
-      invoke("update_log_level", { level: state.settings.logLevel });
-    }
+      if (state.settings.kubeConfigs.length === 0) {
+        const home = await homeDir();
+        state.settings.kubeConfigs.push(`${home}/.kube/config`);
+      }
 
-    watch(state, scheduleSave, { deep: true });
+      /* Make sure PanelProvider does not open at more than 90% of the screen */
+      if (state.settings.PanelProvider.height > 90) {
+        state.settings.PanelProvider.height = 90;
+      }
+    };
+
+    load()
+      .catch((e) => error(`Failed to load settings, using defaults: ${e}`))
+      .finally(() => {
+        // Only start saving now: an earlier save would overwrite the file
+        // with defaults. Persist what loading filled in (no-op if unchanged).
+        watch(state, scheduleSave, { deep: true });
+        scheduleSave();
+        ready.value = true;
+        perfMark("settings:loaded");
+      });
 
     /*
      * Best effort for pending changes when the window goes away; the quit
@@ -177,17 +222,6 @@ export default {
       }
     });
 
-    if (state.settings.kubeConfigs.length === 0) {
-      const home = await homeDir();
-      state.settings.kubeConfigs.push(`${home}/.kube/config`);
-    }
-
-    /* Make sure PanelProvider does not open at more than 90% of the screen */
-    if (state.settings.PanelProvider.height > 90) {
-      state.settings.PanelProvider.height = 90;
-    }
-  },
-  render(): any {
-    return this.$slots.default();
+    return () => (ready.value ? slots.default?.() : slots.fallback?.());
   },
 };

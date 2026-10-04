@@ -6,9 +6,60 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark light" />
     <title>JET Pilot</title>
+    <!-- Applies the saved colour scheme before the first paint. -->
+    <script src="/boot.js"></script>
+    <!--
+      Static boot skeleton: painted before the app bundle is parsed, replaced
+      when Vue mounts (src/components/skeletons/AppSkeleton.vue mirrors it).
+      Colours come from the design tokens (main.postcss); the fallbacks only
+      apply in `vite dev`, where the CSS is injected by JavaScript.
+    -->
+    <style>
+      html, body, #app { height: 100%; margin: 0; }
+      .boot { display: flex; height: 100%; box-sizing: border-box; border-radius: 0.5rem; border: 1px solid hsl(var(--border, 240 6% 90%)); background: hsl(var(--surface-1, 240 5% 96.5%)); overflow: hidden; }
+      .dark .boot { border-color: hsl(var(--border, 240 5% 17%)); background: hsl(var(--surface-1, 240 5% 8.5%)); }
+      .boot-nav { width: 224px; flex-shrink: 0; padding: 48px 8px 0; box-sizing: border-box; }
+      .boot-main { flex: 1; padding: 6px 6px 6px 0; display: flex; }
+      .boot-canvas { flex: 1; border-radius: 0.5rem; border: 1px solid hsl(var(--border, 240 6% 90%)); background: hsl(var(--background, 0 0% 100%)); }
+      .dark .boot-canvas { border-color: hsl(var(--border, 240 5% 17%)); background: hsl(var(--background, 240 3% 6.5%)); }
+      .boot-block { border-radius: 0.375rem; background: hsl(var(--muted, 240 5% 93%)); }
+      .dark .boot-block { background: hsl(var(--muted, 240 5% 13.5%)); }
+      .boot-switcher { height: 44px; margin-bottom: 6px; border-radius: 0.5rem; }
+      .boot-search { height: 32px; margin-bottom: 20px; }
+      .boot-item { height: 12px; margin: 0 8px 16px; }
+      .boot-toolbar { height: 48px; border-bottom: 1px solid hsl(var(--border, 240 6% 90%)); }
+      .dark .boot-toolbar, .dark .boot-row { border-color: hsl(var(--border, 240 5% 17%)); }
+      .boot-row { height: 36px; border-bottom: 1px solid hsl(var(--border, 240 6% 90%)); display: flex; align-items: center; padding: 0 16px; }
+      .boot-row .boot-block { height: 12px; width: 40%; }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div class="boot" aria-hidden="true" data-boot-skeleton>
+        <div class="boot-nav">
+          <div class="boot-block boot-switcher"></div>
+          <div class="boot-block boot-search"></div>
+          <div class="boot-block boot-item" style="width: 40%"></div>
+          <div class="boot-block boot-item" style="width: 62%"></div>
+          <div class="boot-block boot-item" style="width: 48%"></div>
+          <div class="boot-block boot-item" style="width: 70%"></div>
+          <div class="boot-block boot-item" style="width: 36%"></div>
+          <div class="boot-block boot-item" style="width: 58%"></div>
+          <div class="boot-block boot-item" style="width: 66%"></div>
+        </div>
+        <div class="boot-main">
+          <div class="boot-canvas">
+            <div class="boot-toolbar"></div>
+            <div class="boot-row"><div class="boot-block"></div></div>
+            <div class="boot-row"><div class="boot-block"></div></div>
+            <div class="boot-row"><div class="boot-block"></div></div>
+            <div class="boot-row"><div class="boot-block"></div></div>
+            <div class="boot-row"><div class="boot-block"></div></div>
+            <div class="boot-row"><div class="boot-block"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

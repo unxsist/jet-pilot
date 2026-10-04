@@ -1,7 +1,4 @@
 <script lang="ts" setup>
-import { marked, type Tokens } from "marked";
-import DOMPurify from "dompurify";
-
 import { check, Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { listen } from "@tauri-apps/api/event";
@@ -15,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import Logo from "@/assets/logo.png";
+import Logo from "@/assets/logo-64.png";
 import { CircleCheck, Download, Loader2, RotateCw } from "lucide-vue-next";
 import { injectStrict } from "@/lib/utils";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
@@ -28,22 +25,27 @@ const isUpdating = ref(false);
 const restart = ref(false);
 const closeable = ref(true);
 
-const mdRenderer = new marked.Renderer();
-mdRenderer.link = function (
-  this: typeof mdRenderer,
-  { href, tokens }: Tokens.Link
-) {
-  const text = this.parser.parseInline(tokens);
-  return `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`;
-};
-
 /*
  * Release notes come from the update server and are rendered with v-html, so
  * sanitize the generated HTML: no scripts, event handlers, javascript: URLs
  * or other active content can reach the webview (which has IPC access).
+ * marked + DOMPurify are only loaded when there are notes to render.
  */
-const releaseNotesHtml = computed(() => {
-  const html = marked.parse(updateInfo.value?.body ?? "", {
+const releaseNotesHtml = ref("");
+
+const renderReleaseNotes = async (body: string): Promise<string> => {
+  const [{ marked }, { default: DOMPurify }] = await Promise.all([
+    import("marked"),
+    import("dompurify"),
+  ]);
+
+  const mdRenderer = new marked.Renderer();
+  mdRenderer.link = function (this: typeof mdRenderer, { href, tokens }) {
+    const text = this.parser.parseInline(tokens);
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+  };
+
+  const html = marked.parse(body, {
     renderer: mdRenderer,
     async: false,
   }) as string;
@@ -52,7 +54,22 @@ const releaseNotesHtml = computed(() => {
     ADD_ATTR: ["target"],
     FORBID_TAGS: ["style", "form", "input", "button", "iframe"],
   });
-});
+};
+
+watch(
+  () => updateInfo.value?.body ?? "",
+  async (body) => {
+    releaseNotesHtml.value = "";
+    if (!body) {
+      return;
+    }
+    const html = await renderReleaseNotes(body);
+    // A newer check may have replaced the notes in the meantime.
+    if ((updateInfo.value?.body ?? "") === body) {
+      releaseNotesHtml.value = html;
+    }
+  }
+);
 
 async function checkForUpdates(forced = false) {
   updateInfo.value = await check();

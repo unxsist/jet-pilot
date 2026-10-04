@@ -14,8 +14,7 @@ import CommandPaletteProvider from "./providers/CommandPaletteProvider";
 import PanelProvider from "./providers/PanelProvider";
 import DialogProvider from "./providers/DialogProvider";
 import DialogHandler from "./components/DialogHandler.vue";
-import UpdateHandler from "./components/UpdateHandler.vue";
-import WhatsNew from "./components/WhatsNew.vue";
+import AppSkeleton from "./components/skeletons/AppSkeleton.vue";
 import TerminalLauncher from "./components/TerminalLauncher.vue";
 import {
   ResizableHandle,
@@ -23,8 +22,22 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { type as getOsType } from "@tauri-apps/plugin-os";
+import { whenIdle } from "@/lib/perf";
 
 const osType = ref(getOsType());
+
+/*
+ * Not needed for the first frame: the update check (marked + DOMPurify for
+ * the release notes) and "What's new" are loaded once the app is idle.
+ */
+const UpdateHandler = defineAsyncComponent(
+  () => import("./components/UpdateHandler.vue")
+);
+const WhatsNew = defineAsyncComponent(
+  () => import("./components/WhatsNew.vue")
+);
+const idle = ref(false);
+onMounted(() => whenIdle(() => (idle.value = true), 2000));
 </script>
 
 <template>
@@ -32,49 +45,52 @@ const osType = ref(getOsType());
     class="bg-sidebar text-sm text-foreground rounded-lg border border-border overflow-hidden"
     :class="`os:${osType}`"
   >
-    <Suspense>
-      <SettingsContextProvider>
-        <GlobalShortcutProvider>
-          <ColorSchemeProvider>
-            <DialogProvider>
-              <KubeContextProvider>
-                <PortForwardingProvider>
-                  <PanelProvider>
-                    <CommandPaletteProvider>
-                      <Navigation />
-                      <!--
-                        Content sits on an inset canvas: the app chrome
-                        (sidebar colour) frames it on the right, top and
-                        bottom. The gutter is a window drag region.
-                      -->
+    <SettingsContextProvider>
+      <template #fallback>
+        <AppSkeleton />
+      </template>
+      <GlobalShortcutProvider>
+        <ColorSchemeProvider>
+          <DialogProvider>
+            <KubeContextProvider>
+              <PortForwardingProvider>
+                <PanelProvider>
+                  <CommandPaletteProvider>
+                    <Navigation />
+                    <!--
+                      Content sits on an inset canvas: the app chrome
+                      (sidebar colour) frames it on the right, top and
+                      bottom. The gutter is a window drag region.
+                    -->
+                    <div
+                      class="flex min-w-0 flex-1 py-1.5 pr-1.5"
+                      data-tauri-drag-region
+                    >
                       <div
-                        class="flex min-w-0 flex-1 py-1.5 pr-1.5"
-                        data-tauri-drag-region
+                        class="flex min-w-0 flex-1 overflow-hidden rounded-lg border bg-background shadow-xs"
                       >
-                        <div
-                          class="flex min-w-0 flex-1 overflow-hidden rounded-lg border bg-background shadow-xs"
-                        >
-                          <ResizablePanelGroup direction="horizontal">
-                            <ResizablePanel><RouterViewport /></ResizablePanel>
-                            <ResizableHandle />
-                            <SidePanel />
-                          </ResizablePanelGroup>
-                        </div>
+                        <ResizablePanelGroup direction="horizontal">
+                          <ResizablePanel><RouterViewport /></ResizablePanel>
+                          <ResizableHandle />
+                          <SidePanel />
+                        </ResizablePanelGroup>
                       </div>
-                      <Toaster />
-                      <CommandPalette />
-                      <DialogHandler />
+                    </div>
+                    <Toaster />
+                    <CommandPalette />
+                    <DialogHandler />
+                    <template v-if="idle">
                       <UpdateHandler />
                       <WhatsNew />
-                      <TerminalLauncher />
-                    </CommandPaletteProvider>
-                  </PanelProvider>
-                </PortForwardingProvider>
-              </KubeContextProvider>
-            </DialogProvider>
-          </ColorSchemeProvider>
-        </GlobalShortcutProvider>
-      </SettingsContextProvider>
-    </Suspense>
+                    </template>
+                    <TerminalLauncher />
+                  </CommandPaletteProvider>
+                </PanelProvider>
+              </PortForwardingProvider>
+            </KubeContextProvider>
+          </DialogProvider>
+        </ColorSchemeProvider>
+      </GlobalShortcutProvider>
+    </SettingsContextProvider>
   </AppLayout>
 </template>
