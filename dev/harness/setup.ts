@@ -61,6 +61,8 @@ const clusters =
     : CLUSTERS;
 /* ?contexts=2 activates both contexts (multi-context mode). */
 const multiContext = params.get("contexts") === "2";
+/* ?lograte=N streams N log lines per second (log viewer perf testing). */
+const LOG_RATE = Number(params.get("lograte") || 0);
 
 // VueUse's useColorMode persists its own value; keep it in sync.
 localStorage.setItem("vueuse-color-scheme", theme);
@@ -147,11 +149,66 @@ const sendToChannel = (channel: any, message: unknown) => {
   (window as any).__TAURI_INTERNALS__.runCallback(id, { index, message });
 };
 
+/*
+ * Rollout history: every Deployment gets revision annotations and three
+ * older (scaled down) ReplicaSets with earlier images / settings.
+ */
+for (const cluster of Object.values(CLUSTERS)) {
+  const extra: any[] = [];
+  for (const dep of cluster.deployments) {
+    const rs = cluster.replicasets.find((r: any) => r.metadata.ownerReferences?.[0]?.uid === dep.metadata.uid);
+    if (!rs) continue;
+    const image = dep.spec.template.spec.containers[0].image as string;
+    const [repo, tag] = image.split(":");
+    rs.metadata.annotations = {
+      "deployment.kubernetes.io/revision": "7",
+      "kubernetes.io/change-cause": `helm upgrade ${dep.metadata.name} --set image.tag=${tag}`,
+    };
+    rs.spec.template = JSON.parse(JSON.stringify(dep.spec.template));
+    rs.spec.template.metadata.labels["pod-template-hash"] = rs.metadata.name.split("-").pop();
+    const older = [
+      { revision: 6, tag: tag?.replace(/(\d+)$/, (n: string) => String(Math.max(0, Number(n) - 1))), cause: "kubectl set image", days: 2, env: "info" },
+      { revision: 5, tag: tag?.replace(/(\d+)$/, (n: string) => String(Math.max(0, Number(n) - 2))), cause: "", days: 9, env: "debug" },
+      { revision: 4, tag: "v1.9.0", cause: "Initial rollout", days: 30, env: "debug" },
+    ];
+    for (const o of older) {
+      const template = JSON.parse(JSON.stringify(dep.spec.template));
+      template.spec.containers[0].image = `${repo}:${o.tag}`;
+      template.spec.containers[0].env = [{ name: "LOG_LEVEL", value: o.env }];
+      if (o.revision === 4) delete template.spec.containers[0].resources?.limits;
+      const name = `${dep.metadata.name}-${o.revision}b${o.days}f${o.revision}c`;
+      template.metadata.labels = { ...template.metadata.labels, "pod-template-hash": name.split("-").pop() };
+      extra.push({
+        apiVersion: "apps/v1",
+        kind: "ReplicaSet",
+        metadata: {
+          name,
+          namespace: dep.metadata.namespace,
+          uid: `${rs.metadata.uid}-${o.revision}`,
+          creationTimestamp: new Date(Date.now() - o.days * 86400000).toISOString(),
+          labels: rs.metadata.labels,
+          annotations: {
+            "deployment.kubernetes.io/revision": String(o.revision),
+            ...(o.cause ? { "kubernetes.io/change-cause": o.cause } : {}),
+          },
+          ownerReferences: rs.metadata.ownerReferences,
+        },
+        spec: { replicas: 0, template },
+        status: { replicas: 0 },
+      });
+    }
+  }
+  cluster.replicasets.push(...extra);
+}
+
 /* ---------------------------------------------------------------- kubectl */
 
+/* Supports both `--flag value` and `--flag=value`. */
 const argValue = (args: string[], flag: string) => {
   const i = args.indexOf(flag);
-  return i >= 0 ? args[i + 1] : undefined;
+  if (i >= 0) return args[i + 1];
+  const joined = args.find((a) => a.startsWith(`${flag}=`));
+  return joined ? joined.slice(flag.length + 1) : undefined;
 };
 
 const resourceKey = (resource: string) =>
@@ -276,18 +333,42 @@ function applyManifest(p: any): string {
 
 /* ------------------------------------------------------ structured logs -- */
 
+interface LogEntry {
+  id: string;
+  seq: number;
+  content: string;
+  timestamp: string;
+  data: any;
+  pod: string | null;
+  container: string | null;
+}
 interface LogSession {
-  entries: { id: string; seq: number; content: string; timestamp: string; data: any }[];
+  entries: LogEntry[];
+  nextSeq: number;
   facets: Map<string, { match_type: "AND" | "OR"; filtered: Set<string> }>;
   columns: Set<string>;
+  stream?: ReturnType<typeof setInterval>;
+  generation: number;
 }
 const sessions = new Map<string, LogSession>();
 let sessionCounter = 0;
 
+/* Facet keys are JSON-serialized values, like the backend's. */
+const facetKey = (entry: LogEntry, property: string) => {
+  const value =
+    property === "@pod" ? entry.pod ?? undefined : property === "@container" ? entry.container ?? undefined : entry.data?.[property];
+  return value === undefined ? undefined : JSON.stringify(value);
+};
+
+/* Backend timestamps carry exactly 9 fractional digits. */
+const nanoTimestamp = (ms: number) => new Date(ms).toISOString().replace(/\.(\d{3})Z$/, ".$1000000Z");
+
 function addLogData(session: LogSession, data: string) {
   let columnsChanged = false;
-  for (const line of data.split("\n")) {
-    if (!line.trim()) continue;
+  for (const raw of data.split("\n")) {
+    if (!raw.trim()) continue;
+    const prefix = /^\[pod\/([^/]+)\/([^\]]+)\] /.exec(raw);
+    const line = prefix ? raw.slice(prefix[0].length) : raw;
     const space = line.indexOf(" ");
     const timestamp = line.slice(0, space);
     const content = line.slice(space + 1);
@@ -305,9 +386,19 @@ function addLogData(session: LogSession, data: string) {
         }
       }
     }
-    const seq = session.entries.length + 1;
-    session.entries.push({ id: String(seq), seq, content, timestamp, data: parsed });
+    const seq = ++session.nextSeq;
+    session.entries.push({
+      id: String(seq),
+      seq,
+      content,
+      timestamp,
+      data: parsed ?? { message: content },
+      pod: prefix?.[1] ?? null,
+      container: prefix?.[2] ?? null,
+    });
   }
+  // Same cap as the backend (logs::MAX_ENTRIES_PER_SESSION).
+  if (session.entries.length > 20000) session.entries.splice(0, session.entries.length - 20000);
   return { columns_changed: columnsChanged, has_facets: session.facets.size > 0, total: session.entries.length };
 }
 
@@ -315,10 +406,11 @@ function facetsOf(session: LogSession) {
   return [...session.facets.entries()].map(([property, f]) => {
     const totals = new Map<string, number>();
     for (const e of session.entries) {
-      const v = e.data?.[property];
-      if (v === undefined) continue;
-      totals.set(String(v), (totals.get(String(v)) || 0) + 1);
+      const key = facetKey(e, property);
+      if (key === undefined) continue;
+      totals.set(key, (totals.get(key) || 0) + 1);
     }
+    for (const key of f.filtered) if (!totals.has(key)) totals.set(key, 0);
     return {
       property,
       match_type: f.match_type,
@@ -331,9 +423,12 @@ function filteredEntries(session: LogSession, query: string, sinceSeq?: number) 
   let entries = session.entries;
   for (const [property, f] of session.facets) {
     if (f.filtered.size === 0) continue;
-    entries = entries.filter((e) => f.filtered.has(String(e.data?.[property])));
+    entries = entries.filter((e) => f.filtered.has(facetKey(e, property) ?? ""));
   }
-  if (query) entries = entries.filter((e) => e.content.includes(query));
+  if (query) {
+    const q = query.toLowerCase();
+    entries = entries.filter((e) => e.content.toLowerCase().includes(q) || e.pod?.toLowerCase().includes(q));
+  }
   const filtered_total = entries.length;
   if (sinceSeq) entries = entries.filter((e) => e.seq > sinceSeq);
   return {
@@ -343,6 +438,157 @@ function filteredEntries(session: LogSession, query: string, sinceSeq?: number) 
     oldest_seq: session.entries[0]?.seq ?? 0,
     latest_seq: session.entries[session.entries.length - 1]?.seq ?? 0,
   };
+}
+
+/* Mirrors logs::streaming: lines go into the session, the view is notified. */
+function podsForTarget(context: string, namespace: string, target: any): any[] {
+  const pods: any[] = (CLUSTERS[context] || CLUSTERS[CONTEXTS[0].name]).pods.filter(
+    (p: any) => !namespace || p.metadata.namespace === namespace
+  );
+  if (target.kind === "pod") return pods.filter((p) => p.metadata.name === target.name).slice(0, 1);
+  if (target.kind === "selector") {
+    const pairs = String(target.selector)
+      .split(",")
+      .map((part) => part.split("="))
+      .filter((kv) => kv.length === 2);
+    return pods.filter((p) => pairs.every(([k, v]) => p.metadata.labels?.[k] === v));
+  }
+  return pods.slice(0, 1);
+}
+
+function startLogStream(sessionId: string, spec: any, onEvent: any) {
+  const session = sessions.get(sessionId);
+  if (!session) throw "The log session has ended";
+  if (session.stream) clearInterval(session.stream);
+  session.generation++;
+  const generation = session.generation;
+  session.entries = [];
+
+  const pods = podsForTarget(spec.context, spec.namespace, spec.target);
+  const running = pods.filter((p) => p.status.phase === "Running");
+  const source = (p: any) =>
+    (spec.container ? [spec.container] : p.spec.containers.map((c: any) => c.name)) as string[];
+  const line = (p: any, container: string, ms: number, text: string) =>
+    `[pod/${p.metadata.name}/${container}] ${nanoTimestamp(ms)} ${text.slice(text.indexOf(" ") + 1)}`;
+
+  const emit = (lines: string[]) => {
+    if (session.generation !== generation || lines.length === 0) return;
+    const result = addLogData(session, lines.join("\n"));
+    sendToChannel(onEvent, {
+      type: "appended",
+      latestSeq: session.nextSeq,
+      total: session.entries.length,
+      added: lines.length,
+      columnsChanged: result.columns_changed,
+    });
+  };
+
+  const tail = spec.previous ? 12 : Math.min(spec.tail ?? 60, 60);
+  setTimeout(() => {
+    if (session.generation !== generation) return;
+    if (spec.target.kind === "selector") {
+      sendToChannel(onEvent, {
+        type: "sources",
+        pods: pods.map((p) => ({ name: p.metadata.name, state: p.status.phase === "Running" ? "streaming" : "waiting" })),
+      });
+    }
+    const now = Date.now();
+    const initial: string[] = [];
+    running.forEach((p, k) => {
+      for (const container of source(p)) {
+        logLines(tail).forEach((text, i) => initial.push(line(p, container, now - (tail - i) * 1700 - k * 410, text)));
+      }
+    });
+    emit(initial);
+    if (spec.target.kind === "selector" && pods.length > running.length) {
+      sendToChannel(onEvent, { type: "notice", level: "info", message: `${pods.length - running.length} pods are not running yet` });
+    }
+    if (!spec.follow) {
+      sendToChannel(onEvent, { type: "ended" });
+      return;
+    }
+    let tick = 0;
+    session.stream = setInterval(() => {
+      const p = running[tick++ % Math.max(1, running.length)];
+      if (!p) return;
+      if (LOG_RATE > 0) {
+        // ?lograte=N: N lines/s spread over the running pods, batched every
+        // 100ms like the backend (perf testing).
+        const batch: string[] = [];
+        const now = Date.now();
+        const perTick = Math.round(LOG_RATE / 10);
+        const pool = logLines(64);
+        for (let i = 0; i < perTick; i++) {
+          const q = running[i % running.length];
+          batch.push(line(q, source(q)[0], now - 100 + (i * 100) / perTick, pool[i % pool.length]));
+        }
+        emit(batch);
+        return;
+      }
+      emit(logLines(2).map((text) => line(p, source(p)[0], Date.now(), text)));
+    }, LOG_RATE > 0 ? 100 : 450);
+  }, 120);
+}
+
+/* ----------------------------------------------------------------- helm -- */
+
+const HELM_VALUES = (revision: number) =>
+  [
+    "image:",
+    "  repository: ghcr.io/acme/payments-api",
+    `  tag: v2.14.${revision >= 42 ? 3 : 2}`,
+    `replicaCount: ${revision >= 41 ? 4 : 3}`,
+    "resources:",
+    "  requests:",
+    "    cpu: 250m",
+    "    memory: 256Mi",
+    "ingress:",
+    "  enabled: true",
+    "  host: payments.acme.internal",
+    ...(revision >= 40 ? ["podDisruptionBudget:", "  minAvailable: 2"] : []),
+    "",
+  ].join("\n");
+
+const helmManifest = (tag: string, replicas: number, extraEnv = false) =>
+  [
+    "---",
+    "# Source: payments-api/templates/service.yaml",
+    "apiVersion: v1",
+    "kind: Service",
+    "metadata:",
+    "  name: payments-api",
+    "spec:",
+    "  ports:",
+    "    - port: 80",
+    "      targetPort: 8080",
+    "---",
+    "# Source: payments-api/templates/deployment.yaml",
+    "apiVersion: apps/v1",
+    "kind: Deployment",
+    "metadata:",
+    "  name: payments-api",
+    `  labels: { app.kubernetes.io/version: "${tag.slice(1)}" }`,
+    "spec:",
+    `  replicas: ${replicas}`,
+    "  template:",
+    "    spec:",
+    "      containers:",
+    "        - name: payments-api",
+    `          image: ghcr.io/acme/payments-api:${tag}`,
+    "          env:",
+    "            - name: LOG_LEVEL",
+    "              value: info",
+    ...(extraEnv ? ["            - name: FEATURE_FAST_REFUNDS", '              value: "true"'] : []),
+    "",
+  ].join("\n");
+
+function helmWithValues(args: string[], values: string) {
+  const ok = (stdout: string) => ({ code: 0, stdout, stderr: "" });
+  const tag = /tag:\s*(\S+)/.exec(values)?.[1] ?? "v2.14.3";
+  const replicas = Number(/replicaCount:\s*(\d+)/.exec(values)?.[1] ?? 4);
+  if (args[0] === "template") return ok(helmManifest(tag, replicas, values.includes("fastRefunds")));
+  if (args[0] === "upgrade") return ok(`Release "${args[1]}" has been upgraded. Happy Helming!\nNAME: ${args[1]}\nREVISION: 43\nSTATUS: deployed\n`);
+  return ok("");
 }
 
 /* ---------------------------------------------------------------- shell -- */
@@ -357,6 +603,23 @@ async function shellExecute(program: string, args: string[]) {
       const releases = clusters[context].helmReleases.filter((r) => !ns || r.namespace === ns);
       return ok(JSON.stringify(scenario === "empty" ? [] : releases));
     }
+    if (args[0] === "search" && args.includes("--versions")) {
+      const chart = args[2];
+      return ok(
+        JSON.stringify(
+          ["2.15.0", "2.14.3", "2.14.2", "2.13.0", "2.12.1"].map((version) => ({
+            name: `acme/${chart}`,
+            version,
+            app_version: version,
+            description: `${chart} Helm chart`,
+          }))
+        )
+      );
+    }
+    if (args[0] === "get" && args[1] === "values") return ok(HELM_VALUES(Number(argValue(args, "--revision") || 42)));
+    if (args[0] === "get" && args[1] === "manifest") return ok(helmManifest("v2.14.3", 4));
+    if (args[0] === "plugin") return ok("NAME\tVERSION\tDESCRIPTION\n");
+    if (args[0] === "rollback") return ok("Rollback was a success! Happy Helming!\n");
     if (args[0] === "search") {
       return ok(
         JSON.stringify([
@@ -369,7 +632,8 @@ async function shellExecute(program: string, args: string[]) {
       );
     }
     if (args[0] === "history") {
-      return ok(JSON.stringify([1, 2, 3].map((revision) => ({ revision, updated: new Date(Date.now() - (4 - revision) * 86400000).toISOString(), status: revision === 3 ? "deployed" : "superseded", chart: "payments-api-2.14.3", app_version: "2.14.3", description: revision === 3 ? "Upgrade complete" : "Install complete" }))));
+      const history = [38, 39, 40, 41, 42].map((revision) => ({ revision, updated: new Date(Date.now() - (43 - revision) * 86400000 * 1.7).toISOString(), status: revision === 42 ? "deployed" : revision === 40 ? "failed" : "superseded", chart: `payments-api-2.14.${revision >= 42 ? 3 : 2}`, app_version: `2.14.${revision >= 42 ? 3 : 2}`, description: revision === 40 ? "Upgrade \"payments-api\" failed: context deadline exceeded" : revision === 38 ? "Install complete" : revision === 41 ? "Rollback to 39" : "Upgrade complete" }));
+      return ok(JSON.stringify(history));
     }
     return ok("[]");
   }
@@ -378,6 +642,10 @@ async function shellExecute(program: string, args: string[]) {
     if (args[0] === "describe") {
       const obj = findObject(context, args[1]);
       return ok(describe(obj?.kind || "Pod", obj));
+    }
+    if (args[0] === "get" && args[1]?.includes("/") && args.includes("--output=json")) {
+      const obj = findObject(context, args[1]);
+      return obj ? ok(JSON.stringify(obj)) : { code: 1, signal: null, stdout: "", stderr: `Error from server (NotFound): ${args[1]} not found` };
     }
     if (args[0] === "get" && args.includes("yaml")) {
       return ok(objectYaml(context, args[1]));
@@ -404,6 +672,40 @@ function shellSpawn(program: string, args: string[], onEvent: any) {
 /* ------------------------------------------------------------------ pty -- */
 
 const PROMPT = "\x1b[38;5;111mpayments-api-7d9f8b6c4-x2klq\x1b[0m:\x1b[38;5;150m/app\x1b[0m$ ";
+/* `kubectl debug` (pod: ephemeral container, node/…: node debugger pod). */
+function startDebugPty(onEvent: any, argv: string[]) {
+  const target = argv.find((a) => !a.startsWith("-") && a !== "kubectl" && a !== "debug") || "";
+  const node = target.startsWith("node/") ? target.slice(5) : null;
+  const prompt = node ? "\x1b[1;31mroot@" + node.split(".")[0] + "\x1b[0m:/# " : "/ # ";
+  const lines = node
+    ? [
+        `Creating debugging pod node-debugger-${node.split(".")[0]}-x7k2p with container debugger on node ${node}.`,
+        "If you don't see a command prompt, try pressing enter.",
+        prompt + "uname -a",
+        `Linux ${node} 6.1.97-104.177.amzn2023.x86_64 #1 SMP x86_64 GNU/Linux`,
+        prompt + "crictl ps --name payments | head -3",
+        "CONTAINER      IMAGE          CREATED       STATE     NAME            POD",
+        "3f1c2a9e8b7d   4d2f0c1b9a8e   2 hours ago   Running   payments-api    payments-api-7d9f8b6c4-x2klq",
+        prompt,
+      ]
+    : [
+        `Targeting container "${(argv.find((a) => a.startsWith("--target=")) || "").slice(9)}". If you don't see processes from this container it may be because the container runtime doesn't support this feature.`,
+        `Defaulting debug container name to debugger-q8m2t.`,
+        "If you don't see a command prompt, try pressing enter.",
+        prompt + "ps aux",
+        "PID   USER     TIME  COMMAND",
+        "    1 app       0:42 /app/server --config /app/config.yaml",
+        "   38 root      0:00 sh",
+        "   45 root      0:00 ps aux",
+        prompt + `nslookup ledger.payments.svc.cluster.local`,
+        "Server:		172.20.0.10",
+        "Name:	ledger.payments.svc.cluster.local",
+        "Address: 172.20.41.19",
+        prompt,
+      ];
+  setTimeout(() => sendToChannel(onEvent, encoder.encode(lines.join("\r\n")).buffer), 150);
+}
+
 function startPty(onEvent: any, banner: string[]) {
   setTimeout(() => {
     const text = [
@@ -686,12 +988,35 @@ mockIPC(
       // structured logging
       case "start_structured_logging_session": {
         const id = `session-${++sessionCounter}`;
-        sessions.set(id, { entries: [], facets: new Map(), columns: new Set() });
+        sessions.set(id, { entries: [], nextSeq: 0, facets: new Map(), columns: new Set(), generation: 0 });
         return id;
       }
-      case "end_structured_logging_session":
+      case "end_structured_logging_session": {
+        const s = sessions.get(p.sessionId);
+        if (s?.stream) clearInterval(s.stream);
         sessions.delete(p.sessionId);
         return null;
+      }
+      case "run_helm_with_values":
+        await sleep(300);
+        return helmWithValues(p.args, p.values);
+      case "start_log_stream":
+        startLogStream(p.sessionId, p.spec, p.onEvent);
+        return null;
+      case "stop_log_stream": {
+        const s = sessions.get(p.sessionId);
+        if (s?.stream) clearInterval(s.stream);
+        if (s) s.generation++;
+        return null;
+      }
+      case "export_structured_logging_session": {
+        const s = sessions.get(p.sessionId);
+        return s ? filteredEntries(s, p.searchQuery).entries.length : 0;
+      }
+      case "plugin:dialog|save":
+        return `${HOME}/Downloads/export.log`;
+      case "plugin:dialog|open":
+        return `${HOME}/Downloads/config.yaml`;
       case "repurpose_structured_logging_session": {
         const s = sessions.get(p.sessionId);
         if (s) s.entries = [];
@@ -735,7 +1060,9 @@ mockIPC(
       case "create_local_terminal_session": {
         const id = `pty-${Math.random().toString(36).slice(2)}`;
         ptyChannels.set(id, p.onEvent);
-        startPty(p.onEvent, []);
+        const argv: string[] = p.initCommand || [];
+        if (argv[1] === "debug") startDebugPty(p.onEvent, argv);
+        else startPty(p.onEvent, []);
         return id;
       }
       case "write_to_pty": {

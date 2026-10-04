@@ -155,6 +155,123 @@ const screens = {
       await wait(900);
     },
   },
+  "workload-logs": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Logs", "All pods");
+      await enlargePanel(page);
+      await wait(2500);
+    },
+  },
+  "workload-logs-search": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Logs", "All pods");
+      await enlargePanel(page);
+      await wait(1500);
+      await page.getByRole("button", { name: "Pause view" }).click();
+      await page.getByLabel("Search logs").fill("charge");
+      await page.getByLabel("Search logs").press("Enter");
+      await page.getByLabel("Search logs").press("Enter");
+      await wait(600);
+    },
+  },
+  "rollout-history": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Rollout history");
+      await enlargePanel(page);
+      await wait(1500);
+    },
+  },
+  "rollback-confirm": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Rollout history");
+      await enlargePanel(page);
+      await wait(1200);
+      await page.getByRole("button", { name: /Roll back to r/ }).click();
+      await wait(600);
+    },
+  },
+  "helm-upgrade": {
+    url: "/helm-releases?resource=release&kind=Release",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Upgrade");
+      await enlargePanel(page);
+      await wait(1200);
+      const values = await page.locator("textarea").inputValue();
+      await page.locator("textarea").fill(
+        values.replace("tag: v2.14.3", "tag: v2.15.0").replace("replicaCount: 4", "replicaCount: 6") + "fastRefunds: true\n"
+      );
+      await page.getByRole("button", { name: "Preview changes" }).click();
+      await wait(1200);
+    },
+  },
+  "helm-values-diff": {
+    url: "/helm-releases?resource=release&kind=Release",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Upgrade");
+      await enlargePanel(page);
+      await wait(1200);
+      const values = await page.locator("textarea").inputValue();
+      await page.locator("textarea").fill(values.replace("tag: v2.14.3", "tag: v2.15.0"));
+      await page.getByRole("tab", { name: /Values diff/ }).click();
+      await wait(600);
+    },
+  },
+  "helm-history": {
+    url: "/helm-releases?resource=release&kind=Release",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "History");
+      await enlargePanel(page);
+      await wait(1500);
+    },
+  },
+  "debug-dialog": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Debug");
+      await wait(900);
+    },
+  },
+  "debug-shell": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Debug");
+      await wait(600);
+      await page.getByRole("button", { name: "Start debugging" }).click();
+      await enlargePanel(page);
+      await wait(1200);
+    },
+  },
+  "node-shell": {
+    url: "/nodes?resource=nodes&kind=Node",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "ip-10-0-12-34", "Node shell");
+      await wait(900);
+    },
+  },
+  "copy-files": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Copy files");
+      await page.locator("#copy-remote").fill("/var/log/app/payments.log");
+      await page.getByRole("button", { name: /Browse/ }).click();
+      await wait(600);
+    },
+  },
   "delete-dialog": {
     url: "/pods",
     ready: "tbody tr td",
@@ -317,6 +434,18 @@ async function editorTrigger(page, action) {
     const editor = monaco.editor.getEditors().find((e) => e.hasTextFocus());
     editor?.trigger("shoot", action, {});
   }, action);
+}
+
+/* Drags the bottom panel up so tab content gets most of the window. */
+async function enlargePanel(page, dy = -330) {
+  const handle = page.locator("[data-panel-resize-handle-id]").first();
+  const box = await handle.boundingBox().catch(() => null);
+  if (!box) return;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + dy, { steps: 8 });
+  await page.mouse.up();
+  await wait(300);
 }
 
 async function openRowAction(page, rowText, action, sub) {
