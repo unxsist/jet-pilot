@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useMagicKeys } from "@vueuse/core";
+import { useEventListener } from "@vueuse/core";
 import { injectStrict } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
@@ -12,13 +12,17 @@ import {
 /*
  * Opens local terminals with kubectl preconfigured for the current (primary)
  * context: "Open terminal" in the command palette always opens a new one,
- * Ctrl+` focuses the terminal of the current context or opens one.
+ * Ctrl+` focuses the terminal of the current context or opens one. Both
+ * expand the tab panel when it is collapsed.
  */
 const { context, namespace, kubeConfig } = injectStrict(KubeContextStateKey);
 const { tabs } = injectStrict(PanelProviderStateKey);
 const addTab = injectStrict(PanelProviderAddTabKey);
 const registerCommand = injectStrict(RegisterCommandStateKey);
 const { toast } = useToast();
+
+const expandPanel = () =>
+  window.dispatchEvent(new Event("TabOrchestrator_Expand"));
 
 const tabIdPrefix = (ctx: string) => `terminal_${ctx}_`;
 
@@ -41,6 +45,7 @@ const openTerminal = (reuseExisting = false) => {
 
     if (existing) {
       addTab(existing.id, existing.title, existing.component);
+      expandPanel();
       return;
     }
   }
@@ -56,6 +61,7 @@ const openTerminal = (reuseExisting = false) => {
     },
     "shell"
   );
+  expandPanel();
 };
 
 registerCommand({
@@ -66,14 +72,26 @@ registerCommand({
   execute: () => openTerminal(),
 });
 
-const keys = useMagicKeys();
-const shortcut = keys["Ctrl+Backquote"];
-
-watch(shortcut, (pressed) => {
-  if (pressed) {
-    openTerminal(true);
-  }
-});
+// Capture phase on window: runs before the tab panel (which stops keydown
+// propagation) and xterm see the key, so the shortcut works everywhere.
+useEventListener(
+  window,
+  "keydown",
+  (e: KeyboardEvent) => {
+    if (
+      e.ctrlKey &&
+      e.code === "Backquote" &&
+      !e.metaKey &&
+      !e.altKey &&
+      !e.shiftKey
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      openTerminal(true);
+    }
+  },
+  { capture: true }
+);
 </script>
 
 <template>

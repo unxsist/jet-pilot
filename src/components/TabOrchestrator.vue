@@ -11,6 +11,7 @@ import Close from "@/assets/icons/close.svg";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 
 import { ResizablePanel } from "@/components/ui/resizable";
+import { useEventListener } from "@vueuse/core";
 
 const { tabs, activeTabId } = injectStrict(PanelProviderStateKey);
 const { settings } = injectStrict(SettingsContextStateKey);
@@ -20,6 +21,8 @@ const state = reactive({
   open: true,
   rerenderKey: 0,
 });
+
+useEventListener(window, "TabOrchestrator_Expand", () => (state.open = true));
 
 const activeTab = computed(() => {
   return tabs.value.find((tab) => tab.id === activeTabId.value);
