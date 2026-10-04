@@ -10,9 +10,14 @@
  *   ?scenario=default|empty|error|nocontext|whatsnew|large
  *   ?polling=0|1             kubectl polling instead of live watches
  *                            (settings.experimental.useKubectlPolling)
+ *   ?delay=<ms>              slow down settings + discovery (skeletons)
  *
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views.
+ *
+ * Files the app writes (settings.json, discovery cache, ...) live in
+ * sessionStorage, so a reload sees them (restored tabs, workspaces).
+ * `?fresh=1` clears them.
  */
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import yaml from "js-yaml";
@@ -29,6 +34,12 @@ import {
 } from "./fixtures";
 
 const params = new URLSearchParams(location.search);
+if (params.get("fresh")) {
+  for (const key of Object.keys(sessionStorage)) {
+    if (key.startsWith("harness-fs:")) sessionStorage.removeItem(key);
+  }
+}
+const delay = Number(params.get("delay") || 0);
 for (const key of ["theme", "os", "scenario", "polling"]) {
   const value = params.get(key);
   if (value) localStorage.setItem(`harness-${key}`, value);
@@ -446,15 +457,31 @@ function metricsSubscribe(request: any, channel: any) {
 
 const ptyChannels = new Map<string, any>();
 
+/* ------------------------------------------------------------------ fs -- */
+
+const fsKey = (path: string) => `harness-fs:${path}`;
+const readFile = (path: string): string | null => {
+  const stored = sessionStorage.getItem(fsKey(path));
+  if (path !== "settings.json") return stored;
+  if (!stored) return JSON.stringify(settings);
+  // The ?theme knob wins over a colour scheme saved earlier.
+  const saved = JSON.parse(stored);
+  return JSON.stringify({ ...saved, appearance: { ...saved.appearance, colorScheme: theme } });
+};
+
 mockIPC(
   async (cmd: string, payload: any) => {
     const p = payload || {};
     switch (cmd) {
       // fs / path / app / os / updater / window / clipboard
       case "plugin:fs|exists":
-        return true;
-      case "plugin:fs|read_text_file":
-        return Array.from(encoder.encode(JSON.stringify(settings)));
+        return p.path === "" || readFile(p.path) !== null;
+      case "plugin:fs|read_text_file": {
+        if (delay && p.path === "settings.json") await sleep(delay);
+        const contents = readFile(p.path);
+        if (contents === null) throw new Error(`No such file: ${p.path}`);
+        return Array.from(encoder.encode(contents));
+      }
       case "plugin:fs|write_text_file":
       case "plugin:fs|mkdir":
         return null;
@@ -518,6 +545,7 @@ mockIPC(
       case "get_context_auth_info":
         return { execCommand: null, awsProfile: null };
       case "get_core_api_versions":
+        if (delay) await sleep(delay * 2);
         return ["v1"];
       case "get_core_api_resources":
         return CORE_RESOURCES;
@@ -650,5 +678,20 @@ mockIPC(
   },
   { shouldMockEvents: true }
 );
+
+/*
+ * plugin-fs sends the path of writes as a request header, which mockIPC
+ * drops: store writes here, before they reach the mock.
+ */
+const internals = (window as any).__TAURI_INTERNALS__;
+const mockedInvoke = internals.invoke;
+internals.invoke = async (cmd: string, args: any, options: any) => {
+  if (cmd === "plugin:fs|write_text_file" && options?.headers?.path) {
+    const path = decodeURIComponent(options.headers.path);
+    sessionStorage.setItem(fsKey(path), new TextDecoder().decode(args));
+    return null;
+  }
+  return mockedInvoke(cmd, args, options);
+};
 
 (window as any).__harness = { theme, os, scenario, polling };
