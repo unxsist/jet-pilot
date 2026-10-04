@@ -6,101 +6,45 @@ use tracing::Level;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{fmt, prelude::*, reload, Registry};
 use once_cell::sync::Lazy;
-use std::sync::{Arc, RwLock, Weak};
-use chrono::DateTime;
-use serde::Serialize;
-use tracing_subscriber::fmt::MakeWriter;
+use std::sync::{Arc, RwLock};
 
+mod app_log;
 mod kubernetes;
 mod logs;
 mod port_forward;
 mod shell;
+mod util;
 
-#[derive(Debug, Serialize, Clone)]
-struct LogEntry {
-    timestamp: DateTime<chrono::Utc>,
-    level: String,
-    message: String,
-}
-
-#[derive(Clone)]
-struct MemoryWriter {
-    logs: Arc<RwLock<Vec<LogEntry>>>
-}
-
-impl std::io::Write for MemoryWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        if let Ok(log_line) = String::from_utf8(buf.to_vec()) {
-            if let Some((level, message)) = log_line.split_once(' ') {
-                let entry = LogEntry {
-                    timestamp: chrono::Utc::now(),
-                    level: level.trim().to_string(),
-                    message: message.trim().to_string(),
-                };
-                if let Ok(mut logs) = self.logs.write() {
-                    logs.push(entry);
-                }
-            }
-        }
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-impl<'a> MakeWriter<'a> for MemoryWriter {
-    type Writer = Self;
-
-    fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
-    }
-}
-
-static LOGS: Lazy<Arc<RwLock<Vec<LogEntry>>>> = Lazy::new(|| Arc::new(RwLock::new(Vec::new())));
 static RELOAD_HANDLE: Lazy<Arc<RwLock<reload::Handle<LevelFilter, Registry>>>> = Lazy::new(|| {
     let (_, reload_handle) = reload::Layer::new(LevelFilter::INFO);
     Arc::new(RwLock::new(reload_handle))
 });
 
+/// Returns the in-memory application log entries newer than `since` (a
+/// sequence number from a previous call), or all retained entries when
+/// omitted. The frontend polls this, so it must only ship new entries.
 #[tauri::command]
-fn get_logs() -> Result<Vec<LogEntry>, String> {
-    LOGS.read()
-        .map(|logs| logs.clone())
-        .map_err(|e| e.to_string())
+fn get_logs(since: Option<u64>) -> Vec<app_log::LogEntry> {
+    app_log::entries_since(since)
 }
 
 #[tauri::command]
 fn update_log_level(level: String) -> Result<(), String> {
-    let level = match level.to_lowercase().as_str() {
-        "trace" => Level::TRACE,
-        "debug" => Level::DEBUG,
-        "info" => Level::INFO,
-        "warn" => Level::WARN,
-        "error" => Level::ERROR,
-        _ => return Err(format!("Invalid log level: {}", level)),
-    };
+    let level = app_log::parse_level(&level)
+        .ok_or_else(|| format!("Invalid log level: {}", level))?;
 
-    if let Ok(handle) = RELOAD_HANDLE.write() {
-        handle.modify(|filter| *filter = level.into())
-            .map_err(|e| e.to_string())?;
-    }
+    util::read(&RELOAD_HANDLE)
+        .modify(|filter| *filter = level.into())
+        .map_err(|e| e.to_string())?;
 
-    println!("Log level updated to: {:?}", level);
+    tracing::info!("Log level updated to: {:?}", level);
     Ok(())
 }
 
 #[tauri::command]
 fn write_log(level: String, message: String) -> Result<(), String> {
-    let level = match level.to_lowercase().as_str() {
-        "trace" => Level::TRACE,
-        "debug" => Level::DEBUG,
-        "info" => Level::INFO,
-        "warn" => Level::WARN,
-        "error" => Level::ERROR,
-        _ => return Err(format!("Invalid log level: {}", level)),
-    };
+    let level = app_log::parse_level(&level)
+        .ok_or_else(|| format!("Invalid log level: {}", level))?;
 
     match level {
         Level::TRACE => tracing::trace!("{}", message),
@@ -117,15 +61,14 @@ fn write_log(level: String, message: String) -> Result<(), String> {
 struct CheckForUpdatesPayload {}
 
 fn main() {
-    let memory_writer = MemoryWriter { logs: LOGS.clone() };
     let (filter, reload_handle) = reload::Layer::new(LevelFilter::INFO);
-    let fmt_layer = fmt::layer().with_writer(memory_writer);
     let fmt_stdout = fmt::layer().with_writer(std::io::stdout);
-    
-    // Initialize the subscriber with both layers
+
+    // The in-memory layer records level + message from the event metadata
+    // (no formatting / ANSI codes); stdout keeps the regular fmt output.
     let subscriber = tracing_subscriber::registry()
         .with(filter)
-        .with(fmt_layer)
+        .with(app_log::MemoryLayer)
         .with(fmt_stdout);
 
     // Set the global subscriber
@@ -133,9 +76,7 @@ fn main() {
         .expect("Failed to set subscriber");
 
     // Store the new reload handle
-    if let Ok(mut handle) = RELOAD_HANDLE.write() {
-        *handle = reload_handle;
-    }
+    *util::write(&RELOAD_HANDLE) = reload_handle;
 
     let _ = fix_path_env::fix();
 
@@ -255,7 +196,7 @@ fn main() {
 
                 _app.on_menu_event(move |app, event| {
                     if check_for_updates.id() == event.id() {
-                        app.emit("check_for_updates", CheckForUpdatesPayload {}).unwrap();
+                        let _ = app.emit("check_for_updates", CheckForUpdatesPayload {});
                     }
                 });
             }

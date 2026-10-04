@@ -89,7 +89,7 @@ watch(logs, () => {
       logContainer.value!.scrollTop = logContainer.value!.scrollHeight;
     });
   }
-}, { deep: true });
+});
 </script>
 <template>
   <div class=" space-y-8">
