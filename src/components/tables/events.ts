@@ -22,11 +22,6 @@ export const columns: ColumnDef<CoreV1Event>[] = [
     size: 500,
   },
   {
-    accessorKey: "metadata.namespace",
-    header: "Namespace",
-    meta: { class: () => mutedCell },
-  },
-  {
     header: "Object",
     cell: ({ row }) => {
       return h(

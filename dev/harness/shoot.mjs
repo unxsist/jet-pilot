@@ -87,6 +87,27 @@ const screens = {
       await wait(1500);
     },
   },
+  events: { url: "/events?resource=events&kind=Event", ready: "tbody tr td" },
+  nodes: { url: "/nodes?resource=nodes&kind=Node", ready: "tbody tr td" },
+  "row-menu": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "checkout-api" }).nth(1).click({ button: "right" });
+      await wait(500);
+    },
+  },
+  selection: {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      for (const i of [1, 2, 4]) {
+        await page.locator("tbody tr").nth(i).hover();
+        await page.locator("tbody tr").nth(i).locator('[role="checkbox"]').click();
+      }
+      await wait(500);
+    },
+  },
   settings: { url: "/settings/general", ready: "main, form, h1, h2", settle: 1200 },
   "settings-appearance": { url: "/settings/appearance", ready: "body", settle: 1200 },
   empty: { url: "/pods?scenario=empty", ready: "table", settle: 1500 },

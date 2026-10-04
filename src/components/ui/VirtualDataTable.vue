@@ -247,6 +247,15 @@ const { contexts } = injectStrict(KubeContextStateKey);
  * - single context     -> show Namespace only when multiple namespaces are
  *   active or "all namespaces" is selected
  */
+/* Cluster-scoped kinds (nodes, persistent volumes, ...) have no namespace. */
+const hasNamespacedRows = computed(
+  () =>
+    props.data.length === 0 ||
+    props.data.some(
+      (row) => !!(row as { metadata?: { namespace?: string } })?.metadata?.namespace
+    )
+);
+
 const toggleMultiContextColumns = () => {
   if (!table) {
     return;
@@ -270,7 +279,8 @@ const toggleMultiContextColumns = () => {
   for (const column of table.getAllLeafColumns()) {
     const meta = column.columnDef.meta;
     if (meta?.showOnMultipleNamespaces) {
-      visibility[column.id] = isMultiContext || isMultiNamespace;
+      visibility[column.id] =
+        (isMultiContext || isMultiNamespace) && hasNamespacedRows.value;
     } else if (meta?.showOnMultipleClusters) {
       visibility[column.id] = isMultiContext;
     }
@@ -286,6 +296,9 @@ watch(
   },
   { immediate: true, deep: true }
 );
+
+// Only fires when the data switches between namespaced / cluster-scoped.
+watch(hasNamespacedRows, () => toggleMultiContextColumns());
 
 const rows = computed(() => {
   return table.getRowModel().rows;
