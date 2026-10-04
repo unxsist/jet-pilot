@@ -2,6 +2,7 @@ import { Kubernetes } from "@/services/Kubernetes";
 import { provide, reactive, InjectionKey, toRefs, ToRefs } from "vue";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
+import { isSameContext } from "@/lib/contextKey";
 
 export const KubeContextStateKey: InjectionKey<ToRefs<KubeContextState>> =
   Symbol("KubeContextState");
@@ -27,12 +28,16 @@ export const KubeContextSwitchContextKey: InjectionKey<
   (context: string, kubeConfig: string, namespace: string) => void
 > = Symbol("KubeContextSwitchContext");
 
+/**
+ * Whether `context` is active. Pass `kubeConfig` to only match the context
+ * of that kubeconfig (context names are only unique per kubeconfig).
+ */
 export const KubeContextIsContextActiveKey: InjectionKey<
-  (context: string) => boolean
+  (context: string, kubeConfig?: string) => boolean
 > = Symbol("KubeContextIsContextActive");
 
 export const KubeContextIsNamespaceActiveKey: InjectionKey<
-  (context: string, namespace: string) => boolean
+  (context: string, namespace: string, kubeConfig?: string) => boolean
 > = Symbol("KubeContextIsNamespaceActive");
 
 export interface KubeContextState {
@@ -41,7 +46,16 @@ export interface KubeContextState {
   kubeConfig: string;
   authenticated: boolean;
 
-  /** context -> list of active namespaces; ["all"] means all namespaces. */
+  /**
+   * context -> list of active namespaces; ["all"] means all namespaces.
+   *
+   * Keyed by context *name* because the views pass the key straight to
+   * `kubectl --context`. A context is identified by its kubeconfig + name
+   * though (see `@/lib/contextKey`): activating a context from another
+   * kubeconfig with the same name replaces the earlier one, so a name is
+   * never ambiguous and `contextKubeConfigMapping` always holds the
+   * kubeconfig of the active one.
+   */
   contexts: Map<string, string[]>;
   /** context -> kubeconfig the context was activated with. */
   contextKubeConfigMapping: Map<string, string>;
@@ -104,17 +118,39 @@ export default {
       );
     };
 
+    /** Is (context, kubeConfig) the context that is active under `context`? */
+    const isActiveEntry = (context: string, kubeConfig?: string) =>
+      state.contexts.has(context) &&
+      isSameContext(
+        {
+          context,
+          kubeConfig: state.contextKubeConfigMapping.get(context) || "",
+        },
+        { context, kubeConfig: kubeConfig || "" }
+      );
+
     const setActiveNamespaces = (
       context: string,
       kubeConfig: string,
       namespaces: string[]
     ) => {
       if (namespaces.length === 0) {
+        // Deactivating a context of another kubeconfig than the active one
+        // with that name is a no-op.
+        if (!isActiveEntry(context, kubeConfig)) {
+          return;
+        }
+
         state.contexts.delete(context);
         state.contextKubeConfigMapping.delete(context);
         persistActivation();
 
-        if (state.context === context) {
+        if (
+          isSameContext(
+            { context: state.context, kubeConfig: state.kubeConfig },
+            { context, kubeConfig }
+          )
+        ) {
           const next = state.contexts.keys().next();
           if (!next.done) {
             setPrimary(
@@ -153,13 +189,17 @@ export default {
     };
     provide(KubeContextSwitchContextKey, switchContext);
 
-    const isContextActive = (context: string): boolean => {
-      return state.contexts.has(context);
+    const isContextActive = (context: string, kubeConfig?: string): boolean => {
+      return isActiveEntry(context, kubeConfig);
     };
     provide(KubeContextIsContextActiveKey, isContextActive);
 
-    const isNamespaceActive = (context: string, namespace: string): boolean => {
-      if (!state.contexts.has(context)) {
+    const isNamespaceActive = (
+      context: string,
+      namespace: string,
+      kubeConfig?: string
+    ): boolean => {
+      if (!isActiveEntry(context, kubeConfig)) {
         return false;
       }
 
@@ -203,7 +243,7 @@ export default {
       Kubernetes.setCurrentKubeConfig(state.kubeConfig);
       restoreActivation();
     }
-  }, 
+  },
   render(): any {
     return this.$slots.default();
   },

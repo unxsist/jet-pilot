@@ -1,13 +1,21 @@
 <script setup lang="ts">
 import Separator from "@/components/ui/separator/Separator.vue";
+import { Button } from "@/components/ui/button";
 import {
-  Select,
-  SelectTrigger,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectValue,
-} from "@/components/ui/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Check, ChevronsUpDown } from "lucide-vue-next";
+import { error } from "@/lib/logger";
 import {
   FormField,
   FormItem,
@@ -26,8 +34,14 @@ import { Kubernetes } from "@/services/Kubernetes";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
 
-const contexts = ref<{ name: string; context: { namespace: string } }[]>([]);
+/*
+ * Cluster settings are stored per context name, so a name defined in several
+ * kubeconfigs shares its settings: list each name once, with the kubeconfigs
+ * defining it.
+ */
+const contexts = ref<{ name: string; kubeConfigs: string[] }[]>([]);
 const currentContext = ref<string | undefined>(undefined);
+const pickerOpen = ref(false);
 
 const { settings } = injectStrict(SettingsContextStateKey);
 
@@ -54,9 +68,29 @@ const setNamespacesForCluster = (namespaces: string[]) => {
   }
 };
 
-onMounted(async () => {
-  contexts.value = await Kubernetes.getContexts();
-});
+const fetchContexts = async () => {
+  const byName = new Map<string, string[]>();
+  for (const kubeConfig of settings.value.kubeConfigs) {
+    try {
+      for (const ctx of await Kubernetes.getContexts(kubeConfig)) {
+        byName.set(ctx.name, [...(byName.get(ctx.name) || []), kubeConfig]);
+      }
+    } catch (e) {
+      error(`Failed to list contexts of kubeconfig ${kubeConfig}: ${e}`);
+    }
+  }
+
+  contexts.value = [...byName.entries()]
+    .map(([name, kubeConfigs]) => ({ name, kubeConfigs }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+};
+
+const selectContext = (name: string) => {
+  currentContext.value = name;
+  pickerOpen.value = false;
+};
+
+onMounted(fetchContexts);
 </script>
 <template>
   <div class="flex items-center justify-between">
@@ -67,22 +101,52 @@ onMounted(async () => {
       </p>
     </div>
     <div>
-      <Select v-model="currentContext">
-        <SelectTrigger>
-          <SelectValue placeholder="Select a cluster" />
-        </SelectTrigger>
-        <SelectContent align="end">
-          <SelectGroup>
-            <SelectItem
-              v-for="context in contexts"
-              :key="context.name"
-              :value="context.name"
-            >
-              {{ context.name }}
-            </SelectItem>
-          </SelectGroup>
-        </SelectContent>
-      </Select>
+      <Popover v-model:open="pickerOpen">
+        <PopoverTrigger as-child>
+          <Button
+            variant="outline"
+            role="combobox"
+            :aria-expanded="pickerOpen"
+            class="w-[260px] justify-between font-normal"
+          >
+            <span class="truncate">{{ currentContext || "Select a cluster" }}</span>
+            <ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent class="w-[320px] p-0" align="end">
+          <Command>
+            <CommandInput placeholder="Search clusters..." />
+            <CommandList>
+              <CommandEmpty>No clusters found.</CommandEmpty>
+              <CommandGroup>
+                <CommandItem
+                  v-for="context in contexts"
+                  :key="context.name"
+                  :value="context.name"
+                  @select="selectContext(context.name)"
+                >
+                  <Check
+                    class="mr-2 h-4 w-4 shrink-0"
+                    :class="
+                      currentContext === context.name
+                        ? 'opacity-100'
+                        : 'opacity-0'
+                    "
+                  />
+                  <div class="flex flex-col min-w-0">
+                    <span class="truncate">{{ context.name }}</span>
+                    <span
+                      class="text-xs text-muted-foreground truncate"
+                      :title="context.kubeConfigs.join(', ')"
+                      >{{ context.kubeConfigs.join(", ") }}</span
+                    >
+                  </div>
+                </CommandItem>
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
     </div>
   </div>
   <Separator />
