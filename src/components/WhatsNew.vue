@@ -34,7 +34,7 @@ const storeLatestWhatsNew = (open: boolean) => {
 </script>
 <template>
   <Dialog :open="shouldShowWhatsNew" @update:open="storeLatestWhatsNew">
-    <DialogContent class="min-w-[700px] gap-5">
+    <DialogContent class="min-w-[700px] gap-5" @open-auto-focus.prevent>
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
           <Sparkles class="h-4 w-4 text-primary" />
