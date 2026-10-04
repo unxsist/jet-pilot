@@ -7,7 +7,9 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import SettingsSection from "@/components/settings/SettingsSection.vue";
+import { settingsBlock, settingsRow } from "@/components/settings/styles";
 import { Input } from "@/components/ui/input";
 import {
   NumberField,
@@ -24,86 +26,101 @@ import { injectStrict } from "@/lib/utils";
 const { settings } = injectStrict(SettingsContextStateKey);
 </script>
 <template>
-  <div class="max-w-2xl space-y-8">
-    <div>
-      <h2 class="font-medium text-base mb-4">Updates</h2>
+  <div class="space-y-6">
+    <SettingsSection
+      title="Application"
+      description="Updates and the in-app terminal"
+    >
       <FormField
         v-slot="{ componentField }"
         v-model="settings.updates.checkOnStartup"
         name="check-for-updates-on-startup"
       >
-        <FormItem>
-          <div class="flex flex-row items-center space-x-2">
-            <Checkbox
+        <FormItem :class="settingsRow">
+          <div class="space-y-1">
+            <label
+              for="check-for-updates-on-startup"
+              class="text-sm font-medium leading-none"
+            >
+              Check for updates on startup
+            </label>
+            <p class="text-xs text-muted-foreground">
+              Look for a new JET Pilot release every time the app starts
+            </p>
+          </div>
+          <div class="flex sm:justify-end">
+            <Switch
               id="check-for-updates-on-startup"
               :checked="settings.updates.checkOnStartup"
               v-bind="componentField"
               @update:checked="settings.updates.checkOnStartup = $event"
             />
-            <label
-              for="check-for-updates-on-startup"
-              class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-            >
-              Check for updates on startup
-            </label>
           </div>
         </FormItem>
       </FormField>
-    </div>
-    <div>
-      <h2 class="font-medium text-base mb-4">Shell</h2>
       <FormField
         v-slot="{ componentField }"
         v-model="settings.shell.executable"
         name="shell-executable"
       >
-        <FormItem>
-          <FormLabel>Shell executable</FormLabel>
-          <FormControl>
-            <Input
-              type="text"
-              placeholder="Please specify a shell e.g. /bin/sh"
-              v-bind="componentField"
-            />
-          </FormControl>
-          <FormDescription>
-            The default shell to use when opening a shell for a container
-          </FormDescription>
-          <FormMessage />
+        <FormItem :class="settingsRow">
+          <div class="space-y-1">
+            <FormLabel>Shell executable</FormLabel>
+            <FormDescription>
+              The default shell to use when opening a shell for a container
+            </FormDescription>
+          </div>
+          <div>
+            <FormControl>
+              <Input
+                type="text"
+                class="font-mono text-xs"
+                placeholder="Please specify a shell e.g. /bin/sh"
+                v-bind="componentField"
+              />
+            </FormControl>
+            <FormMessage />
+          </div>
         </FormItem>
       </FormField>
-    </div>
-    <div>
-      <h2 class="font-medium text-base mb-4">Logs</h2>
+    </SettingsSection>
+
+    <SettingsSection title="Logs" description="Defaults for the log viewer">
       <FormField
         v-slot="{ componentField }"
         v-model="settings.logs.tail_lines"
         name="tail_lines"
       >
-        <FormItem>
-          <FormLabel>Default tail lines</FormLabel>
-          <FormControl class="w-48">
-            <NumberField v-bind="componentField">
-              <NumberFieldContent>
-                <NumberFieldDecrement />
-                <NumberFieldInput />
-                <NumberFieldIncrement />
-              </NumberFieldContent>
-            </NumberField>
-          </FormControl>
-          <FormDescription>
-            The amount of lines to tail when viewing logs
-          </FormDescription>
-          <FormMessage />
+        <FormItem :class="settingsRow">
+          <div class="space-y-1">
+            <FormLabel>Default tail lines</FormLabel>
+            <FormDescription>
+              The amount of lines to tail when viewing logs
+            </FormDescription>
+          </div>
+          <div class="flex sm:justify-end">
+            <FormControl class="w-40">
+              <NumberField v-bind="componentField">
+                <NumberFieldContent>
+                  <NumberFieldDecrement />
+                  <NumberFieldInput />
+                  <NumberFieldIncrement />
+                </NumberFieldContent>
+              </NumberField>
+            </FormControl>
+            <FormMessage />
+          </div>
         </FormItem>
       </FormField>
-    </div>
-    <div>
-      <h2 class="font-medium text-base">Kubeconfigs</h2>
-      <p class="text-sm text-muted-foreground mb-4">
-        If you have additional kubeconfig files, you can specify these here.
-      </p>
-      <KubeConfigListBox v-model="settings.kubeConfigs" />
-    </div>
+    </SettingsSection>
+
+    <SettingsSection
+      title="Kubeconfigs"
+      description="If you have additional kubeconfig files, you can specify these here."
+    >
+      <div :class="settingsBlock">
+        <KubeConfigListBox v-model="settings.kubeConfigs" />
+      </div>
+    </SettingsSection>
   </div>
 </template>
