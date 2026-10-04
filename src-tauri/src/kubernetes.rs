@@ -333,7 +333,7 @@ pub mod client {
         config
             .auth_infos
             .iter()
-            .find(|a| a.name == user)
+            .find(|a| Some(&a.name) == user.as_ref())
             .and_then(|a| a.auth_info.clone())
             .ok_or_else(|| SerializableKubeError {
                 message: "Auth info not found".to_string(),
