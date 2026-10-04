@@ -77,3 +77,20 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         run: |
           npm run build
+
+      - name: Upload test build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jet-pilot-${{ matrix.platform }}
+          # Each platform only produces its own bundle dirs (tauri.conf.json targets: "all");
+          # missing dirs on other platforms are ignored as long as at least one matches.
+          path: |
+            src-tauri/target/release/bundle/dmg/
+            src-tauri/target/release/bundle/appimage/
+            src-tauri/target/release/bundle/deb/
+            src-tauri/target/release/bundle/rpm/
+            src-tauri/target/release/bundle/msi/
+            src-tauri/target/release/bundle/nsis/
+          # macOS builds are unsigned by design (no signing cert) - fine for testing.
+          if-no-files-found: error
+          retention-days: 14
