@@ -225,38 +225,44 @@ const showDetails = (row: any) => {
 
 /*
  * Offers the interactive login flow (kubelogin / OIDC exec plugins) for a
- * context whose credentials expired. Only one dialog is shown at a time.
+ * context whose credentials expired. One dialog at a time; contexts whose
+ * dialog was closed are not asked again until a login completes. Refreshing
+ * keeps running so the other active contexts stay up to date.
  */
 let authDialogOpen = false;
+const dismissedAuthContexts = new Set<string>();
 
 const handleAuthError = async (
   ctx: string,
   kubeConfig: string,
   reason: unknown
 ): Promise<boolean> => {
+  if (authDialogOpen || dismissedAuthContexts.has(ctx)) {
+    return true;
+  }
+
   const authErrorHandler = await Kubernetes.getAuthErrorHandler(
     ctx,
     kubeConfig,
     String(reason)
   );
 
-  if (!authErrorHandler.canHandle) {
-    return false;
-  }
-
-  if (authDialogOpen) {
-    return true;
+  if (!authErrorHandler.canHandle || authDialogOpen) {
+    return authErrorHandler.canHandle;
   }
 
   authDialogOpen = true;
   clusterAuthenticated.value = false;
-  stopRefreshing();
 
-  const loginCompleted = () => {
+  const closeAuthDialog = () => {
     authDialogOpen = false;
     clusterAuthenticated.value = true;
+  };
+
+  const loginCompleted = () => {
+    closeAuthDialog();
+    dismissedAuthContexts.clear();
     loadData(true);
-    startRefreshing();
   };
 
   spawnDialog({
@@ -267,7 +273,8 @@ const handleAuthError = async (
         label: "Close",
         variant: "ghost",
         handler: (dialog) => {
-          authDialogOpen = false;
+          dismissedAuthContexts.add(ctx);
+          closeAuthDialog();
           dialog.close();
         },
       },
@@ -450,9 +457,10 @@ const rowClasses = (row: V1Pod) => {
   return "";
 };
 
+// contexts and contextKubeConfigMapping always change together; watching
+// both would reload twice per selection change.
 const { startRefreshing, stopRefreshing } = useDataRefresher(loadData, 5000, [
   contexts.value,
-  contextKubeConfigMapping.value,
 ]);
 </script>
 

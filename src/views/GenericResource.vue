@@ -234,7 +234,9 @@ onMounted(async () => {
 const { startRefreshing, stopRefreshing, isRefreshing } = useDataRefresher(
   getResourceData,
   5000,
-  [contexts.value, contextKubeConfigMapping.value]
+  // contexts and contextKubeConfigMapping always change together; watching
+  // both would reload twice per selection change.
+  [contexts.value]
 );
 </script>
 <template>

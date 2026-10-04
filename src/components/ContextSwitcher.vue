@@ -38,6 +38,7 @@ const {
   contexts: activeContexts,
   context: primaryContext,
   namespace: primaryNamespace,
+  kubeConfig: primaryKubeConfig,
   authenticated: clusterAuthenticated,
 } = injectStrict(KubeContextStateKey);
 const { settings } = injectStrict(SettingsContextStateKey);
@@ -283,8 +284,7 @@ onMounted(() => {
     keywords: ["ns", "namespace"],
     commands: async (): Promise<Command[]> => {
       const context = primaryContext.value;
-      const kubeConfig =
-        contexts.value.find((c) => c.context === context)?.kubeConfig || "";
+      const kubeConfig = primaryKubeConfig.value;
 
       return namespaceCommands(
         await listNamespaces(context, kubeConfig),

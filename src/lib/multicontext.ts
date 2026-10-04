@@ -30,7 +30,15 @@ export async function kubectlGetForContext<T extends { metadata?: any }>(
 
   const results = await Promise.all(
     scopes.map(async (namespace) => {
-      const args = ["get", resource, "-o", "json", "--context", context];
+      const args = [
+        "get",
+        resource,
+        "-o",
+        "json",
+        "--context",
+        context,
+        "--request-timeout=30s",
+      ];
       if (kubeConfig) {
         args.push("--kubeconfig", kubeConfig);
       }

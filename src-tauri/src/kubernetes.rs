@@ -994,9 +994,14 @@ pub mod client {
         #[cfg(windows)]
         cmd.creation_flags(0x08000000);
 
-        let output = cmd
-            .output()
+        // A hung kubectl (unreachable API server, exec plugin waiting for an
+        // interactive login) must not block callers forever: the polling views
+        // skip refreshes while a fetch is in flight. kill_on_drop terminates the
+        // process when the timeout drops the future.
+        cmd.kill_on_drop(true);
+        let output = tokio::time::timeout(Duration::from_secs(2 * 60), cmd.output())
             .await
+            .map_err(|_| "kubectl timed out after 2 minutes".to_string())?
             .map_err(|e| e.to_string())?;
 
         if output.status.success() {
