@@ -119,15 +119,15 @@ describe("resolveCreateTarget", () => {
     ).toEqual({ context: "prod", namespace: "web", kubeConfig: "/prod.yaml" });
   });
 
-  test("uses default with several or all namespaces", () => {
+  test("leaves the namespace to the manifest with several or all namespaces", () => {
     expect(
       resolveCreateTarget("prod", "", new Map([["prod", ["a", "b"]]]), mapping)
         .namespace
-    ).toBe("default");
+    ).toBe("");
     expect(
       resolveCreateTarget("prod", "", new Map([["prod", ["all"]]]), mapping)
         .namespace
-    ).toBe("default");
+    ).toBe("");
   });
 
   test("falls back to the primary kubeconfig", () => {

@@ -107,7 +107,10 @@ export function resolveCreateTarget(
     namespace:
       namespaces.length === 1 && namespaces[0] !== "all" && namespaces[0]
         ? namespaces[0]
-        : "default",
+        : // Several or all namespaces: let the manifest decide (kubectl only
+          // enforces --namespace when it is non-empty; the create template
+          // falls back to "default").
+          "",
     kubeConfig:
       contextKubeConfigMapping.get(primaryContext) || primaryKubeConfig,
   };
