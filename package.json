@@ -10,6 +10,7 @@
     "test": "vitest",
     "ts-check": "vue-tsc --noEmit",
     "preview": "vite preview",
+    "harness": "vite --config dev/harness/vite.config.ts",
     "check": "cd src-tauri && cargo check",
     "prepare": "husky"
   },
