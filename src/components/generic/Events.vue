@@ -4,6 +4,7 @@ import { formatAge } from "@/components/tables/age";
 import { getEventLastSeen } from "@/components/tables/status";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { Kubernetes } from "@/services/Kubernetes";
+import { StatusDot } from "@/components/ui/status";
 import { CoreV1Event, KubernetesObject } from "@kubernetes/client-node";
 
 const { context, kubeConfig } = injectStrict(KubeContextStateKey);
@@ -61,27 +62,51 @@ const fetchEvents = async () => {
 await fetchEvents();
 </script>
 <template>
-  <div class="space-y-2" v-if="events.length > 0">
-    <div
+  <ol v-if="events.length > 0" class="relative space-y-3">
+    <!-- timeline rail -->
+    <span
+      class="absolute bottom-1 left-[3px] top-1 w-px bg-border"
+      aria-hidden="true"
+    />
+    <li
       v-for="(event, index) in events"
       :key="index"
-      class="transition-all bg-muted p-3 hover:bg-muted-foreground/50 rounded"
+      class="relative flex gap-3"
     >
-      <div class="flex items-center justify-between mb-1">
-        <div class="font-bold">{{ event.reason }}</div>
-        <div
-          :title="formatDateTime(getEventLastSeen(event) ?? new Date())"
-          class="text-muted-foreground"
-        >
-          {{ formatAge(getEventLastSeen(event)) }}
+      <StatusDot
+        :tone="event.type === 'Warning' ? 'warning' : 'muted'"
+        :label="event.type"
+        class="mt-1.5 rounded-full ring-4 ring-card"
+      />
+      <div class="min-w-0 flex-1">
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="flex min-w-0 items-center gap-1.5">
+            <span
+              class="truncate text-sm font-medium"
+              :class="{ 'text-warning': event.type === 'Warning' }"
+              >{{ event.reason }}</span
+            >
+            <span
+              v-if="(event.count ?? 1) > 1"
+              class="shrink-0 rounded bg-muted px-1 text-2xs font-medium tabular-nums text-muted-foreground"
+              :title="`Seen ${event.count} times`"
+              >×{{ event.count }}</span
+            >
+          </span>
+          <span
+            :title="formatDateTime(getEventLastSeen(event) ?? new Date())"
+            class="shrink-0 text-xs tabular-nums text-muted-foreground"
+          >
+            {{ formatAge(getEventLastSeen(event)) }}
+          </span>
         </div>
+        <p class="mt-0.5 text-xs text-muted-foreground select-text">
+          {{ event.message }}
+        </p>
       </div>
-      <div class="text-xs">
-        {{ event.message }}
-      </div>
-    </div>
-  </div>
-  <div class="text-center" v-else>
+    </li>
+  </ol>
+  <p v-else class="text-xs text-muted-foreground">
     No events for {{ object.metadata?.name }}
-  </div>
+  </p>
 </template>

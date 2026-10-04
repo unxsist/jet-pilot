@@ -1,13 +1,7 @@
 <script setup lang="ts">
-import {
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import EyeCloseIcon from "@/assets/icons/eye_close.svg";
-import EyeOpenIcon from "@/assets/icons/eye_open.svg";
-import CopyIcon from "@/assets/icons/copy.svg";
-import { Check, KeyRound } from "lucide-vue-next";
+import PanelSection from "@/components/generic/PanelSection.vue";
+import { Button } from "@/components/ui/button";
+import { Check, Copy, Eye, EyeOff, KeyRound } from "lucide-vue-next";
 import { V1Secret } from "@kubernetes/client-node";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { error } from "@/lib/logger";
@@ -49,60 +43,59 @@ const copySecret = async (key: string) => {
 onUnmounted(() => clearTimeout(copiedTimer));
 </script>
 <template>
-  <AccordionItem class="px-4" value="data">
-    <AccordionTrigger>
-      <div class="flex items-center gap-2"><KeyRound class="h-4" /> Data</div>
-    </AccordionTrigger>
-    <AccordionContent>
-      <div class="space-y-4">
-        <div v-for="key in Object.keys(resource.data || {})" :key="key">
-          <div class="flex flex-col gap-2">
-            <span class="font-mono">{{ key }}</span>
-            <div class="relative overflow-hidden rounded">
-              <div
-                class="select-text border border-input rounded p-4 pr-10 break-all opacity-50 hover:opacity-100"
-              >
-                {{ getSecretData(key) }}
-              </div>
-              <div class="absolute right-0 top-0 flex">
-                <button
-                  v-if="decodedKeys.includes(key)"
-                  type="button"
-                  :aria-label="copiedKey === key ? `${key} copied` : `Copy ${key}`"
-                  :title="copiedKey === key ? 'Copied!' : 'Copy value'"
-                  @click="copySecret(key)"
-                  class="rounded-bl-sm p-2 border-l border-b hover:bg-muted text-foreground flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                >
-                  <Check
-                    v-if="copiedKey === key"
-                    class="h-4 w-4 text-green-600 dark:text-green-500"
-                  />
-                  <CopyIcon v-else class="h-4" />
-                </button>
-                <button
-                  type="button"
-                  :class="{
-                    'rounded-bl-sm': !decodedKeys.includes(key),
-                  }"
-                  :aria-label="
-                    decodedKeys.includes(key) ? `Hide ${key}` : `Reveal ${key}`
-                  "
-                  :aria-pressed="decodedKeys.includes(key)"
-                  :title="decodedKeys.includes(key) ? 'Hide value' : 'Reveal value'"
-                  @click="toggleDecode(key)"
-                  class="p-2 border-l border-b hover:bg-muted text-foreground flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                >
-                  <EyeCloseIcon v-if="decodedKeys.includes(key)" class="h-4" />
-                  <EyeOpenIcon v-else class="h-4" />
-                </button>
-                <span class="sr-only" aria-live="polite">{{
-                  copiedKey === key ? `${key} copied to the clipboard` : ""
-                }}</span>
-              </div>
-            </div>
+  <PanelSection
+    value="data"
+    title="Data"
+    :icon="KeyRound"
+    :count="Object.keys(resource.data || {}).length"
+  >
+    <div class="space-y-3">
+      <div v-for="key in Object.keys(resource.data || {})" :key="key">
+        <div class="mb-1 flex items-center justify-between gap-2">
+          <span class="truncate font-mono text-xs font-medium">{{ key }}</span>
+          <div class="flex shrink-0 items-center gap-0.5">
+            <Button
+              v-if="decodedKeys.includes(key)"
+              variant="ghost"
+              size="icon-xs"
+              class="text-muted-foreground"
+              :aria-label="copiedKey === key ? `${key} copied` : `Copy ${key}`"
+              :title="copiedKey === key ? 'Copied!' : 'Copy value'"
+              @click="copySecret(key)"
+            >
+              <Check v-if="copiedKey === key" class="h-3.5 w-3.5 text-success" />
+              <Copy v-else class="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              class="text-muted-foreground"
+              :aria-label="
+                decodedKeys.includes(key) ? `Hide ${key}` : `Reveal ${key}`
+              "
+              :aria-pressed="decodedKeys.includes(key)"
+              :title="decodedKeys.includes(key) ? 'Hide value' : 'Reveal value'"
+              @click="toggleDecode(key)"
+            >
+              <EyeOff v-if="decodedKeys.includes(key)" class="h-3.5 w-3.5" />
+              <Eye v-else class="h-3.5 w-3.5" />
+            </Button>
+            <span class="sr-only" aria-live="polite">{{
+              copiedKey === key ? `${key} copied to the clipboard` : ""
+            }}</span>
           </div>
         </div>
+        <div
+          class="max-h-40 overflow-auto break-all rounded-md border bg-surface-1 px-3 py-2 font-mono text-xs select-text"
+          :class="
+            decodedKeys.includes(key)
+              ? 'text-foreground'
+              : 'text-muted-foreground blur-[3px] transition-[filter] duration-base hover:blur-none'
+          "
+        >
+          {{ getSecretData(key) }}
+        </div>
       </div>
-    </AccordionContent>
-  </AccordionItem>
+    </div>
+  </PanelSection>
 </template>

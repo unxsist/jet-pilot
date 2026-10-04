@@ -123,5 +123,8 @@ const ICONS: Record<string, Component> = {
 
 /** Lucide icon for a resource / surface name; a neutral shape otherwise. */
 export function kindIcon(name: string | undefined | null): Component {
-  return (name && ICONS[name.toLowerCase()]) || Shapes;
+  if (!name) return Shapes;
+  const key = name.toLowerCase();
+  // Some callers pass the singular kind ("pod").
+  return ICONS[key] || ICONS[`${key}s`] || Shapes;
 }
