@@ -78,7 +78,7 @@ const screens = {
       await wait(1200);
     },
   },
-  "graph-large": { url: "/cluster-overview?scenario=large", ready: ".vue-flow__node-k8s", settle: 3000 },
+  "graph-large": { url: "/cluster-overview?scenario=large-graph", ready: ".vue-flow__node-k8s", settle: 3000 },
   yaml: {
     url: "/pods",
     ready: "tbody tr td",
