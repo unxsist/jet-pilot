@@ -1102,12 +1102,14 @@ pub mod client {
 
     /// Builds the kubectl arguments for `apply_manifest`. Values are passed in
     /// `--flag=value` form so a value starting with `-` can't be parsed as a
-    /// separate flag.
+    /// separate flag. `dry_run` adds `--dry-run=server`: the API server runs
+    /// validation and admission (webhooks included) without persisting.
     fn manifest_args(
         mode: ManifestMode,
         context: &str,
         namespace: &str,
         kube_config: Option<&str>,
+        dry_run: bool,
     ) -> Vec<String> {
         let mut args = vec![
             match mode {
@@ -1123,6 +1125,9 @@ pub mod client {
         if let Some(kube_config) = kube_config.filter(|k| !k.is_empty()) {
             args.push(format!("--kubeconfig={}", kube_config));
         }
+        if dry_run {
+            args.push("--dry-run=server".to_string());
+        }
         args.push("--filename=-".to_string());
         args
     }
@@ -1137,9 +1142,11 @@ pub mod client {
         manifest: String,
         mode: ManifestMode,
         kube_config: Option<String>,
+        dry_run: Option<bool>,
     ) -> Result<String, String> {
-        let args = manifest_args(mode, context, namespace, kube_config.as_deref());
-        debug!("Running kubectl {:?} with manifest on stdin", mode);
+        let dry_run = dry_run.unwrap_or(false);
+        let args = manifest_args(mode, context, namespace, kube_config.as_deref(), dry_run);
+        debug!("Running kubectl {:?} (dry run: {}) with manifest on stdin", mode, dry_run);
 
         let mut cmd = Command::new("kubectl");
         cmd.args(&args)
@@ -1299,7 +1306,7 @@ users:
         #[test]
         fn manifest_args_use_flag_value_form() {
             assert_eq!(
-                manifest_args(ManifestMode::Replace, "-ctx", "ns", Some("/tmp/kc")),
+                manifest_args(ManifestMode::Replace, "-ctx", "ns", Some("/tmp/kc"), false),
                 vec![
                     "replace",
                     "--context=-ctx",
@@ -1309,8 +1316,12 @@ users:
                 ]
             );
             assert_eq!(
-                manifest_args(ManifestMode::Apply, "ctx", "", None),
+                manifest_args(ManifestMode::Apply, "ctx", "", None, false),
                 vec!["apply", "--context=ctx", "--filename=-"]
+            );
+            assert_eq!(
+                manifest_args(ManifestMode::Replace, "ctx", "", None, true),
+                vec!["replace", "--context=ctx", "--dry-run=server", "--filename=-"]
             );
         }
 

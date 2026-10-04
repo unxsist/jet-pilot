@@ -12,6 +12,7 @@ mod app_log;
 mod kubernetes;
 mod logs;
 mod metrics;
+mod manifest;
 mod port_forward;
 mod shell;
 mod util;
@@ -172,6 +173,7 @@ fn main() {
             metrics::metrics_subscribe,
             metrics::metrics_unsubscribe,
             metrics::metrics_reset,
+            manifest::get_openapi_v3_schema,
         ])
         .setup(|_app| {
             #[cfg(target_os = "macos")]
