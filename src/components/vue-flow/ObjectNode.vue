@@ -1,36 +1,245 @@
 <script setup lang="ts">
-import { KubernetesObject } from "@kubernetes/client-node";
-import NavigationItemIcon from "../NavigationItemIcon.vue";
+defineOptions({ inheritAttrs: false });
+import { Handle, Position } from "@vue-flow/core";
+import { ChevronDown, ChevronRight, History } from "lucide-vue-next";
+import KindIcon from "@/components/KindIcon.vue";
 import { StatusDot } from "@/components/ui/status";
-import { formatResourceKind } from "@/lib/utils";
-import { graphNodeTone } from "./nodeStatus";
+import { cn, formatResourceKind, injectStrict } from "@/lib/utils";
+import { isProblem, type TopoNode } from "@/lib/clusterGraph";
+import HealthStrip from "./HealthStrip.vue";
+import {
+  CATEGORY_TILE,
+  HEALTH_TONE,
+  healthStrip,
+  kindLabel,
+  nodeSubtitle,
+} from "./nodeStatus";
+import { GraphViewStateKey } from "./graphState";
 
+/*
+ * A Kubernetes object in the resource graph: kind icon, name, a kind
+ * specific summary and its health. Workload roots also show their pods as
+ * a health strip and can be expanded into ReplicaSets / Jobs / Pods.
+ */
 const props = defineProps<{
-  data: {
-    label: string;
-    kubeObject: KubernetesObject;
-  };
+  id: string;
+  data: { node: TopoNode };
 }>();
 
-const tone = computed(() => graphNodeTone(props.data.kubeObject));
+const state = injectStrict(GraphViewStateKey);
+
+const node = computed(() => props.data.node);
+const compact = computed(() => node.value.category === "pod");
+const isRoot = computed(
+  () => node.value.category === "workload" && !node.value.external
+);
+const showStrip = computed(
+  () => node.value.category === "workload" && !!(node.value.pods || node.value.jobs)
+);
+const subtitle = computed(() => nodeSubtitle(node.value));
+const strip = computed(() => (showStrip.value ? healthStrip(node.value) : []));
+const tone = computed(() =>
+  node.value.health === "neutral" ? null : HEALTH_TONE[node.value.health]
+);
+const icon = computed(() => formatResourceKind(node.value.kind).toLowerCase());
+const expanded = computed(() => state.expanded.value.has(props.id));
+const oldCount = computed(() => node.value.replicaSets?.old.length || 0);
+const childCount = computed(
+  () =>
+    (node.value.pods?.length || 0) +
+    (node.value.replicaSets?.active.length || 0) +
+    (node.value.jobs?.length || 0)
+);
+const stripLabel = computed(() => {
+  if (node.value.kind === "CronJob") {
+    const runs = node.value.jobs?.length || 0;
+    return runs === 0 ? "no runs yet" : `${runs} run${runs === 1 ? "" : "s"}`;
+  }
+  const pods = node.value.pods?.length || 0;
+  return pods === 0 ? "no pods" : `${pods} pod${pods === 1 ? "" : "s"}`;
+});
+
+const dimmed = computed(() => {
+  const lit = state.lit.value;
+  if (lit) return !lit.nodes.has(props.id);
+  const matches = state.matches.value;
+  if (matches) return !matches.has(props.id);
+  if (state.problems.value) return !isProblem(node.value.health);
+  return false;
+});
+const selected = computed(() => state.selected.value === props.id);
+const inPath = computed(
+  () => !selected.value && !!state.lit.value?.nodes.has(props.id)
+);
+const matched = computed(
+  () => !!state.matches.value?.has(props.id) && !state.lit.value
+);
+
+/* Overview zoom: a card is a block in its health colour. */
+const OVERVIEW_BLOCK: Record<string, string> = {
+  ok: "border-success/40 bg-success/20",
+  warning: "border-warning/60 bg-warning/35",
+  error: "border-destructive/70 bg-destructive/45",
+  neutral: "border-border-strong bg-muted",
+};
+
+const accent = computed(() => {
+  if (node.value.missing) return "";
+  if (node.value.health === "error") {
+    return "shadow-[inset_3px_0_0_0_hsl(var(--destructive)),var(--shadow-xs)]";
+  }
+  if (node.value.health === "warning") {
+    return "shadow-[inset_3px_0_0_0_hsl(var(--warning)),var(--shadow-xs)]";
+  }
+  return "shadow-xs";
+});
 </script>
 
 <template>
   <div
-    class="flex items-center gap-1.5 border-b border-border-subtle bg-surface-1 px-2 py-1.5 text-xs"
+    v-if="state.overview.value"
+    :class="
+      cn(
+        'h-full w-full rounded-lg border transition-opacity duration-base',
+        OVERVIEW_BLOCK[node.missing ? 'error' : node.health],
+        node.missing && 'border-dashed',
+        dimmed && 'opacity-30'
+      )
+    "
   >
-    <NavigationItemIcon
-      :name="formatResourceKind(data.kubeObject.kind || '').toLowerCase()"
-      class="h-3.5 w-3.5 text-muted-foreground"
-    />
-    <div class="flex min-w-0 flex-1 flex-col leading-tight">
-      <span class="truncate text-2xs text-muted-foreground">{{
-        data.kubeObject.kind
-      }}</span>
-      <span v-if="data.label" class="truncate font-medium text-foreground">{{
-        data.label
-      }}</span>
+    <Handle type="target" :position="Position.Left" class="graph-handle" />
+    <Handle type="source" :position="Position.Right" class="graph-handle" />
+  </div>
+  <div
+    v-else
+    :class="
+      cn(
+        'graph-card relative flex h-full w-full flex-col justify-center overflow-hidden rounded-lg border bg-card text-left text-foreground',
+        'transition-[opacity,border-color,box-shadow,filter] duration-base ease-out',
+        accent,
+        node.missing &&
+          'border-dashed border-destructive/70 bg-destructive/[0.04]',
+        node.external && 'border-dashed',
+        !node.missing && !selected && 'hover:border-border-strong',
+        selected &&
+          'border-primary ring-2 ring-primary/30 ring-offset-0',
+        inPath && 'border-primary/60',
+        matched && 'border-link ring-2 ring-link/25',
+        dimmed &&
+          (state.lit.value || state.matches.value
+            ? 'opacity-[0.22] saturate-50'
+            : 'opacity-50 saturate-50'),
+        state.entering.value.has(id) && 'animate-fade-in',
+        state.far.value && 'graph-card--far'
+      )
+    "
+    :data-health="node.health"
+  >
+    <Handle type="target" :position="Position.Left" class="graph-handle" />
+    <div
+      :class="
+        cn(
+          'flex min-w-0 items-center',
+          compact ? 'gap-2 px-2' : 'gap-2.5 px-2.5',
+          showStrip && 'pt-1'
+        )
+      "
+    >
+      <span
+        :class="
+          cn(
+            'flex shrink-0 items-center justify-center rounded-md',
+            compact ? 'h-6 w-6' : 'h-8 w-8',
+            node.missing
+              ? 'bg-destructive/10 text-destructive'
+              : CATEGORY_TILE[node.category]
+          )
+        "
+      >
+        <KindIcon :name="icon" :class="compact ? 'h-3.5 w-3.5' : 'h-4 w-4'" />
+      </span>
+      <div class="min-w-0 flex-1">
+        <div
+          :class="
+            cn(
+              'graph-card__name truncate font-medium leading-5',
+              compact ? 'text-xs' : 'text-sm',
+              node.missing && 'text-destructive'
+            )
+          "
+          :title="node.name"
+        >
+          {{ node.name }}
+        </div>
+        <div
+          :class="
+            cn(
+              'graph-card__meta truncate leading-4 text-muted-foreground',
+              compact ? 'text-2xs' : 'text-xs'
+            )
+          "
+        >
+          <template v-if="node.missing || compact">{{ subtitle }}</template>
+          <template v-else-if="subtitle.startsWith(node.kind)">
+            <span class="font-medium text-foreground/80">{{
+              kindLabel(node.kind)
+            }}</span
+            >{{ subtitle.slice(node.kind.length) }}
+          </template>
+          <template v-else>
+            <span class="font-medium text-foreground/80">{{
+              kindLabel(node.kind)
+            }}</span>
+            · {{ subtitle }}
+          </template>
+        </div>
+      </div>
+      <span
+        v-if="node.missing"
+        class="shrink-0 rounded-sm border border-destructive/30 bg-destructive/10 px-1 text-2xs font-medium uppercase tracking-wide text-destructive"
+        >Missing</span
+      >
+      <StatusDot
+        v-else-if="tone"
+        :tone="tone"
+        :pulse="node.health === 'error' && !state.far.value"
+        :label="node.health"
+      />
     </div>
-    <StatusDot v-if="tone" :tone="tone" />
+
+    <div
+      v-if="showStrip"
+      class="mt-2 flex min-w-0 items-center gap-2 border-t border-border-subtle px-2.5 pt-1.5"
+    >
+      <HealthStrip :segments="strip" class="min-w-0 flex-1" />
+      <span
+        class="graph-card__meta shrink-0 text-2xs tabular-nums text-muted-foreground"
+        >{{ stripLabel }}</span
+      >
+      <button
+        v-if="isRoot && expanded && oldCount > 0"
+        type="button"
+        class="nodrag nopan inline-flex h-5 shrink-0 items-center gap-0.5 rounded px-1 text-2xs text-muted-foreground transition-colors duration-fast hover:bg-accent hover:text-foreground"
+        :class="state.history.value.has(id) && 'bg-accent text-foreground'"
+        :title="`${state.history.value.has(id) ? 'Hide' : 'Show'} ${oldCount} old ReplicaSet${oldCount === 1 ? '' : 's'}`"
+        :aria-pressed="state.history.value.has(id)"
+        @click.stop="state.toggleHistory(id)"
+      >
+        <History class="h-3 w-3" />{{ oldCount }}
+      </button>
+      <button
+        v-if="isRoot && childCount > 0"
+        type="button"
+        class="nodrag nopan -mr-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors duration-fast hover:bg-accent hover:text-foreground"
+        :title="expanded ? 'Collapse' : 'Expand pods'"
+        :aria-label="expanded ? 'Collapse' : 'Expand pods'"
+        :aria-expanded="expanded"
+        @click.stop="state.toggleExpanded(id)"
+      >
+        <ChevronDown v-if="expanded" class="h-3.5 w-3.5" />
+        <ChevronRight v-else class="h-3.5 w-3.5" />
+      </button>
+    </div>
+    <Handle type="source" :position="Position.Right" class="graph-handle" />
   </div>
 </template>

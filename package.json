@@ -38,6 +38,7 @@
     "@tauri-apps/plugin-updater": "^2.13.1",
     "@vee-validate/zod": "^4.12.5",
     "@vue-flow/core": "^1.42.1",
+    "@vue-flow/minimap": "^1.5.4",
     "@vueuse/core": "^10.11.1",
     "ansi_up": "^6.0.2",
     "class-variance-authority": "^0.7.0",
