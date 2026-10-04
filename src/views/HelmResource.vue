@@ -190,8 +190,10 @@ const {
   lastUpdated,
   retry,
 } = useResourceList(loadHelmResource, {
-  // helm is comparatively slow (it decodes release secrets), poll gently.
-  interval: 10000,
+  // helm is comparatively slow (it decodes release secrets, and every run
+  // re-runs exec credential plugins), poll gently. Polling pauses while the
+  // window is hidden (useDataRefresher).
+  interval: 15000,
   dependencies: [contexts.value, currentResource],
 });
 
