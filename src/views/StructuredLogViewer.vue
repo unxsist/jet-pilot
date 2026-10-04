@@ -271,7 +271,7 @@ const handleEvent = (event: LogStreamEvent) => {
       recordRate(event.added);
       if (event.columnsChanged) updateColumns();
       if (facets.value.length > 0) updateFacetValuesThrottled();
-      if (!paused.value) scheduleFetch();
+      if (!paused.value) requestFetch();
       break;
     case "sources":
       sources.value = event.pods;
@@ -360,6 +360,24 @@ const scheduleFetch = async (full = false) => {
 };
 
 const refetchAll = () => scheduleFetch(true);
+
+/*
+ * New-line notifications are coalesced: at most one fetch (and one render)
+ * per MIN_FETCH_INTERVAL. Nobody reads faster than that, and at thousands
+ * of lines per second it keeps the main thread mostly idle.
+ */
+const MIN_FETCH_INTERVAL = 200;
+let lastFetchAt = 0;
+let fetchTimer: number | undefined;
+const requestFetch = () => {
+  if (fetchTimer !== undefined) return;
+  const delay = Math.max(0, lastFetchAt + MIN_FETCH_INTERVAL - performance.now());
+  fetchTimer = window.setTimeout(() => {
+    fetchTimer = undefined;
+    lastFetchAt = performance.now();
+    scheduleFetch();
+  }, delay);
+};
 
 /* ---------------------------------------------------------- facets -- */
 
@@ -755,6 +773,7 @@ const dispose = () => {
   if (unmounted) return;
   unmounted = true;
   window.clearInterval(rateTimer);
+  window.clearTimeout(fetchTimer);
   stopStream();
   if (sessionId.value) {
     const id = sessionId.value;

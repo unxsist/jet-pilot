@@ -35,21 +35,85 @@ const emit = defineEmits<{
 }>();
 
 const ROW_HEIGHT = 20;
+const OVERSCAN = 12;
+/* Space above the first and below the last row. */
+const PADDING = 8;
+/* Without wrapping, longer lines are cut when rendered (shaping huge lines
+ * is expensive); wrapping or exporting shows them in full. */
+const MAX_RENDERED_CHARS = 2000;
 
 const scroller = ref<HTMLDivElement | null>(null);
 
+/*
+ * Wrapped rows have variable heights: TanStack Virtual measures them. Its
+ * bookkeeping is O(rows) per change though, so fixed-height rows (the
+ * default) use plain O(1) windowing on the scroll position.
+ */
 const virtualizer = useVirtualizer(
-  computed(() => ({
-    count: props.rows.length,
-    getScrollElement: () => scroller.value,
-    estimateSize: () => ROW_HEIGHT,
-    overscan: 16,
-    getItemKey: (index: number) => props.rows[index]?.seq ?? index,
-  }))
+  computed(() => {
+    // Read the (plain) array once instead of through the props proxy: the
+    // virtualizer calls getItemKey for every row on each change.
+    const rows = props.rows;
+    return {
+      count: props.wrap ? rows.length : 0,
+      getScrollElement: () => scroller.value,
+      estimateSize: () => ROW_HEIGHT,
+      overscan: OVERSCAN,
+      getItemKey: (index: number) => rows[index]?.seq ?? index,
+    };
+  })
 );
 
-const items = computed(() => virtualizer.value.getVirtualItems());
-const totalSize = computed(() => virtualizer.value.getTotalSize());
+const scrollTop = ref(0);
+const viewportHeight = ref(0);
+let resizeObserver: ResizeObserver | null = null;
+onMounted(() => {
+  resizeObserver = new ResizeObserver(() => {
+    viewportHeight.value = scroller.value?.clientHeight ?? 0;
+  });
+  if (scroller.value) resizeObserver.observe(scroller.value);
+});
+onUnmounted(() => resizeObserver?.disconnect());
+
+interface WindowItem {
+  index: number;
+  key: number;
+  start: number;
+}
+
+const fixedItems = computed<WindowItem[]>(() => {
+  const rows = props.rows;
+  const count = rows.length;
+  const visible = Math.ceil(viewportHeight.value / ROW_HEIGHT) + 1;
+  // Following: render the end directly, the scroll position catches up.
+  const first = props.stickToBottom
+    ? Math.max(0, count - visible - OVERSCAN)
+    : Math.max(0, Math.floor(scrollTop.value / ROW_HEIGHT) - OVERSCAN);
+  const last = Math.min(count, first + visible + 2 * OVERSCAN);
+  const items: WindowItem[] = [];
+  for (let index = first; index < last; index++) {
+    items.push({ index, key: rows[index].seq, start: index * ROW_HEIGHT });
+  }
+  return items;
+});
+
+const items = computed<WindowItem[]>(() =>
+  props.wrap
+    ? virtualizer.value
+        .getVirtualItems()
+        .map((item) => ({ index: item.index, key: Number(item.key), start: item.start }))
+    : fixedItems.value
+);
+const totalSize = computed(() =>
+  props.wrap ? virtualizer.value.getTotalSize() : props.rows.length * ROW_HEIGHT
+);
+
+const displayText = (row: LogRow) =>
+  !props.wrap && row.content.length > MAX_RENDERED_CHARS
+    ? `${row.content.slice(0, MAX_RENDERED_CHARS)} … (${(
+        row.content.length - MAX_RENDERED_CHARS
+      ).toLocaleString()} more characters, wrap lines to see all)`
+    : row.content;
 
 /* Measures wrapped rows (no-op without wrapping: fixed heights). */
 const measure = (element: unknown) => {
@@ -75,14 +139,34 @@ const scrollToBottom = () => {
   if (!element || props.rows.length === 0) return;
   if (props.wrap) {
     virtualizer.value.scrollToIndex(props.rows.length - 1, { align: "end" });
+    element.scrollTop = element.scrollHeight;
+    return;
   }
-  element.scrollTop = element.scrollHeight;
+  // The browser clamps; no layout read needed for fixed rows.
+  element.scrollTop = totalSize.value + PADDING;
 };
+
+/* Scrolling forces a layout: do it once per frame, right before painting. */
+let bottomFrame = 0;
+const scheduleBottom = () => {
+  if (bottomFrame) return;
+  bottomFrame = requestAnimationFrame(() => {
+    bottomFrame = 0;
+    if (props.stickToBottom) scrollToBottom();
+  });
+};
+onUnmounted(() => cancelAnimationFrame(bottomFrame));
 
 const scrollToIndex = (index: number) => {
   if (index < 0 || index >= props.rows.length) return;
   skipScrollEvent = true;
-  virtualizer.value.scrollToIndex(index, { align: "center" });
+  if (props.wrap) {
+    virtualizer.value.scrollToIndex(index, { align: "center" });
+    return;
+  }
+  const top = Math.max(0, index * ROW_HEIGHT - viewportHeight.value / 2);
+  scrollTop.value = top;
+  if (scroller.value) scroller.value.scrollTop = top;
 };
 
 defineExpose({ scrollToBottom, scrollToIndex });
@@ -91,7 +175,7 @@ defineExpose({ scrollToBottom, scrollToIndex });
 watch(
   () => props.rows,
   () => {
-    if (props.stickToBottom) nextTick(scrollToBottom);
+    if (props.stickToBottom) scheduleBottom();
   }
 );
 
@@ -102,7 +186,6 @@ watch(
   }
 );
 
-
 /*
  * Only an upward scroll by the user releases the bottom: new lines grow
  * the content between our scroll and the scroll event, so "not at the
@@ -111,10 +194,12 @@ watch(
 const onScroll = () => {
   const element = scroller.value;
   if (!element) return;
-  const scrolledUp = element.scrollTop < lastScrollTop - 2;
-  lastScrollTop = element.scrollTop;
+  const top = element.scrollTop;
+  const scrolledUp = top < lastScrollTop - 2;
+  lastScrollTop = top;
+  if (!props.wrap) scrollTop.value = top;
   const atBottom =
-    element.scrollHeight - element.scrollTop - element.clientHeight < ROW_HEIGHT * 1.5;
+    totalSize.value + PADDING - top - viewportHeight.value < ROW_HEIGHT * 1.5;
 
   if (skipScrollEvent) {
     skipScrollEvent = false;
@@ -130,8 +215,8 @@ const onScroll = () => {
 
 const segments = (row: LogRow) =>
   props.query
-    ? highlightSegments(row.content, props.query)
-    : [{ text: row.content, match: false }];
+    ? highlightSegments(displayText(row), props.query)
+    : [{ text: displayText(row), match: false }];
 
 const rowTone = (row: LogRow) => {
   const level = logLevelOf(row.data);
@@ -148,7 +233,7 @@ const sourceTitle = (row: LogRow) =>
 <template>
   <div
     ref="scroller"
-    class="relative h-full w-full overflow-auto bg-background font-mono text-xs leading-5 select-text"
+    class="relative h-full w-full overflow-auto bg-background font-mono text-xs leading-5 select-text [contain:strict]"
     role="log"
     aria-live="off"
     tabindex="0"

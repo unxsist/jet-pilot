@@ -166,18 +166,28 @@ export function mergeByTimestamp(existing: LogRow[], incoming: LogRow[]): LogRow
     return existing.concat(sortedIncoming);
   }
 
-  const merged: LogRow[] = new Array(existing.length + sortedIncoming.length);
-  let i = 0;
+  // Only the tail newer than the first incoming row needs merging; find
+  // where it starts with a binary search (late lines are rarely far back).
+  let lo = 0;
+  let hi = existing.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (compareRows(existing[mid], sortedIncoming[0]) <= 0) lo = mid + 1;
+    else hi = mid;
+  }
+
+  const merged: LogRow[] = existing.slice(0, lo);
+  let i = lo;
   let j = 0;
-  let k = 0;
   while (i < existing.length && j < sortedIncoming.length) {
-    merged[k++] =
+    merged.push(
       compareRows(existing[i], sortedIncoming[j]) <= 0
         ? existing[i++]
-        : sortedIncoming[j++];
+        : sortedIncoming[j++]
+    );
   }
-  while (i < existing.length) merged[k++] = existing[i++];
-  while (j < sortedIncoming.length) merged[k++] = sortedIncoming[j++];
+  while (i < existing.length) merged.push(existing[i++]);
+  while (j < sortedIncoming.length) merged.push(sortedIncoming[j++]);
   return merged;
 }
 
