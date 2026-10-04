@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import ArrowDownIcon from "@/assets/icons/arrow_down.svg";
+import { ChevronDown } from "lucide-vue-next";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
 
@@ -26,23 +26,22 @@ watch(
 );
 </script>
 <template>
-  <div>
+  <div class="mb-3 last:mb-0">
     <button
       v-if="title"
       type="button"
-      class="group w-[calc(100%-0.5rem)] cursor-pointer flex justify-between items-center ml-2 mb-2 rounded uppercase font-bold text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      class="group flex h-7 w-full cursor-pointer items-center gap-1 rounded-md px-2 text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground/80 transition-colors duration-fast hover:text-foreground focus-ring focus-visible:ring-offset-sidebar"
       :aria-expanded="!collapsed"
       @click="collapsed = !collapsed"
     >
       <span class="truncate">{{ title }}</span>
-      <div
-        class="transition-all w-5 h-5 group-hover:bg-background rounded-full flex items-center justify-center mr-2"
-        :class="{ 'rotate-180': !collapsed }"
-      >
-        <ArrowDownIcon class="w-5" />
-      </div>
+      <ChevronDown
+        class="h-3 w-3 shrink-0 opacity-0 transition-[transform,opacity] duration-base ease-out group-hover:opacity-100 group-focus-visible:opacity-100"
+        :class="{ '-rotate-90 opacity-100': collapsed }"
+        aria-hidden="true"
+      />
     </button>
-    <div v-show="!collapsed" class="mb-5 space-y-1">
+    <div v-show="!collapsed" class="space-y-px">
       <slot />
     </div>
   </div>

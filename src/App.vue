@@ -42,11 +42,25 @@ const osType = ref(getOsType());
                   <PanelProvider>
                     <CommandPaletteProvider>
                       <Navigation />
-                      <ResizablePanelGroup direction="horizontal">
-                        <ResizablePanel><RouterViewport /></ResizablePanel>
-                        <ResizableHandle />
-                        <SidePanel />
-                      </ResizablePanelGroup>
+                      <!--
+                        Content sits on an inset canvas: the app chrome
+                        (sidebar colour) frames it on the right, top and
+                        bottom. The gutter is a window drag region.
+                      -->
+                      <div
+                        class="flex min-w-0 flex-1 py-1.5 pr-1.5"
+                        data-tauri-drag-region
+                      >
+                        <div
+                          class="flex min-w-0 flex-1 overflow-hidden rounded-lg border bg-background shadow-xs"
+                        >
+                          <ResizablePanelGroup direction="horizontal">
+                            <ResizablePanel><RouterViewport /></ResizablePanel>
+                            <ResizableHandle />
+                            <SidePanel />
+                          </ResizablePanelGroup>
+                        </div>
+                      </div>
                       <Toaster />
                       <CommandPalette />
                       <DialogHandler />

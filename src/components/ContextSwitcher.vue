@@ -24,8 +24,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import DropdownMenuItem from "./ui/dropdown-menu/DropdownMenuItem.vue";
-import Spinner from "./Spinner.vue";
-import { Search } from "lucide-vue-next";
+import ContextAvatar from "./ContextAvatar.vue";
+import {
+  ChevronsUpDown,
+  Loader2,
+  RefreshCw,
+  Search,
+  TriangleAlert,
+  X,
+} from "lucide-vue-next";
 import {
   contextKey,
   matchesFilter,
@@ -321,7 +328,7 @@ const pluralize = (count: number, word: string) =>
 
 const selectionSummary = computed(() => {
   if (!primaryContext.value) {
-    return "Click here to select contexts";
+    return "Select contexts to connect";
   }
 
   const namespaces = activeContexts.value.get(primaryContext.value) || [];
@@ -338,6 +345,21 @@ const selectionSummary = computed(() => {
   }
 
   return namespaceSummary;
+});
+
+/* Short namespace summary of an active context, for the context list. */
+const namespaceSummaryOf = (context: string, kubeConfig: string) => {
+  const namespaces = activeNamespacesOf(context, kubeConfig);
+  if (namespaces.length === 0) return "";
+  if (namespaces.includes("all")) return "All namespaces";
+  return namespaces.length === 1
+    ? namespaces[0]
+    : pluralize(namespaces.length, "namespace");
+};
+
+const triggerStatus = computed(() => {
+  if (!primaryContext.value) return null;
+  return clusterAuthenticated.value ? "success" : "warning";
 });
 
 const contextFilter = ref("");
@@ -457,89 +479,121 @@ const retryNamespaces = (ctx: ContextEntry) => {
 };
 </script>
 <template>
-  <div class="w-full mt-2 mb-2 pr-2">
+  <div class="w-full">
     <DropdownMenu v-model:open="menuOpen">
       <DropdownMenuTrigger
-        class="w-full rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        class="group flex w-full items-center gap-2.5 rounded-lg border bg-background/60 p-1.5 pr-2 text-left shadow-xs transition-colors duration-fast ease-out hover:border-border-strong hover:bg-background focus-ring focus-visible:ring-offset-sidebar data-[state=open]:border-border-strong data-[state=open]:bg-background"
+        :title="`Connected to ${activeContexts.size} of ${contexts.length} contexts`"
       >
-        <div
-          class="flex flex-col w-full text-xs border rounded-lg p-2 text-left hover:bg-background"
-          :title="`Connected to ${activeContexts.size} of ${contexts.length} contexts`"
+        <ContextAvatar
+          v-if="primaryContext"
+          :name="primaryContext"
+          :status="triggerStatus"
+        />
+        <span
+          v-else
+          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-dashed text-muted-foreground"
+          aria-hidden="true"
         >
-          <span class="uppercase font-bold mb-1 truncate">
+          ?
+        </span>
+        <span class="flex min-w-0 flex-1 flex-col">
+          <span class="truncate text-sm font-medium leading-5 text-foreground">
             {{ primaryContext || "No context" }}
           </span>
-          <span class="truncate">{{ selectionSummary }}</span>
-        </div>
+          <span class="truncate text-xs text-muted-foreground">
+            {{ selectionSummary }}
+          </span>
+        </span>
+        <ChevronsUpDown
+          class="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
+        />
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        class="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg max-h-[80vh] overflow-y-auto"
+        class="w-72 max-h-[80vh] overflow-y-auto p-1 [--avatar-ring:var(--popover)]"
         align="start"
         side="right"
-        :side-offset="4"
+        :side-offset="8"
         @open-auto-focus="onMenuOpenAutoFocus"
       >
-        <div class="flex items-center gap-2 px-2 py-1.5 border-b mb-1">
+        <div class="-mx-1 -mt-1 mb-1 flex items-center gap-2 border-b px-3">
           <Search class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <input
             ref="searchInput"
             v-model="contextFilter"
             type="text"
-            placeholder="Search contexts..."
+            placeholder="Search contexts…"
             aria-label="Search contexts"
-            class="w-full bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
+            class="h-9 w-full bg-transparent text-sm placeholder:text-muted-foreground/80 focus:outline-none"
             @keydown="onSearchKeydown"
           />
         </div>
-        <DropdownMenuLabel class="text-xs text-muted-foreground">
-          Contexts
+        <DropdownMenuLabel class="flex items-center justify-between">
+          <span>Contexts</span>
+          <span class="font-normal tabular-nums text-muted-foreground/70"
+            >{{ activeContexts.size }} of {{ contexts.length }} active</span
+          >
         </DropdownMenuLabel>
         <DropdownMenuSub
           v-for="context in filteredContexts"
           :key="contextKey(context.context, context.kubeConfig)"
         >
           <DropdownMenuSubTrigger
-            class="py-2"
+            class="gap-2.5 py-1.5"
             @mouseenter="fetchNamespaces(context)"
             @focus="fetchNamespaces(context)"
           >
-            <div class="flex items-center gap-2 max-w-[225px] min-w-0">
+            <ContextAvatar
+              :name="context.context"
+              size="sm"
+              :status="
+                isContextActive(context.context, context.kubeConfig)
+                  ? 'success'
+                  : null
+              "
+            />
+            <div class="flex min-w-0 flex-1 flex-col">
               <span
-                class="block shrink-0 w-2 h-2 rounded-full"
+                class="truncate"
                 :class="{
-                  'bg-green-500': isContextActive(
-                    context.context,
-                    context.kubeConfig
-                  ),
-                  'bg-muted-foreground/50': !isContextActive(
+                  'font-medium': isContextActive(
                     context.context,
                     context.kubeConfig
                   ),
                 }"
-              ></span>
-              <div class="flex flex-col min-w-0">
-                <span class="whitespace-nowrap truncate">{{
-                  context.context
-                }}</span>
-                <span
-                  v-if="duplicateContextNames.has(context.context)"
-                  class="text-xxs text-muted-foreground truncate"
-                  :title="context.kubeConfig"
-                  >{{ kubeConfigLabel(context.kubeConfig) }}</span
-                >
-              </div>
+                >{{ context.context }}</span
+              >
+              <span
+                v-if="
+                  duplicateContextNames.has(context.context) ||
+                  isContextActive(context.context, context.kubeConfig)
+                "
+                class="truncate text-xs text-muted-foreground"
+                :title="context.kubeConfig"
+              >
+                {{
+                  [
+                    namespaceSummaryOf(context.context, context.kubeConfig),
+                    duplicateContextNames.has(context.context)
+                      ? kubeConfigLabel(context.kubeConfig)
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                }}
+              </span>
             </div>
           </DropdownMenuSubTrigger>
           <DropdownMenuPortal>
             <DropdownMenuSubContent
-              class="max-h-[80vh] overflow-y-auto"
+              class="max-h-[80vh] w-60 overflow-y-auto"
               align="start"
               side="right"
-              :side-offset="4"
+              :side-offset="6"
             >
               <div
                 v-if="context.namespaces.length > NAMESPACE_SEARCH_THRESHOLD"
-                class="flex items-center gap-2 px-2 py-1.5 border-b mb-1"
+                class="-mx-1 -mt-1 mb-1 flex items-center gap-2 border-b px-3"
               >
                 <Search class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <input
@@ -549,9 +603,9 @@ const retryNamespaces = (ctx: ContextEntry) => {
                     ]
                   "
                   type="text"
-                  placeholder="Search namespaces..."
+                  placeholder="Search namespaces…"
                   aria-label="Search namespaces"
-                  class="w-full bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
+                  class="h-9 w-full bg-transparent text-sm placeholder:text-muted-foreground/80 focus:outline-none"
                   @keydown="onSearchKeydown"
                 />
               </div>
@@ -581,15 +635,17 @@ const retryNamespaces = (ctx: ContextEntry) => {
                     )
                   "
                 >
-                  <span>All namespaces</span>
+                  <span class="font-medium">All namespaces</span>
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuSeparator />
+                <DropdownMenuLabel>Namespaces</DropdownMenuLabel>
               </template>
-              <DropdownMenuLabel v-if="context.isFetching">
-                <div class="flex flex-row items-center gap-2">
-                  <Spinner class="text-foreground max-w-[16px]" />
-                  <span>Fetching namespaces...</span>
-                </div>
+              <DropdownMenuLabel
+                v-if="context.isFetching"
+                class="flex items-center gap-2 py-2 font-normal"
+              >
+                <Loader2 class="h-3.5 w-3.5 animate-spin" />
+                <span>Fetching namespaces…</span>
               </DropdownMenuLabel>
               <DropdownMenuItem
                 v-if="
@@ -601,6 +657,7 @@ const retryNamespaces = (ctx: ContextEntry) => {
                   context.handleAuthCallback && context.handleAuthCallback()
                 "
               >
+                <RefreshCw class="h-3.5 w-3.5 text-muted-foreground" />
                 Re-authenticate
               </DropdownMenuItem>
               <template
@@ -610,10 +667,14 @@ const retryNamespaces = (ctx: ContextEntry) => {
                   !context.canHandleAuth
                 "
               >
-                <DropdownMenuLabel class="font-normal text-destructive">
+                <DropdownMenuLabel
+                  class="flex items-center gap-2 font-normal text-destructive"
+                >
+                  <TriangleAlert class="h-3.5 w-3.5 shrink-0" />
                   Cannot connect to this context
                 </DropdownMenuLabel>
                 <DropdownMenuItem @select.prevent="retryNamespaces(context)">
+                  <RefreshCw class="h-3.5 w-3.5 text-muted-foreground" />
                   Retry
                 </DropdownMenuItem>
               </template>
@@ -636,14 +697,14 @@ const retryNamespaces = (ctx: ContextEntry) => {
                   )
                 "
               >
-                <span>{{ namespace }}</span>
+                <span class="truncate">{{ namespace }}</span>
               </DropdownMenuCheckboxItem>
               <DropdownMenuLabel
                 v-if="
                   context.namespaces.length > 0 &&
                   filteredNamespaces(context).length === 0
                 "
-                class="font-normal text-muted-foreground"
+                class="py-3 text-center font-normal"
               >
                 No matching namespaces
               </DropdownMenuLabel>
@@ -652,13 +713,17 @@ const retryNamespaces = (ctx: ContextEntry) => {
         </DropdownMenuSub>
         <DropdownMenuLabel
           v-if="filteredContexts.length === 0"
-          class="font-normal text-muted-foreground"
+          class="py-4 text-center font-normal"
         >
           {{ contexts.length === 0 ? "No contexts found" : "No matching contexts" }}
         </DropdownMenuLabel>
         <template v-if="activeContexts.size > 0">
           <DropdownMenuSeparator />
-          <DropdownMenuItem @select="clearSelection">
+          <DropdownMenuItem
+            class="text-muted-foreground"
+            @select="clearSelection"
+          >
+            <X class="h-3.5 w-3.5" />
             Clear selection
           </DropdownMenuItem>
         </template>

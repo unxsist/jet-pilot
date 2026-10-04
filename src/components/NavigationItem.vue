@@ -6,8 +6,7 @@ import {
   RegisterCommandStateKey,
   UnregisterCommandStateKey,
 } from "@/providers/CommandPaletteProvider";
-import PinIcon from "@/assets/icons/pin.svg";
-import PinLineIcon from "@/assets/icons/pin-line.svg";
+import { Pin, PinOff } from "lucide-vue-next";
 import { type } from "@tauri-apps/plugin-os";
 
 const router = useRouter();
@@ -53,45 +52,30 @@ onUnmounted(() => {
 <template>
   <router-link
     :to="props.to"
-    active-class="bg-background border !border-border text-primary"
-    class="group/main focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring border border-transparent flex items-center font-semibold rounded-l-lg border-r-0 px-2 py-1 text-muted-foreground cursor-pointer transition-all hover:bg-background hover:text-primary"
+    class="group/main relative flex h-7 cursor-pointer items-center gap-2.5 rounded-md px-2 text-sm text-sidebar-foreground transition-colors duration-fast ease-out hover:bg-accent/70 hover:text-foreground focus-ring focus-visible:ring-offset-sidebar before:absolute before:-left-2 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r-full before:bg-primary before:opacity-0 before:transition-opacity before:duration-base [&.router-link-active]:bg-accent [&.router-link-active]:font-medium [&.router-link-active]:text-foreground [&.router-link-active]:before:opacity-100"
   >
-    <NavigationItemIcon :name="props.icon" />
-    <span class="w-[135px] mx-3 truncate" :title="title">{{ title }}</span>
-    <div class="block h-full group-hover/main:hidden">
-      <span
-        v-if="props.shortcut"
-        class="text-xxs leading-none text-muted-foreground whitespace-nowrap"
-      >
-        <span>
-          {{ os === "macos" ? "⌘" : "Ctrl" }}{{ os !== "macos" ? "+" : ""
-          }}{{ props.shortcut }}
-        </span>
-      </span>
-    </div>
-    <div class="hidden group-hover/main:block" v-if="canPin">
-      <div
-        class="group/pin"
-        role="button"
-        :aria-label="pinned ? `Unpin ${title}` : `Pin ${title}`"
-        :title="pinned ? 'Unpin' : 'Pin'"
-        @click.prevent="$emit(pinned ? 'unpinned' : 'pinned')"
-      >
-        <PinLineIcon
-          class="h-4"
-          :class="{
-            'block group-hover/pin:hidden': !pinned,
-            'hidden group-hover/pin:block': pinned,
-          }"
-        />
-        <PinIcon
-          class="h-4"
-          :class="{
-            'hidden group-hover/pin:block': !pinned,
-            'block group-hover/pin:hidden': pinned,
-          }"
-        />
-      </div>
-    </div>
+    <NavigationItemIcon
+      :name="props.icon"
+      class="h-4 w-4 text-muted-foreground transition-colors duration-fast group-hover/main:text-foreground [.router-link-active_&]:text-primary"
+    />
+    <span class="min-w-0 flex-1 truncate" :title="title">{{ title }}</span>
+    <span
+      v-if="props.shortcut"
+      class="whitespace-nowrap text-2xs font-medium tabular-nums text-muted-foreground/70"
+      :class="{ 'group-hover/main:hidden': canPin }"
+    >
+      {{ os === "macos" ? "⌘" : "Ctrl+" }}{{ props.shortcut }}
+    </span>
+    <span
+      v-if="canPin"
+      class="-mr-1 hidden h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground group-hover/main:flex"
+      role="button"
+      :aria-label="pinned ? `Unpin ${title}` : `Pin ${title}`"
+      :title="pinned ? 'Unpin' : 'Pin'"
+      @click.prevent="$emit(pinned ? 'unpinned' : 'pinned')"
+    >
+      <PinOff v-if="pinned" class="h-3.5 w-3.5" />
+      <Pin v-else class="h-3.5 w-3.5" />
+    </span>
   </router-link>
 </template>

@@ -1,18 +1,10 @@
 <script setup lang="ts">
-import { defineAsyncComponent } from "vue";
+import KindIcon from "@/components/KindIcon.vue";
 
-const props = defineProps({
-  name: {
-    type: String,
-    required: true,
-  },
-});
-
-const icon = defineAsyncComponent(
-  () => import(`@/assets/icons/${props.name}.svg`)
-);
+/* Icon of a tab type (edit, describe, logs, shell, ...). */
+defineProps<{ name: string }>();
 </script>
 
 <template>
-  <component :is="icon" class="w-[14px] min-w-[14px] content-center" />
+  <KindIcon :name="name" class="h-3.5 w-3.5" />
 </template>

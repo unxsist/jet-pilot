@@ -15,7 +15,7 @@ const route = useRoute();
 </script>
 <template>
   <div
-    class="flex flex-col h-full relative w-full border-l border-border bg-background"
+    class="relative flex h-full w-full flex-col bg-background"
   >
     <ResizablePanelGroup direction="vertical">
       <ResizablePanel>
