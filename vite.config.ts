@@ -1,8 +1,7 @@
-/// <reference types="vitest" />
 import vue from "@vitejs/plugin-vue";
 import { resolve } from "path";
 import AutoImport from "unplugin-auto-import/vite";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import svgLoader from "vite-svg-loader";
 import VueDevTools from "vite-plugin-vue-devtools";
 

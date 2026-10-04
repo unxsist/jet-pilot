@@ -5,7 +5,7 @@ export function useDataRefresher(
   interval: number,
   dependencies: any[] = []
 ) {
-  let refreshInterval: NodeJS.Timer;
+  let refreshInterval: ReturnType<typeof setInterval>;
   let isRefreshing = ref(false);
 
   const startRefreshing = () => {

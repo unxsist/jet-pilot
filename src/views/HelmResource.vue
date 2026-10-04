@@ -24,8 +24,8 @@ const {
 const { toast } = useToast();
 
 const actions = ref(null);
-const resourceData = ref<object[]>([]);
-const refreshIntervalRef = ref<NodeJS.Timer | null>(null);
+const resourceData = ref<any[]>([]);
+const refreshIntervalRef = ref<ReturnType<typeof setInterval> | null>(null);
 const isFetchingRef = ref(false);
 const currentResource = ref(route.query.resource as string);
 

@@ -16,7 +16,7 @@ import {
 import ObjectNode from "@/components/vue-flow/ObjectNode.vue";
 import PodsObjectNode from "@/components/vue-flow/PodsObjectNode.vue";
 import specLinks from "@/lib/kubernetesSpecLinks";
-import jsonpath from "jsonpath";
+import { JSONPath } from "jsonpath-plus";
 import jsonata from "jsonata";
 import { PanelProviderSetSidePanelComponentKey } from "@/providers/PanelProvider";
 
@@ -203,10 +203,10 @@ const resolveEdges = async () => {
     for (const specLink of specLinks) {
       if (object.kind === specLink.sourceKind) {
         for (const matcher of specLink.matchers) {
-          let targetValues = [];
+          let targetValues: any[] = [];
           if (matcher.sourceSelector.startsWith("jsonpath:")) {
             const path = matcher.sourceSelector.replace("jsonpath:", "");
-            targetValues = jsonpath.query(object, path);
+            targetValues = JSONPath({ path, json: object, wrap: true });
           } else if (matcher.sourceSelector.startsWith("jsonata:")) {
             const expression = matcher.sourceSelector.replace("jsonata:", "");
             const compiled = jsonata(expression);
@@ -222,7 +222,7 @@ const resolveEdges = async () => {
               ?.filter((obj) => {
                 if (matcher.targetSelector.startsWith("jsonpath:")) {
                   const path = matcher.targetSelector.replace("jsonpath:", "");
-                  let queryResult = jsonpath.query(obj, path);
+                  let queryResult = JSONPath({ path, json: obj, wrap: true });
                   if (matcher.matchType === "exact") {
                     return queryResult == targetValue;
                   } else if (matcher.matchType === "subset") {

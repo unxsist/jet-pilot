@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { marked } from "marked";
+import { marked, type Tokens } from "marked";
 
 import { check, Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -27,8 +27,13 @@ const restart = ref(false);
 const closeable = ref(true);
 
 const mdRenderer = new marked.Renderer();
-mdRenderer.link = (href, title, text) =>
-  `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+mdRenderer.link = function (
+  this: typeof mdRenderer,
+  { href, tokens }: Tokens.Link
+) {
+  const text = this.parser.parseInline(tokens);
+  return `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+};
 
 async function checkForUpdates(forced = false) {
   updateInfo.value = await check();
