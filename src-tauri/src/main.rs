@@ -139,6 +139,10 @@ fn main() {
 
     let _ = fix_path_env::fix();
 
+    // Temporary terminal kubeconfigs contain flattened credentials: remove
+    // the ones a crashed previous run left behind.
+    shell::tty::sweep_stale_temp_kubeconfigs();
+
     let ctx = tauri::generate_context!();
 
     let builder = tauri::Builder::default()
@@ -201,6 +205,8 @@ fn main() {
             shell::tty::create_tty_session,
             shell::tty::stop_tty_session,
             shell::tty::write_to_pty,
+            shell::tty::resize_pty,
+            shell::tty::create_local_terminal_session,
             logs::structured_logging::start_structured_logging_session,
             logs::structured_logging::repurpose_structured_logging_session,
             logs::structured_logging::end_structured_logging_session,
@@ -284,6 +290,9 @@ fn main() {
         if let tauri::RunEvent::Exit = event {
             // Don't orphan kubectl port-forward processes when the app closes.
             port_forward::kill_all_port_forwards();
+            // Same for kubectl exec / local shell sessions (and their
+            // temporary kubeconfigs).
+            shell::tty::kill_all_tty_sessions();
         }
     });
 }
