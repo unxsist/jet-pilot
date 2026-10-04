@@ -368,7 +368,11 @@ watch(clusterAuthenticated, (authenticated, wasAuthenticated) => {
         <ScrollArea class="w-full">
           <div class="px-2 pb-2">
             <NavigationGroup
-              v-if="settings.pinnedResources.length > 0"
+              v-if="
+                settings.pinnedResources.some((resource) =>
+                  getResourceByName(resource.name)
+                )
+              "
               title="Pinned"
             >
               <template v-for="(resource, index) in settings.pinnedResources">

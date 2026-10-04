@@ -328,7 +328,7 @@ const pluralize = (count: number, word: string) =>
 
 const selectionSummary = computed(() => {
   if (!primaryContext.value) {
-    return "Select contexts to connect";
+    return "Select a context";
   }
 
   const namespaces = activeContexts.value.get(primaryContext.value) || [];
