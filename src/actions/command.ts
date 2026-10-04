@@ -29,6 +29,22 @@ export async function runCli(
   }
 }
 
+/*
+ * `helm upgrade|template|diff upgrade ... --values <tmp>`: the backend writes
+ * `values` to an owner-only temp file for the duration of the command.
+ */
+export async function runHelmWithValues(
+  args: string[],
+  values: string
+): Promise<CliResult> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<CliResult>("run_helm_with_values", { args, values });
+  } catch (e) {
+    return { code: null, stdout: "", stderr: String(e) };
+  }
+}
+
 export const cliSucceeded = (result: CliResult) => result.code === 0;
 
 export const cliErrorMessage = (result: CliResult) =>

@@ -1,7 +1,7 @@
 import { RowAction } from "@/components/tables/types";
 import { Router } from "vue-router";
 import { DialogInterface } from "@/providers/DialogProvider";
-import { describeRows } from "@/components/tables/identity";
+import { describeRows, getResourceTabId } from "@/components/tables/identity";
 import { runCliForEach } from "./command";
 
 /*
@@ -11,7 +11,11 @@ import { runCliForEach } from "./command";
 interface HelmReleaseRow {
   name: string;
   namespace: string;
-  revision: number;
+  /* helm list prints the revision as a string */
+  revision: number | string;
+  chart: string;
+  app_version?: string;
+  status: string;
   metadata: { context: string; kubeConfig: string };
 }
 
@@ -24,7 +28,7 @@ export function actions(
   return [
     {
       label: "Rollback",
-      isAvailable: (row) => row.revision > 1,
+      isAvailable: (row) => Number(row.revision) > 1,
       handler: (row: HelmReleaseRow) => {
         spawnDialog({
           title: "Rollback Helm Release",
@@ -42,10 +46,40 @@ export function actions(
         });
       },
     },
-    // {
-    //   label: "Upgrade",
-    //   handler: (row: any) => {},
-    // },
+    {
+      label: "Upgrade",
+      handler: (row: HelmReleaseRow) => {
+        addTab(
+          getResourceTabId("helm-upgrade", row),
+          `${row.name} upgrade`,
+          defineAsyncComponent(() => import("@/views/HelmUpgrade.vue")),
+          {
+            context: row.metadata.context,
+            namespace: row.namespace,
+            kubeConfig: row.metadata.kubeConfig,
+            release: row,
+          },
+          "helm"
+        );
+      },
+    },
+    {
+      label: "History",
+      handler: (row: HelmReleaseRow) => {
+        addTab(
+          getResourceTabId("helm-history", row),
+          `${row.name} history`,
+          defineAsyncComponent(() => import("@/views/HelmHistory.vue")),
+          {
+            context: row.metadata.context,
+            namespace: row.namespace,
+            kubeConfig: row.metadata.kubeConfig,
+            release: row,
+          },
+          "history"
+        );
+      },
+    },
     {
       label: "Delete",
       massAction: true,
