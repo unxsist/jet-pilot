@@ -1,52 +1,70 @@
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
-import { injectStrict } from "@/lib/utils";
-import {
-  register,
-  unregister,
-  unregisterAll,
-} from "@tauri-apps/plugin-global-shortcut";
-import { useRouter } from "vue-router";
+import { injectStrict, formatResourceKind } from "@/lib/utils";
+import { type as getOsType } from "@tauri-apps/plugin-os";
+import { RouteLocationRaw, useRouter } from "vue-router";
 
+/**
+ * Kept for compatibility: shortcuts are derived from the pinned resources on
+ * every key press, so there is nothing to re-register anymore.
+ */
 export const GlobalShortcutRegisterShortcutsKey: InjectionKey<() => void> =
   Symbol("GlobalShortcutRegisterShortcuts");
 
+/** Route of a resource list, as used by the navigation. */
+export function resourceRoute(kind: string): RouteLocationRaw {
+  const resource = formatResourceKind(kind).toLowerCase();
+  return {
+    path: `/${resource}`,
+    query: { resource, kind },
+  };
+}
+
+/** Number of pinned resources reachable with Cmd/Ctrl + 1..9. */
+export const PINNED_SHORTCUT_COUNT = 9;
+
+/**
+ * Cmd/Ctrl + 1..9 opens the n-th pinned resource.
+ *
+ * These are handled in-window: registering them as OS-global shortcuts
+ * stole the key combinations from every other application (e.g. browser
+ * tab switching) while JET Pilot was running.
+ */
 export default {
   name: "GlobalShortcutProvider",
-  async setup() {
-    const state = reactive({
-      shortcuts: [] as string[],
-    });
-
+  setup() {
     const { settings } = injectStrict(SettingsContextStateKey);
     const router = useRouter();
+    const isMac = getOsType() === "macos";
 
-    const registerShortcuts = async () => {
-      await clearShortcuts();
+    const onKeydown = (event: KeyboardEvent) => {
+      const modifier = isMac ? event.metaKey : event.ctrlKey;
+      if (!modifier || event.altKey || event.shiftKey || event.repeat) {
+        return;
+      }
+      if (isMac ? event.ctrlKey : event.metaKey) {
+        return;
+      }
 
-      settings.value.pinnedResources.forEach((resource, index) => {
-        if (index > 8) return;
+      // event.code keeps working with non-QWERTY layouts (e.g. AZERTY).
+      const match = /^(?:Digit|Numpad)([1-9])$/.exec(event.code);
+      if (!match) {
+        return;
+      }
 
-        register("CommandOrControl+" + (index + 1), () => {
-          router.push({
-            path: `/${resource.name}`,
-            query: { resource: resource.name },
-          });
-        });
-        state.shortcuts.push("CommandOrControl+" + (index + 1));
-      });
+      const index = Number(match[1]) - 1;
+      const resource = settings.value.pinnedResources[index];
+      if (!resource || index >= PINNED_SHORTCUT_COUNT) {
+        return;
+      }
+
+      event.preventDefault();
+      router.push(resourceRoute(resource.kind));
     };
 
-    provide(GlobalShortcutRegisterShortcutsKey, registerShortcuts);
+    window.addEventListener("keydown", onKeydown);
+    onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 
-    const clearShortcuts = async () => {
-      state.shortcuts.forEach((shortcut) => {
-        unregister(shortcut);
-      });
-      state.shortcuts = [];
-    };
-
-    unregisterAll();
-    registerShortcuts();
+    provide(GlobalShortcutRegisterShortcutsKey, () => {});
   },
   render(): any {
     return this.$slots.default();
