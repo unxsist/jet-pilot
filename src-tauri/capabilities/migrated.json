@@ -10,14 +10,12 @@
     "fs:allow-write-file",
     "fs:allow-app-write",
     "fs:allow-mkdir",
-    "fs:allow-remove",
     "fs:allow-exists",
     {
       "identifier": "fs:scope",
       "allow": [
         "$APPCONFIG/",
-        "$APPCONFIG/*",
-        "$TEMP/*.yaml"
+        "$APPCONFIG/*"
       ]
     },
     "core:window:allow-create",

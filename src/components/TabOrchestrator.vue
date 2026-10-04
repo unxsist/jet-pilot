@@ -24,10 +24,6 @@ const state = reactive({
 
 useEventListener(window, "TabOrchestrator_Expand", () => (state.open = true));
 
-const activeTab = computed(() => {
-  return tabs.value.find((tab) => tab.id === activeTabId.value);
-});
-
 const setActiveTab = (id: string) => {
   activeTabId.value = id;
 
@@ -60,6 +56,17 @@ const closeAndSetActiveTab = (id: string, force = false) => {
   }
 };
 
+/*
+ * Hidden tabs stay mounted (v-show). Components that measure themselves
+ * (terminals) re-fit on this event once their tab is visible again.
+ */
+watch(
+  () => [activeTabId.value, state.open],
+  () => {
+    nextTick(() => window.dispatchEvent(new Event("TabOrchestrator_Resized")));
+  }
+);
+
 const handleResize = (size: number) => {
   settings.value.PanelProvider.height = size;
 
@@ -77,47 +84,78 @@ const handleResize = (size: number) => {
       @keydown.stop="() => {}"
     >
       <div class="flex items-center mb-0 text-xs py-1 px-1">
-        <div class="flex space-x-3">
+        <div
+          class="flex space-x-3 overflow-x-auto"
+          role="tablist"
+          aria-label="Open tabs"
+        >
           <div
             v-for="tab in tabs"
             :key="tab.id"
-            :title="tab.title"
-            class="group relative flex items-center py-1 px-2 rounded cursor-pointer max-w-[200px] truncate hover:bg-border"
+            class="group relative flex items-center rounded max-w-[200px] hover:bg-border"
             :class="{
               'bg-border': activeTabId === tab.id,
-              'text-gray-400': activeTabId !== tab.id,
+              'text-muted-foreground': activeTabId !== tab.id,
             }"
-            @click="setActiveTab(tab.id)"
+            @mousedown.middle.prevent
+            @auxclick.middle.prevent="closeAndSetActiveTab(tab.id)"
           >
-            <tab-icon :name="tab.icon" class="mr-1" />
-            <span class="truncate">{{ tab.title }}</span>
-            <div
-              @click="closeAndSetActiveTab(tab.id)"
-              class="hidden group-hover:block absolute right-1 p-0.5 rounded-sm bg-opacity-50 bg-accent hover:bg-accent text-foreground"
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="activeTabId === tab.id"
+              :title="tab.title"
+              class="flex items-center min-w-0 py-1 pl-2 pr-6 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              @click="setActiveTab(tab.id)"
+            >
+              <tab-icon :name="tab.icon" class="mr-1 shrink-0" />
+              <span class="truncate">{{ tab.title }}</span>
+            </button>
+            <button
+              type="button"
+              :aria-label="`Close ${tab.title}`"
+              :title="`Close ${tab.title} (middle-click)`"
+              class="absolute right-1 p-0.5 rounded-sm text-foreground hover:bg-accent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              @click.stop="closeAndSetActiveTab(tab.id)"
             >
               <Close class="h-3" />
-            </div>
+            </button>
           </div>
         </div>
-        <div
-          class="ml-auto p-1 rounded cursor-pointer hover:bg-border"
+        <button
+          type="button"
+          class="ml-auto p-1 rounded hover:bg-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          :aria-label="state.open ? 'Collapse panel' : 'Expand panel'"
+          :title="state.open ? 'Collapse panel' : 'Expand panel'"
+          :aria-expanded="state.open"
           @click="state.open = !state.open"
         >
           <Expand
-            class="text-white h-3"
+            class="text-foreground h-3"
             :class="{ 'rotate-90': !state.open, 'rotate-270': state.open }"
           />
-        </div>
+        </button>
       </div>
       <div class="relative flex-grow p-2 overflow-auto" v-show="state.open">
-        <keep-alive>
+        <!--
+          Every tab is rendered and keyed by its id; inactive ones are only
+          hidden. Closing a tab removes it from the list, which unmounts its
+          component (stopping log follows, terminals, editors and listeners).
+        -->
+        <div
+          v-for="tab in tabs"
+          v-show="tab.id === activeTabId"
+          :key="tab.id"
+          role="tabpanel"
+          class="w-full h-full"
+        >
           <component
-            :is="activeTab?.component"
-            v-bind="activeTab?.props"
-            :tabId="activeTab?.id"
-            @forceClose="closeAndSetActiveTab(activeTab!.id, true)"
+            :is="tab.component"
+            v-bind="tab.props"
+            :tabId="tab.id"
+            @forceClose="closeAndSetActiveTab(tab.id, true)"
           />
-        </keep-alive>
+        </div>
       </div>
     </div>
   </ResizablePanel>

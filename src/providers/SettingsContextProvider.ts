@@ -8,10 +8,18 @@ import {
 } from "@tauri-apps/plugin-fs";
 import { homeDir } from "@tauri-apps/api/path";
 import { invoke } from "@tauri-apps/api/core";
+import { error } from "@/lib/logger";
 
 export const SettingsContextStateKey: InjectionKey<
   ToRefs<SettingsContextState>
 > = Symbol("SettingsContextState");
+
+/** Writes pending settings changes to disk immediately (e.g. before quit). */
+export const SettingsContextFlushKey: InjectionKey<() => Promise<void>> =
+  Symbol("SettingsContextFlush");
+
+/* Coalesce bursts of changes (e.g. resizing the tab panel) into one write. */
+const SAVE_DEBOUNCE_MS = 300;
 
 export interface ContextSettings {
   context: string;
@@ -85,31 +93,88 @@ export default {
     });
     provide(SettingsContextStateKey, toRefs(state));
 
-    const save = async () => {
-      if (!(await exists(settingsFile, { baseDir: BaseDirectory.AppConfig }))) {
-        if (!(await exists("", { baseDir: BaseDirectory.AppConfig }))) {
-          await mkdir("", { baseDir: BaseDirectory.AppConfig });
-        }
+    let configDirEnsured = false;
+    let lastWritten: string | null = null;
+    let saveTimer: ReturnType<typeof setTimeout> | null = null;
+    let writeQueue: Promise<void> = Promise.resolve();
+
+    const write = async (contents: string) => {
+      if (contents === lastWritten) {
+        return;
       }
 
-      await writeTextFile(settingsFile, JSON.stringify(state.settings), {
+      if (!configDirEnsured) {
+        if (!(await exists("", { baseDir: BaseDirectory.AppConfig }))) {
+          await mkdir("", { baseDir: BaseDirectory.AppConfig, recursive: true });
+        }
+        configDirEnsured = true;
+      }
+
+      await writeTextFile(settingsFile, contents, {
         baseDir: BaseDirectory.AppConfig,
       });
+      lastWritten = contents;
     };
+
+    /*
+     * Writes are serialized: a slow write can never be overtaken by (and
+     * overwrite) a newer one. The snapshot is taken when the write is queued.
+     */
+    const flush = (): Promise<void> => {
+      if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+      }
+
+      const contents = JSON.stringify(state.settings);
+      writeQueue = writeQueue
+        .then(() => write(contents))
+        .catch((e) => {
+          error(`Failed to save settings: ${e}`);
+        });
+
+      return writeQueue;
+    };
+
+    const scheduleSave = () => {
+      if (saveTimer) {
+        clearTimeout(saveTimer);
+      }
+      saveTimer = setTimeout(flush, SAVE_DEBOUNCE_MS);
+    };
+
+    provide(SettingsContextFlushKey, flush);
 
     if (await exists(settingsFile, { baseDir: BaseDirectory.AppConfig })) {
       const fileContents = await readTextFile(settingsFile, {
         baseDir: BaseDirectory.AppConfig,
       });
 
-      // Merge initial state with file contents
-      state.settings = { ...state.settings, ...JSON.parse(fileContents) };
+      try {
+        // Merge initial state with file contents
+        state.settings = { ...state.settings, ...JSON.parse(fileContents) };
+        lastWritten = fileContents;
+      } catch (e) {
+        // Keep the unreadable file around before defaults overwrite it.
+        error(`Failed to parse settings, using defaults: ${e}`);
+        await writeTextFile(`${settingsFile}.corrupt`, fileContents, {
+          baseDir: BaseDirectory.AppConfig,
+        }).catch(() => {});
+      }
 
       invoke("update_log_level", { level: state.settings.logLevel });
     }
 
-    watch(state, (newState) => {
-      save();
+    watch(state, scheduleSave, { deep: true });
+
+    /*
+     * Best effort for pending changes when the window goes away; the quit
+     * button awaits SettingsContextFlushKey instead.
+     */
+    window.addEventListener("pagehide", () => {
+      if (saveTimer) {
+        flush();
+      }
     });
 
     if (state.settings.kubeConfigs.length === 0) {

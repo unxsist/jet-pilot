@@ -39,9 +39,8 @@ registerCommand({
   id: commandId,
   name: props.customCommandTitle ? props.customCommandTitle : props.title,
   description:
-    "Navigate to " + props.customCommandTitle
-      ? props.customCommandTitle
-      : props.title,
+    "Navigate to " +
+    (props.customCommandTitle ? props.customCommandTitle : props.title),
   execute: () => {
     router.push(props.to);
   },
@@ -55,14 +54,14 @@ onUnmounted(() => {
   <router-link
     :to="props.to"
     active-class="bg-background border !border-border text-primary"
-    class="group/main border border-transparent flex items-center font-semibold rounded-l-lg border-r-0 px-2 py-1 text-[#7a7a7a] cursor-pointer transition-all hover:bg-background hover:text-primary"
+    class="group/main focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring border border-transparent flex items-center font-semibold rounded-l-lg border-r-0 px-2 py-1 text-muted-foreground cursor-pointer transition-all hover:bg-background hover:text-primary"
   >
     <NavigationItemIcon :name="props.icon" />
     <span class="w-[135px] mx-3 truncate" :title="title">{{ title }}</span>
     <div class="block h-full group-hover/main:hidden">
       <span
         v-if="props.shortcut"
-        class="text-xxs leading-none text-[#7a7a7a] whitespace-nowrap"
+        class="text-xxs leading-none text-muted-foreground whitespace-nowrap"
       >
         <span>
           {{ os === "macos" ? "⌘" : "Ctrl" }}{{ os !== "macos" ? "+" : ""
@@ -73,6 +72,9 @@ onUnmounted(() => {
     <div class="hidden group-hover/main:block" v-if="canPin">
       <div
         class="group/pin"
+        role="button"
+        :aria-label="pinned ? `Unpin ${title}` : `Pin ${title}`"
+        :title="pinned ? 'Unpin' : 'Pin'"
         @click.prevent="$emit(pinned ? 'unpinned' : 'pinned')"
       >
         <PinLineIcon

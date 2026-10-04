@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { homeDir } from "@tauri-apps/api/path";
+import { homeDir, join } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
 import FolderIcon from "@/assets/icons/folder.svg";
@@ -12,8 +12,7 @@ const files = defineModel({
 });
 
 const selectFile = async (index: number) => {
-  const home = homeDir();
-  const defaultKubePath = `${home}.kube/config`;
+  const defaultKubePath = await join(await homeDir(), ".kube", "config");
 
   const selectedFiles = await open({
     multiple: true,
@@ -58,22 +57,43 @@ const removeFile = (index: number) => {
         v-model="files[index]"
         type="text"
         placeholder="Path to kubeconfig file"
+        :aria-label="`Kubeconfig file ${index + 1}`"
         class="bg-transparent p-2 py-3 w-full text-xs focus:outline-none"
       />
+      <!-- Visible on hover and whenever the row has keyboard focus. -->
       <div
-        class="absolute pl-2 space-x-2 right-0.5 bg-background opacity-0 group-hover:opacity-100"
+        class="absolute pl-2 space-x-2 right-0.5 bg-background opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
       >
-        <Button variant="ghost" size="sm" @click="removeFile(index)">
+        <Button
+          variant="ghost"
+          size="sm"
+          :aria-label="`Remove ${file || 'kubeconfig file'}`"
+          title="Remove"
+          @click="removeFile(index)"
+        >
           <BinIcon class="h-3.5" />
         </Button>
-        <Button variant="ghost" size="sm" @click="selectFile(index)">
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="Browse for a kubeconfig file"
+          title="Browse..."
+          @click="selectFile(index)"
+        >
           <FolderIcon class="h-3.5" />
         </Button>
       </div>
     </div>
   </div>
   <div class="flex justify-end">
-    <Button variant="outline" size="sm" class="mt-2" @click="files.push('')">
+    <Button
+      variant="outline"
+      size="sm"
+      class="mt-2"
+      aria-label="Add a kubeconfig file"
+      title="Add kubeconfig file"
+      @click="files.push('')"
+    >
       <PlusIcon class="h-4" />
     </Button>
   </div>

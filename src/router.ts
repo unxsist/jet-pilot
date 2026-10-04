@@ -37,6 +37,9 @@ const routes: Array<RouteRecordRaw> = [
     path: "/cluster-overview",
     name: "ClusterOverview",
     component: () => import("./views/ClusterOverview.vue"),
+    meta: {
+      requiresContext: true,
+    },
   },
   {
     path: "/pods",

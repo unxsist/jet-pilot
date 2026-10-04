@@ -7,8 +7,17 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Kubernetes } from "@/services/Kubernetes";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
-import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
-import { GlobalShortcutRegisterShortcutsKey } from "@/providers/GlobalShortcutProvider";
+import {
+  SettingsContextStateKey,
+  SettingsContextFlushKey,
+} from "@/providers/SettingsContextProvider";
+import {
+  GlobalShortcutRegisterShortcutsKey,
+  PINNED_SHORTCUT_COUNT,
+  resourceRoute,
+} from "@/providers/GlobalShortcutProvider";
+import { OpenCommandPaletteKey } from "@/providers/CommandPaletteProvider";
+import { Search } from "lucide-vue-next";
 import { injectStrict } from "@/lib/utils";
 import { V1APIResource } from "@kubernetes/client-node";
 import { type as getOsType } from "@tauri-apps/plugin-os";
@@ -25,12 +34,14 @@ import { RouteLocationRaw } from "vue-router";
 const targetOs = ref<string>(getOsType());
 const {
   context,
-  namespace,
   kubeConfig,
   authenticated: clusterAuthenticated,
 } = injectStrict(KubeContextStateKey);
 const { settings } = injectStrict(SettingsContextStateKey);
+const flushSettings = injectStrict(SettingsContextFlushKey);
 const refreshShortcuts = injectStrict(GlobalShortcutRegisterShortcutsKey);
+const openCommandPalette = injectStrict(OpenCommandPaletteKey);
+const isMac = computed(() => targetOs.value === "macos");
 
 interface NavigationGroup {
   title: string;
@@ -168,32 +179,58 @@ const getNonDefaultApiGroups = () => {
     .sort((a, b) => a.localeCompare(b));
 };
 
+/*
+ * API discovery of the primary context. Responses of an earlier run (e.g.
+ * of the previously selected context) are discarded by generation.
+ */
+let discoveryGeneration = 0;
+
 const fetchResources = () => {
-  if (context.value === "") {
+  const generation = ++discoveryGeneration;
+  const isCurrent = () => generation === discoveryGeneration;
+  const discoveryContext = context.value;
+  const discoveryKubeConfig = kubeConfig.value;
+
+  clusterResources.value = new Map();
+
+  if (discoveryContext === "") {
     return;
   }
 
-  clusterResources.value.clear();
-  Kubernetes.getCoreApiVersions(context.value, kubeConfig.value).then((results) => {
-    results.forEach((version) => {
-      Kubernetes.getCoreApiResources(context.value, version, kubeConfig.value).then(
-        (resources) => {
-          clusterResources.value.set(version, resources);
-        }
-      );
-    });
-  });
-
-  Kubernetes.getApiGroups(context.value, kubeConfig.value)
-    .then((results) => {
-      results.forEach((group) => {
-        Kubernetes.getApiGroupResources(
-          context.value,
-          group.preferredVersion?.groupVersion ?? "",
-          kubeConfig.value
+  Kubernetes.getCoreApiVersions(discoveryContext, discoveryKubeConfig)
+    .then((versions) => {
+      versions.forEach((version) => {
+        Kubernetes.getCoreApiResources(
+          discoveryContext,
+          version,
+          discoveryKubeConfig
         )
           .then((resources) => {
-            clusterResources.value.set(group.name, resources);
+            if (isCurrent()) {
+              clusterResources.value.set(version, resources);
+            }
+          })
+          .catch((e) => {
+            error(`Error fetching core resources for ${version}: ${e}`);
+          });
+      });
+    })
+    .catch((e) => {
+      error(`Error fetching core api versions: ${e}`);
+    });
+
+  Kubernetes.getApiGroups(discoveryContext, discoveryKubeConfig)
+    .then((groups) => {
+      groups.forEach((group) => {
+        Kubernetes.getApiGroupResources(
+          discoveryContext,
+          group.preferredVersion?.groupVersion ?? "",
+          discoveryKubeConfig
+        )
+          .then((resources) => {
+            if (isCurrent()) {
+              clusterResources.value.set(group.name, resources);
+            }
           })
           .catch((e) => {
             error(`Error fetching resources for group ${group.name}: ${e}`);
@@ -222,7 +259,8 @@ const minimize = () => {
   window.minimize();
 };
 
-const quit = () => {
+const quit = async () => {
+  await flushSettings();
   exit(0);
 };
 
@@ -246,8 +284,16 @@ onMounted(() => {
   fetchResources();
 });
 
-watch([context, namespace, clusterAuthenticated], () => {
+// Discovery only depends on the cluster: namespace changes don't affect it.
+watch([context, kubeConfig], () => {
   fetchResources();
+});
+
+// Re-discover after a successful re-authentication.
+watch(clusterAuthenticated, (authenticated, wasAuthenticated) => {
+  if (authenticated && !wasAuthenticated) {
+    fetchResources();
+  }
 });
 </script>
 
@@ -255,17 +301,28 @@ watch([context, namespace, clusterAuthenticated], () => {
   <div class="flex flex-col flex-shrink-0 relative min-w-[200px] max-w-[200px]">
     <div
       v-if="targetOs !== 'macos'"
-      class="p-2 pb-0 -mb-1 space-x-2"
+      class="flex justify-end p-2 pb-0 -mb-1 space-x-2"
       data-tauri-drag-region
     >
-      <Button size="xs" @click="quit">
-        <CloseIcon class="h-3 text-white" />
+      <!-- Windows / Linux order: minimize, maximize, close -->
+      <Button
+        size="xs"
+        aria-label="Minimize window"
+        title="Minimize"
+        @click="minimize"
+      >
+        <MinimizeIcon class="h-3" />
       </Button>
-      <Button size="xs" @click="maxOrUnmaximize">
-        <FullScreenIcon class="h-3 text-white" />
+      <Button
+        size="xs"
+        aria-label="Maximize or restore window"
+        title="Maximize / restore"
+        @click="maxOrUnmaximize"
+      >
+        <FullScreenIcon class="h-3" />
       </Button>
-      <Button size="xs" @click="minimize">
-        <MinimizeIcon class="h-3 text-white" />
+      <Button size="xs" aria-label="Quit JET Pilot" title="Quit" @click="quit">
+        <CloseIcon class="h-3" />
       </Button>
     </div>
     <div class="absolute w-full h-[40px]" v-else data-tauri-drag-region></div>
@@ -278,6 +335,23 @@ watch([context, namespace, clusterAuthenticated], () => {
       class="flex flex-col flex-grow p-2 pr-0"
     >
       <ContextSwitcher :class="{ 'mt-[30px]': targetOs === 'macos' }" />
+      <div class="w-full mb-4 pr-2">
+        <button
+          type="button"
+          class="flex w-full items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          :aria-keyshortcuts="isMac ? 'Meta+K' : 'Control+K'"
+          @click="openCommandPalette()"
+        >
+          <span class="flex items-center gap-2 truncate">
+            <Search class="h-3.5 w-3.5 shrink-0" />
+            Search / commands
+          </span>
+          <kbd
+            class="shrink-0 rounded border bg-background px-1 font-mono text-xxs leading-4"
+            >{{ isMac ? "⌘K" : "Ctrl+K" }}</kbd
+          >
+        </button>
+      </div>
       <PortForwardingManager />
       <div class="flex w-full flex-grow overflow-hidden">
         <ScrollArea class="w-full mt-0 mb-0">
@@ -293,14 +367,10 @@ watch([context, namespace, clusterAuthenticated], () => {
                 :icon="formatResourceKind(resource.kind).toLowerCase()"
                 :pinned="true"
                 :title="formatResourceKind(resource.kind)"
-                :shortcut="index > 8 ? undefined : index + 1"
-                :to="{
-                  path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
-                  query: {
-                    resource: formatResourceKind(resource.kind).toLowerCase(),
-                    kind: resource.kind,
-                  },
-                }"
+                :shortcut="
+                  index < PINNED_SHORTCUT_COUNT ? index + 1 : undefined
+                "
+                :to="resourceRoute(resource.kind)"
                 @unpinned="unpinResource(resource)"
               />
             </template>
