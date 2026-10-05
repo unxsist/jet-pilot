@@ -13,10 +13,12 @@ mod kubernetes;
 mod logs;
 mod metrics;
 mod manifest;
+mod openvsx;
 mod port_forward;
 #[cfg(all(test, feature = "kwok-qa"))]
 mod qa_kwok;
 mod shell;
+mod themes;
 mod util;
 mod watch;
 mod workloads;
@@ -162,6 +164,9 @@ fn main() {
             metrics::metrics_unsubscribe,
             metrics::metrics_reset,
             manifest::get_openapi_v3_schema,
+            openvsx::openvsx_search,
+            openvsx::openvsx_install,
+            themes::open_themes_folder,
             logs::structured_logging::export_structured_logging_session,
             logs::streaming::start_log_stream,
             logs::streaming::stop_log_stream,
