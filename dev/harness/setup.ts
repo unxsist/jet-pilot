@@ -49,7 +49,7 @@ import {
 const params = new URLSearchParams(location.search);
 if (params.get("fresh")) {
   for (const key of Object.keys(sessionStorage)) {
-    if (key.startsWith("harness-fs:")) sessionStorage.removeItem(key);
+    if (key.startsWith("harness-fs:") || key === "harness-fs-dirs") sessionStorage.removeItem(key);
   }
   // The theme runtime's first-paint cache would repaint a removed theme.
   localStorage.removeItem("jet-theme-cache");
@@ -1035,7 +1035,15 @@ const fsBelow = (dir: string) => {
   const prefix = fsDirPrefix(dir);
   return Object.keys(sessionStorage).filter((key) => key.startsWith(prefix));
 };
-const isFsDir = (path: string) => path === "" || fsBelow(path).length > 0;
+/* Directories made with mkdir (empty ones have no files to imply them). */
+const fsDirsKey = "harness-fs-dirs";
+const madeDirs = (): string[] => JSON.parse(sessionStorage.getItem(fsDirsKey) || "[]");
+const fsMkdir = (dir: string) => {
+  const trimmed = String(dir).replace(/\/+$/, "");
+  if (!madeDirs().includes(trimmed)) sessionStorage.setItem(fsDirsKey, JSON.stringify([...madeDirs(), trimmed]));
+};
+const isFsDir = (path: string) =>
+  path === "" || fsBelow(path).length > 0 || madeDirs().includes(String(path).replace(/\/+$/, ""));
 
 /** `readDir` entries: direct children (files, and directories implied by deeper files). */
 const readDir = (dir: string) => {
@@ -1170,11 +1178,16 @@ mockIPC(
         if (contents === null) throw new Error(`No such file: ${p.path}`);
         return Array.from(encoder.encode(contents));
       }
-      case "plugin:fs|write_text_file":
       case "plugin:fs|mkdir":
+        fsMkdir(p.path);
+        return null;
+      case "plugin:fs|write_text_file":
         return null;
       case "plugin:path|resolve_directory":
-        return HOME;
+        // 13: BaseDirectory.AppConfig (the themes folder lives below it).
+        return p.directory === 13 ? `${HOME}/.config/jet-pilot` : HOME;
+      case "plugin:path|join":
+        return (p.paths as string[]).join("/").replace(/\/{2,}/g, "/");
       case "plugin:app|version":
         return "1.35.0";
       case "plugin:app|name":
