@@ -227,6 +227,14 @@ function kubectlGet(args: string[]): string {
   }
 
   const key = resourceKey(resource);
+  // One Secret by name (the graph inspector's "Load Secret").
+  if (key === "secret" && args[2] && !args[2].startsWith("-")) {
+    const secret = cluster.secrets.find(
+      (s: any) => s.metadata?.name === args[2] && (!namespace || s.metadata?.namespace === namespace)
+    );
+    if (!secret) throw new Error(`Error from server (NotFound): secrets "${args[2]}" not found`);
+    return JSON.stringify(secret);
+  }
   // Every fixture list is keyed by its plural resource name.
   let items: any[] =
     scenario === "empty" && key !== "namespaces" ? [] : cluster[key] || [];
@@ -239,6 +247,26 @@ function kubectlGet(args: string[]): string {
     const [, name] = (argValue(args, "--for") || "").split("/");
     items = cluster.events.filter((e) => e.involvedObject.name === name);
     if (items.length === 0) items = cluster.events.slice(4, 7);
+  }
+
+  // The resource graph lists Secrets metadata-only (clusterGraphSources.ts).
+  if (key === "secrets" && (argValue(args, "-o") || "").startsWith("jsonpath=")) {
+    return items
+      .map((s) =>
+        [
+          s.metadata?.uid,
+          s.metadata?.namespace,
+          s.metadata?.name,
+          s.type,
+          s.metadata?.resourceVersion,
+          s.metadata?.creationTimestamp,
+          s.metadata?.labels ? JSON.stringify(s.metadata.labels) : "",
+          s.metadata?.annotations?.["meta.helm.sh/release-name"],
+        ]
+          .map((v) => v ?? "")
+          .join("\t") + "\n"
+      )
+      .join("");
   }
 
   return JSON.stringify({ apiVersion: "v1", kind: "List", items });
@@ -823,6 +851,60 @@ function watchSubscribe(request: any, channel: any) {
     kind: request.kind || "",
   };
 }
+
+/*
+ * Live changes on demand (graph perf / QA): add, modify or remove an object
+ * of the first context. Pushed to its watchers as a delta, and kept in the
+ * fixture list so the kubectl mock (polling path) sees it too.
+ *   __harnessMutate("deployments", "orders-api", (d) => ({ ...d, status: {...} }))
+ *   __harnessAdd("configmaps", { kind: "ConfigMap", metadata: {...} })
+ *   __harnessRemove("pods", "orders-api-abc")
+ */
+function emitWatchChange(key: string, change: { added?: any[]; modified?: any[]; deleted?: any[] }) {
+  const context = CONTEXTS[0].name;
+  for (const sub of watchSubscriptions.values()) {
+    if (sub.key !== key || sub.context !== context) continue;
+    for (const scope of sub.scopes) {
+      const pick = (list: any[] = []) => list.filter((o) => !scope || o.metadata?.namespace === scope);
+      const added = pick(change.added).map((o) => tagRow(o, context, KUBECONFIG));
+      const modified = pick(change.modified).map((o) => tagRow(o, context, KUBECONFIG));
+      const deleted = pick(change.deleted).map((o) => o.metadata.uid);
+      if (added.length || modified.length || deleted.length) {
+        sendToChannel(sub.channel, { type: "delta", scope, added, modified, deleted });
+      }
+    }
+  }
+}
+const harnessList = (key: string): any[] => {
+  const cluster = clusters[CONTEXTS[0].name] as any;
+  return (cluster[key] = cluster[key] || []);
+};
+Object.assign(window as any, {
+  __harnessMutate(key: string, name: string, update: (object: any) => any) {
+    const list = harnessList(key);
+    const index = list.findIndex((o) => o.metadata?.name === name);
+    if (index < 0) throw new Error(`${key}/${name} not found`);
+    const next = update(structuredClone(list[index]));
+    next.metadata = { ...next.metadata, resourceVersion: String(++resourceVersion) };
+    list[index] = next;
+    emitWatchChange(key, { modified: [next] });
+    return next;
+  },
+  __harnessAdd(key: string, object: any) {
+    object.metadata = { uid: `harness-${++resourceVersion}`, ...object.metadata, resourceVersion: String(resourceVersion) };
+    harnessList(key).push(object);
+    emitWatchChange(key, { added: [object] });
+    return object;
+  },
+  __harnessRemove(key: string, name: string) {
+    const list = harnessList(key);
+    const index = list.findIndex((o) => o.metadata?.name === name);
+    if (index < 0) throw new Error(`${key}/${name} not found`);
+    const [removed] = list.splice(index, 1);
+    emitWatchChange(key, { deleted: [removed] });
+    return removed;
+  },
+});
 
 if (scenario === "large") {
   // ~20 pod changes per second, batched like the backend (150 ms). The
