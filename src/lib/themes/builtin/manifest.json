@@ -1,0 +1,168 @@
+[
+  {
+    "id": "t3-chat",
+    "name": "T3 Chat",
+    "origin": {
+      "label": "T3 Code",
+      "url": "https://github.com/pingdotgg/t3code",
+      "license": "MIT"
+    },
+    "appearances": [
+      "light",
+      "dark"
+    ]
+  },
+  {
+    "id": "t3-grove",
+    "name": "Grove",
+    "origin": {
+      "label": "T3 Code",
+      "url": "https://github.com/pingdotgg/t3code",
+      "license": "MIT"
+    },
+    "appearances": [
+      "light",
+      "dark"
+    ]
+  },
+  {
+    "id": "t3-ocean",
+    "name": "Ocean",
+    "origin": {
+      "label": "T3 Code",
+      "url": "https://github.com/pingdotgg/t3code",
+      "license": "MIT"
+    },
+    "appearances": [
+      "light",
+      "dark"
+    ]
+  },
+  {
+    "id": "t3-ember",
+    "name": "Ember",
+    "origin": {
+      "label": "T3 Code",
+      "url": "https://github.com/pingdotgg/t3code",
+      "license": "MIT"
+    },
+    "appearances": [
+      "light",
+      "dark"
+    ]
+  },
+  {
+    "id": "t3-iris",
+    "name": "Iris",
+    "origin": {
+      "label": "T3 Code",
+      "url": "https://github.com/pingdotgg/t3code",
+      "license": "MIT"
+    },
+    "appearances": [
+      "light",
+      "dark"
+    ]
+  },
+  {
+    "id": "catppuccin",
+    "name": "Catppuccin",
+    "origin": {
+      "label": "VS Code",
+      "url": "https://github.com/catppuccin/vscode",
+      "license": "MIT"
+    },
+    "appearances": [
+      "light",
+      "dark"
+    ]
+  },
+  {
+    "id": "tokyo-night",
+    "name": "Tokyo Night",
+    "origin": {
+      "label": "VS Code",
+      "url": "https://github.com/tokyo-night/tokyo-night-vscode-theme",
+      "license": "MIT"
+    },
+    "appearances": [
+      "light",
+      "dark"
+    ]
+  },
+  {
+    "id": "dracula",
+    "name": "Dracula",
+    "origin": {
+      "label": "VS Code",
+      "url": "https://github.com/dracula/visual-studio-code",
+      "license": "MIT"
+    },
+    "appearances": [
+      "dark"
+    ]
+  },
+  {
+    "id": "nord",
+    "name": "Nord",
+    "origin": {
+      "label": "VS Code",
+      "url": "https://github.com/nordtheme/visual-studio-code",
+      "license": "MIT"
+    },
+    "appearances": [
+      "dark"
+    ]
+  },
+  {
+    "id": "github",
+    "name": "GitHub",
+    "origin": {
+      "label": "VS Code",
+      "url": "https://github.com/primer/github-vscode-theme",
+      "license": "MIT"
+    },
+    "appearances": [
+      "light",
+      "dark"
+    ]
+  },
+  {
+    "id": "one-dark-pro",
+    "name": "One Dark Pro",
+    "origin": {
+      "label": "VS Code",
+      "url": "https://github.com/Binaryify/OneDark-Pro",
+      "license": "MIT"
+    },
+    "appearances": [
+      "dark"
+    ]
+  },
+  {
+    "id": "rose-pine",
+    "name": "Rosé Pine",
+    "origin": {
+      "label": "VS Code",
+      "url": "https://github.com/rose-pine/vscode",
+      "license": "MIT"
+    },
+    "appearances": [
+      "light",
+      "dark"
+    ]
+  },
+  {
+    "id": "gruvbox",
+    "name": "Gruvbox",
+    "origin": {
+      "label": "VS Code",
+      "url": "https://github.com/jdinhify/vscode-theme-gruvbox",
+      "license": "MIT"
+    },
+    "appearances": [
+      "light",
+      "dark"
+    ]
+  }
+]
