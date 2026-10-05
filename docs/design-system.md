@@ -10,9 +10,12 @@ Sources of truth:
 - Tailwind wiring: `tailwind.config.js`
 - Primitives: `src/components/ui/**`
 
-Theme switching is unchanged: `ColorSchemeProvider` uses VueUse
-`useColorMode`, which sets `class="dark"` on `<html>` (Tailwind
-`darkMode: "class"`). Always style through tokens. Avoid raw palette colours
+Theme switching: `ThemeProvider` (`useTheme()`) keeps `class="dark"` /
+`"light"` on `<html>` through VueUse `useColorMode` (Tailwind
+`darkMode: "class"`); the class follows the painted theme's appearance.
+Themes other than JET override the tokens as inline custom properties on
+`<html>`, so anything styled through tokens follows every theme. Always
+style through tokens. Avoid raw palette colours
 like `text-red-500`, `bg-gray-800` or `bg-white`. They don't adapt to the
 theme and skip the contrast checks.
 

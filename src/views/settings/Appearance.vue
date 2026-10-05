@@ -1,27 +1,19 @@
 <script setup lang="ts">
 import SettingsSection from "@/components/settings/SettingsSection.vue";
 import { Check } from "lucide-vue-next";
-import { useColorMode } from "@vueuse/core";
+import { useTheme } from "@/providers/ThemeProvider";
 
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
 
 const { settings } = injectStrict(SettingsContextStateKey);
-const colorMode = useColorMode();
+const { setColorScheme } = useTheme();
 
 const schemes = [
   { value: "auto", label: "System" },
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
 ] as const;
-
-watch(
-  settings.value,
-  (value) => {
-    colorMode.value = value.appearance.colorScheme;
-  },
-  { deep: true }
-);
 </script>
 <template>
   <SettingsSection
@@ -45,7 +37,7 @@ watch(
             ? 'border-primary ring-2 ring-primary/20'
             : ''
         "
-        @click="settings.appearance.colorScheme = scheme.value"
+        @click="setColorScheme(scheme.value)"
       >
         <!-- Mini app previews rendered with the real theme tokens -->
         <div

@@ -7,7 +7,7 @@ import Toaster from "@/components/ui/toast/Toaster.vue";
 import CommandPalette from "./components/CommandPalette.vue";
 import SettingsContextProvider from "./providers/SettingsContextProvider";
 import GlobalShortcutProvider from "./providers/GlobalShortcutProvider";
-import ColorSchemeProvider from "./providers/ColorSchemeProvider";
+import ThemeProvider from "./providers/ThemeProvider";
 import KubeContextProvider from "./providers/KubeContextProvider";
 import PortForwardingProvider from "./providers/PortForwardingProvider";
 import CommandPaletteProvider from "./providers/CommandPaletteProvider";
@@ -51,7 +51,7 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
         <AppSkeleton />
       </template>
       <GlobalShortcutProvider>
-        <ColorSchemeProvider>
+        <ThemeProvider>
           <DialogProvider>
             <KubeContextProvider>
               <PortForwardingProvider>
@@ -92,7 +92,7 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
               </PortForwardingProvider>
             </KubeContextProvider>
           </DialogProvider>
-        </ColorSchemeProvider>
+        </ThemeProvider>
       </GlobalShortcutProvider>
     </SettingsContextProvider>
   </AppLayout>
