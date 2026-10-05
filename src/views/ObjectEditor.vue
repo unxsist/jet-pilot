@@ -11,12 +11,12 @@ import {
   type MonacoRuntime,
 } from "@/components/monaco";
 import { kindSchema, errorMessage } from "@/components/monaco/schemas";
+import { diffLines, diffSummary } from "@/lib/diff";
 import { readTypeMeta } from "@/components/monaco/kubernetesSchema";
 import {
   classifyError,
   diffObjects,
   formatPath,
-  lineDelta,
   locateProblems,
   parseApplyErrors,
   previewValue,
@@ -421,7 +421,7 @@ const summary = shallowRef<{ changes: Change[]; added: number; removed: number; 
 const computeSummary = () => {
   const before = baseText.value;
   const after = editContents.value;
-  const { added, removed } = lineDelta(before, after);
+  const { added, removed } = diffSummary(diffLines(before, after));
   try {
     const changes = props.create ? [] : diffObjects(parseYaml(before), parseYaml(after));
     summary.value = { changes, added, removed, parseError: "" };

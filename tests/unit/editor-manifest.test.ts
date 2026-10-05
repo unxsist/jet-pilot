@@ -1,9 +1,9 @@
 import { describe, expect, test } from "vitest";
+import { diffLines, diffSummary } from "@/lib/diff";
 import {
   classifyError,
   diffObjects,
   formatPath,
-  lineDelta,
   locatePath,
   locateProblems,
   parseApplyErrors,
@@ -76,9 +76,11 @@ describe("diffObjects", () => {
   });
 });
 
-test("lineDelta counts added and removed lines", () => {
-  expect(lineDelta("a\nb\nc", "a\nB\nc\nd")).toEqual({ added: 2, removed: 1 });
-  expect(lineDelta("same", "same")).toEqual({ added: 0, removed: 0 });
+test("the editor's +/- summary counts added and removed lines", () => {
+  expect(diffSummary(diffLines("a\nb\nc", "a\nB\nc\nd"))).toEqual({ added: 2, removed: 1 });
+  expect(diffSummary(diffLines("same", "same"))).toEqual({ added: 0, removed: 0 });
+  // a trailing newline is not a change
+  expect(diffSummary(diffLines("a\nb\n", "a\nb"))).toEqual({ added: 0, removed: 0 });
 });
 
 describe("rebaseEdits", () => {

@@ -130,28 +130,6 @@ export const previewValue = (value: unknown, max = 40): string => {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 };
 
-/** Line counts of a text diff, for the "+N −M" summary. */
-export function lineDelta(before: string, after: string): { added: number; removed: number } {
-  const a = before.split("\n");
-  const b = after.split("\n");
-  // Longest common subsequence on lines; manifests are small (< few k lines).
-  const n = a.length;
-  const m = b.length;
-  if (n * m > 4_000_000) {
-    return { added: Math.max(0, m - n), removed: Math.max(0, n - m) };
-  }
-  let prev = new Uint32Array(m + 1);
-  let curr = new Uint32Array(m + 1);
-  for (let i = 1; i <= n; i++) {
-    for (let j = 1; j <= m; j++) {
-      curr[j] = a[i - 1] === b[j - 1] ? prev[j - 1] + 1 : Math.max(prev[j], curr[j - 1]);
-    }
-    [prev, curr] = [curr, prev];
-  }
-  const common = prev[m];
-  return { added: m - common, removed: n - common };
-}
-
 /* ----------------------------------------------------------- rebasing -- */
 
 const getIn = (value: unknown, path: Path): unknown =>
