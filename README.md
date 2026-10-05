@@ -37,22 +37,27 @@ JET Pilot requires [`kubectl`](https://kubernetes.io/docs/tasks/tools/) on your 
 
 ### macOS
 
-Install with Homebrew:
+Install with Homebrew from the JET Pilot tap:
 
 ```bash
-brew install --cask jet-pilot
+brew install --cask unxsist/tap/jet-pilot
 ```
+
+The tap's cask clears macOS's quarantine flag after installing, so the app opens right away and keeps itself up to date.
+
+> [!NOTE]
+> JET Pilot is no longer in Homebrew's main cask repository: since October 2026 Homebrew only accepts apps notarized by Apple there. If you installed it with `brew install --cask jet-pilot` before, switch once with `brew uninstall --cask jet-pilot && brew install --cask unxsist/tap/jet-pilot` (your settings are kept).
 
 …or download the `.dmg` for Apple Silicon (`aarch64`) or Intel (`x64`), open it and drag JET Pilot into your Applications folder.
 
 > [!IMPORTANT]
-> **JET Pilot is not notarized by Apple.** It's free and open source, and we'd rather not pay Apple's yearly developer fee. macOS will therefore say the app *"is damaged and can't be opened"* or *"cannot be verified"*. Remove the quarantine flag once after installing (also after a Homebrew install):
+> **JET Pilot is not notarized by Apple.** It's free and open source, and we'd rather not pay Apple's yearly developer fee. When you install the `.dmg` yourself, macOS will say the app *"is damaged and can't be opened"* or *"cannot be verified"*. Remove the quarantine flag once after installing:
 >
 > ```bash
 > xattr -dr com.apple.quarantine "/Applications/JET Pilot.app"
 > ```
 >
-> That's it — automatic updates keep working afterwards.
+> That's it — automatic updates keep working afterwards. (The Homebrew tap does this for you.)
 
 ### Linux
 
