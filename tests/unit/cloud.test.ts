@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   availableInHub,
+  catalogStatus,
+  catalogWhere,
   connectionScope,
   defaultRole,
   discoverySummary,
@@ -16,6 +18,7 @@ import {
   regionsSummary,
 } from "@/lib/clusters/cloudModel";
 import { parseHubFilter, matchesFilter, type HubCluster } from "@/lib/clusters/hubModel";
+import { connectionKindLabel, narrowLabel, parseGroups, tokenLooksValid } from "@/lib/clusters/providers";
 import { initialsOf, shortName } from "@/lib/clusters/meta";
 import type { AwsProfile, CatalogCluster, CloudConnection } from "@/lib/clusters/cloud";
 
@@ -214,11 +217,85 @@ describe("discovery", () => {
   });
 });
 
+describe("cluster states from clouds", () => {
+  it("mentions only states that aren't ready", () => {
+    expect(catalogStatus({ status: "ACTIVE" })).toBeNull();
+    expect(catalogStatus({ status: "running" })).toBeNull();
+    expect(catalogStatus({ status: null })).toBeNull();
+    expect(catalogStatus({ status: "RECONCILING" })).toBe("Updating");
+    expect(catalogStatus({ status: "CREATING" })).toBe("Creating");
+    expect(catalogStatus({ status: "SOMETHING_NEW" })).toBe("Something_new");
+  });
+});
+
 describe("names of clusters added from AWS", () => {
   it("shows the cluster name", () => {
     expect(shortName("eks-eu-west-1-prod-eu")).toBe("prod-eu");
     expect(shortName("eks-us-gov-west-1-ledger")).toBe("ledger");
     expect(shortName("eks-dev")).toBe("eks-dev");
+    expect(shortName("gke-europe-west4-checkout")).toBe("checkout");
+    expect(shortName("gke-us-central1-a-web")).toBe("web");
+    expect(shortName("aks-westeurope-aks-weu-core")).toBe("aks-weu-core");
+    expect(shortName("do-ams3-hobby")).toBe("hobby");
+    expect(shortName("lke-eu-central-lke-prod")).toBe("lke-prod");
+    expect(shortName("civo-lon1-blog")).toBe("blog");
+    expect(shortName("scw-fr-par-kapsule-prod")).toBe("kapsule-prod");
+    expect(shortName("vke-ams-vke-prod")).toBe("vke-prod");
+    expect(shortName("sks-ch-gva-2-sks-prod")).toBe("sks-prod");
+    expect(shortName("do-ams3-hobby-ctx")).toBe("hobby-ctx");
     expect(initialsOf("eks-eu-central-1-payments")).toBe("PA");
+  });
+});
+
+describe("cloud providers", () => {
+  it("names how a connection signs in", () => {
+    expect(connectionKindLabel({ provider: "gcp", kind: "cli" })).toBe("Google Cloud CLI");
+    expect(connectionKindLabel({ provider: "azure", kind: "cli" })).toBe("Azure CLI");
+    expect(connectionKindLabel({ provider: "linode", kind: "token" })).toBe("Personal access token");
+    expect(connectionKindLabel({ provider: "exoscale", kind: "apiKey" })).toBe("API key");
+    expect(connectionKindLabel({ provider: "aws", kind: "sso" })).toBe("IAM Identity Center");
+  });
+
+  it("checks pasted tokens loosely", () => {
+    expect(tokenLooksValid("digitalocean", "dop_v1_4f2a9c1e7b3d5a8f2c6e1b9d4a7f3c2e")).toBe(true);
+    expect(tokenLooksValid("digitalocean", "short")).toBe(false);
+    expect(tokenLooksValid("vultr", "has a space in it, which tokens never do")).toBe(false);
+    expect(tokenLooksValid("scaleway", "5f2c8a1e-7b3d-4a9f-8c6e-1b9d4a7f3c2e")).toBe(true);
+    expect(tokenLooksValid("scaleway", "SCW1234567890ABCDEFGH")).toBe(false);
+  });
+
+  it("parses Exoscale groups", () => {
+    expect(parseGroups(" system:masters, ops  ops\nreaders ")).toEqual(["system:masters", "ops", "readers"]);
+    expect(parseGroups("")).toEqual([]);
+  });
+
+  it("offers to narrow down what an account reaches", () => {
+    expect(narrowLabel({ provider: "aws", kind: "sso" })).toBe("Accounts and regions…");
+    expect(narrowLabel({ provider: "aws", kind: "keys" })).toBe("Regions…");
+    expect(narrowLabel({ provider: "gcp", kind: "cli" })).toBe("Projects…");
+    expect(narrowLabel({ provider: "azure", kind: "cli" })).toBe("Subscriptions…");
+    expect(narrowLabel({ provider: "exoscale", kind: "apiKey" })).toBe("Zones…");
+    expect(narrowLabel({ provider: "scaleway", kind: "token" })).toBe("Regions…");
+    expect(narrowLabel({ provider: "vultr", kind: "token" })).toBeNull();
+  });
+
+  it("describes what other clouds reach", () => {
+    expect(connectionScope(connection({ provider: "gcp", kind: "cli" }))).toBe("All projects");
+    expect(
+      connectionScope(connection({ provider: "azure", kind: "cli", targets: [{ accountId: "s1", accountName: "Production", roleName: "" }] }))
+    ).toBe("Production");
+    expect(connectionScope(connection({ provider: "digitalocean", kind: "token" }))).toBe("Whole account");
+  });
+
+  it("filters catalog clusters of every cloud by provider", () => {
+    const list = [cluster("checkout", { provider: "gcp" }), cluster("prod-eu")];
+    const names = (query: string) => availableInHub(list, parseHubFilter(query), false).available.map((c) => c.name);
+    expect(names("provider:gke")).toEqual(["checkout"]);
+    expect(names("provider:google")).toEqual(["checkout"]);
+    expect(names("provider:aws")).toEqual(["prod-eu"]);
+  });
+
+  it("leaves empty account ids out of where a cluster lives", () => {
+    expect(catalogWhere(cluster("hobby", { provider: "digitalocean", accountId: "", accountName: null, region: "ams3" }))).toBe("ams3");
   });
 });

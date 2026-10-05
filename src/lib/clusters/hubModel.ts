@@ -11,7 +11,7 @@
 import type { InventoryEntry } from "./inventory";
 import type { ResolvedCluster } from "./meta";
 import { ENVIRONMENTS } from "./meta";
-import { PROVIDER_LABELS } from "./provider";
+import { PROVIDER_LABELS, type ProviderId } from "./provider";
 import type { ClusterStatus } from "./status";
 
 export type GroupBy = "folder" | "provider" | "environment" | "kubeconfig" | "none";
@@ -197,10 +197,14 @@ export function folderNames(clusters: { meta: ResolvedCluster }[]): string[] {
  */
 export function clusterSubtitle(
   cluster: Pick<HubCluster, "entry">,
-  cloud?: { region: string; accountName?: string | null; accountId: string } | null
+  cloud?: { provider?: ProviderId; region: string; accountName?: string | null; accountId: string } | null
 ): string {
   const { provider, server } = cluster.entry;
-  if (cloud) return [PROVIDER_LABELS[provider.id], cloud.region, cloud.accountName ?? cloud.accountId].join(" · ");
+  if (cloud) {
+    return [PROVIDER_LABELS[cloud.provider ?? provider.id], cloud.region, cloud.accountName || cloud.accountId]
+      .filter(Boolean)
+      .join(" · ");
+  }
   if (provider.id === "other") {
     try {
       return server ? new URL(server).host : "Other";

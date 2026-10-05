@@ -20,6 +20,7 @@
  *   ?readonly=1              (hub) the active cluster is read-only
  *   ?scenario=auth-expired   the first cluster needs a sign-in (auth.ts)
  *   ?scenario=cloud          AWS accounts with added / available clusters (cloud.ts)
+ *   ?scenario=clouds         accounts in AWS, Google Cloud, Azure, DigitalOcean and Exoscale (clouds.ts)
  *
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views; `large-graph` swaps the
@@ -1172,7 +1173,7 @@ const TOOL_NAMES: Record<string, string> = {
   "gke-gcloud-auth-plugin": "GKE auth plugin",
   doctl: "doctl",
 };
-const INSTALL_VERSIONS: Record<string, string> = { kubectl: "v1.34.1", helm: "v3.19.0" };
+const INSTALL_VERSIONS: Record<string, string> = { kubectl: "v1.34.1", helm: "v3.19.0", kubelogin: "v0.2.20" };
 const toolStatus = (id: string) => ({
   id,
   name: TOOL_NAMES[id],

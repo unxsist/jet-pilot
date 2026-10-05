@@ -68,7 +68,8 @@ import {
   type GroupBy,
   type HubCluster,
 } from "@/lib/clusters/hubModel";
-import type { ProviderId } from "@/lib/clusters/provider";
+import { PROVIDER_LABELS, type ProviderId } from "@/lib/clusters/provider";
+import type { InventoryEntry } from "@/lib/clusters/inventory";
 import { cachedStatuses, cancelProbe, probeClusters, type ClusterStatus } from "@/lib/clusters/status";
 import { errorMessage, openAddCluster, removeManaged, withVault } from "@/lib/clusters/managed";
 import { catalogAdd, catalogSetState, type CatalogCluster } from "@/lib/clusters/cloud";
@@ -180,8 +181,26 @@ onBeforeUnmount(() => {
   if (batch !== null) void cancelProbe(batch).catch(() => undefined);
 });
 
+/* Added clusters by context key: their account, role, and whether they're gone. */
+const cloudByContext = computed(() => {
+  const map = new Map<string, CatalogCluster>();
+  for (const cluster of catalog.value ?? []) {
+    if (cluster.addedContext) map.set(contextKey(cluster.addedContext.context, cluster.addedContext.kubeConfig), cluster);
+  }
+  return map;
+});
+/* Clusters added from a cloud account: their provider, region and account come from the catalog. */
+const withCloud = (entry: InventoryEntry): InventoryEntry => {
+  const cloud = cloudByContext.value.get(entry.key);
+  if (!cloud) return entry;
+  const account = cloud.accountName || cloud.accountId || undefined;
+  return {
+    ...entry,
+    provider: { id: cloud.provider, label: PROVIDER_LABELS[cloud.provider], region: cloud.region, ...(account ? { account } : {}) },
+  };
+};
 const hubClusters = computed<HubCluster[]>(() =>
-  (inventory.value ?? []).map((entry) => ({
+  (inventory.value ?? []).map(withCloud).map((entry) => ({
     entry,
     meta: clusters.resolve(entry.context, entry.kubeConfig),
     status: statuses.get(statusKey(entry)),
@@ -342,14 +361,7 @@ onMounted(async () => {
   if (signedIn && stale && !discovery.value) void refreshCloud().catch(() => undefined);
 });
 
-/* Added clusters by context key: their account, role, and whether they're gone. */
-const cloudByContext = computed(() => {
-  const map = new Map<string, CatalogCluster>();
-  for (const cluster of catalog.value ?? []) {
-    if (cluster.addedContext) map.set(contextKey(cluster.addedContext.context, cluster.addedContext.kubeConfig), cluster);
-  }
-  return map;
-});
+
 
 /* Clusters in the accounts that aren't added yet: one prompt, reviewed in a dialog. */
 const available = computed(() => availableInHub(catalog.value ?? [], parseHubFilter(""), true));
@@ -524,7 +536,7 @@ const subtitle = computed(() => {
           <Button v-if="tab === 'clusters'" @click="openAddCluster()">
             <Plus class="h-4 w-4" /> Add cluster
           </Button>
-          <Button v-else @click="openAddCluster('aws')">
+          <Button v-else @click="openAddCluster('cloud')">
             <Plus class="h-4 w-4" /> Connect an account
           </Button>
         </template>

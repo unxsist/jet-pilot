@@ -25,6 +25,9 @@ import { STATUS_LABELS, STATUS_TONES, relativeTime } from "@/lib/clusters/status
 import { envInfo } from "@/lib/clusters/meta";
 import { ORIGIN_LABELS } from "@/lib/kubeconfigSources";
 import type { CatalogCluster } from "@/lib/clusters/cloud";
+import { providerInfo } from "@/lib/clusters/providers";
+
+const SCOPE_LABELS: Partial<Record<CatalogCluster["provider"], string>> = { aws: "Account", gcp: "Project", azure: "Subscription" };
 
 const props = defineProps<{ cluster: HubCluster; cloud?: CatalogCluster | null }>();
 const emit = defineEmits<{
@@ -70,10 +73,12 @@ const AUTH_TEXT: Record<string, string> = {
   none: "No credentials",
 };
 const signsInWith = computed(() => {
-  if (props.cloud) return props.cloud.roleName ? `AWS · ${props.cloud.roleName} role` : "AWS";
+  const cloud = props.cloud;
+  if (cloud?.provider === "aws") return cloud.roleName ? `AWS · ${cloud.roleName} role` : "AWS";
   const auth = entry.value.auth;
   if (auth.kind === "exec") {
     const command = (auth.command ?? "An exec plugin").split(/[\\/]/).pop();
+    if (cloud && command === "jetpilot-auth") return `${providerInfo(cloud.provider).name}, through JET Pilot`;
     return auth.awsProfile ? `${command} · profile ${auth.awsProfile}` : command;
   }
   return AUTH_TEXT[auth.kind] ?? auth.kind;
@@ -167,8 +172,8 @@ const copy = (text: string, what: string) =>
           <CredentialBadge :context="entry.context" :kube-config="entry.kubeConfig" size="sm" />
         </dd>
 
-        <template v-if="cloud">
-          <dt class="text-muted-foreground">Account</dt>
+        <template v-if="cloud && (cloud.accountName || cloud.accountId)">
+          <dt class="text-muted-foreground">{{ SCOPE_LABELS[cloud.provider] ?? "Account" }}</dt>
           <dd class="truncate">
             {{ cloud.accountName ?? cloud.accountId }}
             <span class="font-mono text-xs text-muted-foreground">{{ cloud.accountId }}</span>

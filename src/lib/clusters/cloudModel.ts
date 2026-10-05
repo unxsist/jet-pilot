@@ -68,8 +68,16 @@ export function regionsSummary(regions: string[]): string {
   return `${regions.slice(0, 2).join(", ")} and ${regions.length - 2} more`;
 }
 
-/** What a connection reaches: "4 accounts", "profile prod-admin", the caller. */
+/** What a connection reaches: "4 accounts", "profile prod-admin", "All projects", the caller. */
 export function connectionScope(connection: CloudConnection): string {
+  if (connection.provider === "gcp" || connection.provider === "azure") {
+    const noun = connection.provider === "gcp" ? "project" : "subscription";
+    const count = connection.targets.length;
+    if (!count) return `All ${noun}s`;
+    return count === 1 ? (connection.targets[0]!.accountName ?? connection.targets[0]!.accountId) : `${count} ${noun}s`;
+  }
+  if (connection.kind === "token" || connection.kind === "apiKey") return "Whole account";
+  if (connection.kind === "cli") return connection.cliAccount ?? connection.identity ?? "Current CLI account";
   if (connection.kind === "sso") {
     const count = connection.targets.length;
     return count === 1
@@ -99,8 +107,9 @@ export function groupCatalog(clusters: CatalogCluster[]) {
   return { available: of("available"), added: of("added"), ignored: of("ignored"), removed: of("removed") };
 }
 
-/** Where a catalog cluster lives: "acme-production · eu-west-1". */
-export const catalogWhere = (cluster: CatalogCluster) => `${cluster.accountName ?? cluster.accountId} · ${cluster.region}`;
+/** Where a catalog cluster lives: "acme-production · eu-west-1", or just the region. */
+export const catalogWhere = (cluster: CatalogCluster) =>
+  [cluster.accountName || cluster.accountId, cluster.region].filter(Boolean).join(" · ");
 
 /*
  * A catalog refresh as the UI shows it: one line per scope (account ·
@@ -162,13 +171,26 @@ export function discoverySummary(state: DiscoveryState) {
  * clusters; `is:available` shows only these; ignored ones come along with
  * hidden clusters.
  */
+const PROVIDER_WORDS: Record<CatalogCluster["provider"], string[]> = {
+  aws: ["aws", "eks", "amazon"],
+  gcp: ["gcp", "gke", "google"],
+  azure: ["azure", "aks", "microsoft"],
+  digitalocean: ["digitalocean", "doks", "do"],
+  linode: ["linode", "lke", "akamai"],
+  civo: ["civo"],
+  scaleway: ["scaleway", "kapsule", "scw"],
+  vultr: ["vultr", "vke"],
+  exoscale: ["exoscale", "sks"],
+};
+const providerWords = (provider: CatalogCluster["provider"]) => PROVIDER_WORDS[provider] ?? [provider];
+
 export function availableInHub(clusters: CatalogCluster[], filter: HubFilter, showHidden: boolean) {
   const sorted = groupCatalog(clusters);
   if (filter.env || filter.tag || filter.folder) return { available: [], ignored: [] };
   const flags = [...filter.is].filter((flag) => flag !== "available" && flag !== "hidden");
   if (flags.length) return { available: [], ignored: [] };
   const matches = (cluster: CatalogCluster) => {
-    if (filter.provider && !["aws", "eks", "amazon"].some((word) => word.includes(filter.provider!))) return false;
+    if (filter.provider && !providerWords(cluster.provider).some((word) => word.includes(filter.provider!))) return false;
     const haystack = [cluster.name, cluster.accountName ?? "", cluster.accountId, cluster.region, cluster.roleName ?? ""]
       .join(" ")
       .toLowerCase();
@@ -200,4 +222,27 @@ export function failureSummary(groups: ReturnType<typeof failureGroups>): string
   const [group] = groups;
   const count = group!.regions.length;
   return count > 1 ? `${group!.account} couldn't be checked in ${count} regions` : `${group!.account} couldn't be checked`;
+}
+
+const CLUSTER_STATUS: Record<string, string> = {
+  CREATING: "Creating",
+  PROVISIONING: "Provisioning",
+  UPDATING: "Updating",
+  RECONCILING: "Updating",
+  UPGRADING: "Upgrading",
+  DELETING: "Deleting",
+  STOPPING: "Stopping",
+  STOPPED: "Stopped",
+  FAILED: "Failed",
+  ERROR: "Failed",
+  DEGRADED: "Degraded",
+  PENDING: "Pending",
+};
+const READY_STATUS = new Set(["ACTIVE", "RUNNING", "READY", "SUCCEEDED", "OK"]);
+
+/** A cloud cluster's state worth mentioning ("Updating", "Creating"), or null when it's ready. */
+export function catalogStatus(cluster: Pick<CatalogCluster, "status">): string | null {
+  const status = cluster.status?.toUpperCase();
+  if (!status || READY_STATUS.has(status)) return null;
+  return CLUSTER_STATUS[status] ?? status.charAt(0) + status.slice(1).toLowerCase();
 }

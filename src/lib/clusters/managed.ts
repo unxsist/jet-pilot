@@ -5,6 +5,7 @@
  * encrypted file unlocked with a passphrase).
  */
 import { invoke } from "@tauri-apps/api/core";
+import type { CloudProvider } from "./cloud";
 import { shallowRef } from "vue";
 import type { AuthKind, KubeconfigProblem } from "@/lib/kubeconfigSources";
 import type { ContextRef } from "@/lib/contextKey";
@@ -181,12 +182,32 @@ export async function withVault<T>(operation: () => Promise<T>): Promise<T> {
 
 /* --------------------------------------------------------- the dialog -- */
 
-export type AddMethod = "choose" | "paste" | "file" | "manual" | "aws";
+/** "cloud" connects `provider` ("aws" is short for cloud + aws). */
+export type AddMethod = "choose" | "paste" | "file" | "manual" | "aws" | "cloud";
+
+export interface AddClusterRequest {
+  method: AddMethod;
+  provider?: CloudProvider | null;
+  connectionId?: string | null;
+  id: number;
+}
 
 /** The add-cluster dialog (ClustersHost renders it). */
-export const addClusterRequest = shallowRef<{ method: AddMethod; connectionId?: string | null; id: number } | null>(null);
+export const addClusterRequest = shallowRef<AddClusterRequest | null>(null);
 let requests = 0;
-/** Opens the dialog; with `connectionId`, edits that cloud account (accounts, regions). */
-export function openAddCluster(method: AddMethod = "choose", options: { connectionId?: string | null } = {}) {
-  addClusterRequest.value = { method, connectionId: options.connectionId ?? null, id: ++requests };
+/**
+ * Opens the dialog. `cloud` with a `provider` connects that cloud; with
+ * `connectionId` it edits that account (projects, accounts, regions).
+ */
+export function openAddCluster(
+  method: AddMethod = "choose",
+  options: { connectionId?: string | null; provider?: CloudProvider | null } = {}
+) {
+  const provider = method === "aws" ? "aws" : (options.provider ?? null);
+  addClusterRequest.value = {
+    method: method === "aws" ? "cloud" : method,
+    provider,
+    connectionId: options.connectionId ?? null,
+    id: ++requests,
+  };
 }

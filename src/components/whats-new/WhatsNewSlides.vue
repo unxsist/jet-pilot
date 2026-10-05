@@ -11,52 +11,45 @@ import {
 } from "@/components/ui/carousel";
 import type { UnwrapRefCarouselApi } from "@/components/ui/carousel/interface";
 import { Button } from "@/components/ui/button";
-import {
-  BellRing,
-  FileCheck2,
-  KeyRound,
-  RefreshCw,
-  ShieldCheck,
-  SquareTerminal,
-} from "lucide-vue-next";
+import { Download, FileCheck2, KeyRound, RefreshCw, ShieldCheck, SquareTerminal } from "lucide-vue-next";
 
-import signInDark from "@/assets/whats-new/aws-sign-in-dark.webp";
-import signInLight from "@/assets/whats-new/aws-sign-in-light.webp";
-import accountsPickDark from "@/assets/whats-new/aws-accounts-dark.webp";
-import accountsPickLight from "@/assets/whats-new/aws-accounts-light.webp";
-import availableDark from "@/assets/whats-new/available-dark.webp";
-import availableLight from "@/assets/whats-new/available-light.webp";
-import accountsDark from "@/assets/whats-new/accounts-dark.webp";
-import accountsLight from "@/assets/whats-new/accounts-light.webp";
+import cloudsDark from "@/assets/whats-new/clouds-dark.webp";
+import cloudsLight from "@/assets/whats-new/clouds-light.webp";
+import gcpDark from "@/assets/whats-new/gcp-dark.webp";
+import gcpLight from "@/assets/whats-new/gcp-light.webp";
+import tokenDark from "@/assets/whats-new/token-dark.webp";
+import tokenLight from "@/assets/whats-new/token-light.webp";
+import accountsDark from "@/assets/whats-new/all-accounts-dark.webp";
+import accountsLight from "@/assets/whats-new/all-accounts-light.webp";
 
 const emit = defineEmits<{ done: [] }>();
 
 const slides = [
   {
-    title: "Connect AWS",
+    title: "Every cloud",
     description:
-      "Sign in with IAM Identity Center, an AWS profile (MFA included) or access keys. The device code appears right in the app.",
-    dark: signInDark,
-    light: signInLight,
+      "Add cluster now connects AWS, Google Cloud, Azure, DigitalOcean, Akamai, Civo, Scaleway, Vultr and Exoscale. JET Pilot finds the clusters and keeps the list current.",
+    dark: cloudsDark,
+    light: cloudsLight,
   },
   {
-    title: "Every account and region",
+    title: "Google Cloud and Azure, through their CLIs",
     description:
-      "Choose the accounts, the role to use in each and the regions. JET Pilot finds the EKS clusters as it goes, and you pick the ones to add.",
-    dark: accountsPickDark,
-    light: accountsPickLight,
+      "Use the gcloud or az sign-in you already have, or sign in right in the app. Pick the projects or subscriptions, then the clusters.",
+    dark: gcpDark,
+    light: gcpLight,
   },
   {
-    title: "New clusters, as they appear",
+    title: "A token is all it takes",
     description:
-      "Clusters in your accounts that aren't added yet wait in the Clusters hub: add one, add them all, or ignore the rest. Clusters deleted in AWS are flagged.",
-    dark: availableDark,
-    light: availableLight,
+      "DigitalOcean, Akamai, Civo, Scaleway and Vultr connect with an API token, Exoscale with an API key. They go to your keychain, never into a kubeconfig.",
+    dark: tokenDark,
+    light: tokenLight,
   },
   {
-    title: "Cloud accounts at a glance",
+    title: "All your clouds in one place",
     description:
-      "How each account signs in and until when, what it reaches and its clusters, with sign in again and look for new clusters one click away.",
+      "The Cloud accounts tab shows every account, how it signs in and what it reaches. New clusters in any of them wait in the Clusters hub.",
     dark: accountsDark,
     light: accountsLight,
   },
@@ -64,34 +57,34 @@ const slides = [
 
 const underTheHood = [
   {
-    icon: ShieldCheck,
-    title: "Keys stay in your keychain",
-    text: "Access keys are checked with AWS and stored in the keychain, never in a kubeconfig.",
+    icon: SquareTerminal,
+    title: "Standard plugins",
+    text: "GKE clusters sign in with gke-gcloud-auth-plugin and AKS with kubelogin, so kubectl and k9s use them as they are.",
   },
   {
-    icon: SquareTerminal,
-    title: "Your terminal, too",
-    text: "Added clusters sign in through jetpilot-auth, so kubectl and k9s use them as they are.",
+    icon: Download,
+    title: "kubelogin, verified",
+    text: "No kubelogin? JET Pilot downloads it from Azure's releases and checks its checksum.",
   },
   {
     icon: KeyRound,
-    title: "One sign-in for the aws CLI",
-    text: "Signing in also fills the standard SSO cache: aws commands for that portal just work.",
+    title: "Short-lived credentials",
+    text: "DigitalOcean tokens and Exoscale certificates are minted when needed and expire on their own.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Exoscale access, your call",
+    text: "Certificates are for system:masters by default; change the user and groups per account.",
+  },
+  {
+    icon: FileCheck2,
+    title: "Your CLI config untouched",
+    text: "JET Pilot reads gcloud, az and doctl but never changes their configuration.",
   },
   {
     icon: RefreshCw,
     title: "Quiet by default",
-    text: "The list refreshes when the hub opens, at most every 30 minutes, and never starts a sign-in.",
-  },
-  {
-    icon: BellRing,
-    title: "Removed clusters flagged",
-    text: "A cluster deleted in AWS is marked “No longer in AWS” instead of failing quietly.",
-  },
-  {
-    icon: FileCheck2,
-    title: "Your AWS config untouched",
-    text: "JET Pilot reads your AWS profiles but never changes ~/.aws/config.",
+    text: "Accounts are checked when the hub opens, at most every 30 minutes, and never start a sign-in.",
   },
 ];
 

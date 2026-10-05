@@ -25,6 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import LoginSessionPanel from "@/components/auth/LoginSessionPanel.vue";
 import MfaCode from "./MfaCode.vue";
+import CatalogPicker from "./CatalogPicker.vue";
 import ChoiceRow from "@/components/wizard/ChoiceRow.vue";
 import WizardFooter from "@/components/wizard/WizardFooter.vue";
 import { WIZARD_BODY, WIZARD_ERROR, WIZARD_GROUP_LABEL, WIZARD_LIST, WIZARD_ROW } from "@/components/wizard/wizard";
@@ -52,9 +53,7 @@ import {
 import {
   catalogWhere,
   defaultRole,
-  discoverySummary,
   failureGroups,
-  failureSummary,
   knownPortals,
   parseStartUrl,
   portalName,
@@ -314,7 +313,6 @@ const found = computed<CatalogCluster[]>(() => {
     .filter((c) => c.connectionId === id)
     .sort((a, b) => catalogWhere(a).localeCompare(catalogWhere(b)) || a.name.localeCompare(b.name));
 });
-const progress = computed(() => (discovery.value ? discoverySummary(discovery.value) : null));
 /* What's being looked at right now: "acme-staging · eu-north-1". */
 const checking = computed(() => {
   const running = discovery.value?.scopes.filter((s) => s.state === "running") ?? [];
@@ -324,15 +322,8 @@ const checking = computed(() => {
 const lastFailures = shallowRef<DiscoveryScope[]>([]);
 const failures = computed(() => failureGroups(discovery.value?.scopes.filter((s) => s.state === "error") ?? lastFailures.value));
 const discovering = computed(() => !!discovery.value);
-const showFailures = ref(false);
-const selection = reactive(new Set<string>());
+const selected = ref<string[]>([]);
 const folder = ref("");
-
-/* New clusters are selected as they turn up (not ones already added or ignored). */
-watch(found, (list, previous) => {
-  const before = new Set((previous ?? []).map((c) => c.key));
-  for (const cluster of list) if (!before.has(cluster.key) && cluster.state === "available") selection.add(cluster.key);
-});
 
 const findClusters = async () => {
   const id = connection.value!.id;
@@ -342,7 +333,7 @@ const findClusters = async () => {
   if (error.value) return;
   kept = true;
   folder.value ||= connection.value!.label;
-  selection.clear();
+  selected.value = [];
   go("discover");
   try {
     const finished = await refreshCloud([id]);
@@ -353,7 +344,7 @@ const findClusters = async () => {
 };
 
 const selectable = computed(() => found.value.filter((c) => c.state !== "added" && c.state !== "removed"));
-const chosen = computed(() => selectable.value.filter((c) => selection.has(c.key)));
+const chosen = computed(() => selectable.value.filter((c) => selected.value.includes(c.key)));
 
 const addClusters = () =>
   run(async () => {
@@ -366,14 +357,6 @@ const addClusters = () =>
     emit("done", result.added);
   });
 
-const EKS_STATUS: Record<string, string> = {
-  ACTIVE: "Active",
-  CREATING: "Creating",
-  UPDATING: "Updating",
-  DELETING: "Deleting",
-  FAILED: "Failed",
-  PENDING: "Pending",
-};
 
 /* ----------------------------------------------------------------- setup -- */
 
@@ -715,91 +698,18 @@ const METHODS = [
       </template>
 
       <!-- Discover -->
-      <template v-else-if="step === 'discover'">
-        <div
-          v-if="discovering && progress"
-          class="mb-3 flex items-center gap-2 text-sm text-muted-foreground"
-          role="status"
-          aria-live="polite"
-        >
-          <Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin" />
-          <span class="truncate">
-            <template v-if="checking">Checking {{ checking }} · </template>
-            {{ progress.found }} {{ progress.found === 1 ? "cluster" : "clusters" }} so far
-          </span>
-        </div>
-
-        <div v-if="found.length" :class="WIZARD_LIST">
-          <label
-            v-if="selectable.length > 1"
-            class="sticky top-0 z-10 flex h-9 cursor-pointer items-center gap-3 bg-popover px-3 text-xs text-muted-foreground"
-          >
-            <Checkbox
-              :checked="chosen.length === selectable.length ? true : chosen.length ? 'indeterminate' : false"
-              aria-label="Select all clusters"
-              @update:checked="(on: boolean) => (selection.clear(), on && selectable.forEach((c) => selection.add(c.key)))"
-            />
-            <span class="tabular-nums">{{ chosen.length }} of {{ selectable.length }} selected</span>
-          </label>
-          <label
-            v-for="cluster in found"
-            :key="cluster.key"
-            :class="[WIZARD_ROW, cluster.state === 'added' || cluster.state === 'removed' ? 'hover:bg-transparent' : 'cursor-pointer']"
-          >
-            <Checkbox
-              :checked="cluster.state === 'added' || selection.has(cluster.key)"
-              :disabled="cluster.state === 'added' || cluster.state === 'removed'"
-              :aria-label="`Add ${cluster.name}`"
-              @update:checked="(on: boolean) => (on ? selection.add(cluster.key) : selection.delete(cluster.key))"
-            />
-            <span class="min-w-0 flex-1" :class="cluster.state === 'added' ? 'opacity-60' : ''">
-              <span class="block truncate text-sm font-medium">{{ cluster.name }}</span>
-              <span class="block truncate text-xs text-muted-foreground">{{ catalogWhere(cluster) }}</span>
-            </span>
-            <span v-if="cluster.state === 'added'" class="text-xs text-muted-foreground">Already added</span>
-            <span v-else-if="cluster.state === 'ignored'" class="text-xs text-muted-foreground">Ignored</span>
-            <span v-else-if="cluster.status && cluster.status !== 'ACTIVE'" class="flex items-center gap-1.5 text-xs text-warning">
-              <span class="h-1.5 w-1.5 rounded-full bg-current" /> {{ EKS_STATUS[cluster.status] ?? cluster.status }}
-            </span>
-            <span v-else-if="cluster.version" class="font-mono text-xs tabular-nums text-muted-foreground">v{{ cluster.version }}</span>
-          </label>
-        </div>
-        <div v-else-if="!discovering" class="rounded-xl bg-muted/50 px-6 py-8 text-center">
-          <p class="text-sm font-medium">No EKS clusters here</p>
-          <p class="mt-1 text-xs text-muted-foreground">
-            The role needs <span class="font-mono text-[11px]">eks:ListClusters</span> and
-            <span class="font-mono text-[11px]">eks:DescribeCluster</span>. Try other accounts, a different role or more
-            regions.
-          </p>
-        </div>
-
-        <div v-if="failures.length" class="mt-4 text-xs">
-          <button
-            type="button"
-            class="flex items-center gap-1.5 rounded-sm text-warning focus-ring"
-            :aria-expanded="showFailures"
-            @click="showFailures = !showFailures"
-          >
-            <span class="h-1.5 w-1.5 rounded-full bg-current" />
-            {{ failureSummary(failures) }}
-            <ChevronRight class="h-3.5 w-3.5 text-muted-foreground transition-transform duration-fast" :class="showFailures ? 'rotate-90' : ''" />
-          </button>
-          <ul v-if="showFailures" class="mt-2 space-y-1 pl-3 text-muted-foreground">
-            <li v-for="group in failures" :key="group.account">
-              <span class="font-medium text-foreground">{{ group.account }}</span>
-              <template v-if="group.regions.length"> ({{ group.regions.join(", ") }})</template>: {{ group.message }}
-            </li>
-          </ul>
-        </div>
-
-        <div v-if="selectable.length" class="mt-5 flex items-center gap-3">
-          <label for="aws-folder" class="text-sm text-muted-foreground">Folder</label>
-          <Input id="aws-folder" v-model="folder" class="h-8 w-60" list="aws-folders" placeholder="No folder" spellcheck="false" />
-          <datalist id="aws-folders">
-            <option v-for="name in folders ?? []" :key="name" :value="name" />
-          </datalist>
-        </div>
-      </template>
+      <CatalogPicker
+        v-else-if="step === 'discover'"
+        v-model:selected="selected"
+        v-model:folder="folder"
+        :clusters="found"
+        :discovering="discovering"
+        :checking="checking"
+        :failures="failures"
+        :folders="folders"
+        empty-title="No EKS clusters here"
+        empty-hint="The role needs eks:ListClusters and eks:DescribeCluster. Try other accounts, a different role or more regions."
+      />
 
       <p v-if="error" :class="[WIZARD_ERROR, 'mt-4']" role="alert">
         <CircleAlert class="mt-px h-3.5 w-3.5 shrink-0" /> {{ error }}

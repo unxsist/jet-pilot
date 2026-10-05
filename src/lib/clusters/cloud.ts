@@ -1,15 +1,28 @@
 /*
  * Cloud accounts and the live cluster catalog (src-tauri: connections,
- * AWS IAM Identity Center / profiles / access keys, EKS discovery). The
- * catalog lists every cluster a connected account can see; adding one
- * writes it into JET Pilot's kubeconfig.
+ * catalog, providers): AWS (IAM Identity Center, profiles, access keys),
+ * Google Cloud and Azure through their CLIs, DigitalOcean (API token or
+ * doctl), Akamai/Linode, Civo, Scaleway and Vultr (API tokens) and
+ * Exoscale (API key). The catalog lists every cluster a connected account
+ * can see; adding one writes it into JET Pilot's kubeconfig.
  */
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { ContextRef } from "@/lib/contextKey";
 import type { LoginEvent } from "@/lib/auth/types";
 
-export type CloudProvider = "aws";
-export type ConnectionKind = "sso" | "profile" | "keys";
+export type CloudProvider =
+  | "aws"
+  | "gcp"
+  | "azure"
+  | "digitalocean"
+  | "linode"
+  | "civo"
+  | "scaleway"
+  | "vultr"
+  | "exoscale";
+export type ConnectionKind = "sso" | "profile" | "keys" | "cli" | "token" | "apiKey";
+export type CliProvider = "gcp" | "azure" | "digitalocean";
+export type TokenProvider = "digitalocean" | "linode" | "civo" | "scaleway" | "vultr";
 
 export interface ConnectionTarget {
   accountId: string;
@@ -27,8 +40,15 @@ export interface CloudConnection {
   profile?: string | null;
   /** Home region (access keys, profiles). */
   region?: string | null;
+  /** gcloud account / az user / doctl context (null: the CLI's current one). */
+  cliAccount?: string | null;
+  /** Scaleway project. */
+  projectId?: string | null;
+  /** Exoscale: who the minted kubeconfig certificates are for. */
+  exoscale?: { user: string; groups: string[] } | null;
   /** Empty: every enabled region. */
   regions: string[];
+  /** AWS accounts + roles, Google Cloud projects, Azure subscriptions (empty: all of them). */
   targets: ConnectionTarget[];
   status: "signedIn" | "expired" | "signedOut" | "error";
   expiresAt?: number | null;
@@ -39,11 +59,17 @@ export interface CloudConnection {
 export type ConnectionSpec =
   | { kind: "sso"; label?: string; startUrl: string; region: string }
   | { kind: "profile"; label?: string; profile: string }
-  | { kind: "keys"; label?: string; accessKeyId: string; secretAccessKey: string; sessionToken?: string; region: string };
+  | { kind: "keys"; label?: string; accessKeyId: string; secretAccessKey: string; sessionToken?: string; region: string }
+  | { kind: "cli"; provider: CliProvider; label?: string; cliAccount?: string }
+  | { kind: "token"; provider: TokenProvider; label?: string; token: string; projectId?: string }
+  | { kind: "apiKey"; provider: "exoscale"; label?: string; key: string; secret: string; user?: string; groups?: string[] };
 
 export const listConnections = () => invoke<CloudConnection[]>("connections_list");
 export const createConnection = (spec: ConnectionSpec) => invoke<CloudConnection>("connection_create", { spec });
-export const updateConnection = (id: string, patch: Partial<Pick<CloudConnection, "label" | "regions" | "targets">>) =>
+export const updateConnection = (
+  id: string,
+  patch: Partial<Pick<CloudConnection, "label" | "regions" | "targets">> & { exoscale?: { user: string; groups: string[] } }
+) =>
   invoke<CloudConnection>("connection_update", { id, patch });
 export const deleteConnection = (id: string, removeClusters: boolean) =>
   invoke<void>("connection_delete", { id, removeClusters });
@@ -75,6 +101,37 @@ export interface AwsProfile {
 }
 export const awsProfiles = () => invoke<AwsProfile[]>("aws_profiles_list");
 export const awsRegions = () => invoke<string[]>("aws_regions");
+
+/* ------------------------------------------------- CLIs, scopes, regions -- */
+
+export interface CloudCliStatus {
+  tool: "gcloud" | "az" | "doctl";
+  installed: boolean;
+  version?: string | null;
+  path?: string | null;
+  signedIn: boolean;
+  account?: string | null;
+  accounts: string[];
+  /** The plugin added clusters sign in with (GKE: gke-gcloud-auth-plugin, AKS: kubelogin). */
+  authPlugin?: { name: "gke-gcloud-auth-plugin" | "kubelogin"; installed: boolean; managed: boolean; path?: string | null } | null;
+  installUrl: string;
+  message?: string | null;
+}
+/** Whether gcloud / az / doctl is installed and signed in (never prompts). */
+export const cloudCliStatus = (provider: CliProvider) => invoke<CloudCliStatus>("cloud_cli_status", { provider });
+/** Signs in with gcloud (browser) or az (device code), streaming LoginEvents. */
+export const cloudCliSignIn = (provider: CliProvider, channel: Channel<LoginEvent>) =>
+  invoke<string>("cloud_cli_sign_in", { provider, onEvent: channel });
+
+/** Google Cloud projects or Azure subscriptions a CLI connection reaches. */
+export interface ConnectionScope {
+  id: string;
+  name: string;
+  detail?: string | null;
+}
+export const connectionScopes = (connectionId: string) => invoke<ConnectionScope[]>("connection_scopes", { connectionId });
+/** Regions (or zones) a provider has clusters in. */
+export const providerRegions = (provider: CloudProvider) => invoke<string[]>("provider_regions", { provider });
 
 /* ----------------------------------------------------------- catalog -- */
 
@@ -121,8 +178,14 @@ export function catalogRefresh(connectionIds: string[] | null, onEvent: (event: 
 export const catalogSetState = (keys: string[], state: "available" | "ignored") =>
   invoke<void>("catalog_set_state", { keys, state });
 
+export interface CatalogAddResult {
+  added: ContextRef[];
+  failed: { key: string; message: string }[];
+  /** Added, but something needs attention (e.g. a missing sign-in plugin). */
+  warnings?: { key: string; message: string }[];
+}
 export const catalogAdd = (keys: string[], folder?: string | null) =>
-  invoke<{ added: ContextRef[]; failed: { key: string; message: string }[] }>("catalog_add", {
+  invoke<CatalogAddResult>("catalog_add", {
     keys,
     options: { folder: folder ?? null },
   });
@@ -131,6 +194,9 @@ export const CONNECTION_KIND_LABELS: Record<ConnectionKind, string> = {
   sso: "IAM Identity Center",
   profile: "AWS profile",
   keys: "Access keys",
+  cli: "Command-line sign-in",
+  token: "API token",
+  apiKey: "API key",
 };
 
 export const CONNECTION_STATUS: Record<CloudConnection["status"], { label: string; tone: "success" | "warning" | "destructive" | "muted" }> = {

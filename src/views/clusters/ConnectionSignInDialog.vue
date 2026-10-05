@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
  * Signs in to a cloud account again (Accounts tab): IAM Identity Center
- * with a device code, or an MFA code for profiles that assume a role with
- * MFA. Starts right away: the user asked for it. Clusters using the account
- * reconnect by themselves.
+ * with a device code, an MFA code for profiles that assume a role with MFA,
+ * or gcloud / az for Google Cloud and Azure. Starts right away: the user
+ * asked for it. Clusters using the account reconnect by themselves.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { CircleAlert, Loader2 } from "lucide-vue-next";
@@ -17,7 +17,14 @@ import WizardFooter from "@/components/wizard/WizardFooter.vue";
 import { WIZARD_BODY, WIZARD_DIALOG, WIZARD_ERROR } from "@/components/wizard/wizard";
 import { useLoginSession } from "@/lib/auth/useLoginSession";
 import { errorMessage, withVault } from "@/lib/clusters/managed";
-import { awsMfaSignIn, awsProfiles, awsSsoSignIn, type CloudConnection } from "@/lib/clusters/cloud";
+import {
+  awsMfaSignIn,
+  awsProfiles,
+  awsSsoSignIn,
+  cloudCliSignIn,
+  type CliProvider,
+  type CloudConnection,
+} from "@/lib/clusters/cloud";
 import { loadCloud } from "@/lib/clusters/catalogStore";
 
 const props = defineProps<{ connection: CloudConnection }>();
@@ -26,7 +33,10 @@ const emit = defineEmits<{ close: [] }>();
 let closeTimer: ReturnType<typeof setTimeout> | undefined;
 const { state, begin, cancel, openUrl } = useLoginSession(
   {
-    start: (channel) => withVault(() => awsSsoSignIn(props.connection.id, channel)),
+    start: (channel) =>
+      props.connection.kind === "cli"
+        ? cloudCliSignIn(props.connection.provider as CliProvider, channel)
+        : withVault(() => awsSsoSignIn(props.connection.id, channel)),
     cancel: (sessionId) => invoke("auth_login_cancel", { sessionId }),
     openUrl: (sessionId, url) => invoke("auth_login_open_url", { sessionId, url }),
   },
@@ -70,7 +80,14 @@ const enterMfa = async (code: string) => {
 };
 
 const finished = computed(() => state.value.phase === "failed" || state.value.phase === "cancelled");
-const where = computed(() => props.connection.sso?.startUrl?.replace(/^https?:\/\//, "") ?? props.connection.profile ?? "");
+const where = computed(
+  () =>
+    props.connection.sso?.startUrl?.replace(/^https?:\/\//, "") ??
+    props.connection.profile ??
+    props.connection.cliAccount ??
+    props.connection.identity ??
+    ""
+);
 
 const close = () => {
   if (mode.value === "device") void cancel();
