@@ -57,6 +57,10 @@ export interface SettingsFileApi {
 export const SettingsFileApiKey: InjectionKey<SettingsFileApi> =
   Symbol("SettingsFileApi");
 
+/** No settings existed when the app started: a fresh install (the welcome shows). */
+export const SettingsFirstRunKey: InjectionKey<Readonly<Ref<boolean>>> =
+  Symbol("SettingsFirstRun");
+
 /* Coalesce bursts of changes (e.g. resizing the tab panel) into one write. */
 const SAVE_DEBOUNCE_MS = 300;
 
@@ -201,6 +205,8 @@ export default {
 
     const ready = ref(false);
     provide(SettingsContextReadyKey, ready);
+    const firstRun = ref(false);
+    provide(SettingsFirstRunKey, firstRun);
 
     const load = async () => {
       const [loadedStore, settingsRead, stateRead, home] = await Promise.all([
@@ -210,6 +216,7 @@ export default {
         homeDir().catch(() => undefined),
       ]);
       store = loadedStore;
+      firstRun.value = settingsRead.text === null && stateRead.text === null;
 
       const migrated = store.migrate(settingsRead.data, stateRead.data, { home });
       if (migrated.changed && settingsRead.text !== null) {

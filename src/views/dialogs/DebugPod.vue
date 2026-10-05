@@ -16,6 +16,7 @@ import { getResourceTabId, getResourceTabTitle } from "@/components/tables/ident
 import { DEBUG_IMAGES, kubectlDebugPodCommand } from "@/lib/workloads";
 import { injectStrict } from "@/lib/utils";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+import { guard, rowTargets } from "@/lib/guardrails/guard";
 
 /*
  * Starts `kubectl debug -it <pod> --image=… --target=<container>` in a pty
@@ -41,8 +42,9 @@ const { settings } = injectStrict(SettingsContextStateKey);
 const image = ref(settings.value.debug.defaultImage || DEBUG_IMAGES[0].image);
 const targetContainer = ref(containers.value[0] ?? NO_TARGET);
 
-const start = () => {
+const start = async () => {
   if (!image.value.trim()) return;
+  if (!(await guard("debug", rowTargets([props.pod], "Pod")))) return;
   const pod = props.pod.metadata?.name ?? "";
   const target = targetContainer.value === NO_TARGET ? undefined : targetContainer.value;
   const argv = kubectlDebugPodCommand({

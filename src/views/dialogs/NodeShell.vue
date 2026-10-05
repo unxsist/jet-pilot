@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import DebugImagePicker from "@/components/workloads/DebugImagePicker.vue";
 import { getResourceTabId } from "@/components/tables/identity";
 import { kubectlNodeShellCommand } from "@/lib/workloads";
+import { guard } from "@/lib/guardrails/guard";
 
 /*
  * Root shell on a node through `kubectl debug node/<node> --profile=sysadmin`:
@@ -35,8 +36,15 @@ const chroot = ref(true);
 const namespace = ref("default");
 const acknowledged = ref(false);
 
-const start = () => {
+const start = async () => {
   if (!acknowledged.value || !image.value.trim() || !namespace.value.trim()) return;
+  const target = {
+    context: props.context,
+    kubeConfig: props.kubeConfig,
+    name: nodeName.value,
+    kind: "Node",
+  };
+  if (!(await guard("node-shell", [target]))) return;
   const cluster = {
     context: props.context,
     namespace: namespace.value.trim(),

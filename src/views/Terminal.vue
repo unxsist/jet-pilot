@@ -2,6 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { PtyStarter } from "@/lib/pty";
 import PtyTerminal from "@/components/PtyTerminal.vue";
+import TerminalClusterBanner from "@/components/guardrails/TerminalClusterBanner.vue";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
 
@@ -40,5 +41,10 @@ const start: PtyStarter = ({ rows, cols }, onEvent) =>
 </script>
 
 <template>
-  <PtyTerminal :start="start" :banner="banner" :tab-id="tabId" />
+  <div class="flex h-full w-full flex-col">
+    <TerminalClusterBanner :context="context" :kube-config="kubeConfig" />
+    <div class="min-h-0 flex-1">
+      <PtyTerminal :start="start" :banner="banner" :tab-id="tabId" />
+    </div>
+  </div>
 </template>

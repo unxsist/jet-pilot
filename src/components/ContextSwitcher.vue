@@ -25,10 +25,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import DropdownMenuItem from "./ui/dropdown-menu/DropdownMenuItem.vue";
 import ContextAvatar from "./ContextAvatar.vue";
+import EnvBadge from "@/components/clusters/EnvBadge.vue";
+import { useClusters } from "@/lib/clusters/useClusters";
+import { useRouter } from "vue-router";
 import {
   ChevronsUpDown,
   Loader2,
   RefreshCw,
+  LayoutGrid,
   Search,
   TriangleAlert,
   X,
@@ -64,6 +68,8 @@ const rerunLastCommand = injectStrict(RerunLastCommandKey);
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 const isContextActive = injectStrict(KubeContextIsContextActiveKey);
 const isNamespaceActive = injectStrict(KubeContextIsNamespaceActiveKey);
+const clusters = useClusters();
+const router = useRouter();
 
 interface ContextEntry {
   context: string;
@@ -178,12 +184,10 @@ const listNamespaces = async (
   context: string,
   kubeConfig: string
 ): Promise<string[]> => {
-  const clusterSettings = settings.value.contextSettings.find(
-    (c) => c.context === context
-  );
-
-  if (clusterSettings?.namespaces && clusterSettings.namespaces.length > 0) {
-    return clusterSettings.namespaces;
+  // Namespaces set for the cluster (Clusters hub › details).
+  const configured = clusters.resolve(context, kubeConfig).namespaces;
+  if (configured.length > 0) {
+    return configured;
   }
 
   const namespaces = await Kubernetes.getNamespaces(context, kubeConfig);
@@ -400,9 +404,32 @@ const searchInput = ref<HTMLInputElement | null>(null);
 /* Only offer the namespace search when the list is long. */
 const NAMESPACE_SEARCH_THRESHOLD = 8;
 
+/*
+ * Favourites first; hidden clusters (Clusters hub) only while active or
+ * searched for. Aliases are searchable too.
+ */
 const filteredContexts = computed(() =>
-  contexts.value.filter((ctx) => matchesFilter(ctx.context, contextFilter.value))
+  contexts.value
+    .map((ctx) => ({ ctx, meta: clusters.resolve(ctx.context, ctx.kubeConfig) }))
+    .filter(
+      ({ ctx, meta }) =>
+        (matchesFilter(ctx.context, contextFilter.value) ||
+          matchesFilter(meta.displayName, contextFilter.value)) &&
+        (!meta.hidden || contextFilter.value !== "" || isContextActive(ctx.context, ctx.kubeConfig))
+    )
+    .sort((a, b) => Number(b.meta.favorite) - Number(a.meta.favorite))
+    .map(({ ctx }) => ctx)
 );
+
+const primaryCluster = computed(() =>
+  primaryContext.value ? clusters.resolve(primaryContext.value, primaryKubeConfig.value) : null
+);
+const metaOf = (ctx: ContextEntry) => clusters.resolve(ctx.context, ctx.kubeConfig);
+
+const openHub = () => {
+  menuOpen.value = false;
+  router.push({ name: "ClustersHub" });
+};
 
 /* Context names defined in more than one kubeconfig need disambiguation. */
 const duplicateContextNames = computed(() => {
@@ -518,6 +545,7 @@ const retryNamespaces = (ctx: ContextEntry) => {
         <ContextAvatar
           v-if="primaryContext"
           :name="primaryContext"
+          :kube-config="primaryKubeConfig"
           :status="triggerStatus"
         />
         <span
@@ -528,8 +556,17 @@ const retryNamespaces = (ctx: ContextEntry) => {
           ?
         </span>
         <span class="flex min-w-0 flex-1 flex-col">
-          <span class="truncate text-sm font-medium leading-5 text-foreground">
-            {{ primaryContext || "No context" }}
+          <span class="flex min-w-0 items-center gap-1.5">
+            <span
+              class="truncate text-sm font-medium leading-5 text-foreground"
+              :title="primaryContext"
+            >
+              {{ primaryCluster?.displayName || "No context" }}
+            </span>
+            <EnvBadge
+              v-if="primaryCluster?.env && !primaryCluster.envInferred"
+              :env="primaryCluster.env"
+            />
           </span>
           <span class="truncate text-xs text-muted-foreground">
             {{ selectionSummary }}
@@ -575,6 +612,7 @@ const retryNamespaces = (ctx: ContextEntry) => {
           >
             <ContextAvatar
               :name="context.context"
+              :kube-config="context.kubeConfig"
               size="sm"
               :status="
                 isContextActive(context.context, context.kubeConfig)
@@ -583,16 +621,23 @@ const retryNamespaces = (ctx: ContextEntry) => {
               "
             />
             <div class="flex min-w-0 flex-1 flex-col">
-              <span
-                class="truncate"
-                :class="{
-                  'font-medium': isContextActive(
-                    context.context,
-                    context.kubeConfig
-                  ),
-                }"
-                >{{ context.context }}</span
-              >
+              <span class="flex min-w-0 items-center gap-1.5">
+                <span
+                  class="truncate"
+                  :class="{
+                    'font-medium': isContextActive(
+                      context.context,
+                      context.kubeConfig
+                    ),
+                  }"
+                  :title="context.context"
+                  >{{ metaOf(context).displayName }}</span
+                >
+                <EnvBadge
+                  v-if="metaOf(context).env && !metaOf(context).envInferred"
+                  :env="metaOf(context).env"
+                />
+              </span>
               <span
                 v-if="
                   duplicateContextNames.has(context.context) ||
@@ -747,16 +792,19 @@ const retryNamespaces = (ctx: ContextEntry) => {
         >
           {{ contexts.length === 0 ? "No contexts found" : "No matching contexts" }}
         </DropdownMenuLabel>
-        <template v-if="activeContexts.size > 0">
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            class="text-muted-foreground"
-            @select="clearSelection"
-          >
-            <X class="h-3.5 w-3.5" />
-            Clear selection
-          </DropdownMenuItem>
-        </template>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem class="text-muted-foreground" @select="openHub">
+          <LayoutGrid class="h-3.5 w-3.5" />
+          Manage clusters…
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          v-if="activeContexts.size > 0"
+          class="text-muted-foreground"
+          @select="clearSelection"
+        >
+          <X class="h-3.5 w-3.5" />
+          Clear selection
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   </div>

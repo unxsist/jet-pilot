@@ -28,6 +28,7 @@ import {
   getResourceTabTitle,
 } from "@/components/tables/identity";
 import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
+import { allowed, rowTargets } from "@/lib/guardrails/guard";
 
 const {
   namespace,
@@ -194,7 +195,10 @@ const rowActions: RowAction<ContextAwarePod>[] = [
   ...podActions<ContextAwarePod>(addTab, spawnDialog),
   {
     label: "Kill",
+    kind: "delete",
     handler: (row: ContextAwarePod) => {
+      // The dialog asks for the typed confirmation on protected clusters.
+      if (!allowed("delete", rowTargets([row], "Pod"))) return;
       spawnDialog({
         title: `Delete pod ${row.metadata?.name}?`,
         message: `${row.metadata.context} › ${row.metadata?.namespace}`,

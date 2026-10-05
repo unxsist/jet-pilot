@@ -10,6 +10,7 @@ import { cliErrorMessage, cliSucceeded, runCli, runCliForEach } from "@/actions/
 import { formatDateTime, injectStrict } from "@/lib/utils";
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 import { helmClusterArgs } from "@/lib/workloads";
+import { confirmDialog, guard } from "@/lib/guardrails/guard";
 import {
   HelmRevision,
   helmStatusTone,
@@ -142,31 +143,35 @@ const ready = computed(() =>
 const label = (r: HelmRevision | null) =>
   r ? `#${r.revision}${r.revision === deployed.value?.revision ? " (deployed)" : ""}` : "(nothing)";
 
-const confirmRollback = () => {
+const confirmRollback = async () => {
   const revision = selectedRevision.value;
   if (!revision || revision.revision === deployed.value?.revision) return;
-  spawnDialog({
-    title: `Roll back ${props.release.name} to revision ${revision.revision}?`,
-    message: `Re-deploys ${revision.chart} (app ${revision.app_version || "–"}) with the values of revision ${revision.revision} as a new revision.`,
-    buttons: [
-      { label: "Cancel", variant: "ghost", handler: (dialog) => dialog.close() },
-      {
-        label: `Roll back to #${revision.revision}`,
-        handler: async (dialog) => {
-          dialog.close();
-          rollingBack.value = true;
-          await runCliForEach("helm", [revision], {
-            args: (r) => ["rollback", props.release.name, String(r.revision), ...cluster.value],
-            label: (r) => `${props.release.name} to revision ${r.revision}`,
-            successVerb: "Rolled back",
-            failureVerb: "roll back",
-          });
-          rollingBack.value = false;
-          await load();
-        },
-      },
-    ],
+  const release = {
+    context: props.context,
+    kubeConfig: props.kubeConfig,
+    name: props.release.name,
+    kind: "release",
+    namespace: props.release.namespace,
+  };
+  const confirmed = await guard("helm-rollback", [release], {
+    confirm: () =>
+      confirmDialog(spawnDialog, {
+        title: `Roll back ${props.release.name} to revision ${revision.revision}?`,
+        message: `Re-deploys ${revision.chart} (app ${revision.app_version || "–"}) with the values of revision ${revision.revision} as a new revision.`,
+        confirmLabel: `Roll back to #${revision.revision}`,
+      }),
   });
+  if (!confirmed) return;
+  rollingBack.value = true;
+  await runCliForEach("helm", [revision], {
+    args: (r) => ["rollback", props.release.name, String(r.revision), ...cluster.value],
+    label: (r) => `${props.release.name} to revision ${r.revision}`,
+    successVerb: "Rolled back",
+    failureVerb: "roll back",
+    guarded: true,
+  });
+  rollingBack.value = false;
+  await load();
 };
 
 const onListKeydown = (event: KeyboardEvent) => {

@@ -7,84 +7,84 @@ import {
   CarouselPrevious,
 } from "@/components/ui/carousel";
 import {
-  ArrowDownUp,
-  KeyRound,
-  ScrollText,
-  ShieldCheck,
-  SquareTerminal,
+  Cloud,
+  FolderTree,
+  Keyboard,
+  Palette,
+  Settings2,
   TerminalSquare,
 } from "lucide-vue-next";
 
-import searchDark from "@/assets/whats-new/settings-search-dark.webp";
-import searchLight from "@/assets/whats-new/settings-search-light.webp";
-import kubeconfigsDark from "@/assets/whats-new/settings-kubeconfigs-dark.webp";
-import kubeconfigsLight from "@/assets/whats-new/settings-kubeconfigs-light.webp";
-import toolsDark from "@/assets/whats-new/settings-tools-dark.webp";
-import toolsLight from "@/assets/whats-new/settings-tools-light.webp";
-import jsonDark from "@/assets/whats-new/settings-json-dark.webp";
-import jsonLight from "@/assets/whats-new/settings-json-light.webp";
+import hubDark from "@/assets/whats-new/hub-dark.webp";
+import hubLight from "@/assets/whats-new/hub-light.webp";
+import detailsDark from "@/assets/whats-new/cluster-details-dark.webp";
+import detailsLight from "@/assets/whats-new/cluster-details-light.webp";
+import guardDark from "@/assets/whats-new/guardrails-dark.webp";
+import guardLight from "@/assets/whats-new/guardrails-light.webp";
+import welcomeDark from "@/assets/whats-new/setup-guide-dark.webp";
+import welcomeLight from "@/assets/whats-new/setup-guide-light.webp";
 
 const slides = [
   {
-    title: "Settings, rebuilt",
+    title: "The Clusters hub",
     description:
-      "Every setting is one search away: press Mod+, and start typing. Changed values are marked with a dot and go back to their default in one click, and new pages cover the terminal, the editor, tables, logs and more.",
-    dark: searchDark,
-    light: searchLight,
+      "Every cluster from every kubeconfig in one list: where it runs, its version and nodes, how it signs in, and whether it's reachable right now. Filter with env:prod or provider:aws, group by folder or provider, and connect with Enter. Open it from the sidebar or with Mod+O.",
+    dark: hubDark,
+    light: hubLight,
   },
   {
-    title: "Your kubeconfigs, found",
+    title: "Clusters you recognise",
     description:
-      "JET Pilot now picks up ~/.kube/config, the files in $KUBECONFIG, ~/.kube/*.yaml and ~/.kube/config.d by itself. Open a file to see each context's sign-in method and what's missing, like a sign-in plugin that isn't installed.",
-    dark: kubeconfigsDark,
-    light: kubeconfigsLight,
+      "Give clusters a name and a colour, set their environment, sort them into folders and tag them. The name and colour follow you into the context switcher, tables and a thin bar across the top of the window. Your kubeconfig isn't touched.",
+    dark: detailsDark,
+    light: detailsLight,
   },
   {
-    title: "Tools that just work",
+    title: "Guardrails for production",
     description:
-      "See which command-line tools JET Pilot found and what each is for. Missing kubectl or Helm? Download a checksum-verified copy in one click. Tools you install yourself always come first.",
-    dark: toolsDark,
-    light: toolsLight,
+      "Mark a cluster as protected and every destructive action asks you to type the resource name, and YAML always goes through a server dry run before it's applied. Read-only clusters hide every change altogether.",
+    dark: guardDark,
+    light: guardLight,
   },
   {
-    title: "settings.json, if you like",
+    title: "A guided start",
     description:
-      "Prefer text? Edit settings.json with completion and validation, or change any setting from the command palette. Export your preferences, workspaces, port forwards and themes to set up another machine in seconds.",
-    dark: jsonDark,
-    light: jsonLight,
+      "New to JET Pilot? A short setup guide shows the kubeconfig files it found, the tools it uses and how it looks. Open it again anytime from the command palette.",
+    dark: welcomeDark,
+    light: welcomeLight,
   },
 ];
 
 const underTheHood = [
   {
+    icon: Cloud,
+    title: "Status without surprises",
+    text: "Clusters are checked in the background, but never in a way that opens a sign-in window.",
+  },
+  {
+    icon: FolderTree,
+    title: "Favourites and hiding",
+    text: "Favourites come first everywhere; hide clusters you never use without editing any file.",
+  },
+  {
+    icon: Keyboard,
+    title: "Keyboard first",
+    text: "Arrow through the hub, Enter to connect, E to edit, F to favourite, H to hide, / to filter.",
+  },
+  {
     icon: TerminalSquare,
-    title: "Terminal your way",
-    text: "Font, size, cursor, scrollback, copy on select, and the shell your local terminal starts.",
+    title: "Know where you type",
+    text: "Terminals on protected and read-only clusters say so before you run anything.",
   },
   {
-    icon: SquareTerminal,
-    title: "Editor preferences",
-    text: "Font size, tab size, word wrap, minimap, line numbers and your preferred diff layout.",
+    icon: Palette,
+    title: "Provider marks",
+    text: "Clusters show where they run: EKS, GKE, AKS, DigitalOcean, Akamai, Scaleway, local and more.",
   },
   {
-    icon: KeyRound,
-    title: "Your shell's environment",
-    text: "Started from the Dock or a launcher, JET Pilot now picks up KUBECONFIG, AWS_PROFILE and proxy settings from your login shell, not just PATH.",
-  },
-  {
-    icon: ArrowDownUp,
-    title: "Watch or poll",
-    text: "Clusters behind proxies that drop long-lived connections can switch lists to polling, with an interval you choose.",
-  },
-  {
-    icon: ScrollText,
-    title: "More log context",
-    text: "Logs open with the last 200 lines per container, and follow, timestamps and wrapping have defaults you set.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "Safe upgrade",
-    text: "Your existing settings move over automatically, with a backup of the old file kept next to them.",
+    icon: Settings2,
+    title: "Namespaces per cluster",
+    text: "The namespace lists for clusters where you can't list namespaces now live in each cluster's details.",
   },
 ];
 </script>

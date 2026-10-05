@@ -36,6 +36,7 @@ import { injectStrict } from "@/lib/utils";
 import { error } from "@/lib/logger";
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 import { helmClusterArgs } from "@/lib/workloads";
+import { confirmDialog, guard } from "@/lib/guardrails/guard";
 import { diffLines, diffSummary } from "@/lib/diff";
 import {
   ChartSearchResult,
@@ -259,30 +260,32 @@ const pluginLines = computed(() =>
 
 const upgrading = ref(false);
 
-const confirmUpgrade = () => {
-  if (!canRun.value) return;
+const confirmUpgrade = async () => {
+  if (!canRun.value || upgrading.value) return;
   const target = `${chartRef.value.trim()}${version.value ? ` ${version.value}` : ""}`;
   const changes = valuesChanged.value
     ? `+${valuesSummary.value.added} −${valuesSummary.value.removed} lines of values`
     : "values unchanged";
 
-  spawnDialog({
-    title: `Upgrade ${props.release.name}?`,
-    message:
-      `${installed.value.name} ${installed.value.version} → ${target}, ${changes}.` +
-      (atomic.value ? " Rolled back automatically if the upgrade fails." : "") +
-      `\nRelease ${props.release.namespace} on ${props.context}.`,
-    buttons: [
-      { label: "Cancel", variant: "ghost", handler: (dialog) => dialog.close() },
-      {
-        label: "Upgrade",
-        handler: (dialog) => {
-          dialog.close();
-          upgrade();
-        },
-      },
-    ],
+  const release = {
+    context: props.context,
+    kubeConfig: props.kubeConfig,
+    name: props.release.name,
+    kind: "release",
+    namespace: props.release.namespace,
+  };
+  const confirmed = await guard("helm-upgrade", [release], {
+    confirm: () =>
+      confirmDialog(spawnDialog, {
+        title: `Upgrade ${props.release.name}?`,
+        message:
+          `${installed.value.name} ${installed.value.version} → ${target}, ${changes}.` +
+          (atomic.value ? " Rolled back automatically if the upgrade fails." : "") +
+          `\nRelease ${props.release.namespace} on ${props.context}.`,
+        confirmLabel: "Upgrade",
+      }),
   });
+  if (confirmed) upgrade();
 };
 
 const upgrade = async () => {
@@ -295,7 +298,8 @@ const upgrade = async () => {
       ...(wait.value && !atomic.value ? ["--wait"] : []),
       ...cluster.value,
     ],
-    values.value
+    values.value,
+    { guarded: true }
   );
   upgrading.value = false;
 

@@ -13,7 +13,7 @@ export const STATE_KEYS = [
   "lastNamespace",
   "activeContexts",
   "PanelProvider",
-  "contextSettings",
+  "clusters",
   "collapsedNavigationGroups",
   "pinnedResources",
   "updates.whatsNew",
@@ -23,6 +23,7 @@ export const STATE_KEYS = [
   "workspaces",
   "activeWorkspaceId",
   "recentCommands",
+  "welcomeCompleted",
 ] as const;
 
 export function stateDefaults(): AppState {
@@ -32,7 +33,7 @@ export function stateDefaults(): AppState {
     lastNamespace: null,
     activeContexts: [],
     PanelProvider: { height: 50 },
-    contextSettings: [],
+    clusters: [],
     collapsedNavigationGroups: [],
     pinnedResources: [],
     updates: { whatsNew: null, dismissedAnnouncements: [] },
@@ -41,5 +42,6 @@ export function stateDefaults(): AppState {
     workspaces: [],
     activeWorkspaceId: null,
     recentCommands: [],
+    welcomeCompleted: null,
   };
 }

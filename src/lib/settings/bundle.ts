@@ -10,7 +10,9 @@ import { MAX_WORKSPACES, parseWorkspaces } from "@/lib/workspaces";
 import { parseProfiles } from "@/lib/portForwardProfiles";
 import type { ThemeFile } from "@/lib/themes/types";
 import { SETTINGS } from "./registry";
-import { preferencesFile, sanitizePreferences, migrate } from "./store";
+import { mergeContextSettings, preferencesFile, sanitizePreferences, migrate } from "./store";
+import { contextKey } from "@/lib/contextKey";
+import type { ClusterRecord } from "@/lib/clusters/meta";
 import { cloneJson, deepEqual, deepMerge, deletePath, getPath, isPlainObject, type JsonObject } from "./paths";
 import type { ContextSettings, Settings } from "./types";
 
@@ -25,6 +27,9 @@ export interface SettingsBundle {
   preferences?: JsonObject;
   workspaces?: unknown[];
   portForwardProfiles?: unknown[];
+  /** Cluster details (aliases, colours, folders, guardrails). */
+  clusters?: ClusterRecord[];
+  /** Exports before 1.41: namespace lists per context name. */
   contextSettings?: ContextSettings[];
   pinnedResources?: { name: string; kind: string }[];
   themes?: ThemeFile[];
@@ -34,7 +39,7 @@ export type BundlePart =
   | "preferences"
   | "workspaces"
   | "portForwardProfiles"
-  | "contextSettings"
+  | "clusters"
   | "pinnedResources"
   | "themes";
 
@@ -42,7 +47,7 @@ export const BUNDLE_PARTS: { part: BundlePart; label: string }[] = [
   { part: "preferences", label: "Preferences" },
   { part: "workspaces", label: "Workspaces" },
   { part: "portForwardProfiles", label: "Port-forward profiles" },
-  { part: "contextSettings", label: "Namespaces per cluster" },
+  { part: "clusters", label: "Cluster details" },
   { part: "pinnedResources", label: "Pinned resources" },
   { part: "themes", label: "Your themes" },
 ];
@@ -68,7 +73,7 @@ export function exportCounts(settings: Settings, themes: number): Record<BundleP
     preferences,
     workspaces: settings.workspaces.length,
     portForwardProfiles: settings.portForwardProfiles.length,
-    contextSettings: settings.contextSettings.length,
+    clusters: settings.clusters.length,
     pinnedResources: settings.pinnedResources.length,
     themes,
   };
@@ -92,7 +97,7 @@ export function buildBundle(settings: Settings, options: ExportOptions): Setting
   }
   if (parts.has("workspaces")) bundle.workspaces = cloneJson(settings.workspaces);
   if (parts.has("portForwardProfiles")) bundle.portForwardProfiles = cloneJson(settings.portForwardProfiles);
-  if (parts.has("contextSettings")) bundle.contextSettings = cloneJson(settings.contextSettings);
+  if (parts.has("clusters")) bundle.clusters = cloneJson(settings.clusters);
   if (parts.has("pinnedResources")) bundle.pinnedResources = cloneJson(settings.pinnedResources);
   if (parts.has("themes") && options.themes.length) bundle.themes = cloneJson(options.themes);
   return bundle;
@@ -166,13 +171,13 @@ export function summarizeBundle(settings: Settings, bundle: SettingsBundle): Par
   add("workspaces", workspaces.length, byId(workspaces, settings.workspaces));
   const profiles = parseProfiles(bundle.portForwardProfiles);
   add("portForwardProfiles", profiles.length, byId(profiles, settings.portForwardProfiles));
-  const contextSettings = parseContextSettings(bundle.contextSettings);
+  const clusters = bundleClusters(bundle);
   add(
-    "contextSettings",
-    contextSettings.length,
+    "clusters",
+    clusters.length,
     byId(
-      contextSettings.map((c) => ({ ...c, id: c.context })),
-      settings.contextSettings.map((c) => ({ id: c.context }))
+      clusters.map((c) => ({ id: contextKey(c.context, c.kubeConfig) })),
+      settings.clusters.map((c) => ({ id: contextKey(c.context, c.kubeConfig) }))
     )
   );
   const pinned = parsePinned(bundle.pinnedResources);
@@ -187,17 +192,13 @@ export function summarizeBundle(settings: Settings, bundle: SettingsBundle): Par
 export const mergedPreferences = (settings: Settings, incoming: JsonObject) =>
   deepMerge(preferencesFile(settings), cloneJson(incoming));
 
-function parseContextSettings(value: unknown): ContextSettings[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter(
-      (c) =>
-        isPlainObject(c) &&
-        typeof c.context === "string" &&
-        Array.isArray(c.namespaces) &&
-        c.namespaces.every((n: unknown) => typeof n === "string")
-    )
-    .map((c) => ({ context: c.context as string, namespaces: [...(c.namespaces as string[])] }));
+/** Cluster records of a bundle (and the namespace lists of older exports). */
+function bundleClusters(bundle: SettingsBundle): ClusterRecord[] {
+  const records = (Array.isArray(bundle.clusters) ? bundle.clusters : []).filter(
+    (r): r is ClusterRecord =>
+      isPlainObject(r) && typeof r.context === "string" && typeof r.kubeConfig === "string"
+  );
+  return mergeContextSettings(cloneJson(records), bundle.contextSettings) as ClusterRecord[];
 }
 
 function parsePinned(value: unknown): { name: string; kind: string }[] {
@@ -236,14 +237,14 @@ export function applyBundleCollections(
   if (parts.has("portForwardProfiles")) {
     settings.portForwardProfiles = upsertById(settings.portForwardProfiles, parseProfiles(bundle.portForwardProfiles));
   }
-  if (parts.has("contextSettings")) {
-    const next = [...settings.contextSettings];
-    for (const item of parseContextSettings(bundle.contextSettings)) {
-      const index = next.findIndex((c) => c.context === item.context);
+  if (parts.has("clusters")) {
+    const next = [...settings.clusters];
+    for (const item of bundleClusters(bundle)) {
+      const index = next.findIndex((c) => c.context === item.context && c.kubeConfig === item.kubeConfig);
       if (index >= 0) next[index] = item;
       else next.push(item);
     }
-    settings.contextSettings = next;
+    settings.clusters = next;
   }
   if (parts.has("pinnedResources")) {
     const next = [...settings.pinnedResources];

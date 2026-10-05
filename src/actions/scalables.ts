@@ -6,6 +6,7 @@ import {
 } from "@kubernetes/client-node";
 import { RowAction } from "@/components/tables/types";
 import { Router } from "vue-router";
+import { allowed, rowTargets } from "@/lib/guardrails/guard";
 
 export function actions<
   T extends
@@ -30,8 +31,11 @@ export function actions<
   return [
     {
       label: "Scale",
+      kind: "scale",
       massAction: true,
       handler: (rows: T[]) => {
+        // The dialog asks for the typed confirmation when scaling to 0.
+        if (!allowed("scale", rowTargets(rows))) return;
         spawnDialog({
           title: `Scale ${rows[0].kind}s`,
           message: "Please enter desired number of replicas",

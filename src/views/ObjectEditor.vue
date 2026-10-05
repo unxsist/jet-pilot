@@ -42,8 +42,10 @@ import {
   Columns2,
   GitCompareArrows,
   Loader2,
+  Lock,
   RefreshCw,
   Rows2,
+  ShieldAlert,
   ShieldCheck,
   ShieldOff,
   TriangleAlert,
@@ -76,6 +78,9 @@ import {
   type TabClosedEvent,
 } from "@/providers/PanelProvider";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
+import { editCluster, guard, readOnlyToast } from "@/lib/guardrails/guard";
+import { guardedCluster } from "@/lib/guardrails/backstop";
+import { decide, readOnlyReason, type ActionKind } from "@/lib/guardrails/policy";
 
 const props = withDefaults(
   defineProps<{
@@ -133,6 +138,37 @@ const hasChanges = computed(() => originalContents.value !== editContents.value)
 const objectLabel = computed(() =>
   props.name ? `${props.type}/${props.name}` : props.kind || props.type
 );
+
+/* -------------------------------------------------------- guardrails -- */
+
+/*
+ * Read-only clusters: the YAML is shown read-only, without review / apply.
+ * Protected clusters: applying always passes the server-side dry run (no
+ * "Apply anyway") and asks for the typed confirmation.
+ */
+const cluster = computed(() => guardedCluster(props.context, props.kubeConfig));
+const readOnly = computed(() => cluster.value.readOnly);
+const applyKind = computed<ActionKind>(() =>
+  props.create
+    ? "create"
+    : /^secrets?$/i.test(props.type)
+      ? "edit-secret"
+      : "replace"
+);
+const requireDryRun = computed(
+  () => decide(applyKind.value, cluster.value).requireDryRun
+);
+
+/* The object's name: for new objects, from the manifest. */
+const targetName = (text: string): string | undefined => {
+  if (props.name) return props.name;
+  try {
+    const name = (parseYaml(text) as { metadata?: { name?: unknown } } | null)?.metadata?.name;
+    return typeof name === "string" && name ? name : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 /* ------------------------------------------------------------ schema -- */
 
@@ -285,6 +321,7 @@ const initializeEditor = async () => {
     ...preferences.options.value,
     ...motionOptions(),
     model: editorModel,
+    readOnly: readOnly.value,
     automaticLayout: true,
     fixedOverflowWidgets: true,
   });
@@ -543,6 +580,10 @@ const runDryRun = async () => {
 
 const openReview = async () => {
   if (loading.value || loadError.value || !rt) return;
+  if (readOnly.value) {
+    readOnlyToast(cluster.value);
+    return;
+  }
   if (!props.create && !hasChanges.value) {
     toast({ title: "No changes to review", description: `${objectLabel.value} is unchanged.` });
     return;
@@ -622,13 +663,26 @@ const reloadFromCluster = async () => {
 const apply = async (force = false) => {
   if (applying.value || review.conflict || review.fetching) return;
   if (review.dryRun === "running") return;
+  // Protected clusters: the dry run can't be skipped.
+  if (requireDryRun.value) force = false;
   if (!force && (review.dryRun !== "passed" || dryRunStale.value)) {
     if (dryRunStale.value || review.dryRun === "idle") await runDryRun();
     if (review.dryRun !== "passed") return;
   }
 
-  applying.value = true;
   const text = editContents.value;
+  const target = {
+    context: props.context,
+    kubeConfig: props.kubeConfig,
+    name: targetName(text),
+    kind: readTypeMeta(text)?.kind || props.kind || props.type,
+    namespace: props.namespace,
+  };
+  if (!(await guard(applyKind.value, [target]))) return;
+  // Edited while the confirmation was open: review again.
+  if (editContents.value !== text) return;
+
+  applying.value = true;
   try {
     if (props.create) {
       await applyManifest("apply", text);
@@ -639,7 +693,8 @@ const apply = async (force = false) => {
         props.type,
         props.name,
         yaml.load(text),
-        props.kubeConfig
+        props.kubeConfig,
+        { guarded: true }
       );
     } else {
       await applyManifest("replace", text);
@@ -687,7 +742,10 @@ const applyManifest = async (verb: "apply" | "replace", text: string) => {
     props.namespace,
     text,
     verb,
-    props.kubeConfig
+    props.kubeConfig,
+    false,
+    // apply() ran guard()
+    { guarded: true }
   );
   trace(`kubectl ${verb} ${objectLabel.value}: ${output}`);
 };
@@ -715,6 +773,12 @@ const compareWith = (other: { context: string; kubeConfig: string }) => {
     "diff"
   );
 };
+
+/* The cluster became read-only (or no longer is) while the tab is open. */
+watch(readOnly, (value) => {
+  editorInstance?.updateOptions({ readOnly: value });
+  if (value && mode.value === "review") backToEdit();
+});
 
 /* -------------------------------------------------------- lifecycle -- */
 
@@ -845,6 +909,15 @@ const changeTone = (change: Change) =>
             <span v-if="namespace" class="text-muted-foreground/70">· {{ namespace }}</span>
           </span>
           <span
+            v-if="requireDryRun && !readOnly"
+            class="inline-flex h-5 shrink-0 items-center gap-1 rounded-sm bg-destructive/10 px-1.5 text-2xs font-medium text-destructive"
+            :title="`${cluster.displayName} is protected: changes always pass a server-side dry run and need a typed confirmation`"
+            data-testid="protected-status"
+          >
+            <ShieldAlert class="h-3 w-3" />
+            Protected
+          </span>
+          <span
             class="inline-flex h-5 shrink-0 items-center gap-1 rounded-sm px-1.5 text-2xs font-medium"
             :class="
               schema.state === 'ready'
@@ -924,6 +997,7 @@ const changeTone = (change: Change) =>
               {{ create ? "Draft" : "Modified" }}
             </span>
             <Button
+              v-if="!readOnly"
               size="xs"
               :variant="hasChanges || create ? 'default' : 'outline'"
               :disabled="!hasChanges && !create"
@@ -948,6 +1022,14 @@ const changeTone = (change: Change) =>
           <span v-if="!create" class="truncate font-mono text-2xs text-muted-foreground">
             live ↔ edited
           </span>
+          <span
+            v-if="requireDryRun"
+            class="inline-flex h-5 shrink-0 items-center gap-1 rounded-sm bg-destructive/10 px-1.5 text-2xs font-medium text-destructive"
+            :title="`${cluster.displayName} is protected: the dry run has to pass, then type the name to confirm`"
+          >
+            <ShieldAlert class="h-3 w-3" />
+            Protected
+          </span>
           <div class="ml-auto flex items-center gap-1">
             <Button
               variant="ghost"
@@ -961,7 +1043,7 @@ const changeTone = (change: Change) =>
               <Columns2 v-else class="h-3.5 w-3.5" />
             </Button>
             <Button
-              v-if="review.dryRun === 'failed' && !dryRunStale && !review.conflict"
+              v-if="review.dryRun === 'failed' && !dryRunStale && !review.conflict && !requireDryRun"
               variant="outline"
               size="xs"
               :disabled="applying"
@@ -982,6 +1064,25 @@ const changeTone = (change: Change) =>
             </Button>
           </div>
         </template>
+      </div>
+
+      <!-- Read-only cluster -->
+      <div
+        v-if="readOnly"
+        role="note"
+        class="flex shrink-0 items-center gap-2 border-b border-warning/20 bg-warning/[0.06] px-3 py-1.5 text-xs"
+        data-testid="read-only-banner"
+      >
+        <Lock class="h-3.5 w-3.5 shrink-0 text-warning" />
+        <span class="min-w-0 flex-1 truncate">
+          <span class="font-medium text-foreground">{{ readOnlyReason(cluster) }}.</span>
+          <span class="text-muted-foreground">
+            The YAML is shown read-only; changes can't be applied.</span
+          >
+        </span>
+        <Button variant="ghost" size="xs" class="shrink-0" @click="editCluster(cluster.key)">
+          Edit cluster
+        </Button>
       </div>
 
       <!-- Review summary -->

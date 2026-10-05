@@ -15,6 +15,10 @@ import type {
   WatchSubscription,
 } from "@/lib/watch";
 import type { CliResult } from "@/actions/command";
+import type { GuardedCall } from "@/lib/guardrails/backstop";
+
+/* The read-only backstop loads with the first change (keeps startup small). */
+const backstop = () => import("@/lib/guardrails/backstop");
 
 export interface KubernetesError {
   message: string;
@@ -227,7 +231,10 @@ export class Kubernetes {
     });
   }
 
-  static async kubectl(args: string[]): Promise<string> {
+  /** Changes to a read-only cluster are refused (see lib/guardrails). */
+  static async kubectl(args: string[], call?: GuardedCall): Promise<string> {
+    const refusal = (await backstop()).cliRefusal("kubectl", args, call);
+    if (refusal) throw new Error(refusal);
     return invoke("run_kubectl", { args: args });
   }
 
@@ -282,6 +289,11 @@ export class Kubernetes {
     });
   }
 
+  /*
+   * The calls below change the cluster: read-only clusters are refused
+   * (ReadOnlyClusterError) unless the caller ran guard() (`{ guarded: true }`).
+   */
+
   /**
    * Runs `kubectl apply|replace -f -` with the manifest on stdin, so edited
    * objects never touch a temp file.
@@ -293,8 +305,10 @@ export class Kubernetes {
     mode: "apply" | "replace",
     kubeConfig?: string,
     /** `--dry-run=server`: validate + admit without persisting. */
-    dryRun = false
+    dryRun = false,
+    call?: GuardedCall
   ): Promise<string> {
+    if (!dryRun) (await backstop()).assertWritable(context, kubeConfig, call);
     return invoke("apply_manifest", {
       context: context,
       namespace: namespace,
@@ -311,8 +325,10 @@ export class Kubernetes {
     type: string,
     name: string,
     object: unknown,
-    kubeConfig?: string
+    kubeConfig?: string,
+    call?: GuardedCall
   ): Promise<KubernetesObject> {
+    (await backstop()).assertWritable(context, kubeConfig, call);
     return invoke(`replace_${type.toLowerCase()}`, {
       context: context,
       namespace: namespace,
@@ -327,8 +343,10 @@ export class Kubernetes {
     namespace: string,
     name: string,
     gracePeriodSeconds = 0,
-    kubeConfig?: string
+    kubeConfig?: string,
+    call?: GuardedCall
   ): Promise<void> {
+    (await backstop()).assertWritable(context, kubeConfig, call);
     return invoke("delete_pod", {
       context: context,
       namespace: namespace,
@@ -353,8 +371,10 @@ export class Kubernetes {
     context: string,
     namespace: string,
     name: string,
-    kubeConfig?: string
+    kubeConfig?: string,
+    call?: GuardedCall
   ): Promise<V1Job> {
+    (await backstop()).assertWritable(context, kubeConfig, call);
     return invoke("trigger_cronjob", {
       context: context,
       namespace: namespace,
@@ -473,8 +493,11 @@ export class Kubernetes {
    */
   static async runHelmWithValues(
     args: string[],
-    values: string
+    values: string,
+    call?: GuardedCall
   ): Promise<CliResult> {
+    const refusal = (await backstop()).cliRefusal("helm", args, call);
+    if (refusal) throw new Error(refusal);
     return invoke("run_helm_with_values", { args, values });
   }
 }

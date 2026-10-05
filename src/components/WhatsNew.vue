@@ -6,7 +6,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { injectStrict } from "@/lib/utils";
-import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+import {
+  SettingsContextStateKey,
+  SettingsFirstRunKey,
+} from "@/providers/SettingsContextProvider";
 import { getVersion } from "@tauri-apps/api/app";
 import { Sparkles } from "lucide-vue-next";
 
@@ -14,6 +17,7 @@ import { Sparkles } from "lucide-vue-next";
 const Updates = defineAsyncComponent(() => import("./whats-new/Updates.vue"));
 
 const { settings } = injectStrict(SettingsContextStateKey);
+const firstRun = injectStrict(SettingsFirstRunKey);
 
 const shouldShowWhatsNew = ref(false);
 const currentVersion = ref<string | null>(null);
@@ -26,8 +30,9 @@ onMounted(async () => {
   // version shows the dialog again.
   const minor = (version: string | null) => version?.split(".").slice(0, 2).join(".") ?? null;
   if (minor(lastSeenVersion) !== minor(currentVersion.value)) {
-    // Turned off in Settings › General: remember the version without showing it.
-    if (settings.value.updates.showWhatsNew) shouldShowWhatsNew.value = true;
+    // Turned off in Settings › General, or a fresh install (the setup guide
+    // shows instead): remember the version without showing it.
+    if (settings.value.updates.showWhatsNew && !firstRun.value) shouldShowWhatsNew.value = true;
     else settings.value.updates.whatsNew = currentVersion.value;
   }
 });

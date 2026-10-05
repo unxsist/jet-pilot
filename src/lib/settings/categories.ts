@@ -104,7 +104,7 @@ export const CATEGORIES: readonly SettingCategory[] = [
   {
     id: "clusters",
     title: "Clusters",
-    description: "Kubeconfig files and per-cluster namespaces",
+    description: "Kubeconfig files and cluster details",
     icon: Server,
     sections: [
       {
@@ -115,11 +115,11 @@ export const CATEGORIES: readonly SettingCategory[] = [
         component: () => import("@/components/settings/sections/KubeconfigSourcesSection.vue"),
       },
       {
-        id: "namespaces",
-        title: "Namespaces per cluster",
-        description: "Namespaces to offer for clusters where you can't list them",
-        keywords: ["namespaces", "rbac", "forbidden", "cluster settings"],
-        component: () => import("@/components/settings/sections/ClusterNamespacesSection.vue"),
+        id: "details",
+        title: "Cluster details",
+        description: "Names, colours, environments, guardrails, folders, tags and namespaces",
+        keywords: ["alias", "color", "colour", "production", "protected", "read-only", "folder", "tags", "namespaces", "hub"],
+        component: () => import("@/components/settings/sections/ClusterDetailsSection.vue"),
       },
     ],
   },

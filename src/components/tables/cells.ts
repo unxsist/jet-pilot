@@ -1,7 +1,7 @@
 import { h } from "vue";
 import { StatusDot } from "@/components/ui/status";
 import type { StatusTone as UiStatusTone } from "@/components/ui/status";
-import ContextAvatar from "@/components/ContextAvatar.vue";
+import ClusterLabel from "@/components/clusters/ClusterLabel.vue";
 import type { StatusTone } from "./status";
 
 /*
@@ -38,14 +38,5 @@ export const statusCell = (label: string, tone: StatusTone) =>
     : "";
 
 /** Context name with its monogram (multi-context tables). */
-export const contextCell = (context: string) =>
-  context
-    ? h("span", { class: "inline-flex max-w-full items-center gap-2" }, [
-        h(ContextAvatar, {
-          name: context,
-          size: "sm",
-          class: "[--avatar-ring:var(--background)]",
-        }),
-        h("span", { class: "truncate text-muted-foreground" }, context),
-      ])
-    : "";
+export const contextCell = (context: string, kubeConfig?: string) =>
+  context ? h(ClusterLabel, { context, kubeConfig, muted: true }) : "";

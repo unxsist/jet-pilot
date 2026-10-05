@@ -2,6 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { PtyMessage, PtyStarter, isPtyExitMessage, ptyOutput } from "@/lib/pty";
 import PtyTerminal from "@/components/PtyTerminal.vue";
+import TerminalClusterBanner from "@/components/guardrails/TerminalClusterBanner.vue";
 import { toast } from "@/components/ui/toast";
 import { runCli, cliSucceeded, cliErrorMessage } from "@/actions/command";
 import { clusterArgs, debugPodNameFromOutput } from "@/lib/workloads";
@@ -28,14 +29,19 @@ const decoder = new TextDecoder();
 
 const deletePod = async (name: string) => {
   if (!pendingPods.delete(name)) return;
-  const result = await runCli("kubectl", [
-    "delete",
-    "pod",
-    name,
-    "--wait=false",
-    "--ignore-not-found",
-    ...clusterArgs(props),
-  ]);
+  // The pod this tab created: removed even if the cluster became read-only.
+  const result = await runCli(
+    "kubectl",
+    [
+      "delete",
+      "pod",
+      name,
+      "--wait=false",
+      "--ignore-not-found",
+      ...clusterArgs(props),
+    ],
+    { guarded: true }
+  );
   if (cliSucceeded(result)) {
     toast({ title: `Deleted debug pod ${name}`, autoDismiss: true });
   } else {
@@ -96,5 +102,10 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <PtyTerminal :start="start" :banner="banner" :tab-id="tabId" />
+  <div class="flex h-full w-full flex-col">
+    <TerminalClusterBanner :context="context" :kube-config="kubeConfig" />
+    <div class="min-h-0 flex-1">
+      <PtyTerminal :start="start" :banner="banner" :tab-id="tabId" />
+    </div>
+  </div>
 </template>

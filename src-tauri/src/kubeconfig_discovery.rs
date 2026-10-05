@@ -18,6 +18,7 @@ use kube::config::{AuthInfo, ExecConfig, Kubeconfig, KubeconfigError};
 use serde::Serialize;
 use tracing::{debug, warn};
 
+use crate::auth::classify::{classify_auth, InteractiveClass};
 use crate::kubernetes::client::SerializableKubeError;
 use crate::paths;
 
@@ -90,6 +91,9 @@ pub struct AuthSummary {
     /// The AWS profile an exec plugin uses (`AWS_PROFILE` env or
     /// `--profile`), for AWS SSO re-login.
     pub aws_profile: Option<String>,
+    /// Whether connecting may need an interactive sign-in (see
+    /// `auth::classify`).
+    pub interactive: InteractiveClass,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -375,6 +379,7 @@ fn describe(
                     kind: AuthKind::None,
                     command: None,
                     aws_profile: None,
+                    interactive: InteractiveClass::NonInteractive,
                 }),
                 problems,
             }
@@ -489,6 +494,7 @@ fn summarize_auth(auth: &AuthInfo) -> AuthSummary {
                 .unwrap_or_else(|| command.to_string())
         }),
         aws_profile: exec.and_then(aws_profile),
+        interactive: classify_auth(auth),
     }
 }
 
@@ -576,6 +582,7 @@ users:
         assert!(!json.contains("super-secret"));
         assert!(json.contains("\"currentContext\""));
         assert!(json.contains("\"kind\":\"token\""));
+        assert!(json.contains("\"interactive\":\"nonInteractive\""));
     }
 
     #[test]
@@ -664,6 +671,7 @@ users:
                 kind: AuthKind::Exec,
                 command: Some("aws".into()),
                 aws_profile: Some("prod-admin".into()),
+                interactive: InteractiveClass::NonInteractive,
             }
         );
         // The relative CA path resolves next to the kubeconfig.
@@ -698,6 +706,11 @@ users:
         assert_eq!(codes(oidc), vec!["execNotFound"]);
         assert!(oidc.problems[0].message.contains("\"kubectl\""));
 
+        assert_eq!(oidc.auth.interactive, InteractiveClass::Interactive);
+        assert_eq!(kind.auth.interactive, InteractiveClass::NonInteractive);
+        assert_eq!(basic.auth.interactive, InteractiveClass::NonInteractive);
+        assert_eq!(gke.auth.interactive, InteractiveClass::Unknown);
+
         let json = serde_json::to_string(&report).unwrap();
         for secret in [
             "exec-env-secret",
@@ -709,6 +722,8 @@ users:
         assert!(json.contains("\"awsProfile\":\"prod-admin\""));
         assert!(json.contains("\"kind\":\"clientCert\""));
         assert!(json.contains("\"kind\":\"authProvider\""));
+        assert!(json.contains("\"interactive\":\"interactive\""));
+        assert!(json.contains("\"interactive\":\"unknown\""));
     }
 
     #[test]
@@ -735,6 +750,7 @@ contexts:
         assert_eq!(no_user.problems[0].severity, Severity::Error);
         assert!(no_user.problems[0].message.contains("ghost"));
         assert_eq!(no_user.auth.kind, AuthKind::None);
+        assert_eq!(no_user.auth.interactive, InteractiveClass::NonInteractive);
         assert_eq!(no_user.server.as_deref(), Some("https://c.example"));
 
         let no_cluster = &report.contexts[1];

@@ -1,6 +1,6 @@
 import { KubernetesObject } from "@kubernetes/client-node";
 import { RowAction } from "@/components/tables/types";
-import { BaseDialogInterface, DialogInterface } from "@/providers/DialogProvider";
+import { BaseDialogInterface } from "@/providers/DialogProvider";
 import {
   describeRows,
   getResourceTabId,
@@ -8,6 +8,7 @@ import {
 } from "@/components/tables/identity";
 import { clusterArgs } from "@/lib/workloads";
 import { rolloutArgs } from "@/lib/rollout";
+import { confirmDialog, guard, rowTargets } from "@/lib/guardrails/guard";
 import { runCliForEach } from "./command";
 
 /*
@@ -91,41 +92,35 @@ export function restartAction<T extends WorkloadRow>(
 ): RowAction<T> {
   return {
     label: "Restart",
+    kind: "restart",
     massAction: true,
-    handler: (rows: T[]) => {
-      spawnDialog({
-        title:
-          rows.length === 1
-            ? `Restart ${getResourceTabTitle(rows[0])}?`
-            : `Restart ${rows.length} ${kindLabel(rows)}s?`,
-        message:
-          "All pods are replaced through a rolling update, following the update strategy.",
-        component: defineAsyncComponent(
-          () => import("@/views/dialogs/ResourceList.vue")
-        ),
-        props: { lines: describeRows(rows) },
-        buttons: [
-          {
-            label: "Cancel",
-            variant: "ghost",
-            handler: (dialog: DialogInterface) => dialog.close(),
-          },
-          {
-            label: "Restart",
-            handler: (dialog: DialogInterface) => {
-              dialog.close();
-              runCliForEach("kubectl", rows, {
-                args: (row) => [
-                  ...rolloutArgs("restart", row.kind ?? "", row.metadata.name ?? ""),
-                  ...clusterArgs(target(row)),
-                ],
-                label: (row) => getResourceTabTitle(row),
-                successVerb: "Restarted",
-                failureVerb: "restart",
-              });
-            },
-          },
+    handler: async (rows: T[]) => {
+      const confirmed = await guard("restart", rowTargets(rows), {
+        confirm: () =>
+          confirmDialog(spawnDialog, {
+            title:
+              rows.length === 1
+                ? `Restart ${getResourceTabTitle(rows[0])}?`
+                : `Restart ${rows.length} ${kindLabel(rows)}s?`,
+            message:
+              "All pods are replaced through a rolling update, following the update strategy.",
+            component: defineAsyncComponent(
+              () => import("@/views/dialogs/ResourceList.vue")
+            ),
+            props: { lines: describeRows(rows) },
+            confirmLabel: "Restart",
+          }),
+      });
+      if (!confirmed) return;
+      runCliForEach("kubectl", rows, {
+        args: (row) => [
+          ...rolloutArgs("restart", row.kind ?? "", row.metadata.name ?? ""),
+          ...clusterArgs(target(row)),
         ],
+        label: (row) => getResourceTabTitle(row),
+        successVerb: "Restarted",
+        failureVerb: "restart",
+        guarded: true,
       });
     },
   };
@@ -138,35 +133,28 @@ export function pauseResumeAction<T extends WorkloadRow>(
   const paused = (row: T) => row.spec?.paused === true;
   return {
     label: (row: T) => (paused(row) ? "Resume rollout" : "Pause rollout"),
-    handler: (row: T) => {
+    handler: async (row: T) => {
       const resume = paused(row);
-      spawnDialog({
-        title: `${resume ? "Resume" : "Pause"} rollout of ${row.metadata.name}?`,
-        message: resume
-          ? "Pending template changes are rolled out."
-          : "Template changes are not rolled out until the rollout is resumed. Scaling still works.",
-        buttons: [
-          {
-            label: "Cancel",
-            variant: "ghost",
-            handler: (dialog: DialogInterface) => dialog.close(),
-          },
-          {
-            label: resume ? "Resume" : "Pause",
-            handler: (dialog: DialogInterface) => {
-              dialog.close();
-              runCliForEach("kubectl", [row], {
-                args: (r) => [
-                  ...rolloutArgs(resume ? "resume" : "pause", r.kind ?? "", r.metadata.name ?? ""),
-                  ...clusterArgs(target(r)),
-                ],
-                label: (r) => getResourceTabTitle(r),
-                successVerb: resume ? "Resumed rollout of" : "Paused rollout of",
-                failureVerb: resume ? "resume the rollout of" : "pause the rollout of",
-              });
-            },
-          },
+      const confirmed = await guard(resume ? "resume" : "pause", rowTargets([row]), {
+        confirm: () =>
+          confirmDialog(spawnDialog, {
+            title: `${resume ? "Resume" : "Pause"} rollout of ${row.metadata.name}?`,
+            message: resume
+              ? "Pending template changes are rolled out."
+              : "Template changes are not rolled out until the rollout is resumed. Scaling still works.",
+            confirmLabel: resume ? "Resume" : "Pause",
+          }),
+      });
+      if (!confirmed) return;
+      runCliForEach("kubectl", [row], {
+        args: (r) => [
+          ...rolloutArgs(resume ? "resume" : "pause", r.kind ?? "", r.metadata.name ?? ""),
+          ...clusterArgs(target(r)),
         ],
+        label: (r) => getResourceTabTitle(r),
+        successVerb: resume ? "Resumed rollout of" : "Paused rollout of",
+        failureVerb: resume ? "resume the rollout of" : "pause the rollout of",
+        guarded: true,
       });
     },
   };

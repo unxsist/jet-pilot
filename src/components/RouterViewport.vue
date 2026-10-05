@@ -9,7 +9,8 @@ import {
 import TabOrchestrator from "@/components/TabOrchestrator.vue";
 import KeptAliveView from "@/components/KeptAliveView.vue";
 import { useRoute, type RouteLocationNormalizedLoaded } from "vue-router";
-import NoContext from "@/views/NoContext.vue";
+/* Every cluster, to pick one, when a view needs a context and none is active. */
+const ClustersHub = defineAsyncComponent(() => import("@/views/clusters/ClustersHub.vue"));
 import { KEEP_ALIVE_MAX, KEEP_ALIVE_ROUTES } from "@/lib/activeView";
 
 const { context } = injectStrict(KubeContextStateKey);
@@ -30,7 +31,7 @@ const isCached = (r: RouteLocationNormalizedLoaded) =>
   <div class="relative flex h-full w-full flex-col bg-background">
     <ResizablePanelGroup direction="vertical">
       <ResizablePanel>
-        <NoContext v-if="route.meta.requiresContext && context == ''" />
+        <ClustersHub v-if="route.meta.requiresContext && context == ''" embedded />
         <router-view v-else v-slot="{ Component, route: viewRoute }">
           <keep-alive :max="KEEP_ALIVE_MAX">
             <KeptAliveView

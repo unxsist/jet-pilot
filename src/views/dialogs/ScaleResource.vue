@@ -19,6 +19,8 @@ import {
 } from "@/components/ui/number-field";
 import { Label } from "@/components/ui/label";
 import { Scaling } from "lucide-vue-next";
+import { guard, rowTargets } from "@/lib/guardrails/guard";
+import { scaleKind } from "@/lib/guardrails/policy";
 
 type ScalableObject = (
   | V1Deployment
@@ -42,12 +44,16 @@ const replicas = ref(0);
 const emit = defineEmits(["closeDialog"]);
 
 const scale = async () => {
+  const count = replicas.value;
+  const objects = props.objects as ScalableObject[];
   emit("closeDialog");
-  await runCliForEach("kubectl", props.objects as ScalableObject[], {
+  // Scaling to 0 takes the workloads down: typed confirmation on protected clusters.
+  if (!(await guard(scaleKind(count), rowTargets(objects)))) return;
+  await runCliForEach("kubectl", objects, {
     args: (object) => {
       const args = [
         "scale",
-        `--replicas=${replicas.value}`,
+        `--replicas=${count}`,
         `${object.kind}/${object.metadata?.name}`,
         "--context",
         object.metadata.context,
@@ -63,6 +69,7 @@ const scale = async () => {
     label: (object) => getResourceTabTitle(object),
     successVerb: "Scaled",
     failureVerb: "scale",
+    guarded: true,
   });
 };
 

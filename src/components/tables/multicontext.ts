@@ -16,7 +16,8 @@ export const multiContextColumns: ColumnDef<any>[] = [
     },
     accessorKey: "metadata.context",
     header: "Context",
-    cell: ({ getValue }) => contextCell(String(getValue() ?? "")),
+    cell: ({ getValue, row }) =>
+      contextCell(String(getValue() ?? ""), (row.original as any)?.metadata?.kubeConfig),
   },
   {
     id: "namespace",

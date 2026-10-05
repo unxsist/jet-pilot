@@ -10,6 +10,7 @@ use std::sync::{Arc, RwLock};
 
 mod announcements;
 mod app_log;
+mod auth;
 mod env_import;
 mod kubeconfig_discovery;
 mod kubernetes;
@@ -20,6 +21,7 @@ mod net;
 mod openvsx;
 mod paths;
 mod port_forward;
+mod probe;
 mod process;
 #[cfg(all(test, feature = "kwok-qa"))]
 mod qa_kwok;
@@ -186,6 +188,9 @@ fn main() {
             env_import::env_import_report,
             kubeconfig_discovery::kubeconfig_discover,
             kubeconfig_discovery::kubeconfig_describe,
+            probe::cluster_status_cached,
+            probe::cluster_probe,
+            probe::cluster_probe_cancel,
             tools::tools_detect,
             tools::tools_install,
             tools::tools_uninstall,
@@ -266,6 +271,8 @@ fn main() {
             shell::tty::kill_all_tty_sessions();
             // And backend log streams (kubectl logs --follow).
             logs::streaming::kill_all_log_streams();
+            // Cluster statuses still waiting for their debounced write.
+            probe::flush_status_cache();
         }
     });
 }

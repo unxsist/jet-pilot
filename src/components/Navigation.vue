@@ -58,6 +58,13 @@ const navigationGroups: NavigationGroup[] = [
     apiGroupResources: [],
     customLinks: [
       {
+        title: "Clusters",
+        to: {
+          name: "ClustersHub",
+        },
+        icon: "clustershub",
+      },
+      {
         title: "Resource Graph",
         to: {
           name: "ClusterOverview",

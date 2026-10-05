@@ -391,6 +391,7 @@ const PALETTE_ICONS: Record<string, Component> = {
   "open-settings-json": Braces,
   "import-settings": Upload,
   "export-settings": Download,
+  "open-setup-guide": Sparkles,
 };
 
 const commandIcon = (command: PaletteItem): Component => {
