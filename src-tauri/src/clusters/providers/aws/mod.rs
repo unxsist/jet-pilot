@@ -104,7 +104,10 @@ fn target_of(ctx: &AwsContext, connection: &CloudConnection) -> Option<SignInTar
                 start_url: sso.start_url,
             })
         }
-        ConnectionKind::Keys => None,
+        ConnectionKind::Keys
+        | ConnectionKind::Cli
+        | ConnectionKind::Token
+        | ConnectionKind::ApiKey => None,
     }
 }
 
@@ -332,6 +335,11 @@ pub(crate) fn credential_state(
             }
         }
         ConnectionKind::Keys => (ConnectionStatus::SignedIn, None, None),
+        ConnectionKind::Cli | ConnectionKind::Token | ConnectionKind::ApiKey => (
+            ConnectionStatus::Error,
+            None,
+            Some("This is not an AWS connection".into()),
+        ),
     }
 }
 
@@ -439,7 +447,10 @@ fn compute_entry_status(ctx: &AwsContext, args: &AwsEksArgs) -> EntryStatus {
             }
             unknown
         }
-        ConnectionKind::Sso => unknown,
+        ConnectionKind::Sso
+        | ConnectionKind::Cli
+        | ConnectionKind::Token
+        | ConnectionKind::ApiKey => unknown,
     }
 }
 

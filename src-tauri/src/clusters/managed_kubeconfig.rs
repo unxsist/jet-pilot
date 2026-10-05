@@ -71,9 +71,11 @@ pub struct ClusterMeta {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloudMeta {
-    /// `aws`
+    /// `aws`, `gcp`, `azure`, `digitalocean`, `linode`, `civo`, `scaleway`,
+    /// `vultr`, `exoscale`
     pub provider: String,
     pub connection_id: String,
+    /// AWS account, GCP project or Azure subscription.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -83,7 +85,8 @@ pub struct CloudMeta {
     pub region: String,
     /// The provider's cluster name.
     pub name: String,
-    /// The provider's id (EKS: the cluster ARN).
+    /// The provider's id (EKS: the cluster ARN; GKE: the self link; AKS:
+    /// the resource id; the cluster id of the API providers).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_id: Option<String>,
     pub catalog_key: String,
@@ -209,6 +212,36 @@ pub fn aws_eks_exec(args: &jp_auth_core::request::AwsEksArgs, helper: &Path) -> 
         api_version: Some(jp_auth_core::exec_credential::API_VERSION_V1.to_string()),
         command: Some(helper_command(helper)),
         args: Some(jp_auth_core::request::aws_eks_args(args)),
+        install_hint: Some(INSTALL_HINT.to_string()),
+        interactive_mode: Some(ExecInteractiveMode::Never),
+        ..ExecConfig::default()
+    }
+}
+
+/// `jetpilot-auth credential digitalocean --connection <id> --cluster <id>`:
+/// short-lived DigitalOcean tokens minted with the connection's API token.
+pub fn digitalocean_exec(
+    args: &jp_auth_core::request::DigitaloceanArgs,
+    helper: &Path,
+) -> ExecConfig {
+    ExecConfig {
+        api_version: Some(jp_auth_core::exec_credential::API_VERSION_V1.to_string()),
+        command: Some(helper_command(helper)),
+        args: Some(jp_auth_core::request::digitalocean_args(args)),
+        install_hint: Some(INSTALL_HINT.to_string()),
+        interactive_mode: Some(ExecInteractiveMode::Never),
+        ..ExecConfig::default()
+    }
+}
+
+/// `jetpilot-auth credential exoscale --connection <id> --zone <zone>
+/// --cluster <id>`: Exoscale client certificates minted with the
+/// connection's API key.
+pub fn exoscale_exec(args: &jp_auth_core::request::ExoscaleArgs, helper: &Path) -> ExecConfig {
+    ExecConfig {
+        api_version: Some(jp_auth_core::exec_credential::API_VERSION_V1.to_string()),
+        command: Some(helper_command(helper)),
+        args: Some(jp_auth_core::request::exoscale_args(args)),
         install_hint: Some(INSTALL_HINT.to_string()),
         interactive_mode: Some(ExecInteractiveMode::Never),
         ..ExecConfig::default()

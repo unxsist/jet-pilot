@@ -56,7 +56,7 @@ which = "8"
 sha2 = "0.10"
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 tar = "0.4"
-jp-auth-core = { path = "crates/jp-auth-core", features = ["aws"] }
+jp-auth-core = { path = "crates/jp-auth-core", features = ["aws", "cloud"] }
 serde-saphyr = "0.0.29"
 pem = "3"
 rpassword = "7"
@@ -73,7 +73,7 @@ aws-sdk-eks = { version = "1.80", default-features = false, features = ["rt-toki
 
 [dev-dependencies]
 tempfile = "3"
-jp-auth-core = { path = "crates/jp-auth-core", features = ["aws", "test-util"] }
+jp-auth-core = { path = "crates/jp-auth-core", features = ["aws", "cloud", "test-util"] }
 tokio = { version = "1.29.1", features = ["net"] }
 
 [target.'cfg(unix)'.dependencies]

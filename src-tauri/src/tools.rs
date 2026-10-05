@@ -1,6 +1,6 @@
 //! External CLI tools JET Pilot relies on (kubectl, helm, cloud CLIs and
 //! credential plugins): detection on `PATH`, and managed installs of
-//! kubectl and helm for users who don't have them.
+//! kubectl, helm and Azure kubelogin for users who don't have them.
 //!
 //! Detection resolves each tool on the process `PATH` (imported from the
 //! login shell, managed `bin/` last, see env_import.rs) and runs its version
@@ -8,11 +8,13 @@
 //! minutes.
 //!
 //! Managed installs download a pinned (or requested) version from the
-//! official origin only (dl.k8s.io / get.helm.sh, redirects pinned to those
-//! hosts), verify it against the `.sha256` / `.sha256sum` file published
-//! next to the artifact, unpack it into `tools/<tool>/<version>/` and
-//! activate it by hard-linking (or copying) into `bin/` through a temp name
-//! and a rename. Progress is streamed as [`DownloadEvent`]s.
+//! official origin only (dl.k8s.io / get.helm.sh / the Azure/kubelogin
+//! GitHub releases, redirects pinned to those hosts), verify it against a
+//! SHA-256 embedded here for pinned kubelogin releases, else the
+//! `.sha256` / `.sha256sum` file published next to the artifact, unpack it
+//! into `tools/<tool>/<version>/` and activate it by hard-linking (or
+//! copying) into `bin/` through a temp name and a rename. Progress is
+//! streamed as [`DownloadEvent`]s.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -31,7 +33,50 @@ use crate::process::{self, ProcessError};
 /// Versions installed when the frontend doesn't ask for one. Release prep
 /// bumps these. The checksum is fetched from the official origin at install
 /// time; per-platform digests embedded at release prep can replace that.
-const PINNED_VERSIONS: &[(&str, &str)] = &[("kubectl", "v1.34.1"), ("helm", "v3.19.0")];
+const PINNED_VERSIONS: &[(&str, &str)] = &[
+    ("kubectl", "v1.34.1"),
+    ("helm", "v3.19.0"),
+    ("kubelogin", KUBELOGIN_VERSION),
+];
+
+/// Azure kubelogin (AKS clusters in `azurecli` mode).
+pub const KUBELOGIN_VERSION: &str = "v0.2.20";
+
+/// SHA-256 of the pinned kubelogin release archives per (os, arch), as
+/// published next to them (`kubelogin-<os>-<arch>.zip.sha256`). Bump with
+/// `KUBELOGIN_VERSION`.
+const KUBELOGIN_SHA256: &[(&str, &str, &str)] = &[
+    (
+        "darwin",
+        "amd64",
+        "533f2f159d40b81d890efbddb902ab49a04431669c89b1027dc0b0f0eaaf6729",
+    ),
+    (
+        "darwin",
+        "arm64",
+        "1583a65ed6833145a9427f7920ae8cfb7b86244b1b3e8c6b4a0f016101d1634d",
+    ),
+    (
+        "linux",
+        "amd64",
+        "2e92450a929dd2aec4da818b40dd4fda97aaeae2d6cd9c1074cc1371210f4ab9",
+    ),
+    (
+        "linux",
+        "arm64",
+        "d02712fcf3ed290cc3921205e535673b12fef0936da1c0b762afaa4d685a33c4",
+    ),
+    (
+        "windows",
+        "amd64",
+        "e26d5ce8a48e9b6ac53fd93cf45a1eec050f859ccca3654beb4887decd8dee33",
+    ),
+    (
+        "windows",
+        "arm64",
+        "8155504e917636635d431f553cbb108bd3d7399e1ad255eacf0f4590ce222201",
+    ),
+];
 
 /// gcloud and az are Python programs and can be slow to start.
 const VERSION_TIMEOUT: Duration = Duration::from_secs(8);
@@ -39,7 +84,15 @@ const VERSION_TIMEOUT: Duration = Duration::from_secs(8);
 const INSTALL_CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 const CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 
-const DOWNLOAD_HOSTS: &[&str] = &["dl.k8s.io", "cdn.dl.k8s.io", "get.helm.sh"];
+const DOWNLOAD_HOSTS: &[&str] = &[
+    "dl.k8s.io",
+    "cdn.dl.k8s.io",
+    "get.helm.sh",
+    // GitHub release downloads redirect to its asset storage.
+    "github.com",
+    "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+];
 const MAX_DOWNLOAD_BYTES: u64 = 200 * 1024 * 1024;
 const MAX_CHECKSUM_BYTES: usize = 4 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -104,6 +157,7 @@ pub enum DownloadEvent {
 enum Installer {
     Kubectl,
     Helm,
+    Kubelogin,
 }
 
 struct Tool {
@@ -163,7 +217,7 @@ const TOOLS: &[Tool] = &[
         binary: "kubelogin",
         version_args: &["--version"],
         parse_version: first_version,
-        installer: None,
+        installer: Some(Installer::Kubelogin),
     },
     Tool {
         id: "gke-gcloud-auth-plugin",
@@ -293,6 +347,16 @@ async fn status_for(
     }
     status.path = Some(path.to_string_lossy().into_owned());
     status
+}
+
+/// The version of an installed tool of the table (`gcloud`, `az`, ...),
+/// None when it can't be told.
+pub(crate) async fn version_of(id: &str, path: &Path) -> Option<String> {
+    let tool = find_tool(id).ok()?;
+    run_version(tool, path, VERSION_TIMEOUT)
+        .await
+        .ok()
+        .flatten()
 }
 
 /// Runs the tool's version command. Ok(None): it ran but printed no version
@@ -490,6 +554,9 @@ struct InstallPlan {
     binary: String,
     /// Archive and the member holding the binary, for archived releases.
     archive: Option<(ArchiveKind, String)>,
+    /// The artifact's SHA-256 when it is pinned here (else fetched from
+    /// `checksum_url`).
+    sha256: Option<&'static str>,
 }
 
 fn install_plan(installer: Installer, version: &str, platform: Platform) -> InstallPlan {
@@ -504,6 +571,7 @@ fn install_plan(installer: Installer, version: &str, platform: Platform) -> Inst
                 artifact: binary.clone(),
                 binary,
                 archive: None,
+                sha256: None,
             }
         }
         Installer::Helm => {
@@ -521,6 +589,32 @@ fn install_plan(installer: Installer, version: &str, platform: Platform) -> Inst
                 archive: Some((kind, format!("{os}-{arch}/{binary}"))),
                 artifact,
                 binary,
+                sha256: None,
+            }
+        }
+        Installer::Kubelogin => {
+            let binary = format!("kubelogin{}", platform.exe_suffix());
+            // Release assets say `win`, the paths inside say `windows`.
+            let asset_os = if os == "windows" { "win" } else { os };
+            let artifact = format!("kubelogin-{asset_os}-{arch}.zip");
+            let url = format!(
+                "https://github.com/Azure/kubelogin/releases/download/{version}/{artifact}"
+            );
+            let sha256 = (version == KUBELOGIN_VERSION)
+                .then(|| {
+                    KUBELOGIN_SHA256
+                        .iter()
+                        .find(|(o, a, _)| *o == os && *a == arch)
+                        .map(|(_, _, sha)| *sha)
+                })
+                .flatten();
+            InstallPlan {
+                checksum_url: format!("{url}.sha256"),
+                url,
+                archive: Some((ArchiveKind::Zip, format!("bin/{os}_{arch}/{binary}"))),
+                artifact,
+                binary,
+                sha256,
             }
         }
     }
@@ -562,8 +656,9 @@ impl Throttle {
     }
 }
 
-/// Installs `tool` (kubectl or helm) into the managed directories and
-/// returns its fresh status. `version` defaults to the pinned one.
+/// Installs `tool` (kubectl, helm or kubelogin) into the managed
+/// directories and returns its fresh status. `version` defaults to the
+/// pinned one.
 #[tauri::command]
 pub async fn tools_install(
     app: tauri::AppHandle,
@@ -613,19 +708,24 @@ async fn install(
         .build()
         .map_err(|e| format!("Failed to create the HTTP client: {e}"))?;
 
-    let checksums = net::get_capped(&client, &plan.checksum_url, MAX_CHECKSUM_BYTES)
-        .await
-        .map_err(|e| match e {
-            net::NetError::Status(404) => {
-                format!(
-                    "{} {version} is not available for {}/{}.",
-                    tool.name, platform.os, platform.arch
-                )
-            }
-            e => format!("Fetching the {} checksum failed: {e}", tool.name),
-        })?;
-    let expected = net::parse_sha256_file(&String::from_utf8_lossy(&checksums), &plan.artifact)
-        .ok_or_else(|| format!("The published {} checksum could not be read.", tool.name))?;
+    let expected = match plan.sha256 {
+        Some(pinned) => pinned.to_string(),
+        None => {
+            let checksums = net::get_capped(&client, &plan.checksum_url, MAX_CHECKSUM_BYTES)
+                .await
+                .map_err(|e| match e {
+                    net::NetError::Status(404) => {
+                        format!(
+                            "{} {version} is not available for {}/{}.",
+                            tool.name, platform.os, platform.arch
+                        )
+                    }
+                    e => format!("Fetching the {} checksum failed: {e}", tool.name),
+                })?;
+            net::parse_sha256_file(&String::from_utf8_lossy(&checksums), &plan.artifact)
+                .ok_or_else(|| format!("The published {} checksum could not be read.", tool.name))?
+        }
+    };
 
     let tool_dir = paths::managed_tools_dir().join(tool.id);
     let version_dir = tool_dir.join(&version);
@@ -878,8 +978,9 @@ fn prune_versions(tool_dir: &Path, keep: &str) {
     }
 }
 
-/// Removes a managed kubectl/helm: the activated binary in `bin/` and every
-/// downloaded version. Nothing outside the managed directories is touched.
+/// Removes a managed kubectl/helm/kubelogin: the activated binary in `bin/`
+/// and every downloaded version. Nothing outside the managed directories
+/// is touched.
 #[tauri::command]
 pub async fn tools_uninstall(tool: String) -> Result<(), String> {
     let tool = find_tool(&tool)?;
@@ -942,6 +1043,7 @@ mod tests {
         assert!(find_tool("rm").is_err());
         assert_eq!(pinned_version(tool("kubectl")), Some("v1.34.1"));
         assert_eq!(pinned_version(tool("helm")), Some("v3.19.0"));
+        assert_eq!(pinned_version(tool("kubelogin")), Some(KUBELOGIN_VERSION));
         assert_eq!(pinned_version(tool("aws")), None);
     }
 
@@ -1028,9 +1130,59 @@ mod tests {
             Some((ArchiveKind::Zip, "windows-arm64/helm.exe".to_string()))
         );
 
+        let plan = install_plan(Installer::Kubelogin, KUBELOGIN_VERSION, windows);
+        assert_eq!(
+            plan.url,
+            "https://github.com/Azure/kubelogin/releases/download/v0.2.20/kubelogin-win-arm64.zip"
+        );
+        assert_eq!(
+            plan.checksum_url,
+            "https://github.com/Azure/kubelogin/releases/download/v0.2.20/kubelogin-win-arm64.zip.sha256"
+        );
+        assert_eq!(plan.binary, "kubelogin.exe");
+        assert_eq!(
+            plan.archive,
+            Some((
+                ArchiveKind::Zip,
+                "bin/windows_arm64/kubelogin.exe".to_string()
+            ))
+        );
+        assert_eq!(
+            plan.sha256,
+            Some("8155504e917636635d431f553cbb108bd3d7399e1ad255eacf0f4590ce222201")
+        );
+        let plan = install_plan(Installer::Kubelogin, KUBELOGIN_VERSION, mac);
+        assert_eq!(plan.artifact, "kubelogin-darwin-arm64.zip");
+        assert_eq!(
+            plan.archive,
+            Some((ArchiveKind::Zip, "bin/darwin_arm64/kubelogin".to_string()))
+        );
+        // Every supported platform has a pinned digest; other versions
+        // fetch the published one.
+        for os in ["darwin", "linux", "windows"] {
+            for arch in ["amd64", "arm64"] {
+                let plan = install_plan(
+                    Installer::Kubelogin,
+                    KUBELOGIN_VERSION,
+                    Platform { os, arch },
+                );
+                let sha = plan.sha256.unwrap();
+                assert_eq!(
+                    net::normalize_sha256(sha).as_deref(),
+                    Some(sha),
+                    "{os}/{arch}"
+                );
+            }
+        }
+        assert_eq!(
+            install_plan(Installer::Kubelogin, "v0.2.19", linux).sha256,
+            None
+        );
+
         for plan in [
             install_plan(Installer::Kubectl, "v1", linux),
             install_plan(Installer::Helm, "v1", mac),
+            install_plan(Installer::Kubelogin, "v1", windows),
         ] {
             let host = tauri_plugin_http::reqwest::Url::parse(&plan.url).unwrap();
             assert!(DOWNLOAD_HOSTS.contains(&host.host_str().unwrap()));
@@ -1378,8 +1530,9 @@ mod tests {
         assert!(bin.join("unrelated").exists());
     }
 
-    /// Installs the pinned kubectl and helm from the official origins into a
-    /// temporary `JET_PILOT_HOME`. Needs network; run after bumping the pins:
+    /// Installs the pinned kubectl, helm and kubelogin from the official
+    /// origins into a temporary `JET_PILOT_HOME`. Needs network; run after
+    /// bumping the pins:
     /// `cargo test -- --ignored installs_pinned_tools_from_official_origins`
     #[test]
     #[ignore]
@@ -1391,7 +1544,7 @@ mod tests {
         let emit = |event: DownloadEvent| crate::util::lock(&events).push(event);
         let results = tauri::async_runtime::block_on(async {
             let mut results = Vec::new();
-            for id in ["kubectl", "helm"] {
+            for id in ["kubectl", "helm", "kubelogin"] {
                 results.push(install("JET-Pilot/test", id, None, &emit).await);
             }
             results
@@ -1411,7 +1564,7 @@ mod tests {
                 .iter()
                 .filter(|e| **e == DownloadEvent::Verifying)
                 .count(),
-            2
+            3
         );
         assert!(!events
             .iter()
@@ -1422,7 +1575,7 @@ mod tests {
             .count();
         println!("{} events, {} progress", events.len(), progress);
 
-        for id in ["kubectl", "helm"] {
+        for id in ["kubectl", "helm", "kubelogin"] {
             let binary = home.path().join("bin").join(binary_file_name(tool(id)));
             let version = tauri::async_runtime::block_on(run_version(
                 tool(id),
@@ -1438,6 +1591,89 @@ mod tests {
                 .join(pinned_version(tool(id)).unwrap());
             assert_eq!(std::fs::read_dir(version_dir).unwrap().count(), 1);
         }
+    }
+
+    /// The kubelogin install path without network: a release-shaped zip
+    /// served locally, verified against its SHA-256 (a wrong digest leaves
+    /// nothing behind), unpacked from `bin/<os>_<arch>/` and version-checked.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn kubelogin_archives_are_verified_and_unpacked() {
+        use sha2::{Digest, Sha256};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let platform = Platform {
+            os: "linux",
+            arch: "amd64",
+        };
+        let script = b"#!/bin/sh\necho 'kubelogin version'\necho 'git hash: v0.2.20/0123abc'\n";
+        let archive = zip(&[
+            ("bin/linux_amd64/kubelogin", script),
+            ("bin/linux_amd64/LICENSE", b"MIT"),
+        ]);
+        let digest = format!("{:x}", Sha256::digest(&archive));
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let body = archive.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let body = body.clone();
+                tokio::spawn(async move {
+                    let mut head = Vec::new();
+                    let mut buf = [0u8; 1024];
+                    while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                        match socket.read(&mut buf).await {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => head.extend_from_slice(&buf[..n]),
+                        }
+                    }
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = socket.write_all(response.as_bytes()).await;
+                    let _ = socket.write_all(&body).await;
+                });
+            }
+        });
+
+        let mut plan = install_plan(Installer::Kubelogin, KUBELOGIN_VERSION, platform);
+        plan.url = format!("http://{addr}/{}", plan.artifact);
+        let client = tauri_plugin_http::reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let emit = |_: DownloadEvent| {};
+
+        // A tampered (or different) archive: nothing is left behind.
+        let wrong = "0".repeat(64);
+        let error =
+            download_and_unpack(&client, &plan, dir.path(), &wrong, tool("kubelogin"), &emit)
+                .await
+                .unwrap_err();
+        assert!(error.contains("checksum does not match"), "{error}");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+
+        let binary = download_and_unpack(
+            &client,
+            &plan,
+            dir.path(),
+            &digest,
+            tool("kubelogin"),
+            &emit,
+        )
+        .await
+        .unwrap();
+        assert_eq!(binary, dir.path().join("kubelogin"));
+        assert_eq!(std::fs::read(&binary).unwrap(), script);
+        // Only the binary is kept.
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        let version = run_version(tool("kubelogin"), &binary, Duration::from_secs(10))
+            .await
+            .unwrap();
+        assert_eq!(version.as_deref(), Some("v0.2.20"));
     }
 
     #[cfg(unix)]

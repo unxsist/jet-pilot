@@ -108,13 +108,26 @@ export function findRecord(
 
 /*
  * EKS / GKE context names are ARNs or paths: the cluster name is the last
- * part. Clusters added from AWS are named eks-<region>-<cluster>.
+ * part. Clusters added from a cloud account are named
+ * <prefix>-<region>-<cluster>; each provider's regions look different.
  */
-const ADDED_EKS = /^eks-[a-z]{2}(?:-gov)?-[a-z]+-\d+-(.+)$/;
+const ADDED = [
+  /^eks-[a-z]{2}(?:-gov)?-[a-z]+-\d+-(.+)$/, // eu-west-1
+  /^gke-[a-z]+-[a-z]+\d+(?:-[a-z])?-(.+)$/, // europe-west4, us-central1-a
+  /^aks-[a-z]+\d?-(.+)$/, // westeurope, eastus2
+  /^do-[a-z]{3}\d-(.+)$/, // ams3
+  /^lke-[a-z]{2}-[a-z]+(?:-\d)?-(.+)$/, // eu-central
+  /^civo-[a-z]{3}\d-(.+)$/, // lon1
+  /^scw-[a-z]{2}-[a-z]{3}-(.+)$/, // fr-par
+  /^vke-[a-z]{3}-(.+)$/, // ams
+  /^sks-[a-z]{2}-[a-z]{3}-\d-(.+)$/, // ch-gva-2
+];
 
 export function shortName(context: string): string {
-  const added = ADDED_EKS.exec(context);
-  if (added) return added[1]!;
+  for (const pattern of ADDED) {
+    const added = pattern.exec(context);
+    if (added) return added[1]!;
+  }
   if (context.startsWith("gke_")) {
     const parts = context.split("_");
     return parts[parts.length - 1] || context;

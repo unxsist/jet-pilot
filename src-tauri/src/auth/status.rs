@@ -11,6 +11,12 @@
 //! - for clusters of an AWS connection (`jetpilot-auth credential
 //!   aws-eks`): the connection's IAM Identity Center session (vault /
 //!   `~/.aws/sso/cache`), MFA session or keys;
+//! - for DigitalOcean / Exoscale clusters (`credential digitalocean |
+//!   exoscale`): the cached minted token / certificate, else whether the
+//!   connection's API token / key is stored;
+//! - for clusters with a stored credential (`credential static`): the
+//!   stored token's JWT `exp` or certificate's `notAfter` (valid when it has
+//!   neither), missing = needs to be added again;
 //! - recent auth issues (`needsLogin`).
 
 use std::collections::{HashMap, HashSet};
@@ -209,29 +215,51 @@ fn status_of(
     // Signing in is the only way forward (an AWS connection never signed in).
     let mut needs_login = false;
 
-    let aws_eks = match (status.kind, auth.exec.as_ref()) {
-        (AuthKind::Exec, Some(exec)) => match crate::clusters::managed_kubeconfig::helper_request(exec) {
-            Some(jp_auth_core::request::Request::CredentialAwsEks(args)) => Some((exec, args)),
-            _ => None,
-        },
+    let helper = match (status.kind, auth.exec.as_ref()) {
+        (AuthKind::Exec, Some(exec)) => {
+            use jp_auth_core::cloud::Provider;
+            use jp_auth_core::request::Request;
+            match crate::clusters::managed_kubeconfig::helper_request(exec) {
+                Some(Request::CredentialAwsEks(args)) => Some((exec, HelperEntry::AwsEks(args))),
+                Some(Request::CredentialDigitalocean(args)) => Some((
+                    exec,
+                    HelperEntry::Minted(Provider::DigitalOcean, args.connection, args.cluster),
+                )),
+                Some(Request::CredentialExoscale(args)) => {
+                    Some((exec, HelperEntry::Minted(Provider::Exoscale, args.connection, args.cluster)))
+                }
+                Some(Request::CredentialStatic { id }) => Some((exec, HelperEntry::Static(id))),
+                _ => None,
+            }
+        }
         _ => None,
     };
 
     match status.kind {
-        AuthKind::Exec if aws_eks.is_some() => {
-            // Clusters of an AWS connection: the state of the connection's
-            // session, not of the 14-minute EKS token.
-            let (exec, args) = aws_eks.as_ref().expect("checked above");
+        AuthKind::Exec if helper.is_some() => {
+            // Clusters added in JET Pilot: the state of what the helper
+            // mints from (an AWS session, an API token, the stored
+            // credential), not of the short-lived token it prints.
+            let (exec, entry) = helper.as_ref().expect("checked above");
             status.command = Some(broker::display_command(exec)).filter(|c| !c.is_empty());
             let key = CredentialKey::with_server(path, &found.user, exec, found.server.as_deref());
             let meta = broker::cached_meta(&key);
             minted_at = meta.map(|m| m.minted_at);
-            let entry = crate::clusters::providers::aws::entry_status(args);
-            status.can_sign_in = entry.can_sign_in;
-            status.sign_in_label = entry.sign_in_label;
+            let session = match entry {
+                HelperEntry::AwsEks(args) => {
+                    let entry = crate::clusters::providers::aws::entry_status(args);
+                    status.can_sign_in = entry.can_sign_in;
+                    status.sign_in_label = entry.sign_in_label;
+                    entry.session
+                }
+                HelperEntry::Minted(provider, connection, cluster) => {
+                    crate::clusters::providers::api::entry_status(*provider, connection, cluster)
+                }
+                HelperEntry::Static(id) => static_session(id),
+            };
             let at = |secs: i64| UNIX_EPOCH + Duration::from_secs(secs.max(0) as u64);
             use crate::clusters::providers::aws::EntrySession;
-            match entry.session {
+            match session {
                 EntrySession::Expires(secs) | EntrySession::Expired(secs) => expires_at = Some(at(secs)),
                 EntrySession::Ongoing => fresh_without_expiry = true,
                 EntrySession::Missing => needs_login = true,
@@ -312,6 +340,59 @@ fn status_of(
         CredentialState::Unknown
     };
     status
+}
+
+/// A `jetpilot-auth` entry of the managed kubeconfig.
+enum HelperEntry {
+    AwsEks(jp_auth_core::request::AwsEksArgs),
+    /// DigitalOcean / Exoscale: provider, connection, cluster.
+    Minted(jp_auth_core::cloud::Provider, String, String),
+    /// `credential static --id`.
+    Static(String),
+}
+
+type StaticCache = HashMap<String, (std::time::Instant, crate::clusters::providers::aws::EntrySession)>;
+
+static STATIC_CACHE: std::sync::Mutex<Option<StaticCache>> = std::sync::Mutex::new(None);
+
+/// The stored credential of a `credential static` entry: its JWT `exp` /
+/// certificate `notAfter`, valid without either, missing when gone. Reads
+/// the vault without asking to unlock it; cached for a few seconds.
+fn static_session(id: &str) -> crate::clusters::providers::aws::EntrySession {
+    use crate::clusters::providers::aws::EntrySession;
+    if let Some((at, session)) = crate::util::lock(&STATIC_CACHE)
+        .get_or_insert_with(HashMap::new)
+        .get(id)
+    {
+        if at.elapsed() < Duration::from_secs(3) {
+            return *session;
+        }
+    }
+    let secs = |time: SystemTime| system_time_ms(time) / 1000;
+    let session = match crate::secrets::store().get(&jp_auth_core::credentials::static_secret_id(id)) {
+        Ok(Some(value)) => match serde_json::from_value::<jp_auth_core::credentials::StaticCredential>(value) {
+            Ok(credential) if credential.is_empty() => EntrySession::Missing,
+            Ok(credential) => {
+                let cert = credential
+                    .client_certificate_pem
+                    .as_deref()
+                    .filter(|_| credential.has_client_certificate())
+                    .and_then(|pem| certificate_not_after(pem.as_bytes()));
+                let jwt = credential.token.as_deref().and_then(jwt_expiry);
+                match cert.or(jwt) {
+                    Some(at) => EntrySession::Expires(secs(at)),
+                    None => EntrySession::Ongoing,
+                }
+            }
+            Err(_) => EntrySession::Unknown,
+        },
+        Ok(None) => EntrySession::Missing,
+        Err(_) => EntrySession::Unknown,
+    };
+    crate::util::lock(&STATIC_CACHE)
+        .get_or_insert_with(HashMap::new)
+        .insert(id.to_string(), (std::time::Instant::now(), session));
+    session
 }
 
 fn read_small(path: &Path) -> Option<Vec<u8>> {

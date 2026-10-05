@@ -47,6 +47,7 @@ const finishPrompt = (prompt: VaultPrompt, ok: boolean) => {
     :key="addClusterRequest.id"
     v-model:open="addOpen"
     :method="addClusterRequest.method"
+    :provider="addClusterRequest.provider"
     :connection-id="addClusterRequest.connectionId"
   />
   <VaultPassphraseDialog

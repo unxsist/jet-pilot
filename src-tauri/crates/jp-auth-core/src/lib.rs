@@ -13,15 +13,22 @@
 //! - [`cache`]: short-lived credentials cached in the vault.
 //! - [`aws`] (feature `aws`): IAM Identity Center, `~/.aws` profiles and
 //!   EKS tokens, shared by the app and the helper.
+//! - [`cloud`] (feature `cloud`): the REST APIs of DigitalOcean, Akamai
+//!   (Linode), Civo, Scaleway, Vultr and Exoscale (discovery, kubeconfigs,
+//!   minted DigitalOcean tokens and Exoscale client certificates).
 //!
 //! Nothing here depends on Tauri or kube-rs.
 
 #[cfg(feature = "aws")]
 pub mod aws;
 pub mod cache;
+#[cfg(feature = "cloud")]
+pub mod cloud;
 pub mod connections;
 pub mod credentials;
 pub mod exec_credential;
+#[cfg(any(test, feature = "test-util"))]
+pub mod fake;
 pub mod fsutil;
 pub mod paths;
 pub mod redact;

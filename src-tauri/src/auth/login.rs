@@ -22,6 +22,7 @@
 //! metrics restarted and `auth://resolved` emitted.
 
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -689,7 +690,6 @@ async fn drive(
         stderr: Redactor::default(),
         parser: PromptParser::default(),
     };
-    let mut on_line = |stream: StreamKind, line: &str| handler.line(stream, line);
 
     if let SignInPlan::AwsNative {
         connection_id,
@@ -724,6 +724,7 @@ async fn drive(
 
     match prepared.plan.tool_command() {
         None => {
+            let mut on_line = |stream: StreamKind, line: &str| handler.line(stream, line);
             let command = broker::display_command(&prepared.exec);
             // Interactive, unless the kubeconfig says the plugin never is.
             let interactive = prepared.exec.interactive_mode != Some(ExecInteractiveMode::Never);
@@ -758,45 +759,143 @@ async fn drive(
             let resolved = which::which(program).map_err(|_| {
                 LoginError::Failed(format!("{program} is not installed or not on PATH"))
             })?;
-            let mut cmd = broker::spawnable(resolved);
-            cmd.args(&args);
             // The plugin's env (AWS_CONFIG_FILE, CLOUDSDK_CONFIG, ...).
-            for env in prepared.exec.env.iter().flatten() {
-                if let (Some(name), Some(value)) = (env.get("name"), env.get("value")) {
-                    cmd.env(name, value);
-                }
-            }
-            sink(LoginEvent::Started {
-                command: format!("{program} {}", args.join(" ")),
-            });
-            let run = broker::run_process(
-                cmd,
-                RunOptions {
-                    timeout: SESSION_LIMIT,
-                    stdout: StdoutMode::Lines,
-                    on_line: &mut on_line,
-                    cancel: Some(cancel),
-                    pid: Some(session.pid.clone()),
-                },
-            )
-            .await
-            .map_err(|e| run_error(e, program))?;
-            if !run.status.success() {
-                let detail = center::redact(run.stderr_tail.trim());
-                let code = run
-                    .status
-                    .code()
-                    .map(|c| format!("exit code {c}"))
-                    .unwrap_or_else(|| "a signal".to_string());
-                return Err(LoginError::Failed(if detail.is_empty() {
-                    format!("{program} failed ({code})")
-                } else {
-                    format!("{program} failed ({code}): {detail}")
-                }));
-            }
+            let env: Vec<(String, String)> = prepared
+                .exec
+                .env
+                .iter()
+                .flatten()
+                .filter_map(|env| Some((env.get("name")?.clone(), env.get("value")?.clone())))
+                .collect();
+            run_tool(session, &resolved, program, &args, &env, cancel, sink, &mut handler).await?;
             Ok(None)
         }
     }
+}
+
+/// Runs a CLI sign-in (`aws sso login`, `gcloud auth login`, `az login`)
+/// with its output streamed through `handler`.
+#[allow(clippy::too_many_arguments)]
+async fn run_tool(
+    session: &Arc<Session>,
+    program: &Path,
+    shown: &str,
+    args: &[String],
+    env: &[(String, String)],
+    cancel: watch::Receiver<bool>,
+    sink: &LoginSink,
+    handler: &mut LineHandler,
+) -> Result<(), LoginError> {
+    let mut on_line = |stream: StreamKind, line: &str| handler.line(stream, line);
+    let mut cmd = broker::spawnable(program);
+    cmd.args(args);
+    for (name, value) in env {
+        cmd.env(name, value);
+    }
+    sink(LoginEvent::Started {
+        command: format!("{shown} {}", args.join(" ")),
+    });
+    let run = broker::run_process(
+        cmd,
+        RunOptions {
+            timeout: SESSION_LIMIT,
+            stdout: StdoutMode::Lines,
+            on_line: &mut on_line,
+            cancel: Some(cancel),
+            pid: Some(session.pid.clone()),
+        },
+    )
+    .await
+    .map_err(|e| run_error(e, shown))?;
+    if !run.status.success() {
+        let detail = center::redact(run.stderr_tail.trim());
+        let code = run
+            .status
+            .code()
+            .map(|c| format!("exit code {c}"))
+            .unwrap_or_else(|| "a signal".to_string());
+        return Err(LoginError::Failed(if detail.is_empty() {
+            format!("{shown} failed ({code})")
+        } else {
+            format!("{shown} failed ({code}): {detail}")
+        }));
+    }
+    Ok(())
+}
+
+/// Starts a CLI's own sign-in outside a context (`gcloud auth login`, `az
+/// login` for a cloud connection) as a session: `auth_login_open_url` /
+/// `auth_login_cancel` work with the returned id. On success the contexts
+/// sharing the CLI's login (`plan`) are refreshed and `on_success` runs.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn start_tool_sign_in(
+    target: (String, String),
+    program: PathBuf,
+    shown: String,
+    args: Vec<String>,
+    env: Vec<(String, String)>,
+    plan: SignInPlan,
+    sink: LoginSink,
+    on_success: Box<dyn FnOnce() + Send>,
+) -> String {
+    let (cancel, cancel_rx) = watch::channel(false);
+    let session = Arc::new(Session {
+        id: uuid::Uuid::new_v4().to_string(),
+        target,
+        urls: Mutex::new(HashSet::new()),
+        cancel,
+        pid: Arc::new(Mutex::new(None)),
+    });
+    {
+        let mut sessions = lock(&SESSIONS);
+        for other in sessions.values().filter(|s| s.target == session.target) {
+            other.cancel.send_replace(true);
+        }
+        sessions.insert(session.id.clone(), session.clone());
+    }
+    let id = session.id.clone();
+    info!("Sign-in {} with {}", id, shown);
+    tauri::async_runtime::spawn(async move {
+        let mut handler = LineHandler {
+            session: session.clone(),
+            sink: sink.clone(),
+            stdout: Redactor::default(),
+            stderr: Redactor::default(),
+            parser: PromptParser::default(),
+        };
+        let outcome = tokio::time::timeout(
+            SESSION_LIMIT,
+            run_tool(&session, &program, &shown, &args, &env, cancel_rx, &sink, &mut handler),
+        )
+        .await;
+        let event = match outcome {
+            Ok(Ok(())) => {
+                on_success();
+                let pairs = tauri::async_runtime::spawn_blocking(move || contexts_sharing(&plan, &HashSet::new()))
+                    .await
+                    .unwrap_or_default();
+                if !pairs.is_empty() {
+                    resolved(pairs);
+                }
+                LoginEvent::Succeeded { expires_at: None }
+            }
+            Ok(Err(LoginError::Cancelled)) => LoginEvent::Cancelled,
+            Ok(Err(LoginError::Failed(message))) => LoginEvent::Failed { message },
+            Err(_) => LoginEvent::Failed {
+                message: "The sign-in did not finish within 10 minutes".to_string(),
+            },
+        };
+        match &event {
+            LoginEvent::Failed { message } => warn!("Sign-in {} failed: {}", session.id, message),
+            other => info!("Sign-in {} ended: {:?}", session.id, other),
+        }
+        sink(event);
+        let mut sessions = lock(&SESSIONS);
+        if sessions.get(&session.id).is_some_and(|s| Arc::ptr_eq(s, &session)) {
+            sessions.remove(&session.id);
+        }
+    });
+    id
 }
 
 /// A context that shares the signed-in credential.
@@ -937,6 +1036,13 @@ pub(crate) fn contexts_of_aws_sign_in(connection_id: &str, start_url: Option<&st
         region: String::new(),
     };
     let profiles = start_url.map(profiles_signed_in_with).unwrap_or_default();
+    contexts_sharing(&plan, &profiles)
+}
+
+/// Every context (managed kubeconfig and the kubeconfigs in use) that
+/// signs in like `plan` (`profiles`: AWS profiles of the same start URL).
+/// Their cached credentials are dropped.
+pub(crate) fn contexts_sharing(plan: &SignInPlan, profiles: &HashSet<String>) -> Vec<(String, String)> {
     let mut paths = vec![crate::clusters::managed_kubeconfig::managed_path().to_string_lossy().into_owned()];
     for path in cached_kubeconfig_paths() {
         if !paths.contains(&path) {
@@ -949,7 +1055,7 @@ pub(crate) fn contexts_of_aws_sign_in(connection_id: &str, start_url: Option<&st
         for named in &config.contexts {
             let Some(found) = status::context_auth(&config, &named.name) else { continue };
             let Some(exec) = found.auth.exec.as_ref().filter(|_| broker::uses_exec(&found.auth)) else { continue };
-            if shares_login(&plan, exec, &profiles) {
+            if shares_login(plan, exec, profiles) {
                 broker::slot(&CredentialKey::with_server(&path, &found.user, exec, found.server.as_deref())).clear();
                 pairs.push((path.clone(), named.name.clone()));
             }

@@ -22,6 +22,7 @@ import {
   Loader2,
   PencilLine,
   Terminal,
+  TriangleAlert,
 } from "lucide-vue-next";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -49,17 +50,20 @@ import {
   type ImportSource,
 } from "@/lib/clusters/managed";
 import type { ContextRef } from "@/lib/contextKey";
+import type { CloudProvider } from "@/lib/clusters/cloud";
+import { CLOUD_PROVIDERS, providerInfo } from "@/lib/clusters/providers";
 
 const AwsConnect = defineAsyncComponent(() => import("./AwsConnect.vue"));
+const CloudConnect = defineAsyncComponent(() => import("./CloudConnect.vue"));
 
-const props = defineProps<{ method: AddMethod; connectionId?: string | null }>();
+const props = defineProps<{ method: AddMethod; provider?: CloudProvider | null; connectionId?: string | null }>();
 const open = defineModel<boolean>("open", { required: true });
 
 const router = useRouter();
 const { settings } = injectStrict(SettingsContextStateKey);
 const switchContext = injectStrict(KubeContextSwitchContextKey);
 
-type Step = "choose" | "paste" | "file" | "preview" | "manual" | "aws" | "done";
+type Step = "choose" | "paste" | "file" | "preview" | "manual" | "cloud" | "done";
 const step = ref<Step>("choose");
 const history: Step[] = [];
 const go = (next: Step) => {
@@ -190,16 +194,25 @@ const runManual = async () => {
 
 /* -------------------------------------------------------------- cloud -- */
 
-const cloudHeading = ref<{ title: string; description: string }>({ title: "Connect AWS", description: "" });
+const cloudHeading = ref<{ title: string; description: string }>({ title: "Connect a cloud", description: "" });
+const cloudProvider = ref<CloudProvider>("aws");
+const chooseCloud = (provider: CloudProvider) => {
+  cloudProvider.value = provider;
+  cloudHeading.value = { title: `Connect ${providerInfo(provider).name}`, description: "" };
+  go("cloud");
+};
+/* Added, with something to know (e.g. a sign-in plugin that isn't installed). */
+const warnings = ref<{ key: string; message: string }[]>([]);
 const folders = computed(() =>
   [...new Set((settings.value.clusters ?? []).map((record) => record.folder).filter((f): f is string => !!f))].sort()
 );
-const cloudDone = (targets: ContextRef[]) => {
+const cloudDone = (targets: ContextRef[], notes: { key: string; message: string }[] = []) => {
   if (!targets.length) {
     open.value = false;
     return;
   }
   added.value = targets;
+  warnings.value = notes;
   go("done");
 };
 
@@ -249,7 +262,15 @@ watch(
     rows.value = [];
     added.value = [];
     manual.value = emptyManualForm();
-    step.value = method === "file" ? "choose" : method;
+    warnings.value = [];
+    if (method === "cloud" || method === "aws") {
+      const provider = method === "aws" ? "aws" : props.provider;
+      if (provider) {
+        cloudProvider.value = provider;
+        cloudHeading.value = { title: `Connect ${providerInfo(provider).name}`, description: "" };
+        step.value = "cloud";
+      } else step.value = "choose";
+    } else step.value = method === "file" ? "choose" : method;
     if (method === "file") void pickFile();
   },
   { immediate: true }
@@ -263,7 +284,7 @@ const title = computed(
       file: "Import a kubeconfig file",
       preview: "Choose the clusters to add",
       manual: "Enter a cluster",
-      aws: cloudHeading.value.title,
+      cloud: cloudHeading.value.title,
       done: added.value.length === 1 ? "Cluster added" : `${added.value.length} clusters added`,
     })[step.value]
 );
@@ -289,7 +310,7 @@ const OPTIONS = [
     >
       <WizardHeader :title="title" :tone="step === 'done' ? 'success' : 'default'">
         <template v-if="step !== 'choose'" #icon>
-          <ProviderMark v-if="step === 'aws'" provider="aws" :size="22" />
+          <ProviderMark v-if="step === 'cloud'" :provider="cloudProvider" :size="22" />
           <Check v-else-if="step === 'done'" class="h-5 w-5" :stroke-width="2.25" />
           <component :is="stepIcon" v-else class="h-[18px] w-[18px]" />
         </template>
@@ -306,14 +327,24 @@ const OPTIONS = [
             <template v-else>in the pasted kubeconfig</template>
           </template>
           <template v-else-if="step === 'manual'">An API server with a token or a client certificate.</template>
-          <template v-else-if="step === 'aws'">{{ cloudHeading.description }}</template>
+          <template v-else-if="step === 'cloud'">{{ cloudHeading.description }}</template>
           <template v-else-if="step === 'done'">Ready in JET Pilot and in your terminal.</template>
         </template>
       </WizardHeader>
 
       <!-- Cloud: its own body and footer -->
       <AwsConnect
-        v-if="step === 'aws'"
+        v-if="step === 'cloud' && cloudProvider === 'aws'"
+        :connection-id="connectionId"
+        :folders="folders"
+        @back="back"
+        @done="cloudDone"
+        @heading="(heading) => (cloudHeading = heading)"
+      />
+      <CloudConnect
+        v-else-if="step === 'cloud'"
+        :key="cloudProvider"
+        :provider="cloudProvider"
         :connection-id="connectionId"
         :folders="folders"
         @back="back"
@@ -327,24 +358,24 @@ const OPTIONS = [
           <div v-if="step === 'choose'" class="space-y-6">
             <section class="space-y-2.5">
               <h3 :class="WIZARD_GROUP_LABEL">From a cloud account</h3>
-              <button
-                type="button"
-                class="group flex w-full items-center gap-4 rounded-xl border bg-card p-4 text-left shadow-xs transition-[border-color,box-shadow,background-color] duration-fast hover:border-border-strong hover:shadow-sm focus-ring"
-                @click="go('aws')"
-              >
-                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] bg-surface-1 ring-1 ring-inset ring-border/60">
-                  <ProviderMark provider="aws" :size="24" />
-                </span>
-                <span class="min-w-0 flex-1 space-y-0.5">
-                  <span class="block text-sm font-semibold text-foreground">Amazon EKS</span>
-                  <span class="block text-xs text-muted-foreground">
-                    Sign in once and pick clusters from every account and region
+              <div class="grid grid-cols-3 gap-2">
+                <button
+                  v-for="cloud in CLOUD_PROVIDERS"
+                  :key="cloud.id"
+                  type="button"
+                  class="group flex min-w-0 items-center gap-3 rounded-xl border bg-card px-3 py-2.5 text-left shadow-xs transition-[border-color,box-shadow,background-color] duration-fast hover:border-border-strong hover:shadow-sm focus-ring"
+                  :title="cloud.blurb"
+                  @click="chooseCloud(cloud.id)"
+                >
+                  <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-1 ring-1 ring-inset ring-border/60">
+                    <ProviderMark :provider="cloud.id" :size="18" />
                   </span>
-                </span>
-                <ChevronRight
-                  class="h-4 w-4 shrink-0 text-muted-foreground transition-[transform,color] duration-fast group-hover:translate-x-0.5 group-hover:text-foreground"
-                />
-              </button>
+                  <span class="min-w-0">
+                    <span class="block truncate text-sm font-medium text-foreground">{{ cloud.short }}</span>
+                    <span class="block truncate text-xs text-muted-foreground">{{ cloud.product }}</span>
+                  </span>
+                </button>
+              </div>
             </section>
 
             <section class="space-y-1.5">
@@ -418,6 +449,13 @@ const OPTIONS = [
 
           <!-- Done -->
           <div v-else-if="step === 'done'" :class="WIZARD_LIST">
+            <p
+              v-for="note in [...new Set(warnings.map((w) => w.message))]"
+              :key="note"
+              class="mx-3 mb-2 flex items-start gap-2 rounded-lg bg-warning/[0.07] px-3 py-2.5 text-xs text-warning"
+            >
+              <TriangleAlert class="mt-px h-3.5 w-3.5 shrink-0" /> {{ note }}
+            </p>
             <div
               v-for="target in added"
               :key="target.kubeConfig + target.context"

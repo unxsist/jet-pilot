@@ -448,3 +448,263 @@ fn aws_eks_never_signs_in_and_exits_3() {
     assert_no_secrets(&stderr(&output));
     assert!(!stderr(&output).contains(AWS_SECRET));
 }
+
+/* ----------------------------------------------- DigitalOcean / Exoscale */
+
+const DO_API_TOKEN: &str = "dop_v1_0123456789abcdef0123456789abcdef";
+const DO_MINTED: &str = "minted-cluster-token-value";
+const EXO_SECRET: &str = "exoscale-api-secret-value";
+const EXO_KEY_PEM: &str =
+    "-----BEGIN EC PRIVATE KEY-----\nRVhPLUtFWS1TRUNSRVQ=\n-----END EC PRIVATE KEY-----\n";
+
+/// A JET Pilot home with a DigitalOcean token connection (`do1`) and an
+/// Exoscale API key connection (`exo1`, user `alice`).
+fn cloud_setup() -> tempfile::TempDir {
+    let home = setup();
+    let env = VaultEnv {
+        dir: home.path().join("vault"),
+        keychain: Arc::new(NoKeychain {
+            reason: "tests".into(),
+        }),
+        unlock_cache: Arc::new(NoUnlockCache),
+        kdf: KdfParams::INSECURE_FOR_TESTS,
+    };
+    let key = Vault::key_from_passphrase(&env, PASSPHRASE).unwrap();
+    Vault::open_with(&env, Some(&key))
+        .unwrap()
+        .put_many(vec![
+            (
+                "conn:do1:api-token".into(),
+                json!({ "token": DO_API_TOKEN }),
+            ),
+            (
+                "conn:exo1:api-key".into(),
+                json!({ "key": "EXOabc", "secret": EXO_SECRET }),
+            ),
+        ])
+        .unwrap();
+    std::fs::write(
+        home.path().join("connections.json"),
+        json!({"version": 1, "connections": [
+            {"id": "do1", "provider": "digitalocean", "kind": "token", "label": "do", "createdAt": 0},
+            {"id": "exo1", "provider": "exoscale", "kind": "apiKey", "label": "exo", "createdAt": 0,
+             "exoscale": {"user": "alice", "groups": ["system:masters"]}},
+        ]})
+        .to_string(),
+    )
+    .unwrap();
+    home
+}
+
+async fn cloud_helper(home: &Path, endpoint: &str, args: &[&str]) -> Output {
+    let (home, endpoint) = (home.to_path_buf(), endpoint.to_string());
+    let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+    tokio::task::spawn_blocking(move || {
+        Command::new(env!("CARGO_BIN_EXE_jetpilot-auth"))
+            .args(&args)
+            .env("JET_PILOT_HOME", &home)
+            .env("JET_PILOT_NO_KEYCHAIN", "1")
+            .env("JET_PILOT_NO_KEYUTILS", "1")
+            .env("JET_PILOT_VAULT_PASSPHRASE", PASSPHRASE)
+            .env("JET_PILOT_CLOUD_TEST_ENDPOINT", &endpoint)
+            .env_remove("KUBERNETES_EXEC_INFO")
+            .output()
+            .unwrap()
+    })
+    .await
+    .unwrap()
+}
+
+fn assert_no_cloud_secrets(text: &str) {
+    assert_no_secrets(text);
+    for secret in [DO_API_TOKEN, EXO_SECRET, "RVhPLUtFWS1TRUNSRVQ"] {
+        assert!(!text.contains(secret), "secret {secret:?} in: {text}");
+    }
+}
+
+#[tokio::test]
+async fn digitalocean_mints_cached_cluster_tokens() {
+    use jp_auth_core::fake::{FakeResponse, FakeServer};
+    let server = FakeServer::start(|req| {
+        let authorized = req.header("authorization") == Some(&format!("Bearer {DO_API_TOKEN}"));
+        match req.path.as_str() {
+            _ if !authorized => FakeResponse::json(
+                401,
+                json!({"id": "Unauthorized", "message": "Unable to authenticate you"}),
+            ),
+            "/v2/kubernetes/clusters/bd5f5959-5e1e-4205-a714-a914373942af/credentials" => {
+                FakeResponse::json(
+                    200,
+                    json!({
+                        "server": "https://bd5f5959.k8s.ondigitalocean.com",
+                        "certificate_authority_data": "Q0E=",
+                        "token": DO_MINTED,
+                        "expires_at": "2099-01-01T00:00:00Z"
+                    }),
+                )
+            }
+            _ => FakeResponse::json(404, json!({"id": "not_found", "message": "not found"})),
+        }
+    })
+    .await;
+    let home = cloud_setup();
+    let args = [
+        "credential",
+        "digitalocean",
+        "--connection",
+        "do1",
+        "--cluster",
+        "bd5f5959-5e1e-4205-a714-a914373942af",
+    ];
+    let output = cloud_helper(home.path(), &server.url, &args).await;
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert!(output.stderr.is_empty(), "{}", stderr(&output));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout.lines().count(), 1);
+    assert!(!stdout.contains(DO_API_TOKEN));
+    let credential: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        credential,
+        json!({
+            "apiVersion": "client.authentication.k8s.io/v1",
+            "kind": "ExecCredential",
+            "status": {"token": DO_MINTED, "expirationTimestamp": "2099-01-01T00:00:00Z"}
+        })
+    );
+
+    // Cached in the vault: the next run makes no request.
+    let output = cloud_helper(home.path(), &server.url, &args).await;
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(server.requests().len(), 1);
+
+    // A cluster that's gone, a connection that's gone: exit 3, no secrets.
+    let mut other = args;
+    other[5] = "c0ffee00-0000-4000-8000-000000000000";
+    let output = cloud_helper(home.path(), &server.url, &other).await;
+    assert_eq!(output.status.code(), Some(3), "{}", stderr(&output));
+    assert!(output.stdout.is_empty());
+    assert_no_cloud_secrets(&stderr(&output));
+    let mut gone = args;
+    gone[3] = "gone1";
+    let output = cloud_helper(home.path(), &server.url, &gone).await;
+    assert_eq!(output.status.code(), Some(3), "{}", stderr(&output));
+    assert!(stderr(&output).contains("no longer exists"));
+}
+
+#[tokio::test]
+async fn digitalocean_with_a_revoked_token_exits_3() {
+    use jp_auth_core::fake::{FakeResponse, FakeServer};
+    let server = FakeServer::start(|_| {
+        FakeResponse::json(
+            401,
+            json!({"id": "Unauthorized", "message": "Unable to authenticate you"}),
+        )
+    })
+    .await;
+    let home = cloud_setup();
+    let output = cloud_helper(
+        home.path(),
+        &server.url,
+        &[
+            "credential",
+            "digitalocean",
+            "--connection",
+            "do1",
+            "--cluster",
+            "c1",
+        ],
+    )
+    .await;
+    assert_eq!(output.status.code(), Some(3), "{}", stderr(&output));
+    assert!(output.stdout.is_empty());
+    let text = stderr(&output);
+    assert!(
+        text.contains("Update the DigitalOcean credentials"),
+        "{text}"
+    );
+    assert_no_cloud_secrets(&text);
+}
+
+#[tokio::test]
+async fn exoscale_mints_signed_client_certificates() {
+    use base64::Engine;
+    use jp_auth_core::fake::{FakeResponse, FakeServer};
+    let b64 = |text: &str| base64::engine::general_purpose::STANDARD.encode(text);
+    let config = format!(
+        "apiVersion: v1\nclusters:\n- cluster:\n    certificate-authority-data: Q0E=\n    server: https://x1.sks-ch-gva-2.exo.io:443\n  name: c\nusers:\n- name: alice\n  user:\n    client-certificate-data: {}\n    client-key-data: {}\n",
+        b64(CERT),
+        b64(EXO_KEY_PEM)
+    );
+    let server = FakeServer::start(move |req| {
+        let header = req.header("authorization").unwrap_or_default().to_string();
+        let expires: i64 = header
+            .split(",expires=")
+            .nth(1)
+            .and_then(|r| r.split(',').next())
+            .and_then(|e| e.parse().ok())
+            .unwrap_or_default();
+        let expected = jp_auth_core::cloud::exoscale::authorization(
+            "EXOabc",
+            EXO_SECRET,
+            &req.method,
+            &req.path,
+            &[],
+            req.body.as_bytes(),
+            expires,
+        );
+        if header != expected {
+            return FakeResponse::json(403, json!({"message": "Invalid key or request signature"}));
+        }
+        if req.method == "POST" && req.path == "/v2/sks-cluster-kubeconfig/x1" {
+            assert_eq!(req.json()["user"], "alice");
+            return FakeResponse::json(200, json!({"kubeconfig": b64(&config)}));
+        }
+        FakeResponse::json(404, json!({"message": "not found"}))
+    })
+    .await;
+    let home = cloud_setup();
+    let args = [
+        "credential",
+        "exoscale",
+        "--connection",
+        "exo1",
+        "--zone",
+        "ch-gva-2",
+        "--cluster",
+        "x1",
+    ];
+    let output = cloud_helper(home.path(), &server.url, &args).await;
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert!(output.stderr.is_empty(), "{}", stderr(&output));
+    let credential: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(credential["kind"], "ExecCredential");
+    assert_eq!(credential["status"]["clientCertificateData"], CERT);
+    assert_eq!(credential["status"]["clientKeyData"], EXO_KEY_PEM);
+    assert!(credential["status"].get("token").is_none());
+    let expires = credential["status"]["expirationTimestamp"]
+        .as_str()
+        .unwrap();
+    assert!(expires.ends_with('Z') && expires.len() == 20, "{expires}");
+
+    // Cached until shortly before it expires.
+    let output = cloud_helper(home.path(), &server.url, &args).await;
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(server.requests().len(), 1);
+
+    // Usage: a zone is required.
+    let output = cloud_helper(
+        home.path(),
+        &server.url,
+        &[
+            "credential",
+            "exoscale",
+            "--connection",
+            "exo1",
+            "--cluster",
+            "x1",
+        ],
+    )
+    .await;
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("missing --zone"));
+}

@@ -18,6 +18,7 @@ import { getPath, setPath, type JsonObject } from "@/lib/settings/paths";
 import type { SettingDefinition } from "@/lib/settings/types";
 import { openWelcome } from "@/lib/welcome";
 import { openAddCluster } from "@/lib/clusters/managed";
+import { CLOUD_PROVIDERS } from "@/lib/clusters/providers";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 
 const isMac = getOsType() === "macos";
@@ -102,18 +103,30 @@ registerCommand({
 });
 
 registerCommand({
-  id: "connect-aws",
-  name: "Connect AWS…",
-  description: "Find and add EKS clusters from your AWS accounts",
-  keywords: ["aws", "eks", "amazon", "sso", "identity center", "cloud", "account", "profile"],
-  execute: () => openAddCluster("aws"),
+  id: "connect-cloud",
+  name: "Connect a cloud account…",
+  description: "AWS, Google Cloud, Azure, DigitalOcean and more: find and add their clusters",
+  keywords: ["cloud", "account", "aws", "gcp", "azure", "digitalocean", "linode", "civo", "scaleway", "vultr", "exoscale"],
+  execute: () => openAddCluster("cloud"),
 });
+
+/* One searchable "Connect <cloud>…" per provider. */
+for (const cloud of CLOUD_PROVIDERS) {
+  registerCommand({
+    id: `connect-${cloud.id}`,
+    name: `Connect ${cloud.name}…`,
+    description: `Find and add ${cloud.product} clusters`,
+    keywords: [cloud.id, cloud.product.toLowerCase(), "cloud", "account", ...(cloud.cli ? [cloud.cli.tool] : [])],
+    searchOnly: true,
+    execute: () => openAddCluster("cloud", { provider: cloud.id }),
+  });
+}
 
 registerCommand({
   id: "cloud-accounts",
   name: "Cloud accounts",
   description: "The cloud accounts JET Pilot finds clusters in",
-  keywords: ["aws", "accounts", "connections", "sign in", "catalog"],
+  keywords: ["cloud", "aws", "gcp", "azure", "accounts", "connections", "sign in", "catalog"],
   execute: () => router.push({ name: "ClustersHub", query: { tab: "accounts" } }),
 });
 

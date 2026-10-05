@@ -382,6 +382,8 @@ pub enum LineVerdict {
 pub enum StdoutMode {
     /// Collect stdout (at most `STDOUT_LIMIT`); it never reaches `on_line`.
     Capture,
+    /// Collect stdout up to this many bytes (cloud CLI listings).
+    CaptureUpTo(usize),
     /// Pass stdout lines to `on_line`.
     Lines,
 }
@@ -597,6 +599,10 @@ pub async fn run_process(mut cmd: tokio::process::Command, options: RunOptions<'
                 drop(stdout_tx);
                 read_capped(stdout, STDOUT_LIMIT).await
             }
+            (Some(stdout), StdoutMode::CaptureUpTo(limit)) => {
+                drop(stdout_tx);
+                read_capped(stdout, limit).await
+            }
             (Some(stdout), StdoutMode::Lines) => read_lines(stdout, StreamKind::Stdout, stdout_tx).await.map(|_| Vec::new()),
         }
     };
@@ -804,7 +810,46 @@ async fn mint_helper(
                 Err(_) => Err(BrokerError::Timeout { command, after: timeout }),
             })
         }
+        Request::CredentialDigitalocean(args) => {
+            let minted =
+                tokio::time::timeout(timeout, crate::clusters::providers::api::mint_digitalocean(&args)).await;
+            Some(cloud_minted(&command, minted, timeout))
+        }
+        Request::CredentialExoscale(args) => {
+            let minted = tokio::time::timeout(timeout, crate::clusters::providers::api::mint_exoscale(&args)).await;
+            Some(cloud_minted(&command, minted, timeout))
+        }
         _ => None,
+    }
+}
+
+/// A DigitalOcean / Exoscale credential minted in-process (or why not).
+fn cloud_minted(
+    command: &str,
+    minted: Result<
+        Result<jp_auth_core::cloud::mint::MintedCredential, jp_auth_core::cloud::CloudError>,
+        tokio::time::error::Elapsed,
+    >,
+    timeout: Duration,
+) -> Result<Credential, BrokerError> {
+    match minted {
+        Ok(Ok(credential)) => Ok(Credential {
+            token: credential.token.clone().filter(|t| !t.is_empty()),
+            client_certificate: credential.client_certificate_pem.clone(),
+            client_key: credential.client_key_pem.clone(),
+            expires_at: u64::try_from(credential.expires_at)
+                .ok()
+                .map(|secs| UNIX_EPOCH + Duration::from_secs(secs)),
+            minted_at: SystemTime::now(),
+        }),
+        Ok(Err(error)) => Err(BrokerError::ExecFailed {
+            command: command.to_string(),
+            message: center::redact(&error.to_string()),
+        }),
+        Err(_) => Err(BrokerError::Timeout {
+            command: command.to_string(),
+            after: timeout,
+        }),
     }
 }
 

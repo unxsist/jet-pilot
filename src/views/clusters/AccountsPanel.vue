@@ -32,12 +32,12 @@ import { errorMessage, openAddCluster } from "@/lib/clusters/managed";
 import { discoverKubeconfigs } from "@/lib/kubeconfigSources";
 import { relativeTime } from "@/lib/clusters/status";
 import {
-  CONNECTION_KIND_LABELS,
   CONNECTION_STATUS,
   deleteConnection,
   type CloudConnection,
 } from "@/lib/clusters/cloud";
 import { connectionScope, expiryText, regionsSummary } from "@/lib/clusters/cloudModel";
+import { connectionKindLabel, narrowLabel, providerInfo } from "@/lib/clusters/providers";
 import { catalog, catalogRefreshedAt, connections, discovery, loadCloud, refreshCloud } from "@/lib/clusters/catalogStore";
 
 const { toast } = useToast();
@@ -58,8 +58,11 @@ const DOT_CLASSES = {
   muted: "bg-muted-foreground/50",
 } as const;
 
+/* Signing in again: IAM Identity Center, AWS profiles that need it, gcloud and az. */
 const canSignIn = (connection: CloudConnection) =>
-  connection.kind === "sso" || (connection.kind === "profile" && connection.status !== "signedIn");
+  connection.kind === "sso" ||
+  (connection.kind === "profile" && connection.status !== "signedIn") ||
+  (connection.kind === "cli" && connection.provider !== "digitalocean");
 
 const refreshing = computed(() => !!discovery.value);
 const refresh = async (connection?: CloudConnection) => {
@@ -108,10 +111,10 @@ watch(removing, () => (removeClusters.value = true));
       v-else-if="connections.length === 0"
       :icon="CloudOff"
       title="No cloud accounts yet"
-      description="Connect an AWS account and JET Pilot finds its EKS clusters in every region, keeps the list current and signs in for you."
+      description="Connect AWS, Google Cloud, Azure, DigitalOcean or another cloud: JET Pilot finds its clusters, keeps the list current and signs in for you."
     >
       <template #action>
-        <Button @click="openAddCluster('aws')"><Plus class="h-4 w-4" /> Connect AWS</Button>
+        <Button @click="openAddCluster('cloud')"><Plus class="h-4 w-4" /> Connect a cloud account</Button>
       </template>
     </EmptyState>
 
@@ -129,7 +132,7 @@ watch(removing, () => (removeClusters.value = true));
             </span>
             <div class="min-w-0 flex-1">
               <h3 class="truncate text-base font-semibold">{{ connection.label }}</h3>
-              <p class="truncate text-xs text-muted-foreground">{{ CONNECTION_KIND_LABELS[connection.kind] }}</p>
+              <p class="truncate text-xs text-muted-foreground">{{ connectionKindLabel(connection) }}</p>
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger as-child>
@@ -142,8 +145,11 @@ watch(removing, () => (removeClusters.value = true));
                   Look for new clusters
                 </DropdownMenuItem>
                 <DropdownMenuItem v-if="canSignIn(connection)" @select="signingIn = connection">Sign in again</DropdownMenuItem>
-                <DropdownMenuItem @select="openAddCluster('aws', { connectionId: connection.id })">
-                  {{ connection.kind === "sso" ? "Accounts and regions…" : "Regions…" }}
+                <DropdownMenuItem
+                  v-if="narrowLabel(connection)"
+                  @select="openAddCluster('cloud', { provider: connection.provider, connectionId: connection.id })"
+                >
+                  {{ narrowLabel(connection) }}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" @select="removing = connection">Remove…</DropdownMenuItem>
@@ -167,12 +173,13 @@ watch(removing, () => (removeClusters.value = true));
               </Button>
             </div>
             <p class="text-sm text-muted-foreground">
-              <span class="text-foreground">{{ connectionScope(connection) }}</span> · {{ regionsSummary(connection.regions) }}
+              <span class="text-foreground">{{ connectionScope(connection) }}</span>
+              <template v-if="providerInfo(connection.provider).regional"> · {{ regionsSummary(connection.regions) }}</template>
             </p>
             <p class="text-sm text-muted-foreground">
               <span class="text-foreground">{{ counts(connection).added }} {{ counts(connection).added === 1 ? "cluster" : "clusters" }}</span>
               <template v-if="counts(connection).available"> · {{ counts(connection).available }} new</template>
-              <span v-if="counts(connection).removed" class="text-warning"> · {{ counts(connection).removed }} deleted in AWS</span>
+              <span v-if="counts(connection).removed" class="text-warning"> · {{ counts(connection).removed }} deleted in {{ providerInfo(connection.provider).name }}</span>
             </p>
           </div>
 
@@ -197,7 +204,7 @@ watch(removing, () => (removeClusters.value = true));
         <button
           type="button"
           class="flex min-h-[12rem] flex-col items-center justify-center gap-2 rounded-xl border border-dashed text-sm text-muted-foreground transition-colors duration-fast hover:border-border-strong hover:bg-accent/30 hover:text-foreground focus-ring"
-          @click="openAddCluster('aws')"
+          @click="openAddCluster('cloud')"
         >
           <Plus class="h-5 w-5" />
           Connect an account

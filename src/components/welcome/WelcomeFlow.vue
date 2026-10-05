@@ -32,7 +32,7 @@ import KubeconfigFileRow from "@/components/settings/sections/KubeconfigFileRow.
 import WelcomeTools from "@/components/welcome/WelcomeTools.vue";
 import ProviderMark from "@/components/clusters/ProviderMark.vue";
 import { openAddCluster } from "@/lib/clusters/managed";
-import { CONNECTION_KIND_LABELS } from "@/lib/clusters/cloud";
+import { CLOUD_PROVIDERS } from "@/lib/clusters/providers";
 import { connections, loadCloud, watchCloud } from "@/lib/clusters/catalogStore";
 import ColorSchemeSection from "@/components/settings/sections/ColorSchemeSection.vue";
 import ThemeLibrary from "@/components/settings/themes/ThemeLibrary.vue";
@@ -102,6 +102,7 @@ onMounted(() => {
   void loadCloud();
   homeDir().then((dir) => (home.value = dir.replace(/[\\/]+$/, "")), () => undefined);
 });
+const connectedProviders = computed(() => new Set((connections.value ?? []).map((c) => c.provider)));
 const detected = computed(() => discoveredKubeconfigs.value ?? null);
 const readable = computed(() => (detected.value ?? []).filter((file) => file.readable));
 const contextCount = computed(() => readable.value.reduce((count, file) => count + file.contextCount, 0));
@@ -263,31 +264,31 @@ const finish = (goToHub: boolean) => {
         </div>
 
         <!-- 4. Cloud accounts -->
-        <div v-else-if="current.id === 'cloud'" class="space-y-4">
-          <div class="rounded-xl border bg-card shadow-xs">
-            <div class="flex items-center gap-4 p-5">
-              <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-surface-1">
-                <ProviderMark provider="aws" :size="26" />
+        <div v-else-if="current.id === 'cloud'" class="space-y-5">
+          <div class="grid grid-cols-3 gap-2.5">
+            <button
+              v-for="cloud in CLOUD_PROVIDERS"
+              :key="cloud.id"
+              type="button"
+              class="group flex min-w-0 items-center gap-3 rounded-xl border bg-card px-3.5 py-3 text-left shadow-xs transition-[border-color,box-shadow] duration-fast hover:border-border-strong hover:shadow-sm focus-ring"
+              :title="cloud.blurb"
+              @click="openAddCluster('cloud', { provider: cloud.id })"
+            >
+              <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-1 ring-1 ring-inset ring-border/60">
+                <ProviderMark :provider="cloud.id" :size="20" />
               </span>
-              <div class="min-w-0 flex-1">
-                <h2 class="text-sm font-medium">Amazon Web Services</h2>
-                <p class="text-xs text-muted-foreground">
-                  EKS clusters in every account and region. Signs in with IAM Identity Center, a profile or access keys.
-                </p>
-              </div>
-              <Button variant="outline" @click="openAddCluster('aws')">
-                {{ connections?.length ? "Connect another" : "Connect AWS" }}
-              </Button>
-            </div>
-            <ul v-if="connections?.length" class="border-t px-5 py-2">
-              <li v-for="connection in connections" :key="connection.id" class="flex h-9 items-center gap-2.5 text-sm">
-                <CheckCircle2 class="h-4 w-4 text-success" />
-                <span class="font-medium">{{ connection.label }}</span>
-                <span class="text-xs text-muted-foreground">{{ CONNECTION_KIND_LABELS[connection.kind] }}</span>
-              </li>
-            </ul>
+              <span class="min-w-0 flex-1">
+                <span class="block truncate text-sm font-medium">{{ cloud.short }}</span>
+                <span class="block truncate text-xs text-muted-foreground">
+                  <template v-if="connectedProviders.has(cloud.id)">
+                    <CheckCircle2 class="mr-0.5 inline h-3 w-3 -translate-y-px text-success" /> Connected
+                  </template>
+                  <template v-else>{{ cloud.product }}</template>
+                </span>
+              </span>
+            </button>
           </div>
-          <p class="text-center text-xs text-muted-foreground">You can connect accounts any time from the Clusters hub.</p>
+          <p class="text-center text-xs text-muted-foreground">Optional. You can connect accounts any time from the Clusters hub.</p>
         </div>
 
         <!-- 5. Done -->

@@ -31,12 +31,16 @@ aws-sdk-sts = { version = "1.80", default-features = false, features = ["rt-toki
 aws-sigv4 = { version = "1.3", default-features = false, features = ["sign-http", "http1"], optional = true }
 aws-credential-types = { version = "1.2", optional = true }
 aws-smithy-http-client = { version = "1.1", default-features = false, features = ["rustls-ring", "rt-tokio"], optional = true }
-aws-smithy-runtime-api = { version = "1.9", features = ["client"], optional = true }
+aws-smithy-runtime-api = { version = "1.9", features = ["client", "http-1x"], optional = true }
 aws-smithy-types = { version = "1.3", optional = true }
 aws-smithy-async = { version = "1.2", features = ["rt-tokio"], optional = true }
 http = { version = "1", optional = true }
 sha1 = { version = "0.10", optional = true }
 tokio = { version = "1.29.1", features = ["rt", "time", "sync", "macros"], optional = true }
+# Other clouds (feature `cloud`): REST clients for DigitalOcean, Akamai
+# (Linode), Civo, Scaleway, Vultr and Exoscale on the same rustls + ring
+# connector as the AWS SDK clients; HMAC for Exoscale request signatures.
+hmac = { version = "0.12", optional = true }
 
 [features]
 default = []
@@ -55,8 +59,18 @@ aws = [
     "dep:sha1",
     "dep:tokio",
 ]
-# The fake AWS HTTP server (`aws::fake`) for the app's tests.
-test-util = ["aws", "tokio/net", "tokio/io-util"]
+cloud = [
+    "dep:aws-smithy-http-client",
+    "dep:aws-smithy-runtime-api",
+    "dep:aws-smithy-types",
+    "dep:aws-smithy-async",
+    "dep:http",
+    "dep:hmac",
+    "dep:tokio",
+]
+# The fake HTTP server (`fake`, `aws::fake`, `cloud::test_context`) for the
+# app's tests.
+test-util = ["aws", "cloud", "tokio/net", "tokio/io-util"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The kernel keyring caches an unlocked passphrase vault for other terminals.

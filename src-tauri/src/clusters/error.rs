@@ -133,6 +133,24 @@ impl From<jp_auth_core::aws::AwsError> for AppError {
     }
 }
 
+impl From<jp_auth_core::cloud::CloudError> for AppError {
+    fn from(error: jp_auth_core::cloud::CloudError) -> AppError {
+        use jp_auth_core::cloud::CloudError;
+        let message = error.to_string();
+        match error {
+            CloudError::Vault(vault) => AppError::from(jp_auth_core::aws::AwsError::Vault(vault)),
+            CloudError::NotFound(_) | CloudError::MissingCredentials(_) => {
+                AppError::not_found(message)
+            }
+            CloudError::Invalid(_) => AppError::internal(message),
+            CloudError::Unauthorized(_)
+            | CloudError::NotReady(_)
+            | CloudError::Service { .. }
+            | CloudError::Network(_) => AppError::new(AppErrorCode::Provider, message),
+        }
+    }
+}
+
 /// File errors of the connection / catalog stores.
 impl From<std::io::Error> for AppError {
     fn from(error: std::io::Error) -> AppError {

@@ -3442,6 +3442,7 @@ dependencies = [
  "chacha20poly1305",
  "dbus",
  "getrandom 0.2.14",
+ "hmac 0.12.1",
  "http",
  "keyring",
  "linux-keyutils",

@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import ProviderMark from "@/components/clusters/ProviderMark.vue";
 import type { CatalogCluster } from "@/lib/clusters/cloud";
+import { catalogStatus } from "@/lib/clusters/cloudModel";
 
 const props = defineProps<{
   available: CatalogCluster[];
@@ -51,6 +52,10 @@ const all = computed({
 });
 const showIgnored = ref(false);
 const providers = computed(() => [...new Set([...props.available, ...props.ignored].map((c) => c.provider))]);
+/* Mixed clouds: grouped by provider, then name. */
+const sorted = computed(() =>
+  [...props.available].sort((a, b) => a.provider.localeCompare(b.provider) || a.name.localeCompare(b.name))
+);
 const where = (c: CatalogCluster) => [c.region, c.accountName ?? c.accountId, c.roleName].filter(Boolean).join(" · ");
 </script>
 
@@ -76,18 +81,19 @@ const where = (c: CatalogCluster) => [c.region, c.accountName ?? c.accountId, c.
             <Checkbox v-model:checked="all" aria-label="Select all" />
             {{ chosen.length }} of {{ available.length }} selected
           </label>
-          <label v-for="cluster in available" :key="cluster.key" :class="[WIZARD_ROW, 'cursor-pointer']">
+          <label v-for="cluster in sorted" :key="cluster.key" :class="[WIZARD_ROW, 'cursor-pointer']">
             <Checkbox
               :checked="picked.has(cluster.key)"
               :aria-label="`Add ${cluster.name}`"
               @update:checked="(on: boolean) => (on ? picked.add(cluster.key) : picked.delete(cluster.key))"
             />
+            <ProviderMark v-if="providers.length > 1" :provider="cluster.provider" :size="16" />
             <span class="min-w-0 flex-1">
               <span class="block truncate text-sm font-medium">{{ cluster.name }}</span>
               <span class="block truncate text-xs text-muted-foreground">{{ where(cluster) }}</span>
             </span>
-            <span v-if="cluster.status && cluster.status !== 'ACTIVE'" class="flex items-center gap-1.5 text-xs text-warning">
-              <span class="h-1.5 w-1.5 rounded-full bg-current" /> {{ cluster.status.charAt(0) + cluster.status.slice(1).toLowerCase() }}
+            <span v-if="catalogStatus(cluster)" class="flex items-center gap-1.5 text-xs text-warning">
+              <span class="h-1.5 w-1.5 rounded-full bg-current" /> {{ catalogStatus(cluster) }}
             </span>
             <span v-else-if="cluster.version" class="font-mono text-xs tabular-nums text-muted-foreground">v{{ cluster.version }}</span>
           </label>
