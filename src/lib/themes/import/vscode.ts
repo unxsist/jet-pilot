@@ -24,6 +24,7 @@ import {
   flattenOver,
   isDarkRgb,
   parseColor,
+  rgbOf,
   rgbToHex,
   toHexAlpha,
 } from "../contrast";
@@ -521,8 +522,17 @@ export function convertVsCodeTheme(
 
   /* -- JET extensions -- */
   const jetPilot: JetPilotThemeExtensions = {};
-  const success = solidOver(canvas, "gitDecoration.addedResourceForeground", "terminal.ansiGreen");
-  const info = solidOver(canvas, "editorInfo.foreground", "terminal.ansiBlue");
+  // Some themes use their foreground for git decorations (Gruvbox): only a
+  // colour of the right hue counts as success / info.
+  const withHue = (from: number, to: number, ...keys: string[]) => {
+    for (const key of keys) {
+      const color = solidOver(canvas, key);
+      if (color && hasHue(color, from, to)) return color;
+    }
+    return undefined;
+  };
+  const success = withHue(55, 175, "gitDecoration.addedResourceForeground", "terminal.ansiGreen", "terminal.ansiBrightGreen");
+  const info = withHue(176, 265, "editorInfo.foreground", "terminal.ansiBlue", "terminal.ansiBrightBlue");
   if (success || info) {
     jetPilot.colors = { ...(success ? { success } : {}), ...(info ? { info } : {}) };
   }
@@ -593,6 +603,21 @@ export function importVsCodeTheme(
     warnings
   );
   return { theme, warnings };
+}
+
+/** Whether `hex` is a saturated colour with an HSL hue in [from, to]. */
+function hasHue(hex: string, from: number, to: number): boolean {
+  const { r: red, g: green, b: blue } = rgbOf(hex);
+  const [r, g, b] = [red / 255, green / 255, blue / 255];
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  const lightness = (max + min) / 2;
+  const saturation = delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1));
+  if (saturation < 0.2 || delta < 0.08) return false;
+  const hue =
+    max === r ? 60 * (((g - b) / delta + 6) % 6) : max === g ? 60 * ((b - r) / delta + 2) : 60 * ((r - g) / delta + 4);
+  return hue >= from && hue <= to;
 }
 
 /* ---- pairing ---- */

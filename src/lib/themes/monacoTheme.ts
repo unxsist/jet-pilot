@@ -78,6 +78,10 @@ export function buildMonacoTheme(
     "editorSuggestWidget.background": roles.surfaceOverlay,
     "editorSuggestWidget.border": roles.border,
     "editorSuggestWidget.selectedBackground": roles.accentSurface,
+    // Monaco's light base paints the focused suggestion white-on-selection.
+    "editorSuggestWidget.foreground": roles.text,
+    "editorSuggestWidget.selectedForeground": roles.accentSurfaceForeground,
+    "editorSuggestWidget.selectedIconForeground": roles.accentSurfaceForeground,
     "editorHoverWidget.background": roles.surfaceOverlay,
     "editorHoverWidget.border": roles.border,
     "input.background": roles.surface,

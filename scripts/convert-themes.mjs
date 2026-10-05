@@ -216,7 +216,8 @@ const lib = (path) => tsImport(join(root, "src/lib/themes", path), import.meta.u
 const { importTheme } = await lib("import/index.ts");
 const { mergeVariants } = await lib("import/vscode.ts");
 const { parseThemeFile } = await lib("validate.ts");
-const { themeAppearances, resolveTheme } = await lib("resolve.ts");
+const { resolveTheme } = await lib("resolve.ts");
+const { themeAppearances } = await lib("runtime.ts");
 
 async function convertCurated(theme) {
   const source = await openSource(theme);

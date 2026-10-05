@@ -129,6 +129,20 @@ describe("VS Code import", () => {
     expect(soft.ok && soft.themes[0]!.name).toBe("Dracula Theme Soft");
   });
 
+  it("only takes a green success / blue info colour (Gruvbox's git colours are its foreground)", () => {
+    const result = importTheme(
+      vscode({
+        "editor.background": "#282828",
+        "gitDecoration.addedResourceForeground": "#ebdbb2",
+        "terminal.ansiGreen": "#98971a",
+        "editorInfo.foreground": "#ebdbb2",
+        "terminal.ansiBlue": "#458588",
+      })
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(result.themes[0]!.jetPilot?.colors).toMatchObject({ success: "#98971a", info: "#458588" });
+  });
+
   it("follows include chains, child over parent", () => {
     const files: Record<string, string> = {
       "./base.json": JSON.stringify({
