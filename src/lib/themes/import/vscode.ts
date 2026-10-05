@@ -46,6 +46,8 @@ export interface VsCodeImportOptions {
   resolveInclude?: (path: string) => string | undefined;
   /** contributes.themes[].uiTheme, for files without a `type`. */
   uiTheme?: string;
+  /** contributes.themes[].label: VS Code shows this, and an extension's files often share one `name`. */
+  label?: string;
   filename?: string;
 }
 
@@ -582,7 +584,7 @@ export function importVsCodeTheme(
   const resolved = resolveIncludes(value, options, warnings);
   const theme = convertVsCodeTheme(
     {
-      name: resolveThemeName([resolved.displayName, resolved.name], options.filename, "VS Code theme"),
+      name: resolveThemeName([options.label, resolved.displayName, resolved.name], options.filename, "VS Code theme"),
       type: resolved.type,
       colors: isRecord(resolved.colors) ? resolved.colors : {},
       tokenColors: tokenColorList(resolved.tokenColors, options, warnings),

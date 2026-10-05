@@ -20,6 +20,8 @@ export interface ImportOptions {
   resolveInclude?: (path: string) => string | undefined;
   /** Open VSX contributes.themes[].uiTheme ("vs", "vs-dark", "hc-black", "hc-light"). */
   uiTheme?: string;
+  /** Open VSX contributes.themes[].label (preferred over the file's own name). */
+  label?: string;
 }
 
 /** Larger files are not themes (Open VSX caps theme files at 512 KB too). */

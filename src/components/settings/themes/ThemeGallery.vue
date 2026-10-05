@@ -146,7 +146,7 @@ const fetchThemes = async (extension: OpenVsxExtension) => {
       ...(result.extension.license ? { license: result.extension.license } : {}),
     };
     const report = await importSources(
-      result.themes.map((item) => ({ name: item.label || item.path, text: item.text, uiTheme: item.uiTheme })),
+      result.themes.map((item) => ({ name: item.label || item.path, text: item.text, uiTheme: item.uiTheme, label: item.label || undefined })),
       origin
     );
     report.warnings.unshift(...(result.warnings ?? []));

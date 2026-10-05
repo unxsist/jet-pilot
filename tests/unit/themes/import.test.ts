@@ -120,6 +120,15 @@ describe("VS Code import", () => {
     expect(untyped.ok && untyped.themes[0]).toMatchObject({ appearance: "light", name: "Paper" });
   });
 
+  it("prefers the Open VSX label over a name shared by an extension's files", () => {
+    // dracula-theme.theme-dracula: both files are named "Dracula".
+    const soft = importTheme(vscode({}, { name: "Dracula" }), "theme/dracula-soft.json", {
+      uiTheme: "vs-dark",
+      label: "Dracula Theme Soft",
+    });
+    expect(soft.ok && soft.themes[0]!.name).toBe("Dracula Theme Soft");
+  });
+
   it("follows include chains, child over parent", () => {
     const files: Record<string, string> = {
       "./base.json": JSON.stringify({

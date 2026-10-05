@@ -12,6 +12,8 @@ export interface ImportSource {
   text: string;
   /** Open VSX contributes.themes[].uiTheme. */
   uiTheme?: string;
+  /** Open VSX contributes.themes[].label. */
+  label?: string;
 }
 
 export interface ImportedTheme {
@@ -47,7 +49,7 @@ export async function importSources(
   const vscode = new Map<ThemeFile, string>();
   const others: Omit<ImportedTheme, "key">[] = [];
   for (const source of sources) {
-    const result = importTheme(source.text, source.name, { uiTheme: source.uiTheme });
+    const result = importTheme(source.text, source.name, { uiTheme: source.uiTheme, label: source.label });
     if (!result.ok) {
       report.errors.push({ source: source.name, message: result.error });
       continue;
