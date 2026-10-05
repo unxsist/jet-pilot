@@ -29,10 +29,14 @@ const osType = ref(getOsType());
 
 /*
  * Not needed for the first frame: the update check (marked + DOMPurify for
- * the release notes) and "What's new" are loaded once the app is idle.
+ * the release notes), announcements and "What's new" are loaded once the app
+ * is idle.
  */
 const UpdateHandler = defineAsyncComponent(
   () => import("./components/UpdateHandler.vue")
+);
+const AnnouncementHandler = defineAsyncComponent(
+  () => import("./components/AnnouncementHandler.vue")
 );
 const WhatsNew = defineAsyncComponent(
   () => import("./components/WhatsNew.vue")
@@ -87,6 +91,7 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
                       <DialogHandler />
                       <template v-if="idle">
                         <UpdateHandler />
+                        <AnnouncementHandler />
                         <WhatsNew />
                         <ThemeCommands />
                       </template>

@@ -72,6 +72,8 @@ export interface SettingsContextState {
     updates: {
       checkOnStartup: boolean;
       whatsNew: string | null;
+      /** Ids of announcements (src/lib/announcements.ts) the user dismissed. */
+      dismissedAnnouncements: string[];
     };
     logLevel: "error" | "warn" | "info" | "debug" | "trace";
     /** Bottom-panel tabs of the last session, restored on start. */
@@ -124,6 +126,7 @@ export default {
         updates: {
           checkOnStartup: true,
           whatsNew: null,
+          dismissedAnnouncements: [],
         },
         logLevel: "error",
         openTabs: null,
