@@ -164,7 +164,6 @@ const {
       target.kubeConfig,
       target.namespaces
     ),
-  fallbackInterval: 5000,
   forcePolling: () => kubectlPollingForced(settings.value),
 });
 

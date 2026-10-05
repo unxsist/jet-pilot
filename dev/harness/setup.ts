@@ -8,7 +8,7 @@
  *   ?theme=dark|light        colour scheme
  *   ?os=linux|macos|windows  window chrome variant
  *   ?scenario=default|empty|error|nocontext|whatsnew|large|large-graph|conflict|compare
- *            |update|update-error|announcement
+ *            |update|update-error|announcement|kubeconfigs|tools-missing
  *   ?contexts=2              activate both contexts
  *   ?polling=0|1             kubectl polling instead of live watches
  *                            (settings.experimental.useKubectlPolling)
@@ -21,6 +21,10 @@
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views; `large-graph` swaps the
  * first context for a 2,000+ object topology for the resource graph.
+ * Settings: `kubeconfigs` finds extra kubeconfig files (one in config.d, one
+ * unreadable); `tools-missing` has no kubectl (downloads take ~2 s). The
+ * fixture settings are a v1 settings.json, so every fresh load exercises the
+ * migration to settings.json + state.json.
  * `update` offers v9.9.9 on startup and "downloads" it in ~3 s;
  * `update-error` fails that install the way a translocated (read-only) macOS
  * app does. `announcement` serves a critical and an info announcement.
@@ -1019,6 +1023,135 @@ function metricsSubscribe(request: any, channel: any) {
   return ++watchIds;
 }
 
+
+/* ------------------------------------------------------ settings mocks -- */
+
+const KIND_KUBECONFIG = `${HOME}/.kube/config.d/kind.yaml`;
+const BROKEN_KUBECONFIG = `${HOME}/.kube/old-cluster.yaml`;
+
+/* kubeconfig_discover (src-tauri/src/kubeconfig_discovery.rs). */
+const discoverKubeconfigs = () => [
+  {
+    path: KUBECONFIG,
+    origin: "default",
+    readable: true,
+    contextCount: CONTEXTS.length,
+    contextNames: CONTEXTS.map((c) => c.name),
+  },
+  ...(scenario === "kubeconfigs"
+    ? [
+        { path: KIND_KUBECONFIG, origin: "configD", readable: true, contextCount: 1, contextNames: ["kind-dev"] },
+        {
+          path: BROKEN_KUBECONFIG,
+          origin: "directory",
+          readable: false,
+          error: "invalid type: string \"cluster\", expected a sequence at line 4 column 11",
+          contextCount: 0,
+          contextNames: [],
+        },
+      ]
+    : []),
+];
+
+/* kubeconfig_describe: an EKS context whose plugin is missing, a token context. */
+const describeKubeconfig = (path: string) => {
+  if (path === KIND_KUBECONFIG) {
+    return {
+      path,
+      currentContext: "kind-dev",
+      contexts: [
+        {
+          name: "kind-dev",
+          cluster: "kind-dev",
+          server: "https://127.0.0.1:52341",
+          user: "kind-dev",
+          namespace: null,
+          auth: { kind: "clientCert", command: null, awsProfile: null },
+          problems: [],
+        },
+      ],
+    };
+  }
+  return {
+    path,
+    currentContext: CONTEXTS[0].name,
+    contexts: [
+      {
+        name: CONTEXTS[0].name,
+        cluster: "arn:aws:eks:eu-west-1:123456789012:cluster/prod",
+        server: "https://4F1E2D3C.gr7.eu-west-1.eks.amazonaws.com",
+        user: "prod-admin",
+        namespace: CONTEXTS[0].namespace,
+        auth: { kind: "exec", command: "aws", awsProfile: "prod-admin" },
+        problems: [],
+      },
+      {
+        name: CONTEXTS[1].name,
+        cluster: "staging",
+        server: "https://staging.k8s.example.com:6443",
+        user: "staging-oidc",
+        namespace: CONTEXTS[1].namespace,
+        auth: { kind: "exec", command: "kubelogin", awsProfile: null },
+        problems: [
+          {
+            code: "execNotFound",
+            severity: "warning",
+            message: "The exec plugin kubelogin isn't on your PATH. Install it to sign in to this cluster.",
+          },
+        ],
+      },
+    ],
+  };
+};
+
+/* tools_detect / tools_install (src-tauri/src/tools.rs). */
+const toolState = new Map<string, any>([
+  ["kubectl", scenario === "tools-missing"
+    ? { found: false, path: null, version: null, source: "missing" }
+    : { found: true, path: "/usr/local/bin/kubectl", version: "v1.31.2", source: "path" }],
+  ["helm", { found: true, path: "/usr/local/bin/helm", version: "v3.16.2", source: "path" }],
+  ["aws", { found: true, path: "/usr/local/bin/aws", version: "2.17.0", source: "path" }],
+  ["gcloud", { found: false, path: null, version: null, source: "missing" }],
+  ["az", { found: false, path: null, version: null, source: "missing" }],
+  ["kubelogin", { found: false, path: null, version: null, source: "missing" }],
+  ["gke-gcloud-auth-plugin", { found: false, path: null, version: null, source: "missing" }],
+  ["doctl", { found: false, path: null, version: null, source: "missing" }],
+]);
+const TOOL_NAMES: Record<string, string> = {
+  kubectl: "kubectl",
+  helm: "Helm",
+  aws: "AWS CLI",
+  gcloud: "Google Cloud CLI",
+  az: "Azure CLI",
+  kubelogin: "kubelogin",
+  "gke-gcloud-auth-plugin": "GKE auth plugin",
+  doctl: "doctl",
+};
+const INSTALL_VERSIONS: Record<string, string> = { kubectl: "v1.34.1", helm: "v3.19.0" };
+const toolStatus = (id: string) => ({
+  id,
+  name: TOOL_NAMES[id],
+  ...toolState.get(id),
+  installable: id in INSTALL_VERSIONS,
+  installVersion: INSTALL_VERSIONS[id] ?? null,
+  problem: null,
+});
+const installTool = async (id: string, channel: any) => {
+  const version = INSTALL_VERSIONS[id]!;
+  const total = id === "kubectl" ? 57_000_000 : 18_000_000;
+  sendToChannel(channel, { type: "started", url: `https://dl.k8s.io/release/${version}/bin/linux/amd64/kubectl`, version });
+  for (let step = 1; step <= 10; step++) {
+    await sleep(160);
+    sendToChannel(channel, { type: "progress", received: Math.round((total * step) / 10), total });
+  }
+  sendToChannel(channel, { type: "verifying" });
+  await sleep(300);
+  const path = `${HOME}/.kube/jet-pilot/bin/${id}`;
+  toolState.set(id, { found: true, path, version, source: "managed" });
+  sendToChannel(channel, { type: "done", path });
+  return toolStatus(id);
+};
+
 /* ------------------------------------------------------------- dispatch -- */
 
 const ptyChannels = new Map<string, any>();
@@ -1048,11 +1181,13 @@ const readFile = (path: string): string | null => {
   if (stored === null && path in PICKED_THEME_FILES) return PICKED_THEME_FILES[path]!;
   if (path !== "settings.json") return stored;
   if (!stored) return JSON.stringify(settings);
-  // The ?theme / ?themeId knobs win over choices saved earlier.
+  // The ?theme / ?themeId / ?polling knobs win over choices saved earlier.
   const saved = JSON.parse(stored);
   const appearance = { ...saved.appearance, colorScheme: theme };
   if (themeId) Object.assign(appearance, { lightTheme: themeId, darkTheme: themeId });
-  return JSON.stringify({ ...saved, appearance });
+  const next = { ...saved, appearance };
+  if (polling) next.tables = { ...saved.tables, liveUpdates: "poll" };
+  return JSON.stringify(next);
 };
 
 /* Directories are implicit: a path is a directory when files live below it. */
@@ -1319,7 +1454,31 @@ mockIPC(
       case "get_current_context":
         return scenario === "nocontext" ? "" : CONTEXTS[0].name;
       case "list_contexts":
+        if (p.kubeConfig === BROKEN_KUBECONFIG) throw { message: "invalid type: string \"cluster\", expected a sequence" };
+        if (p.kubeConfig === KIND_KUBECONFIG) return [{ name: "kind-dev", context: { namespace: "default" } }];
         return CONTEXTS.map((c) => ({ name: c.name, context: { namespace: c.namespace } }));
+      case "kubeconfig_discover":
+        await sleep(120);
+        return discoverKubeconfigs();
+      case "kubeconfig_describe":
+        await sleep(150);
+        return describeKubeconfig(p.path);
+      case "tools_detect":
+        await sleep(p.force ? 600 : 250);
+        return [...toolState.keys()].map(toolStatus);
+      case "tools_install":
+        return installTool(p.tool, p.onEvent);
+      case "tools_uninstall":
+        toolState.set(p.tool, { found: false, path: null, version: null, source: "missing" });
+        return null;
+      case "env_import_report":
+        return {
+          shell: os === "windows" ? null : "/bin/zsh",
+          imported: os === "windows" ? [] : ["PATH", "KUBECONFIG", "AWS_PROFILE", "HTTPS_PROXY", "NO_PROXY"],
+          durationMs: 142,
+          error: null,
+          managedBinDir: `${HOME}/.kube/jet-pilot/bin`,
+        };
       case "list_namespaces":
         await sleep(150);
         return (NAMESPACES[p.context] || []).map((name) => ({ metadata: { name } }));

@@ -45,6 +45,10 @@ const WhatsNew = defineAsyncComponent(
 const ThemeCommands = defineAsyncComponent(
   () => import("./components/ThemeCommands.vue")
 );
+/* Settings palette commands ("Change a setting…", one item per setting). */
+const SettingsCommands = defineAsyncComponent(
+  () => import("./components/settings/SettingsCommands.vue")
+);
 const idle = ref(false);
 onMounted(() => whenIdle(() => (idle.value = true), 2000));
 </script>
@@ -94,6 +98,7 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
                         <AnnouncementHandler />
                         <WhatsNew />
                         <ThemeCommands />
+                        <SettingsCommands />
                       </template>
                       <TerminalLauncher />
                     </WorkspaceProvider>

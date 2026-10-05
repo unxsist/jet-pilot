@@ -38,7 +38,7 @@ pub mod client {
         pub(crate) message: String,
         pub(crate) code: Option<u16>,
         pub(crate) reason: Option<String>,
-        details: Option<String>,
+        pub(crate) details: Option<String>,
     }
 
     impl From<Error> for SerializableKubeError {
@@ -151,16 +151,19 @@ pub mod client {
         }
     }
 
+    /// Kubeconfig errors keep only a safe summary: the YAML parser's message
+    /// quotes file contents, which can include tokens and keys.
     impl From<KubeconfigError> for SerializableKubeError {
         fn from(error: KubeconfigError) -> Self {
-            error!("Kubeconfig error occurred: {:?}", error);
-            
-            return SerializableKubeError {
-                message: error.to_string(),
+            let message = crate::kubeconfig_discovery::read_error_message(&error);
+            error!("Kubeconfig error occurred: {}", message);
+
+            SerializableKubeError {
+                message,
                 code: None,
                 reason: None,
                 details: None,
-            };
+            }
         }
     }
 
@@ -253,7 +256,7 @@ pub mod client {
             Kubeconfig::read_from(kubeconfig_path.as_str())
         }
         .map_err(|err| {
-            error!("Failed to read kubeconfig: {}", err);
+            error!("Failed to read kubeconfig: {}", crate::kubeconfig_discovery::read_error_message(&err));
             SerializableKubeError::from(err)
         })?;
 
@@ -280,7 +283,7 @@ pub mod client {
         }
 
         let config = Kubeconfig::read_from(kubeconfig.as_str()).map_err(|err| {
-            error!("Failed to read kubeconfig from path: {}", err);
+            error!("Failed to read kubeconfig from path: {}", crate::kubeconfig_discovery::read_error_message(&err));
             SerializableKubeError::from(err)
         })?;
 
@@ -392,17 +395,17 @@ pub mod client {
         let client_config = if !kubeconfig_path.is_empty() {
             debug!("Using custom kubeconfig path");
             let kubeconfig = Kubeconfig::read_from(kubeconfig_path).map_err(|err| {
-                error!("Failed to read custom kubeconfig: {}", err);
+                error!("Failed to read custom kubeconfig: {}", crate::kubeconfig_discovery::read_error_message(&err));
                 SerializableKubeError::from(err)
             })?;
             Config::from_custom_kubeconfig(kubeconfig, &options).await.map_err(|err| {
-                error!("Failed to create config from custom kubeconfig: {}", err);
+                error!("Failed to create config from custom kubeconfig: {}", crate::kubeconfig_discovery::read_error_message(&err));
                 SerializableKubeError::from(err)
             })?
         } else {
             debug!("Using default kubeconfig path");
             Config::from_kubeconfig(&options).await.map_err(|err| {
-                error!("Failed to create config from default kubeconfig: {}", err);
+                error!("Failed to create config from default kubeconfig: {}", crate::kubeconfig_discovery::read_error_message(&err));
                 SerializableKubeError::from(err)
             })?
         };
@@ -446,7 +449,7 @@ pub mod client {
                 Ok(())
             }
             Err(err) => {
-                error!("Invalid kubeconfig provided: {}", err);
+                error!("Invalid kubeconfig provided: {}", crate::kubeconfig_discovery::read_error_message(&err));
                 Err(SerializableKubeError::from(err))
             }
         }

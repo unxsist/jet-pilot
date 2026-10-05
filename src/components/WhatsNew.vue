@@ -26,7 +26,9 @@ onMounted(async () => {
   // version shows the dialog again.
   const minor = (version: string | null) => version?.split(".").slice(0, 2).join(".") ?? null;
   if (minor(lastSeenVersion) !== minor(currentVersion.value)) {
-    shouldShowWhatsNew.value = true;
+    // Turned off in Settings › General: remember the version without showing it.
+    if (settings.value.updates.showWhatsNew) shouldShowWhatsNew.value = true;
+    else settings.value.updates.whatsNew = currentVersion.value;
   }
 });
 

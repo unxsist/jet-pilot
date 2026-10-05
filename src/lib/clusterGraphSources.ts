@@ -5,6 +5,7 @@
  */
 import type { DiscoverySnapshot } from "./discovery";
 import { flattenResources } from "./discovery";
+import { kubectlRequestTimeoutArg } from "./settings/runtime";
 import {
   DiscoveredResource,
   GraphObject,
@@ -84,7 +85,7 @@ export function secretMetadataArgs(
     context,
     "-o",
     SECRET_METADATA_TEMPLATE,
-    "--request-timeout=30s",
+    kubectlRequestTimeoutArg(),
   ];
   if (kubeConfig) args.push("--kubeconfig", kubeConfig);
   if (namespace) args.push("--namespace", namespace);

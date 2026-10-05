@@ -6,78 +6,85 @@ import {
   CarouselNext,
   CarouselPrevious,
 } from "@/components/ui/carousel";
-import { Beer, FileJson, FolderSync, Scale, SquareTerminal, SunMoon } from "lucide-vue-next";
+import {
+  ArrowDownUp,
+  KeyRound,
+  ScrollText,
+  ShieldCheck,
+  SquareTerminal,
+  TerminalSquare,
+} from "lucide-vue-next";
 
-import themesDark from "@/assets/whats-new/themes-dark.webp";
-import themesLight from "@/assets/whats-new/themes-light.webp";
-import galleryDark from "@/assets/whats-new/gallery-dark.webp";
-import galleryLight from "@/assets/whats-new/gallery-light.webp";
-import editorDark from "@/assets/whats-new/theme-editor-dark.webp";
-import editorLight from "@/assets/whats-new/theme-editor-light.webp";
-import paletteDark from "@/assets/whats-new/palette-dark.webp";
-import paletteLight from "@/assets/whats-new/palette-light.webp";
+import searchDark from "@/assets/whats-new/settings-search-dark.webp";
+import searchLight from "@/assets/whats-new/settings-search-light.webp";
+import kubeconfigsDark from "@/assets/whats-new/settings-kubeconfigs-dark.webp";
+import kubeconfigsLight from "@/assets/whats-new/settings-kubeconfigs-light.webp";
+import toolsDark from "@/assets/whats-new/settings-tools-dark.webp";
+import toolsLight from "@/assets/whats-new/settings-tools-light.webp";
+import jsonDark from "@/assets/whats-new/settings-json-dark.webp";
+import jsonLight from "@/assets/whats-new/settings-json-light.webp";
 
 const slides = [
   {
-    title: "Make JET Pilot yours",
+    title: "Settings, rebuilt",
     description:
-      "Themes are here. Pick from JET, the Blossom, Grove, Ocean, Ember and Iris palettes and favourites like Catppuccin, Tokyo Night, Dracula, Nord, GitHub, One Dark Pro, Rosé Pine and Gruvbox — hover a card to preview it on the whole app. Find them in Settings › Appearance.",
-    dark: themesDark,
-    light: themesLight,
+      "Every setting is one search away: press Mod+, and start typing. Changed values are marked with a dot and go back to their default in one click, and new pages cover the terminal, the editor, tables, logs and more.",
+    dark: searchDark,
+    light: searchLight,
   },
   {
-    title: "Bring the theme you already love",
+    title: "Your kubeconfigs, found",
     description:
-      "Drop in a VS Code, Sublime Text or TextMate theme, or a JET Pilot theme file, or install one from the Open VSX gallery without leaving the app. Light and dark variants are paired automatically, and the editor and terminal pick up the theme's own syntax and ANSI colours.",
-    dark: galleryDark,
-    light: galleryLight,
+      "JET Pilot now picks up ~/.kube/config, the files in $KUBECONFIG, ~/.kube/*.yaml and ~/.kube/config.d by itself. Open a file to see each context's sign-in method and what's missing, like a sign-in plugin that isn't installed.",
+    dark: kubeconfigsDark,
+    light: kubeconfigsLight,
   },
   {
-    title: "Write your own in JSON",
+    title: "Tools that just work",
     description:
-      "Two colours are enough: set a canvas and an accent and the rest is derived, with readable contrast guaranteed. The theme editor completes every colour role, shows swatches and previews your changes live.",
-    dark: editorDark,
-    light: editorLight,
+      "See which command-line tools JET Pilot found and what each is for. Missing kubectl or Helm? Download a checksum-verified copy in one click. Tools you install yourself always come first.",
+    dark: toolsDark,
+    light: toolsLight,
   },
   {
-    title: "Switch in a keystroke",
+    title: "settings.json, if you like",
     description:
-      "Press Mod+Alt+A for the theme picker: arrow through the list to preview each theme, Enter to keep it, Esc to go back. Mod+Alt+Shift+A cycles between system, light and dark.",
-    dark: paletteDark,
-    light: paletteLight,
+      "Prefer text? Edit settings.json with completion and validation, or change any setting from the command palette. Export your preferences, workspaces, port forwards and themes to set up another machine in seconds.",
+    dark: jsonDark,
+    light: jsonLight,
   },
 ];
 
 const underTheHood = [
   {
-    icon: SunMoon,
-    title: "Light and dark, separately",
-    text: "Choose one theme for light mode and another for dark — JET Pilot follows your system.",
+    icon: TerminalSquare,
+    title: "Terminal your way",
+    text: "Font, size, cursor, scrollback, copy on select, and the shell your local terminal starts.",
   },
   {
     icon: SquareTerminal,
-    title: "Editor and terminal follow",
-    text: "Syntax colours in the YAML editor and the terminal's 16 colours come from your theme.",
+    title: "Editor preferences",
+    text: "Font size, tab size, word wrap, minimap, line numbers and your preferred diff layout.",
   },
   {
-    icon: FolderSync,
-    title: "Live theme files",
-    text: "Themes are plain JSON files in the themes folder; edit one in any editor and the app updates instantly.",
+    icon: KeyRound,
+    title: "Your shell's environment",
+    text: "Started from the Dock or a launcher, JET Pilot now picks up KUBECONFIG, AWS_PROFILE and proxy settings from your login shell, not just PATH.",
   },
   {
-    icon: FileJson,
-    title: "Portable theme files",
-    text: "Export any theme as a standard JSON theme file to share it.",
+    icon: ArrowDownUp,
+    title: "Watch or poll",
+    text: "Clusters behind proxies that drop long-lived connections can switch lists to polling, with an interval you choose.",
   },
   {
-    icon: Scale,
-    title: "MIT, all the way",
-    text: "Every built-in theme is MIT-licensed, and the gallery only installs MIT-licensed themes.",
+    icon: ScrollText,
+    title: "More log context",
+    text: "Logs open with the last 200 lines per container, and follow, timestamps and wrapping have defaults you set.",
   },
   {
-    icon: Beer,
-    title: "Homebrew tap",
-    text: "On macOS: brew install --cask unxsist/tap/jet-pilot — it opens right away, no quarantine step.",
+    icon: ShieldCheck,
+    title: "Safe upgrade",
+    text: "Your existing settings move over automatically, with a backup of the old file kept next to them.",
   },
 ];
 </script>
@@ -106,7 +113,7 @@ const underTheHood = [
         <div>
           <h3 class="text-base font-semibold">And under the hood</h3>
           <p class="mt-1 text-sm text-muted-foreground">
-            The details that make every theme feel at home.
+            The small things that make JET Pilot feel like yours.
           </p>
           <div class="mt-4 grid grid-cols-2 gap-3 pr-4">
             <div

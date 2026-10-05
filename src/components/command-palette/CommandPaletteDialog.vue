@@ -12,20 +12,24 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import {
   ArrowLeftRight,
+  Braces,
   ChevronRight,
   Copy,
   CornerDownLeft,
   CornerDownRight,
+  Download,
   FolderTree,
   History,
   Layers,
   Loader2,
   Palette,
   SearchX,
+  SlidersHorizontal,
   SquareTerminal,
   Sparkles,
   SunMoon,
   TriangleAlert,
+  Upload,
 } from "lucide-vue-next";
 
 import {
@@ -180,7 +184,11 @@ const resourceTitles = computed(
 );
 
 const actionCommands = computed(() =>
-  commands.value.filter((command) => !isNavigation(command))
+  commands.value.filter((command) => !isNavigation(command) && !command.searchOnly)
+);
+/* One item per setting (SettingsCommands.vue): only while searching. */
+const settingCommands = computed(() =>
+  commands.value.filter((command) => command.searchOnly)
 );
 /* Sidebar links that are not resource kinds (graph, Helm, settings). */
 const otherNavigation = computed(() =>
@@ -379,6 +387,10 @@ const PALETTE_ICONS: Record<string, Component> = {
   "selected-copy": Copy,
   "change-theme": Palette,
   "change-appearance": SunMoon,
+  "change-setting": SlidersHorizontal,
+  "open-settings-json": Braces,
+  "import-settings": Upload,
+  "export-settings": Download,
 };
 
 const commandIcon = (command: PaletteItem): Component => {
@@ -596,6 +608,28 @@ watchEffect((onCleanup) => {
                 class="h-3.5 w-3.5 shrink-0"
                 :class="{ 'ml-auto': !command.shortcut }"
               />
+            </CommandItem>
+          </CommandGroup>
+          <CommandGroup
+            v-if="searchTerm && settingCommands.length > 0"
+            heading="Settings"
+          >
+            <CommandItem
+              v-for="command in settingCommands"
+              :key="command.id"
+              :value="command"
+              @select="select(command)"
+            >
+              <SlidersHorizontal class="h-4 w-4" />
+              <span class="truncate">{{ command.name }}</span>
+              <span class="ml-1 truncate text-xs text-muted-foreground">{{
+                command.description
+              }}</span>
+              <span
+                v-if="command.badge"
+                class="ml-auto shrink-0 text-xs text-muted-foreground"
+                >{{ command.badge }}</span
+              >
             </CommandItem>
           </CommandGroup>
           <CommandGroup

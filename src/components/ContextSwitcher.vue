@@ -139,9 +139,14 @@ const clearSelection = () => {
   }
 };
 
+/* Kubeconfig sources (added + detected files): loaded after the first paint. */
+let sourcesModule: Promise<typeof import("@/lib/kubeconfigSources")> | null = null;
+const kubeconfigSources = () => (sourcesModule ??= import("@/lib/kubeconfigSources"));
+
 const fetchContexts = async () => {
   const entries: ContextEntry[] = [];
-  for (const kubeConfig of settings.value.kubeConfigs) {
+  const { resolveKubeconfigPaths } = await kubeconfigSources();
+  for (const kubeConfig of await resolveKubeconfigPaths(settings.value)) {
     try {
       const ctx = await Kubernetes.getContexts(kubeConfig);
       entries.push(
@@ -268,6 +273,17 @@ const namespaceCommands = (
  */
 onMounted(() => {
   fetchContexts();
+  /* Kubeconfig files added, removed or found (Settings › Clusters). */
+  void kubeconfigSources().then(({ discoveredKubeconfigs }) =>
+    watch(
+      () => [
+        settings.value.kubeconfig.sources.join("\n"),
+        settings.value.kubeconfig.autoDetect,
+        discoveredKubeconfigs.value,
+      ],
+      () => void fetchContexts()
+    )
+  );
 
   registerCommand({
     id: "switch-context",

@@ -1,0 +1,45 @@
+/*
+ * Session state and UI-managed collections (state.json). Unlike the
+ * preferences these have no registry definitions: they are written whole.
+ */
+import type { AppState } from "./types";
+
+export const STATE_FILE = "state.json";
+
+/** The state keys (dotted paths); everything else in `Settings` is a preference. */
+export const STATE_KEYS = [
+  "lastKubeConfig",
+  "lastContext",
+  "lastNamespace",
+  "activeContexts",
+  "PanelProvider",
+  "contextSettings",
+  "collapsedNavigationGroups",
+  "pinnedResources",
+  "updates.whatsNew",
+  "updates.dismissedAnnouncements",
+  "openTabs",
+  "portForwardProfiles",
+  "workspaces",
+  "activeWorkspaceId",
+  "recentCommands",
+] as const;
+
+export function stateDefaults(): AppState {
+  return {
+    lastKubeConfig: null,
+    lastContext: null,
+    lastNamespace: null,
+    activeContexts: [],
+    PanelProvider: { height: 50 },
+    contextSettings: [],
+    collapsedNavigationGroups: [],
+    pinnedResources: [],
+    updates: { whatsNew: null, dismissedAnnouncements: [] },
+    openTabs: null,
+    portForwardProfiles: [],
+    workspaces: [],
+    activeWorkspaceId: null,
+    recentCommands: [],
+  };
+}

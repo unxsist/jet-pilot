@@ -17,6 +17,8 @@ import { ArrowLeftRight, Columns2, RefreshCw, Rows2 } from "lucide-vue-next";
 import { diffObjects, stripServerFields } from "@/components/monaco/manifest";
 import { error } from "@/lib/logger";
 import { clusterArgs } from "@/lib/workloads";
+import { injectStrict } from "@/lib/utils";
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 
 interface Side {
   context: string;
@@ -36,7 +38,8 @@ const raw = reactive<{ left: unknown; right: unknown }>({ left: null, right: nul
 const errors = reactive({ left: "", right: "" });
 const loading = ref(true);
 const hideServerFields = ref(true);
-const sideBySide = ref(true);
+const { settings } = injectStrict(SettingsContextStateKey);
+const sideBySide = ref(settings.value.editor.diffMode === "sideBySide");
 
 const fetchSide = async (side: Side) => {
   const args = [

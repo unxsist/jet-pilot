@@ -12,6 +12,7 @@ import {
   type MonacoRuntime,
 } from "@/components/monaco";
 import { kindSchema, errorMessage } from "@/components/monaco/schemas";
+import { useEditorPreferences } from "@/components/monaco/preferences";
 import { diffLines, diffSummary } from "@/lib/diff";
 import { clusterArgs } from "@/lib/workloads";
 import { readTypeMeta } from "@/components/monaco/kubernetesSchema";
@@ -123,6 +124,7 @@ const emit = defineEmits(["forceClose"]);
 const isMac = getOsType() === "macos";
 const mod = isMac ? "⌘" : "Ctrl+";
 const { toast } = useToast();
+const preferences = useEditorPreferences();
 const addTab = injectStrict(PanelProviderAddTabKey);
 const { contexts, contextKubeConfigMapping } = injectStrict(KubeContextStateKey);
 
@@ -280,12 +282,13 @@ const initializeEditor = async () => {
 
   editorInstance = monaco.editor.create(editorElement.value, {
     ...editorOptions,
+    ...preferences.options.value,
     ...motionOptions(),
     model: editorModel,
     automaticLayout: true,
-    minimap: { enabled: false },
     fixedOverflowWidgets: true,
   });
+  preferences.track(editorInstance);
   bindShortcuts(editorInstance);
   editorInstance.focus();
   updateSchema();
@@ -323,7 +326,7 @@ const bindShortcuts = (target: CodeEditor, withEscape = false) => {
   }
 };
 
-const sideBySide = ref(true);
+const sideBySide = ref(preferences.sideBySide.value);
 watch(sideBySide, (value) =>
   diffEditor?.updateOptions({ renderSideBySide: value })
 );
@@ -334,9 +337,9 @@ const ensureDiffEditor = () => {
   baseModel = monaco.editor.createModel(baseText.value, "yaml");
   diffEditor = monaco.editor.createDiffEditor(diffElement.value, {
     ...editorOptions,
+    ...preferences.options.value,
     ...motionOptions(),
     automaticLayout: true,
-    minimap: { enabled: false },
     fixedOverflowWidgets: true,
     renderSideBySide: sideBySide.value,
     useInlineViewWhenSpaceIsLimited: true,
@@ -347,6 +350,7 @@ const ensureDiffEditor = () => {
     hideUnchangedRegions: { enabled: !props.create, contextLineCount: 4, minimumLineCount: 6 },
   });
   diffEditor.setModel({ original: baseModel, modified: editorModel });
+  preferences.track(diffEditor);
   bindShortcuts(diffEditor.getModifiedEditor(), true);
   disposables.push(
     diffEditor.onDidUpdateDiff(() => {

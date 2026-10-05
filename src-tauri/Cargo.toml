@@ -16,10 +16,9 @@ cc = "1.0.106"
 serde_json = "1.0.100"
 serde = { version = "1.0.167", features = ["derive"] }
 tauri = { version = "2.12.1", features = ["macos-private-api"] }
-tokio = { version = "1.29.1", features = ["process", "io-util", "time", "macros", "sync", "rt"] }
+tokio = { version = "1.29.1", features = ["process", "io-util", "time", "macros", "sync", "rt", "fs"] }
 kube = { version = "4.2.0", features = ["socks5", "http-proxy", "oidc", "runtime", "ws"] }
 k8s-openapi = { version = "0.28.0", features = ["v1_32"] }
-fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs", branch = "dev" }
 portable-pty = "0.9.0"
 uuid = { version = "1.4.1", features = ["serde", "v4"] }
 either = "1.9.0"
@@ -42,6 +41,14 @@ chrono = "0.4.39"
 futures = "0.3"
 zip = { version = "4.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 open = "5.3"
+which = "8"
+sha2 = "0.10"
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+tar = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1.29.1", features = ["net"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

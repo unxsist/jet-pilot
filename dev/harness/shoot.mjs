@@ -203,6 +203,27 @@ const screens = {
   macos: { url: "/deployments?resource=deployments&kind=Deployment&os=macos", ready: "tbody tr td" },
   settings: { url: "/settings/general", ready: "main, form, h1, h2", settle: 1200 },
   "settings-appearance": { url: "/settings/appearance", ready: "body", settle: 1200 },
+  "settings-terminal": { url: "/settings/terminal", ready: "main h2", settle: 1000 },
+  "settings-tables": { url: "/settings/tables", ready: "main h2", settle: 1000 },
+  "settings-clusters": {
+    url: "/settings/clusters?scenario=kubeconfigs",
+    ready: "main h2",
+    settle: 1500,
+    run: async (page) => {
+      await page.getByRole("button", { name: /Show the contexts of .*\/\.kube\/config$/ }).first().click();
+      await wait(600);
+    },
+  },
+  "settings-advanced": { url: "/settings/advanced?scenario=tools-missing", ready: "main h2", settle: 1500 },
+  "settings-search": {
+    url: "/settings/general",
+    ready: "main h2",
+    run: async (page) => {
+      await page.getByLabel("Search settings").fill("font");
+      await wait(500);
+    },
+  },
+  "settings-json": { url: "/settings/json?key=terminal.fontSize", ready: ".monaco-editor", settle: 1800 },
   empty: { url: "/pods?scenario=empty", ready: "table", settle: 1500 },
   error: { url: "/pods?scenario=error", ready: "[role=alert]", settle: 800 },
   "no-context": { url: "/pods?scenario=nocontext", ready: "body", settle: 1500 },

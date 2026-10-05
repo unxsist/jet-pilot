@@ -3,6 +3,7 @@ import { provide, reactive, InjectionKey, toRefs, ToRefs } from "vue";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
 import { isSameContext } from "@/lib/contextKey";
+import { warn } from "@/lib/logger";
 
 export const KubeContextStateKey: InjectionKey<ToRefs<KubeContextState>> =
   Symbol("KubeContextState");
@@ -80,8 +81,7 @@ export default {
     const state: KubeContextState = reactive({
       context: settings.value.lastContext || "",
       namespace: settings.value.lastNamespace || "",
-      kubeConfig:
-        settings.value.lastKubeConfig || settings.value.kubeConfigs[0] || "",
+      kubeConfig: settings.value.lastKubeConfig || "",
       authenticated: true,
       contexts: new Map<string, string[]>(),
       contextKubeConfigMapping: new Map<string, string>(),
@@ -265,11 +265,21 @@ export default {
     };
 
     if (state.context.length === 0) {
-      Kubernetes.getCurrentContext(state.kubeConfig || undefined).then((context) => {
-        setContext({ context, kubeConfig: state.kubeConfig });
-        setNamespace("");
-        restoreActivation();
-      });
+      // First start: the current context of the first kubeconfig file.
+      (state.kubeConfig
+        ? Promise.resolve(state.kubeConfig)
+        : import("@/lib/kubeconfigSources")
+            .then(({ resolveKubeconfigPaths }) => resolveKubeconfigPaths(settings.value))
+            .then((paths) => paths[0] ?? "")
+      )
+        .then(async (kubeConfig) => {
+          state.kubeConfig = kubeConfig;
+          const context = await Kubernetes.getCurrentContext(kubeConfig || undefined);
+          setContext({ context, kubeConfig });
+          setNamespace("");
+          restoreActivation();
+        })
+        .catch((e) => warn(`No current context to start with: ${e?.message ?? e}`));
     } else {
       Kubernetes.setCurrentKubeConfig(state.kubeConfig);
       restoreActivation();

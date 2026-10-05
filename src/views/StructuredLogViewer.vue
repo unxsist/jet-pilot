@@ -146,13 +146,14 @@ const status = ref<StreamStatus>("resolving");
 const sources = ref<PodSource[]>([]);
 const notices = ref<{ level: "info" | "warning" | "error"; message: string }[]>([]);
 
-const follow = ref(true);
+/* Defaults: Settings › Tables & Logs › Logs. */
+const follow = ref(settings.value.logs.follow);
 const previous = ref(props.previous ?? false);
 const currentSince = ref("tail");
 const logsSinceOptions = ["1m", "5m", "15m", "30m", "1h", "tail", "head"];
 
-const showTimestamps = ref(true);
-const wrap = ref(false);
+const showTimestamps = ref(settings.value.logs.timestamps);
+const wrap = ref(settings.value.logs.wrap);
 const paused = ref(false);
 const stickToBottom = ref(true);
 const showSidebar = ref(true);
@@ -214,7 +215,7 @@ const streamSpec = (streamTarget: LogTarget): LogStreamSpec => ({
     currentSince.value !== "tail" && currentSince.value !== "head"
       ? currentSince.value
       : null,
-  tail: currentSince.value === "tail" ? settings.value.logs.tail_lines : null,
+  tail: currentSince.value === "tail" ? settings.value.logs.tailLines : null,
 });
 
 const startStream = async () => {
@@ -1056,7 +1057,7 @@ onUnmounted(() => {
               :aria-pressed="currentSince == since"
               :title="
                 since === 'tail'
-                  ? `Last ${settings.logs.tail_lines} lines per pod`
+                  ? `Last ${settings.logs.tailLines} lines per pod`
                   : since === 'head'
                     ? 'All retained logs'
                     : `Logs of the last ${since}`
