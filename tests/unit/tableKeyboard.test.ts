@@ -24,7 +24,7 @@ const key = (k: string, mods: Partial<KeyboardEvent> = {}) => ({
 
 describe("resolveTableKey", () => {
   test("cursor movement", () => {
-    expect(resolveTableKey(key("j"), false)).toEqual({
+    expect(resolveTableKey(key("j"), false, true)).toEqual({
       type: "move",
       delta: 1,
       extend: false,
@@ -34,7 +34,7 @@ describe("resolveTableKey", () => {
       delta: 1,
       extend: false,
     });
-    expect(resolveTableKey(key("k"), false)).toEqual({
+    expect(resolveTableKey(key("k"), false, true)).toEqual({
       type: "move",
       delta: -1,
       extend: false,
@@ -54,7 +54,7 @@ describe("resolveTableKey", () => {
       direction: -1,
       extend: false,
     });
-    expect(resolveTableKey(key("g"), false)).toEqual({
+    expect(resolveTableKey(key("g"), false, true)).toEqual({
       type: "home",
       extend: false,
     });
@@ -62,7 +62,7 @@ describe("resolveTableKey", () => {
       type: "home",
       extend: false,
     });
-    expect(resolveTableKey(key("G", { shiftKey: true }), false)).toEqual({
+    expect(resolveTableKey(key("G", { shiftKey: true }), false, true)).toEqual({
       type: "end",
       extend: false,
     });
@@ -81,7 +81,7 @@ describe("resolveTableKey", () => {
       delta: -1,
       extend: true,
     });
-    expect(resolveTableKey(key("J", { shiftKey: true }), false)).toEqual({
+    expect(resolveTableKey(key("J", { shiftKey: true }), false, true)).toEqual({
       type: "move",
       delta: 1,
       extend: true,
@@ -90,24 +90,24 @@ describe("resolveTableKey", () => {
 
   test("row actions", () => {
     expect(resolveTableKey(key("Enter"), false)).toEqual({ type: "open" });
-    expect(resolveTableKey(key("l"), false)).toEqual({
+    expect(resolveTableKey(key("l"), false, true)).toEqual({
       type: "action",
       action: "logs",
     });
-    expect(resolveTableKey(key("s"), false)).toEqual({
+    expect(resolveTableKey(key("s"), false, true)).toEqual({
       type: "action",
       action: "shell",
     });
-    expect(resolveTableKey(key("e"), false)).toEqual({
+    expect(resolveTableKey(key("e"), false, true)).toEqual({
       type: "action",
       action: "edit",
     });
-    expect(resolveTableKey(key("d"), false)).toEqual({
+    expect(resolveTableKey(key("d"), false, true)).toEqual({
       type: "action",
       action: "describe",
     });
-    expect(resolveTableKey(key("y"), false)).toEqual({ type: "copyName" });
-    expect(resolveTableKey(key(" "), false)).toEqual({ type: "toggleSelect" });
+    expect(resolveTableKey(key("y"), false, true)).toEqual({ type: "copyName" });
+    expect(resolveTableKey(key(" "), false, true)).toEqual({ type: "toggleSelect" });
   });
 
   test("Ctrl+D deletes on Linux / Windows, Cmd+D on macOS", () => {
@@ -152,8 +152,45 @@ describe("resolveTableKey", () => {
   });
 
   test("letters that are not commands start type-to-filter", () => {
-    expect(isCommandKey(key("n"), false)).toBe(false);
-    expect(isCommandKey(key("j"), false)).toBe(true);
+    expect(isCommandKey(key("n"), false, true)).toBe(false);
+    expect(isCommandKey(key("j"), false, true)).toBe(true);
+  });
+
+  test("filter mode: letters filter, they never run commands", () => {
+    // typing "deploy" must filter, not Describe / Edit / ...
+    for (const k of [..."deploy", ..."jklsgy", "G", "J", "K", " "]) {
+      expect(resolveTableKey(key(k), false)).toBeNull();
+      expect(isCommandKey(key(k), false)).toBe(false);
+    }
+    // navigation keys enter row mode, modifier combos / Enter / Esc / ? / "/"
+    // work in both modes
+    expect(resolveTableKey(key("ArrowDown"), false)).toEqual({
+      type: "move",
+      delta: 1,
+      extend: false,
+    });
+    expect(resolveTableKey(key("End"), false)).toEqual({
+      type: "end",
+      extend: false,
+    });
+    expect(resolveTableKey(key("d", { ctrlKey: true }), false)).toEqual({
+      type: "action",
+      action: "delete",
+    });
+    expect(resolveTableKey(key("Enter"), false)).toEqual({ type: "open" });
+    expect(resolveTableKey(key("Escape"), false)).toEqual({ type: "escape" });
+    expect(resolveTableKey(key("/"), false)).toEqual({ type: "focusFilter" });
+    expect(resolveTableKey(key("?", { shiftKey: true }), false)).toEqual({
+      type: "help",
+    });
+  });
+
+  test("row mode: the letter commands apply", () => {
+    expect(resolveTableKey(key("d"), false, true)).toEqual({
+      type: "action",
+      action: "describe",
+    });
+    expect(resolveTableKey(key("d"), false, false)).toBeNull();
   });
 });
 
@@ -272,5 +309,12 @@ describe("row actions by label", () => {
     }
     const mac = JSON.stringify(tableShortcuts(true));
     expect(mac).toContain("⌘");
+    // filtering is the default; the letter commands are marked as row mode
+    const groups = tableShortcuts(false);
+    expect(groups[0].items[0].label).toBe("Type to filter");
+    expect(
+      groups.find((g) => g.title === "Act on the row")?.note
+    ).toMatch(/row mode/);
+    expect(labels).toContain("Leave row mode (back to filtering)");
   });
 });

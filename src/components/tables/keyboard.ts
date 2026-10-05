@@ -2,6 +2,18 @@
  * k9s-style keyboard model of the resource tables (pure, unit tested):
  * key -> command resolution, the shortcut list for the cheat sheet / menu
  * hints, and row action lookup by label.
+ *
+ * Two modes, so typing never runs a command by accident:
+ *
+ * - filter mode (default): letters and digits type into the filter
+ *   (type-to-filter: "deploy" filters, it doesn't Describe).
+ * - row navigation mode: entered with the arrow keys, PgUp / PgDn,
+ *   Home / End, a row click or Enter / ↓ from the filter. The row cursor is
+ *   shown and the letter commands (j/k/g/G, l/s/e/d/y, Space) apply. Esc or
+ *   typing into the filter leaves it; a letter that is no command starts
+ *   type-to-filter as well.
+ *
+ * Modifier combos (Ctrl/⌘+D, Ctrl/⌘+F), Enter, Esc, / and ? work in both.
  */
 import type { RowAction } from "./types";
 
@@ -45,10 +57,32 @@ export const ACTION_LABELS: Record<ActionId, string[]> = {
   delete: ["Delete", "Uninstall"],
 };
 
-/** Resolves a key press to a table command; null leaves the key alone. */
+/** Plain letters / Space bound to commands: row navigation mode only. */
+const NAVIGATION_ONLY = new Set([
+  "j",
+  "J",
+  "k",
+  "K",
+  "g",
+  "G",
+  "l",
+  "s",
+  "e",
+  "d",
+  "y",
+  " ",
+  "Spacebar",
+]);
+
+/**
+ * Resolves a key press to a table command; null leaves the key alone (in
+ * filter mode letters then start type-to-filter). `navigating`: row
+ * navigation mode (the row cursor is shown).
+ */
 export function resolveTableKey(
   event: KeyLike,
-  isMac: boolean
+  isMac: boolean,
+  navigating = false
 ): TableCommand | null {
   const primary = isMac ? event.metaKey : event.ctrlKey;
   const secondary = isMac ? event.ctrlKey : event.metaKey;
@@ -69,6 +103,10 @@ export function resolveTableKey(
       default:
         return null;
     }
+  }
+
+  if (!navigating && NAVIGATION_ONLY.has(key)) {
+    return null;
   }
 
   switch (key) {
@@ -125,8 +163,11 @@ export function resolveTableKey(
 }
 
 /** Keys that are table commands; any other letter starts type-to-filter. */
-export const isCommandKey = (event: KeyLike, isMac: boolean) =>
-  resolveTableKey(event, isMac) !== null;
+export const isCommandKey = (
+  event: KeyLike,
+  isMac: boolean,
+  navigating = false
+) => resolveTableKey(event, isMac, navigating) !== null;
 
 interface ElementLike {
   tagName?: string;
@@ -232,6 +273,8 @@ export const actionKeys = (id: ActionId, isMac: boolean): string[] =>
 
 export interface ShortcutGroup {
   title: string;
+  /** When the group applies (shown under the title). */
+  note?: string;
   items: { keys: string[][]; label: string }[];
 }
 
@@ -240,18 +283,32 @@ export function tableShortcuts(isMac: boolean): ShortcutGroup[] {
   const mod = isMac ? "⌘" : "Ctrl";
   return [
     {
-      title: "Navigate",
+      title: "Filter",
+      note: "Default: typing filters the rows",
       items: [
-        { keys: [["J"], ["↓"]], label: "Next row" },
-        { keys: [["K"], ["↑"]], label: "Previous row" },
+        { keys: [["a–z"], ["0–9"]], label: "Type to filter" },
+        { keys: [["/"], [mod, "F"]], label: "Focus the filter" },
+        { keys: [["↵"], ["↓"]], label: "From the filter to the rows" },
+        { keys: [["Esc"]], label: "Clear the filter" },
+        { keys: [["?"]], label: "Show this cheat sheet" },
+      ],
+    },
+    {
+      title: "Navigate",
+      note: "Arrows, PgUp / PgDn, Home / End or a click enter row mode",
+      items: [
+        { keys: [["↓"], ["J"]], label: "Next row" },
+        { keys: [["↑"], ["K"]], label: "Previous row" },
         { keys: [["PgDn"], ["PgUp"]], label: "Page down / up" },
-        { keys: [["G"], ["Home"]], label: "First row" },
-        { keys: [["⇧", "G"], ["End"]], label: "Last row" },
+        { keys: [["Home"], ["G"]], label: "First row" },
+        { keys: [["End"], ["⇧", "G"]], label: "Last row" },
         { keys: [["←"], ["→"]], label: "Collapse / expand group" },
+        { keys: [["Esc"]], label: "Leave row mode (back to filtering)" },
       ],
     },
     {
       title: "Act on the row",
+      note: "Letters only in row mode",
       items: [
         { keys: [["↵"]], label: "Open details" },
         { keys: [["L"]], label: "Logs" },
@@ -264,6 +321,7 @@ export function tableShortcuts(isMac: boolean): ShortcutGroup[] {
     },
     {
       title: "Select",
+      note: "Row mode",
       items: [
         { keys: [["Space"]], label: "Toggle row selection" },
         {
@@ -275,14 +333,6 @@ export function tableShortcuts(isMac: boolean): ShortcutGroup[] {
         },
       ],
     },
-    {
-      title: "Filter",
-      items: [
-        { keys: [["/"], [mod, "F"]], label: "Focus the filter" },
-        { keys: [["a–z"]], label: "Type to filter (other letters)" },
-        { keys: [["Esc"]], label: "Clear filter / selection" },
-        { keys: [["?"]], label: "Show this cheat sheet" },
-      ],
-    },
   ];
 }
+

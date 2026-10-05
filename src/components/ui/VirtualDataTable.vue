@@ -836,6 +836,12 @@ const keyboardEnabled = computed(() =>
 
 const shortcutsOpen = ref(false);
 
+/*
+ * Row navigation mode: the row cursor is shown and letters are commands.
+ * Otherwise (default) letters type into the filter.
+ */
+const navigating = computed(() => keyboardEnabled.value && cursorVisible.value);
+
 /* Memo deps of a rendered row: only these changing re-renders it. */
 const memoDeps = (item: DisplayItem<Row<TData>>) =>
   item.type === "group"
@@ -1107,18 +1113,19 @@ const focusFilter = () => {
   searchInput.value?.select();
 };
 
+/* Esc steps back one layer: selection, then row mode, then the filter. */
 const handleEscape = (): boolean => {
   if (selectedRows.value.length > 0) {
     table.resetRowSelection();
     selectionAnchor = null;
     return true;
   }
-  if (searchQuery.value) {
-    clearFilter();
-    return true;
-  }
   if (cursorVisible.value) {
     cursorVisible.value = false;
+    return true;
+  }
+  if (searchQuery.value) {
+    clearFilter();
     return true;
   }
   return false;
@@ -1196,11 +1203,15 @@ const isTableVisible = () =>
 
 /*
  * Window-level keys:
- * - keyboard tables: the k9s-style commands (see tables/keyboard.ts)
+ * - keyboard tables: the k9s-style commands (see tables/keyboard.ts). The
+ *   letter commands only apply in row navigation mode (the row cursor is
+ *   shown: arrows / PgUp / PgDn / Home / End, a row click, Enter or ↓ from
+ *   the filter); otherwise letters filter.
  * - filterable tables: Cmd/Ctrl+F and `/` focus the filter; any other
- *   letter / digit starts type-to-filter. Keys pressed in fields, editors,
- *   terminals and open overlays are left alone, and so are keys while text
- *   is selected (copying from e.g. the describe drawer keeps working, #69).
+ *   letter / digit starts type-to-filter (and leaves row mode). Keys pressed
+ *   in fields, editors, terminals and open overlays are left alone, and so
+ *   are keys while text is selected (copying from e.g. the describe drawer
+ *   keeps working, #69).
  */
 const handleWindowKeyDown = (event: KeyboardEvent) => {
   if (event.defaultPrevented || event.isComposing) return;
@@ -1212,7 +1223,7 @@ const handleWindowKeyDown = (event: KeyboardEvent) => {
   if (target === searchInput.value) return;
   if (isEditableTarget(target) || isInOverlay(target)) return;
 
-  const command = resolveTableKey(event, isMac);
+  const command = resolveTableKey(event, isMac, navigating.value);
   if (command && (keyboardEnabled.value || command.type === "focusFilter")) {
     if (
       (command.type === "open" || command.type === "toggleSelect") &&
@@ -1236,6 +1247,12 @@ const handleWindowKeyDown = (event: KeyboardEvent) => {
   if (event.key.length !== 1 || !/[a-z0-9]/i.test(event.key)) return;
   if (window.getSelection()?.toString()) return;
   searchInput.value?.focus();
+};
+
+/* Typing into the filter leaves row navigation mode. */
+const handleSearchInput = () => {
+  cursorVisible.value = false;
+  selectionAnchor = null;
 };
 
 const handleSearchInputKeydown = (event: KeyboardEvent) => {
@@ -1355,19 +1372,31 @@ const listen = () => window.addEventListener("keydown", handleWindowKeyDown);
 const unlisten = () =>
   window.removeEventListener("keydown", handleWindowKeyDown);
 
+/* Hidden (kept-alive) tables don't tick; ages catch up on activation. */
+const startClock = () => {
+  clearInterval(clockTimer);
+  clockTimer = setInterval(() => clock.value++, 5000);
+};
+
 onMounted(() => {
   listen();
-  clockTimer = setInterval(() => clock.value++, 5000);
+  startClock();
 });
 
 onActivated(() => {
   isActive = true;
   listen();
+  if (clockTimer === undefined) {
+    clock.value++;
+    startClock();
+  }
 });
 
 onDeactivated(() => {
   isActive = false;
   unlisten();
+  clearInterval(clockTimer);
+  clockTimer = undefined;
 });
 
 onBeforeUnmount(() => {
@@ -1408,6 +1437,7 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
           autocapitalize="off"
           spellcheck="false"
           @keydown="handleSearchInputKeydown"
+          @input="handleSearchInput"
         />
         <div class="absolute right-1.5 flex items-center">
           <button

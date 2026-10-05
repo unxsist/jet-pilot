@@ -26,17 +26,23 @@ const groups = computed(() => tableShortcuts(props.isMac));
           Keyboard shortcuts
         </DialogTitle>
         <DialogDescription class="text-sm text-muted-foreground">
-          Move the row cursor and act on it without the mouse. Keys are ignored
+          Typing filters the rows. The arrow keys (or a click) enter row
+          mode: the row cursor appears and letters act on the row. Esc or
+          typing into the filter goes back to filtering. Keys are ignored
           while typing in a field, editor or terminal.
         </DialogDescription>
       </DialogHeader>
       <div class="grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2">
         <section v-for="group in groups" :key="group.title">
           <h3
-            class="mb-1.5 text-2xs font-medium uppercase tracking-wider text-muted-foreground"
+            class="text-2xs font-medium uppercase tracking-wider text-muted-foreground"
+            :class="group.note ? 'mb-0.5' : 'mb-1.5'"
           >
             {{ group.title }}
           </h3>
+          <p v-if="group.note" class="mb-1.5 text-2xs text-muted-foreground/80">
+            {{ group.note }}
+          </p>
           <ul class="divide-y divide-border-subtle">
             <li
               v-for="item in group.items"
