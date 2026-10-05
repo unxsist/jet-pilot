@@ -147,29 +147,54 @@ impl Entry {
         out
     }
 
-    fn broadcast(state: &EntryState, message: String) {
-        let mut sinks = state.sinks.values().peekable();
-        while let Some(sink) = sinks.next() {
-            if sinks.peek().is_some() {
-                sink(message.clone());
+    /// Sends `message` to every subscriber. Subscribers whose channel is
+    /// gone (send fails) are dropped, so they never pin the entry (and one
+    /// of the hub's watcher slots): without subscribers it becomes idle and
+    /// evictable.
+    fn broadcast(state: &mut EntryState, message: String) {
+        let count = state.sinks.len();
+        let mut message = Some(message);
+        let mut dead: Vec<u64> = Vec::new();
+        for (index, (id, sink)) in state.sinks.iter().enumerate() {
+            let payload = if index + 1 < count {
+                message.clone()
             } else {
-                sink(message);
-                break;
+                message.take()
+            };
+            if let Some(payload) = payload {
+                if !sink(payload) {
+                    dead.push(*id);
+                }
             }
+        }
+        if dead.is_empty() {
+            return;
+        }
+        for id in dead {
+            state.sinks.remove(&id);
+        }
+        if state.sinks.is_empty() {
+            state.idle_generation += 1;
+            state.idle_since = Some(Instant::now());
         }
     }
 
     /// Registers a subscriber: it gets the current status and, when the
     /// store is synced, a snapshot right away (warm entries make navigating
     /// back to a list instant).
-    pub fn add_sink(&self, id: u64, sink: Sink) {
+    ///
+    /// Returns false (and registers nothing) when the channel is gone.
+    pub fn add_sink(&self, id: u64, sink: Sink) -> bool {
         let mut state = self.lock();
-        sink(self.status_message(&state.status));
-        if state.synced {
-            sink(self.snapshot_message(&state));
+        if !sink(self.status_message(&state.status)) {
+            return false;
+        }
+        if state.synced && !sink(self.snapshot_message(&state)) {
+            return false;
         }
         state.sinks.insert(id, sink);
         state.idle_since = None;
+        true
     }
 
     /// Removes a subscriber and returns how many are left.
@@ -201,7 +226,7 @@ impl Entry {
     pub fn set_status(&self, status: Status) {
         let mut state = self.lock();
         if state.status != status {
-            Self::broadcast(&state, self.status_message(&status));
+            Self::broadcast(&mut state, self.status_message(&status));
             state.status = status;
         }
     }
@@ -214,7 +239,7 @@ impl Entry {
     pub fn flush(&self) {
         let mut state = self.lock();
         if let Some(message) = state.pending.take_message(&self.scope_json) {
-            Self::broadcast(&state, message);
+            Self::broadcast(&mut state, message);
         }
     }
 
@@ -227,7 +252,7 @@ impl Entry {
                 state.relist = Some(HashMap::with_capacity(state.store.len()));
                 if state.synced && state.status.state == State::Ready {
                     let status = Status::new(State::Relisting);
-                    Self::broadcast(&state, self.status_message(&status));
+                    Self::broadcast(&mut state, self.status_message(&status));
                     state.status = status;
                 }
                 false
@@ -255,11 +280,12 @@ impl Entry {
                 }
                 let ready = Status::new(State::Ready);
                 if state.status != ready {
-                    Self::broadcast(&state, self.status_message(&ready));
+                    Self::broadcast(&mut state, self.status_message(&ready));
                     state.status = ready;
                 }
                 if !was_synced {
-                    Self::broadcast(&state, self.snapshot_message(&state));
+                    let snapshot = self.snapshot_message(&state);
+                    Self::broadcast(&mut state, snapshot);
                 }
                 true
             }
@@ -456,6 +482,42 @@ mod tests {
 
         entry.add_sink(3, sink);
         assert!(entry.lock().idle_since.is_none());
+    }
+
+    #[test]
+    fn subscribers_with_a_closed_channel_are_pruned() {
+        let entry = entry();
+        let (live, messages) = collector();
+        let open = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let dead_open = open.clone();
+        let dead: Sink = Arc::new(move |_| dead_open.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(entry.add_sink(1, live));
+        assert!(entry.add_sink(2, dead.clone()));
+        let generation = entry.lock().idle_generation;
+
+        // The page of subscriber 2 is gone: its next message prunes it.
+        open.store(false, std::sync::atomic::Ordering::SeqCst);
+        sync(&entry, &[("a", "1")]);
+        assert_eq!(entry.sink_count(), 1);
+        assert!(entry.lock().idle_since.is_none());
+        assert!(messages.lock().unwrap().iter().any(|m| m["type"] == "snapshot"));
+
+        // A dead channel is never registered.
+        assert!(!entry.add_sink(3, dead.clone()));
+        assert_eq!(entry.sink_count(), 1);
+
+        // Losing the last subscriber that way makes the entry idle
+        // (evictable), like an unsubscribe.
+        assert_eq!(entry.remove_sink(1), 0);
+        let generation_after_unsubscribe = entry.lock().idle_generation;
+        assert_eq!(generation_after_unsubscribe, generation + 1);
+        open.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(entry.add_sink(4, dead));
+        open.store(false, std::sync::atomic::Ordering::SeqCst);
+        entry.set_status(Status::new(State::Error));
+        assert_eq!(entry.sink_count(), 0);
+        assert!(entry.lock().idle_since.is_some());
+        assert_eq!(entry.lock().idle_generation, generation_after_unsubscribe + 1);
     }
 
     #[test]

@@ -87,12 +87,17 @@ struct Hub {
     inner: Mutex<HubInner>,
     paused: tokio::sync::watch::Sender<bool>,
     next_id: AtomicU64,
+    /// Bumped by `watch_reset` (a webview reload), under the `inner` lock. A
+    /// subscribe that started in an earlier epoch registers nothing: its
+    /// channel belongs to the page that is gone.
+    epoch: AtomicU64,
 }
 
 static HUB: Lazy<Hub> = Lazy::new(|| Hub {
     inner: Mutex::new(HubInner::default()),
     paused: tokio::sync::watch::channel(false).0,
     next_id: AtomicU64::new(1),
+    epoch: AtomicU64::new(0),
 });
 
 /// Whether delivery to the frontend is paused (window hidden). Shared with
@@ -407,6 +412,7 @@ pub async fn watch_subscribe(
 }
 
 pub(crate) async fn subscribe(request: WatchRequest, sink: Sink) -> Result<WatchSubscription, String> {
+    let epoch = HUB.epoch.load(Ordering::SeqCst);
     // "" / None = the selected kubeconfig: resolved, so the same cluster
     // never runs two sets of watchers and rows carry the real path.
     let kube_config = resolve_kubeconfig_path(request.kube_config.as_deref());
@@ -444,6 +450,10 @@ pub(crate) async fn subscribe(request: WatchRequest, sink: Sink) -> Result<Watch
 
     {
         let mut inner = lock(&HUB.inner);
+        // The webview was reloaded while this subscribe was resolving.
+        if HUB.epoch.load(Ordering::SeqCst) != epoch {
+            return Err("The subscription was reset".to_string());
+        }
         let missing = keys.iter().filter(|k| !inner.watchers.contains_key(*k)).count();
         if !Hub::make_room(&mut inner, missing) {
             return Err(format!(
@@ -512,9 +522,14 @@ pub async fn watch_restart(id: u64) -> Result<(), String> {
 
 /// Drops every subscription (e.g. after a webview reload, whose channels
 /// are gone). Watchers stay warm for their usual period.
+/// Subscribes still resolving (started before the reset) are rejected.
 #[tauri::command]
 pub fn watch_reset() {
-    let ids: Vec<u64> = lock(&HUB.inner).subscriptions.keys().copied().collect();
+    let ids: Vec<u64> = {
+        let inner = lock(&HUB.inner);
+        HUB.epoch.fetch_add(1, Ordering::SeqCst);
+        inner.subscriptions.keys().copied().collect()
+    };
     for id in ids {
         HUB.release(id);
     }
@@ -646,6 +661,14 @@ mod tests {
         assert!(Hub::make_room(&mut inner, 1));
         assert!(!inner.watchers.contains_key(&key("idle")));
         assert_eq!(inner.watchers.len(), MAX_WATCHERS - 1);
+    }
+
+    #[test]
+    fn reset_invalidates_subscribes_in_flight() {
+        let before = HUB.epoch.load(Ordering::SeqCst);
+        watch_reset();
+        let after = HUB.epoch.load(Ordering::SeqCst);
+        assert!(after > before, "a subscribe that started before the reset must be rejected");
     }
 
     #[test]
