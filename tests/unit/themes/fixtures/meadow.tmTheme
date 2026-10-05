@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- A small TextMate theme written for these tests. -->
+<plist version="1.0">
+<dict>
+  <key>name</key>
+  <string>Meadow</string>
+  <key>settings</key>
+  <array>
+    <dict>
+      <key>settings</key>
+      <dict>
+        <key>background</key>
+        <string>#F7F9F2</string>
+        <key>foreground</key>
+        <string>#283228</string>
+        <key>caret</key>
+        <string>#3A7D44</string>
+        <key>selection</key>
+        <string>#3A7D4433</string>
+        <key>lineHighlight</key>
+        <string>#EDF2E4</string>
+        <key>invisibles</key>
+        <string>#C9D3BE</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Comment</string>
+      <key>scope</key>
+      <string>comment</string>
+      <key>settings</key>
+      <dict>
+        <key>fontStyle</key>
+        <string>italic</string>
+        <key>foreground</key>
+        <string>#7C8A72</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>String</string>
+      <key>scope</key>
+      <string>string</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#3A7D44</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Number, constant</string>
+      <key>scope</key>
+      <string>constant.numeric, constant.language</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#A35A1F</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Keyword</string>
+      <key>scope</key>
+      <string>keyword</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#6B3FA0</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key>
+      <string>Tag</string>
+      <key>scope</key>
+      <string>entity.name.tag</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#1F5FA3</string>
+      </dict>
+    </dict>
+  </array>
+</dict>
+</plist>

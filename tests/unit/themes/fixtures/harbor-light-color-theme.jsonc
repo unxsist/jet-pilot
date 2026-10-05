@@ -1,0 +1,36 @@
+// A hand-written VS Code theme exercising JSONC: comments, trailing commas,
+// 8-digit hex with alpha, a deprecated key and tokenColors in both forms.
+{
+  "$schema": "vscode://schemas/color-theme",
+  "name": "harbor-light", // a package slug: imported as "Harbor Light"
+  /* no "type": the appearance comes from the editor background */
+  "colors": {
+    "editor.background": "#fbfaf7",
+    "editor.foreground": "#2b2f36",
+    "focusBorder": "#2f6fdd",
+    "button.background": "#2f6fdd",
+    "button.foreground": "#ffffff",
+    "sideBar.background": "#f1efe9",
+    "list.hoverBackground": "#2f6fdd1a", // alpha: blended over the sidebar
+    "editor.selectionBackground": "#2f6fdd33",
+    "editorIndentGuide.background": "#e4e1d9", // deprecated name
+    "terminal.ansiRed": "#c4373b",
+    "terminal.ansiGreen": "#2f8f4e",
+    "terminal.ansiBlue": "#2f6fdd",
+    "gitDecoration.addedResourceForeground": "#2f8f4e",
+    "activityBar.foreground": "#2b2f36",
+    "statusBar.background": "#f1efe9",
+    "titleBar.activeBackground": "#f1efe9",
+  },
+  "tokenColors": [
+    { "settings": { "foreground": "#2b2f36" } },
+    { "scope": "comment", "settings": { "foreground": "#8a8f98", "fontStyle": "italic" } },
+    { "scope": ["string", "string.quoted"], "settings": { "foreground": "#2f8f4e" } },
+    { "scope": "constant.numeric, constant.language", "settings": { "foreground": "#b5641b" } },
+    { "scope": "constant.language.boolean", "settings": { "foreground": "#8a3fd1" } },
+    { "scope": "entity.name.tag", "settings": { "foreground": "#2f6fdd" } },
+    { "scope": "entity.name.tag.yaml", "settings": { "foreground": "#a8326e" } },
+    { "scope": "source.css entity.name.tag", "settings": { "foreground": "#ff0000" } },
+    { "scope": "punctuation", "settings": { "foreground": "#6b7280" } },
+  ],
+}
