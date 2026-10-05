@@ -1889,6 +1889,65 @@ export function visibleGraph(
   return { nodes, edges, groups };
 }
 
+/* ------------------------------------------------------ node placement -- */
+
+/** Lane of the node-placement view (one group per cluster node). */
+export const PLACEMENT_LANE = "~nodes";
+const UNSCHEDULED = "~unscheduled";
+
+/**
+ * Node placement: the pods of the topology grouped by the cluster node
+ * they run on (plus "Unscheduled"), each node a group with the health of
+ * its pods. Pod nodes are copied with the placement group (memoised in
+ * `copies`, so unchanged pods keep their identity across updates).
+ */
+export function placementGraph(
+  topology: Topology,
+  filters: GraphFilters = {},
+  copies: WeakMap<TopoNode, TopoNode> = new WeakMap()
+): VisibleGraph {
+  const namespaces = new Set(filters.namespaces || []);
+  const labelFilter = filters.labels ? parseLabelFilter(filters.labels) : null;
+  const byHost = new Map<string, TopoNode[]>();
+  for (const node of topology.nodes.values()) {
+    if (node.kind !== "Pod" || !node.object) continue;
+    if (namespaces.size > 0 && !namespaces.has(node.namespace)) continue;
+    if (labelFilter && !labelFilter(node.labels)) continue;
+    push(byHost, node.object.spec?.nodeName || UNSCHEDULED, node);
+  }
+  const hosts = [...byHost.keys()].sort((a, b) =>
+    a === UNSCHEDULED ? 1 : b === UNSCHEDULED ? -1 : a.localeCompare(b)
+  );
+
+  const nodes: TopoNode[] = [];
+  const groups: AppGroup[] = [];
+  for (const host of hosts) {
+    const id = `${PLACEMENT_LANE}/${host}`;
+    const pods = byHost.get(host)!;
+    let health: Health = "neutral";
+    for (const pod of pods) health = worstHealth(health, pod.health);
+    if (filters.problemsOnly && !isProblem(health)) continue;
+    groups.push({
+      id,
+      name: host === UNSCHEDULED ? "Unscheduled" : host,
+      namespace: PLACEMENT_LANE,
+      type: "app",
+      nodeIds: pods.map((pod) => pod.id),
+      health,
+    });
+    for (const pod of pods) {
+      let copy = copies.get(pod);
+      if (!copy || copy.group !== id) {
+        // Bare pods are workload roots: drawn as pods here.
+        copy = { ...pod, group: id, category: "pod", pods: undefined };
+        copies.set(pod, copy);
+      }
+      nodes.push(copy);
+    }
+  }
+  return { nodes, edges: [], groups };
+}
+
 /* --------------------------------------------------------- neighbourhood -- */
 
 /** Edges by source and by target: built once per graph, reused per query. */

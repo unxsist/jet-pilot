@@ -22,8 +22,10 @@ import {
 import { layoutSignature } from "@/lib/clusterGraphLayout";
 import {
   GraphObject,
+  PLACEMENT_LANE,
   buildAdjacency,
   buildTopology,
+  placementGraph,
   traceNeighbourhood,
   visibleGraph,
 } from "@/lib/clusterGraph";
@@ -229,5 +231,59 @@ describe("layout signature", () => {
       traceNeighbourhood(topology.edges, "svc")
     );
     expect([...traceNeighbourhood(adjacency, "svc").nodes].sort()).toEqual(["svc", "web"]);
+  });
+});
+
+describe("node placement", () => {
+  const labels = { app: "web" };
+  const deployment: GraphObject = {
+    kind: "Deployment",
+    metadata: { name: "web", namespace: "shop", uid: "web", labels },
+    spec: { replicas: 3, selector: { matchLabels: labels }, template: { metadata: { labels } } },
+    status: { availableReplicas: 2 },
+  };
+  const pod = (name: string, node: string | undefined, ready = true): GraphObject => ({
+    kind: "Pod",
+    metadata: {
+      name,
+      namespace: "shop",
+      uid: name,
+      labels,
+      ownerReferences: [{ apiVersion: "apps/v1", kind: "Deployment", name: "web", uid: "web", controller: true }],
+    },
+    spec: { nodeName: node, containers: [{ name: "app" }] },
+    status: ready
+      ? {
+          phase: "Running",
+          conditions: [{ type: "Ready", status: "True" }],
+          containerStatuses: [{ name: "app", ready: true, restartCount: 0, state: { running: {} } }],
+        }
+      : { phase: "Pending" },
+  });
+
+  test("groups pods by the node they run on", () => {
+    const topology = buildTopology([
+      deployment,
+      pod("web-a", "node-2"),
+      pod("web-b", "node-1"),
+      pod("web-c", undefined, false),
+    ]);
+    const copies = new WeakMap();
+    const graph = placementGraph(topology, {}, copies);
+    expect(graph.groups.map((g) => g.name)).toEqual(["node-1", "node-2", "Unscheduled"]);
+    expect(graph.groups.every((g) => g.namespace === PLACEMENT_LANE)).toBe(true);
+    expect(graph.groups[2].health).toBe("warning");
+    expect(graph.nodes.map((n) => [n.id, n.group])).toEqual([
+      ["web-b", `${PLACEMENT_LANE}/node-1`],
+      ["web-a", `${PLACEMENT_LANE}/node-2`],
+      ["web-c", `${PLACEMENT_LANE}/~unscheduled`],
+    ]);
+    expect(graph.edges).toEqual([]);
+    // Unchanged pods keep their copy.
+    expect(placementGraph(topology, {}, copies).nodes[0]).toBe(graph.nodes[0]);
+    // Problems only: nodes without a problem are left out.
+    expect(placementGraph(topology, { problemsOnly: true }).groups.map((g) => g.name)).toEqual([
+      "Unscheduled",
+    ]);
   });
 });

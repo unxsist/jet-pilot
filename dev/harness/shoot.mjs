@@ -107,6 +107,16 @@ const screens = {
       await wait(700);
     },
   },
+  // Node placement: pods grouped by the node they run on.
+  "graph-placement": {
+    url: "/cluster-overview",
+    ready: ".vue-flow__node-k8s",
+    settle: 2000,
+    run: async (page) => {
+      await page.keyboard.press("n");
+      await wait(1200);
+    },
+  },
   // A live change: the selected workload loses its replicas, a pod appears.
   "graph-live": {
     url: "/cluster-overview",

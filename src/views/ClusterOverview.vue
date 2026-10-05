@@ -28,6 +28,7 @@ import {
   Play,
   RefreshCw,
   Search,
+  Server,
   SlidersHorizontal,
   TriangleAlert,
   ZoomIn,
@@ -93,6 +94,7 @@ import {
   VisibleGraph,
   buildAdjacency,
   isProblem,
+  placementGraph,
   qualifiedResourceName,
   summarize,
   traceNeighbourhood,
@@ -200,6 +202,8 @@ const hovered = ref<string | null>(null);
 const expanded = ref(new Set<string>());
 const history = ref(new Set<string>());
 const problems = ref(false);
+/* Node placement: pods grouped by the cluster node they run on. */
+const placement = ref(false);
 /** Cards added by the last live update (fade in). */
 const entering = shallowRef(new Set<string>());
 const zoom = ref(1);
@@ -286,15 +290,19 @@ const toggleNamespace = (name: string, shown: boolean) => {
 /* ------------------------------------------------------------- graph -- */
 
 const EMPTY: VisibleGraph = { nodes: [], edges: [], groups: [] };
-const visible = computed<VisibleGraph>(() =>
-  topology.value
-    ? visibleGraph(
-        topology.value,
-        { expanded: expanded.value, history: history.value },
-        filters.value
-      )
-    : EMPTY
-);
+/* Placement copies of pod nodes, kept while the pod is unchanged. */
+const placementCopies = new WeakMap<TopoNode, TopoNode>();
+const visible = computed<VisibleGraph>(() => {
+  if (!topology.value) return EMPTY;
+  if (placement.value) {
+    return placementGraph(topology.value, filters.value, placementCopies);
+  }
+  return visibleGraph(
+    topology.value,
+    { expanded: expanded.value, history: history.value },
+    filters.value
+  );
+});
 const visibleIds = computed(
   () => new Set(visible.value.nodes.map((node) => node.id))
 );
@@ -307,6 +315,7 @@ const adjacency = computed(() => buildAdjacency(visible.value.edges));
  * position (and the viewport) as it is.
  */
 const layoutCache = new GraphLayoutCache();
+const placementLayoutCache = new GraphLayoutCache();
 /* Duration of the last layout pass (for the timings), not reactive. */
 let lastLayoutMs = 0;
 let layoutRuns = 0;
@@ -319,7 +328,8 @@ const structure = computed(() => {
 const layout = computed<GraphLayout>(() => {
   void structure.value;
   const started = performance.now();
-  const result = layoutCache.layout(laidOut);
+  const cache = placement.value ? placementLayoutCache : layoutCache;
+  const result = cache.layout(laidOut);
   lastLayoutMs = performance.now() - started;
   layoutRuns++;
   return result;
@@ -400,7 +410,14 @@ const sceneGroups = computed<SceneGroup[]>(() => {
     let issues = 0;
     for (const id of group.nodeIds) {
       const node = nodes.get(id);
-      if (!node || node.parent) continue;
+      if (!node) continue;
+      if (placement.value) {
+        // A node's pods.
+        pods++;
+        if (isProblem(node.health)) issues++;
+        continue;
+      }
+      if (node.parent) continue;
       pods += node.pods?.length || 0;
       if (isProblem(node.health)) issues++;
     }
@@ -629,12 +646,12 @@ watch(search, () => {
 /* Groups with a highlighted member stay bright. */
 const highlightGroups = computed(() => {
   const ids = lit.value?.nodes ?? matches.value;
-  const nodes = topology.value?.nodes;
-  if (!ids || !nodes) return null;
+  if (!ids) return null;
+  const cards = sceneCards.value.byId;
   const groups = new Set<string>();
   for (const id of ids) {
-    const node = nodes.get(id);
-    if (node) groups.add(node.group);
+    const card = cards.get(id);
+    if (card) groups.add(card.group);
   }
   return groups;
 });
@@ -1041,11 +1058,16 @@ const select = (
 ) => {
   const node = topology.value?.nodes.get(id);
   if (!node) return;
-  if (node.parent && !expanded.value.has(node.parent)) {
+  if (node.parent && !placement.value && !expanded.value.has(node.parent)) {
     anchorId = node.parent;
     toggleIn(expanded, node.parent);
   }
-  if (node.old && node.parent && !history.value.has(node.parent)) {
+  if (
+    node.old &&
+    node.parent &&
+    !placement.value &&
+    !history.value.has(node.parent)
+  ) {
     toggleIn(history, node.parent);
   }
   selected.value = id;
@@ -1235,6 +1257,13 @@ const toggleProblems = () => {
   clearSelection();
   // Once the re-laid-out graph is rendered.
   setTimeout(() => (problems.value ? fitAll() : initialView()), 150);
+};
+
+/* Node placement on / off: a different graph, it starts fitted. */
+const togglePlacement = () => {
+  placement.value = !placement.value;
+  clearSelection();
+  setTimeout(initialView, 150);
 };
 
 const allExpanded = computed(() => {
@@ -1438,6 +1467,8 @@ const onKeydown = (event: KeyboardEvent) => {
     else fitAll();
   } else if (event.key === "p") {
     toggleProblems();
+  } else if (event.key === "n") {
+    togglePlacement();
   }
 };
 onMounted(() => window.addEventListener("keydown", onKeydown));
@@ -1760,6 +1791,18 @@ const navigateTo = (x: number, y: number) =>
           >{{ problemNodeIds.length }}</span
         >
       </Button>
+      <Button
+        :variant="placement ? 'secondary' : 'ghost'"
+        size="sm"
+        class="gap-1.5"
+        :aria-pressed="placement"
+        aria-label="Group pods by node"
+        title="Group pods by the node they run on (N)"
+        @click="togglePlacement"
+      >
+        <Server class="h-3.5 w-3.5" />
+        <span v-if="!narrow">By node</span>
+      </Button>
 
       <!-- Summary + live status -->
       <div class="ml-auto flex min-w-0 items-center gap-3 text-xs">
@@ -1923,12 +1966,16 @@ const navigateTo = (x: number, y: number) =>
             :title="
               activeFilterCount > 0
                 ? 'Nothing matches the filters'
-                : 'Nothing is running here'
+                : placement
+                  ? 'No pods here'
+                  : 'Nothing is running here'
             "
             :description="
               activeFilterCount > 0
                 ? 'Loosen or reset the filters to see more of the cluster.'
-                : `No workloads, services or ingresses in ${scopeLabel.toLowerCase()} of ${graphContext}.`
+                : placement
+                  ? `No pods in ${scopeLabel.toLowerCase()} of ${graphContext}.`
+                  : `No workloads, services or ingresses in ${scopeLabel.toLowerCase()} of ${graphContext}.`
             "
             class="max-w-md"
           >
@@ -2094,6 +2141,7 @@ const navigateTo = (x: number, y: number) =>
             </Button>
             <span class="mx-1 h-px bg-border" aria-hidden="true" />
             <Button
+              v-if="!placement"
               variant="ghost"
               size="icon-sm"
               :aria-label="allExpanded ? 'Collapse all pods' : 'Expand all pods'"
@@ -2114,7 +2162,10 @@ const navigateTo = (x: number, y: number) =>
               <Info class="h-3.5 w-3.5" />
             </Button>
           </div>
-          <GraphLegend v-if="showLegend" @close="showLegend = false" />
+          <GraphLegend
+            v-if="showLegend && !placement"
+            @close="showLegend = false"
+          />
         </div>
       </SpotlightGridContainer>
     </div>

@@ -122,7 +122,7 @@ for (let run = 0; run < runs; run++) {
     await until(
       () =>
         document.querySelector(".graph-flow--search") ||
-        document.querySelector(".graph-card.ring-link\\/25")
+        document.querySelector(".graph-card.opacity-\\[0\\.22\\]")
     );
     await paint();
     const search = performance.now() - t0;
@@ -131,12 +131,13 @@ for (let run = 0; run < runs; run++) {
     input.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
     );
-    // Highlight: the neighbourhood is lit (or, before, the dimming of the
-    // other cards); then the selected card itself on screen (centred).
+    // Highlight: the neighbourhood is lit (the previous version had no
+    // separate signal: there it equals "card on screen"); then the selected
+    // card itself on screen (centred).
     await until(
       () =>
         document.querySelector(".graph-flow--lit") ||
-        document.querySelector(".graph-card.opacity-\\[0\\.22\\]")
+        document.querySelector(".graph-card.ring-primary\\/30")
     );
     await paint();
     const select = performance.now() - t1;

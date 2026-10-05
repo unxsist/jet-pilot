@@ -14,7 +14,7 @@ import type {
   Health,
   NodeCategory,
 } from "./clusterGraph";
-import { CLUSTER_NAMESPACE } from "./clusterGraph";
+import { CLUSTER_NAMESPACE, PLACEMENT_LANE } from "./clusterGraph";
 import type { Rect } from "./clusterGraphLayout";
 import { GROUP_HEADER, LANE_HEADER } from "./clusterGraphLayout";
 import type { GraphLod, SpatialIndex } from "./clusterGraphView";
@@ -191,6 +191,12 @@ const GLOBE_ICON = [
   "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20",
   "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20",
   "M2 12h20",
+];
+const SERVER_ICON = [
+  "M4 2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z",
+  "M4 14h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2Z",
+  "M6 6h.01",
+  "M6 18h.01",
 ];
 let iconCache: Map<string[], Path2D[]> | null = null;
 const iconPaths = (icon: string[]) => {
@@ -444,10 +450,20 @@ function drawLane(
   const color = hsl(palette["muted-foreground"]);
   const middle = lane.y + (LANE_HEADER - 6) / 2;
   const cluster = lane.namespace === CLUSTER_NAMESPACE;
-  drawIcon(ctx, cluster ? GLOBE_ICON : FOLDER_TREE_ICON, lane.x, middle - 7, 14, color);
+  const placement = lane.namespace === PLACEMENT_LANE;
+  drawIcon(
+    ctx,
+    cluster ? GLOBE_ICON : placement ? SERVER_ICON : FOLDER_TREE_ICON,
+    lane.x,
+    middle - 7,
+    14,
+    color
+  );
   const size = simple ? Math.min(28, Math.max(20, 10 / zoom)) : 11;
   const titleFont = font(600, size);
-  const title = (cluster ? "Cluster" : lane.namespace).toUpperCase();
+  const title = (
+    cluster ? "Cluster" : placement ? "Nodes" : lane.namespace
+  ).toUpperCase();
   ctx.font = titleFont;
   ctx.fillStyle = color;
   ctx.letterSpacing = `${size * 0.05}px`;
@@ -456,7 +472,8 @@ function drawLane(
   if (lane.apps > 0) {
     const x = lane.x + 22 + textWidth(ctx, title, titleFont) + size * 0.05 * title.length + 6;
     ctx.font = font(400, size);
-    ctx.fillText(`· ${lane.apps} app${lane.apps === 1 ? "" : "s"}`, x, middle);
+    const unit = placement ? "node" : "app";
+    ctx.fillText(`· ${lane.apps} ${unit}${lane.apps === 1 ? "" : "s"}`, x, middle);
   }
 }
 
