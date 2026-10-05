@@ -13,6 +13,7 @@ import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
 import {
   describeTabs,
+  isPtyTabType,
   parseTabSession,
   type TabDescriptor,
   type TabSession,
@@ -42,10 +43,17 @@ export interface PanelSession {
   snapshot(): TabSession;
   /**
    * Opens the tabs of `session` (lazily: a tab mounts when first shown).
-   * With `replace`, open tabs are closed first; tabs that veto closing
+   * Shells and terminals are opened as a "Reconnect" placeholder: their
+   * process only starts when the user asks for it. With `replace`, open
+   * tabs (except those in `keep`) are closed first; tabs that veto closing
    * (e.g. an editor with unsaved changes) stay open.
    */
-  restore(session: TabSession, options?: { replace?: boolean }): void;
+  restore(
+    session: TabSession,
+    options?: { replace?: boolean; keep?: string[] }
+  ): void;
+  /** Open tabs with a running (mounted) shell, terminal or debug session. */
+  liveTerminalTabs(): { id: string; title: string }[];
   /** Closes tabs, honouring vetoes (unless forced). Returns kept ids. */
   closeTabs(ids: string[], options?: { force?: boolean }): string[];
 }
@@ -64,7 +72,20 @@ export interface Tab {
   props?: any;
   /** Restored but not shown yet: the component mounts when first shown. */
   lazy?: boolean;
+  /**
+   * Restored shell / terminal: shows a "Reconnect" placeholder and only
+   * mounts (starting the process) on an explicit user action.
+   */
+  reconnect?: boolean;
+  /**
+   * Mounted by the session restore without a user action: it may not take
+   * the keyboard focus until the user interacts with it.
+   */
+  quiet?: boolean;
 }
+
+/* Tab icons of components that run a process in a pty. */
+const PTY_TAB_ICONS = ["shell", "debug"];
 
 export interface SidePanel {
   component: any;
@@ -110,7 +131,10 @@ export default {
     ) => {
       const existing = state.tabs.find((tab) => tab.id === id);
       if (existing) {
+        // Explicitly (re)opened, e.g. a restored shell: connect it now.
         existing.lazy = false;
+        existing.reconnect = false;
+        existing.quiet = false;
         state.activeTabId = id;
         return;
       }
@@ -149,6 +173,7 @@ export default {
         component: shallowRef(TAB_COMPONENTS[descriptor.type]),
         props: { ...descriptor.props },
         lazy: true,
+        reconnect: isPtyTabType(descriptor.type),
       });
     };
 
@@ -172,23 +197,36 @@ export default {
 
     const session: PanelSession = {
       snapshot: () => describeTabs(state.tabs, state.activeTabId),
-      restore: (value, { replace = false } = {}) => {
+      restore: (value, { replace = false, keep = [] } = {}) => {
         const parsed = parseTabSession(value);
         if (replace) {
-          closeTabs(state.tabs.map((tab) => tab.id));
+          closeTabs(
+            state.tabs.map((tab) => tab.id).filter((id) => !keep.includes(id))
+          );
         }
         parsed.tabs.forEach(openDescriptor);
         if (parsed.activeTabId) {
           state.activeTabId = parsed.activeTabId;
-          // Mount the visible tab once the app has settled.
+          // Mount the visible tab once the app has settled, without letting
+          // it take the focus. Shells / terminals wait for "Reconnect".
           whenIdle(() => {
             const active = state.tabs.find(
               (tab) => tab.id === state.activeTabId
             );
-            if (active) active.lazy = false;
+            if (active && active.lazy && !active.reconnect) {
+              active.quiet = true;
+              active.lazy = false;
+            }
           });
         }
       },
+      liveTerminalTabs: () =>
+        state.tabs
+          .filter(
+            (tab) =>
+              PTY_TAB_ICONS.includes(tab.icon) && !tab.lazy && !tab.reconnect
+          )
+          .map(({ id, title }) => ({ id, title })),
       closeTabs,
     };
 

@@ -6,7 +6,11 @@
  * places; the tab type is inferred from the icon + props so callers need no
  * changes. Only plain, whitelisted props are stored (no row objects, no
  * functions). Tabs that cannot be restored meaningfully are skipped: "create"
- * editors (unsaved content) and unknown tab kinds.
+ * editors (unsaved content), `kubectl debug` sessions (ephemeral containers,
+ * node shells: they create objects in the cluster) and unknown tab kinds.
+ *
+ * Pod shells and local terminals are restored as a "Reconnect" placeholder
+ * (see `isPtyTabType`): they never start a process without a user action.
  */
 
 export type TabType = "logs" | "describe" | "edit" | "shell" | "terminal";
@@ -52,11 +56,25 @@ export function inferTabType(tab: TabLike): TabType | null {
     case "edit":
       return props.create ? null : "edit";
     case "shell":
+      // Node shells (DebugShell.vue) run `kubectl debug node/...`: a
+      // privileged pod per session, never started again on restore.
+      if ("argv" in props || "cleanupDebugPod" in props) return null;
       return props.pod ? "shell" : "terminal";
     default:
       return null;
   }
 }
+
+/** Tab types that run a process in a pty (kubectl exec, a local shell). */
+export function isPtyTabType(type: TabType): boolean {
+  return type === "shell" || type === "terminal";
+}
+
+/*
+ * Tab id prefixes of `kubectl debug` sessions. Older versions stored node
+ * shells as terminals; those are dropped when a session is parsed.
+ */
+const DEBUG_TAB_ID_PREFIXES = ["node-shell/", "debug/"];
 
 const isPlain = (value: unknown) =>
   value === null ||
@@ -133,7 +151,8 @@ export function parseTabSession(value: unknown): TabSession {
       TAB_TYPES.includes(d.type) &&
       !!d.props &&
       typeof d.props === "object" &&
-      typeof d.props.context === "string"
+      typeof d.props.context === "string" &&
+      !DEBUG_TAB_ID_PREFIXES.some((prefix) => d.id.startsWith(prefix))
   );
   const unique = tabs.filter(
     (d, index) => tabs.findIndex((t) => t.id === d.id) === index

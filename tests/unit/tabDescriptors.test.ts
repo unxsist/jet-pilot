@@ -3,6 +3,7 @@ import {
   describeTab,
   describeTabs,
   inferTabType,
+  isPtyTabType,
   parseTabSession,
 } from "@/lib/tabDescriptors";
 
@@ -95,5 +96,44 @@ describe("tab descriptors", () => {
     expect(parsed.tabs.map((t) => t.title)).toEqual(["a"]);
     expect(parsed.activeTabId).toBe("a");
     expect(parseTabSession(undefined)).toEqual({ tabs: [], activeTabId: null });
+  });
+
+  it("never persists kubectl debug sessions (node shells, ephemeral containers)", () => {
+    const nodeShell = {
+      id: "node-shell//default/Node/worker-1/1700000000000",
+      title: "node/worker-1",
+      icon: "shell",
+      props: { ...target, argv: ["kubectl", "debug", "node/worker-1"], cleanupDebugPod: true, banner: "Root shell" },
+    };
+    const debug = {
+      id: "debug/prod/payments/Pod/api-1/1700000000000",
+      title: "pod/api-1 debug",
+      icon: "debug",
+      props: { ...target, argv: ["kubectl", "debug", "api-1"] },
+    };
+    expect(inferTabType(nodeShell)).toBeNull();
+    expect(describeTab(nodeShell)).toBeNull();
+    expect(describeTab(debug)).toBeNull();
+    expect(describeTabs([nodeShell, debug], nodeShell.id)).toEqual({ tabs: [], activeTabId: null });
+  });
+
+  it("drops node shells stored as terminals by older versions", () => {
+    const parsed = parseTabSession({
+      tabs: [
+        { id: "node-shell//default/Node/worker-1/17", title: "node/worker-1", icon: "shell", type: "terminal", props: { ...target } },
+        { id: "terminal_prod_17", title: "Terminal: prod", icon: "shell", type: "terminal", props: { ...target } },
+      ],
+      activeTabId: "node-shell//default/Node/worker-1/17",
+    });
+    expect(parsed.tabs.map((t) => t.id)).toEqual(["terminal_prod_17"]);
+    expect(parsed.activeTabId).toBe("terminal_prod_17");
+  });
+
+  it("marks shells and terminals as pty tabs (restored behind Reconnect)", () => {
+    expect(isPtyTabType("shell")).toBe(true);
+    expect(isPtyTabType("terminal")).toBe(true);
+    expect(isPtyTabType("logs")).toBe(false);
+    expect(isPtyTabType("describe")).toBe(false);
+    expect(isPtyTabType("edit")).toBe(false);
   });
 });

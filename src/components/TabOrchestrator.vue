@@ -3,7 +3,9 @@ import {
   PanelProviderStateKey,
   PanelProviderCloseTabKey,
   TabClosedEvent,
+  type Tab,
 } from "@/providers/PanelProvider";
+import ReconnectTerminal from "@/components/ReconnectTerminal.vue";
 import { injectStrict } from "@/lib/utils";
 import TabIcon from "@/components/TabIcon.vue";
 import { ChevronDown, Columns2, X } from "lucide-vue-next";
@@ -42,9 +44,53 @@ const showOnRight = (id: string) => {
     return;
   }
   splitTabId.value = id;
-  const tab = tabs.value.find((t) => t.id === id);
-  if (tab?.lazy) tab.lazy = false;
+  showTab(tabs.value.find((t) => t.id === id));
   if (!state.open) state.open = true;
+};
+
+/*
+ * A tab the user shows: restored tabs mount now, except shells / terminals
+ * which wait for an explicit Reconnect.
+ */
+const showTab = (tab: Tab | undefined) => {
+  if (!tab) return;
+  tab.quiet = false;
+  if (tab.lazy && !tab.reconnect) tab.lazy = false;
+};
+
+const reconnect = (tab: Tab) => {
+  tab.reconnect = false;
+  tab.quiet = false;
+  tab.lazy = false;
+};
+
+/*
+ * Tabs mounted by the session restore (`quiet`) may not take the focus
+ * (editors and describe views focus themselves when they mount) until the
+ * user clicks into them, shows them, or tabs into them with the keyboard.
+ */
+let lastTabKeyAt = -Infinity;
+useEventListener(
+  window,
+  "keydown",
+  (event: KeyboardEvent) => {
+    if (event.key === "Tab") lastTabKeyAt = performance.now();
+  },
+  { capture: true }
+);
+
+const onPanelFocusIn = (event: FocusEvent, tab: Tab) => {
+  if (!tab.quiet) return;
+  if (performance.now() - lastTabKeyAt < 500) {
+    tab.quiet = false;
+    return;
+  }
+  const panel = event.currentTarget as HTMLElement;
+  (event.target as HTMLElement | null)?.blur?.();
+  const previous = event.relatedTarget as HTMLElement | null;
+  if (previous?.isConnected && !panel.contains(previous)) {
+    previous.focus({ preventScroll: true });
+  }
 };
 
 const toggleSplit = () => {
@@ -90,8 +136,7 @@ const setActiveTab = (id: string) => {
   activeTabId.value = id;
 
   // Restored tabs mount when they are first shown.
-  const tab = tabs.value.find((t) => t.id === id);
-  if (tab?.lazy) tab.lazy = false;
+  showTab(tabs.value.find((t) => t.id === id));
 
   if (!state.open) {
     state.open = true;
@@ -262,9 +307,17 @@ const handleResize = (size: number) => {
               ? 'order-2 border-l'
               : 'order-0'
           "
+          @pointerdown.capture="tab.quiet = false"
+          @focusin="onPanelFocusIn($event, tab)"
         >
+          <ReconnectTerminal
+            v-if="tab.reconnect"
+            :title="tab.title"
+            :tab-props="tab.props"
+            @connect="reconnect(tab)"
+          />
           <div
-            v-if="tab.lazy"
+            v-else-if="tab.lazy"
             class="flex h-full items-center justify-center text-xs text-muted-foreground"
           >
             Restoring {{ tab.title }}…
