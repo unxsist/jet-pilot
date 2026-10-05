@@ -18,6 +18,8 @@ import {
 import { PanelProviderSessionKey } from "@/providers/PanelProvider";
 import { PortForwardingProfilesKey } from "@/providers/PortForwardingProvider";
 import { RegisterCommandStateKey } from "@/providers/CommandPaletteProvider";
+import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
+import { isEditableTarget, isInOverlay } from "@/components/tables/keyboard";
 import {
   createWorkspace,
   describeWorkspace,
@@ -56,6 +58,7 @@ export default {
     const panel = injectStrict(PanelProviderSessionKey);
     const pfProfiles = injectStrict(PortForwardingProfilesKey);
     const registerCommand = injectStrict(RegisterCommandStateKey);
+    const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
     const router = useRouter();
 
     const workspaces = computed(() =>
@@ -106,12 +109,7 @@ export default {
       return workspace;
     };
 
-    const switchTo = (id: string) => {
-      const target = workspaces.value.find((w) => w.id === id);
-      if (!target || target.id === active.value?.id) {
-        return;
-      }
-
+    const applyWorkspace = (target: Workspace, keepTabIds: string[]) => {
       // Keep the workspace we leave as the user left it.
       if (active.value) {
         update(active.value.id);
@@ -119,7 +117,7 @@ export default {
       settings.value.activeWorkspaceId = target.id;
 
       setActivation(target.contexts);
-      panel.restore(target.tabs, { replace: true });
+      panel.restore(target.tabs, { replace: true, keep: keepTabIds });
       for (const profileId of target.portForwardProfileIds) {
         pfProfiles
           .start(profileId)
@@ -128,6 +126,55 @@ export default {
       if (target.route && target.route !== router.currentRoute.value.fullPath) {
         router.push(target.route).catch(() => {});
       }
+    };
+
+    /*
+     * Switching replaces the open tabs. Running shells / terminals / debug
+     * sessions are only closed after confirmation (or kept open).
+     */
+    const switchTo = (id: string) => {
+      const target = workspaces.value.find((w) => w.id === id);
+      if (!target || target.id === active.value?.id) {
+        return;
+      }
+
+      const live = panel.liveTerminalTabs();
+      if (live.length === 0) {
+        applyWorkspace(target, []);
+        return;
+      }
+
+      const names = live.map((tab) => `• ${tab.title}`).join("\n");
+      spawnDialog({
+        title: `Switch to ${target.name}?`,
+        message:
+          (live.length === 1
+            ? "A terminal session is still running:"
+            : `${live.length} terminal sessions are still running:`) +
+          `\n${names}\n\nSwitching workspaces closes the open tabs.`,
+        buttons: [
+          { label: "Cancel", variant: "ghost", handler: (d) => d.close() },
+          {
+            label: "Keep sessions open",
+            variant: "outline",
+            handler: (d) => {
+              d.close();
+              applyWorkspace(
+                target,
+                live.map((tab) => tab.id)
+              );
+            },
+          },
+          {
+            label: live.length === 1 ? "Close session" : "Close sessions",
+            variant: "destructive",
+            handler: (d) => {
+              d.close();
+              applyWorkspace(target, []);
+            },
+          },
+        ],
+      });
     };
 
     const rename = (id: string, name: string) => {
@@ -204,6 +251,11 @@ export default {
     const onKeydown = (event: KeyboardEvent) => {
       const modifier = isMac ? event.metaKey : event.ctrlKey;
       if (!modifier || !event.altKey || event.shiftKey || event.repeat) {
+        return;
+      }
+      // Terminals, editors and fields own their keys (e.g. Ctrl+Alt+digit
+      // in a shell); so do open dialogs and menus.
+      if (isEditableTarget(event.target) || isInOverlay(event.target)) {
         return;
       }
       const match = /^(?:Digit|Numpad)([1-9])$/.exec(event.code);
