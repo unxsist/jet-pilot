@@ -11,80 +11,89 @@ import {
 } from "@/components/ui/carousel";
 import type { UnwrapRefCarouselApi } from "@/components/ui/carousel/interface";
 import { Button } from "@/components/ui/button";
-import { Download, FileCheck2, KeyRound, RefreshCw, ShieldCheck, SquareTerminal } from "lucide-vue-next";
+import { Cloud, KeyRound, LayoutDashboard, Search, ShieldCheck, SquareTerminal } from "lucide-vue-next";
 
+import hubDark from "@/assets/whats-new/hub-dark.webp";
+import hubLight from "@/assets/whats-new/hub-light.webp";
 import cloudsDark from "@/assets/whats-new/clouds-dark.webp";
 import cloudsLight from "@/assets/whats-new/clouds-light.webp";
-import gcpDark from "@/assets/whats-new/gcp-dark.webp";
-import gcpLight from "@/assets/whats-new/gcp-light.webp";
-import tokenDark from "@/assets/whats-new/token-dark.webp";
-import tokenLight from "@/assets/whats-new/token-light.webp";
-import accountsDark from "@/assets/whats-new/all-accounts-dark.webp";
-import accountsLight from "@/assets/whats-new/all-accounts-light.webp";
+import signInDark from "@/assets/whats-new/sign-in-dark.webp";
+import signInLight from "@/assets/whats-new/sign-in-light.webp";
+import guardrailsDark from "@/assets/whats-new/guardrails-dark.webp";
+import guardrailsLight from "@/assets/whats-new/guardrails-light.webp";
+import settingsDark from "@/assets/whats-new/settings-dark.webp";
+import settingsLight from "@/assets/whats-new/settings-light.webp";
 
 const emit = defineEmits<{ done: [] }>();
 
 const slides = [
   {
-    title: "Every cloud",
+    title: "Welcome to JET Pilot 2.0",
     description:
-      "Add cluster now connects AWS, Google Cloud, Azure, DigitalOcean, Akamai, Civo, Scaleway, Vultr and Exoscale. JET Pilot finds the clusters and keeps the list current.",
+      "The Clusters hub has every cluster from every kubeconfig and cloud account in one calm list. Name them, colour them, put them in folders; click one for everything about it.",
+    dark: hubDark,
+    light: hubLight,
+  },
+  {
+    title: "Every cloud, connected",
+    description:
+      "Add cluster connects AWS, Google Cloud, Azure, DigitalOcean, Akamai, Civo, Scaleway, Vultr and Exoscale, finds their clusters and keeps the list current. Or paste, import or enter a cluster by hand.",
     dark: cloudsDark,
     light: cloudsLight,
   },
   {
-    title: "Google Cloud and Azure, through their CLIs",
+    title: "Sign in without leaving JET Pilot",
     description:
-      "Use the gcloud or az sign-in you already have, or sign in right in the app. Pick the projects or subscriptions, then the clusters.",
-    dark: gcpDark,
-    light: gcpLight,
+      "Device codes and browser sign-ins appear right in the app, and every view reconnects when you're done. Credentials live in your system keychain, never in plain text.",
+    dark: signInDark,
+    light: signInLight,
   },
   {
-    title: "A token is all it takes",
+    title: "Production, protected",
     description:
-      "DigitalOcean, Akamai, Civo, Scaleway and Vultr connect with an API token, Exoscale with an API key. They go to your keychain, never into a kubeconfig.",
-    dark: tokenDark,
-    light: tokenLight,
+      "Mark a cluster as production and deleting or scaling to zero asks you to type the name. Read-only clusters can't be changed from JET Pilot at all.",
+    dark: guardrailsDark,
+    light: guardrailsLight,
   },
   {
-    title: "All your clouds in one place",
+    title: "Settings, rebuilt",
     description:
-      "The Cloud accounts tab shows every account, how it signs in and what it reaches. New clusters in any of them wait in the Clusters hub.",
-    dark: accountsDark,
-    light: accountsLight,
+      "Every setting is searchable (⌘, or Ctrl+,), the ones you changed are marked, and settings.json is there if you prefer text.",
+    dark: settingsDark,
+    light: settingsLight,
   },
 ];
 
 const underTheHood = [
   {
     icon: SquareTerminal,
-    title: "Standard plugins",
-    text: "GKE clusters sign in with gke-gcloud-auth-plugin and AKS with kubelogin, so kubectl and k9s use them as they are.",
-  },
-  {
-    icon: Download,
-    title: "kubelogin, verified",
-    text: "No kubelogin? JET Pilot downloads it from Azure's releases and checks its checksum.",
+    title: "Your terminal, too",
+    text: "Clusters you add work in kubectl and k9s through a small credential helper.",
   },
   {
     icon: KeyRound,
-    title: "Short-lived credentials",
-    text: "DigitalOcean tokens and Exoscale certificates are minted when needed and expire on their own.",
+    title: "Your kubeconfig untouched",
+    text: "Added clusters live in ~/.kube/jet-pilot/config; export them when you want them elsewhere.",
+  },
+  {
+    icon: Cloud,
+    title: "Quiet discovery",
+    text: "Cloud accounts are checked when the hub opens and never start a sign-in by themselves.",
   },
   {
     icon: ShieldCheck,
-    title: "Exoscale access, your call",
-    text: "Certificates are for system:masters by default; change the user and groups per account.",
+    title: "Calmer everywhere",
+    text: "A design pass over the whole app: fewer boxes, clearer lists, status only when it needs you.",
   },
   {
-    icon: FileCheck2,
-    title: "Your CLI config untouched",
-    text: "JET Pilot reads gcloud, az and doctl but never changes their configuration.",
+    icon: LayoutDashboard,
+    title: "A setup guide",
+    text: "New installs get a short guide; open it any time from the command palette.",
   },
   {
-    icon: RefreshCw,
-    title: "Quiet by default",
-    text: "Accounts are checked when the hub opens, at most every 30 minutes, and never start a sign-in.",
+    icon: Search,
+    title: "Found automatically",
+    text: "~/.kube/config, $KUBECONFIG, ~/.kube/*.yaml and ~/.kube/config.d are picked up by themselves.",
   },
 ];
 
@@ -118,7 +127,7 @@ const last = computed(() => selected.value === count - 1);
       </CarouselItem>
       <CarouselItem class="px-6">
         <h3 class="text-lg font-semibold">Under the hood</h3>
-        <p class="mt-1 text-sm text-muted-foreground">The details that keep your accounts safe.</p>
+        <p class="mt-1 text-sm text-muted-foreground">The details behind 2.0.</p>
         <ul class="mt-4 grid grid-cols-2 gap-x-8 gap-y-5">
           <li v-for="item in underTheHood" :key="item.title" class="flex gap-3">
             <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">

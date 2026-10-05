@@ -16,7 +16,15 @@
 ## Introduction
 JET Pilot is an open-source K8s IDE. It was created out of frustration, as all "good-looking" K8s IDEs went commercial. Power-users nowadays resort to tools like `k9s`, which works great, but heavily relies on keyboard input. JET Pilot combines a keyboard-first workflow with a polished, mouse-friendly desktop UI — built with Rust and Tauri, so it stays small and fast.
 
-No account, no telemetry: JET Pilot uses your existing kubeconfig files and `kubectl`.
+No account, no telemetry: JET Pilot uses your existing kubeconfig files and `kubectl`, and connects your cloud accounts when you want it to.
+
+## What's new in 2.0
+- **Clusters hub**: every cluster from every kubeconfig and cloud account in one list, with live status. Give clusters names, colours, environments, folders and tags; click one for everything about it.
+- **Every cloud**: connect AWS (IAM Identity Center, profiles or access keys), Google Cloud and Azure (through gcloud and az), DigitalOcean, Akamai/Linode, Civo, Scaleway, Vultr and Exoscale. JET Pilot finds their clusters and keeps the list current.
+- **Add anything**: paste or import a kubeconfig, or enter a cluster by hand. Added clusters live in JET Pilot's own kubeconfig (`~/.kube/jet-pilot/config`), with their credentials in your system keychain, and work in `kubectl` and `k9s` too.
+- **Sign in without leaving the app**: device codes and browser sign-ins appear in JET Pilot, and every view reconnects afterwards.
+- **Production guardrails**: protected clusters ask you to type the name before destructive actions; read-only clusters can't be changed from JET Pilot.
+- **Settings, rebuilt**: searchable, with a `settings.json` editor. Plus a setup guide for new installs and a calmer design across the whole app.
 
 ## Features
 - **Multi-cluster & multi-namespace**: connect to several contexts (across multiple kubeconfig files) and namespaces at once; every table aggregates them with Context and Namespace columns.
@@ -26,14 +34,14 @@ No account, no telemetry: JET Pilot uses your existing kubeconfig files and `kub
 - **Object management**: browse, describe, create and edit any Kubernetes object in a full YAML editor (<kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>S</kbd> to apply).
 - **Command palette**: <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>K</kbd> to jump anywhere, switch contexts and namespaces or open a terminal — with fuzzy search.
 - **Port forwarding**, **Helm** releases and charts, **pod metrics**, events, scaling, rollouts, cordon/drain and more.
-- **SSO-friendly**: in-app re-login for exec-plugin based auth such as kubelogin/OIDC and AWS SSO.
+- **SSO-friendly**: in-app sign-in for AWS IAM Identity Center, gcloud, az, kubelogin/OIDC and other exec plugins, with device codes shown in the app.
 - **A premium, accessible UI** with polished dark and light themes.
 
 ## Installation
 
 Download the latest release for your platform from the [releases page](https://github.com/unxsist/jet-pilot/releases/latest/) or from [jet-pilot.app](https://www.jet-pilot.app). JET Pilot updates itself automatically.
 
-JET Pilot requires [`kubectl`](https://kubernetes.io/docs/tasks/tools/) on your `PATH` (and `helm` for the Helm views).
+JET Pilot uses [`kubectl`](https://kubernetes.io/docs/tasks/tools/) (and `helm` for the Helm views). When they aren't on your `PATH`, it can download them for you, verified against their official checksums (Settings › Advanced).
 
 ### macOS
 

@@ -6,7 +6,6 @@ import type {
   V1Namespace,
 } from "@kubernetes/client-node";
 import { invoke, type Channel } from "@tauri-apps/api/core";
-import { Command } from "@tauri-apps/plugin-shell";
 import type {
   MetricsMessage,
   MetricsRequest,
@@ -16,7 +15,6 @@ import type {
 } from "@/lib/watch";
 import type { CliResult } from "@/actions/command";
 import type { GuardedCall } from "@/lib/guardrails/backstop";
-import { classifyAuthError } from "@/lib/auth/classify";
 
 /* The read-only backstop loads with the first change (keeps startup small). */
 const backstop = () => import("@/lib/guardrails/backstop");
@@ -26,34 +24,6 @@ export interface KubernetesError {
   code: number;
   reason: string;
   details: any;
-}
-
-export interface ExecAuthOutput {
-  command: string;
-  // Only non-credential plugin output; the ExecCredential is never returned.
-  stdout: string;
-  stderr: string;
-}
-
-/**
- * Secret-free summary of a context's auth configuration, as returned by the
- * `get_context_auth_info` command.
- */
-export interface ContextAuthSummary {
-  execCommand: string | null;
-  awsProfile: string | null;
-}
-
-// Exec credential plugin binaries the app can trigger a login flow for.
-// kubelogin (Azure AKS + generic OIDC), `kubectl oidc-login` (GKE / generic
-// OIDC) and gke-gcloud-auth-plugin (GKE).
-const EXEC_AUTH_PLUGINS = ["kubelogin", "oidc-login"];
-
-function getExecCommand(authInfo: ContextAuthSummary): string | null {
-  const command = authInfo.execCommand;
-  if (typeof command !== "string") return null;
-  const basename = command.split(/[\\/]/).pop() || command;
-  return basename;
 }
 
 /** Backend log stream (src-tauri/src/log_stream.rs `LogStreamSpec`). */
@@ -88,109 +58,6 @@ export interface WatchStats {
 const kubeConfigArg = (kubeConfig?: string | null) => kubeConfig || null;
 
 export class Kubernetes {
-  /**
-   * @deprecated Report failures to the auth center (`report()` in
-   * @/lib/auth/center) and offer `requestSignIn()`; it streams the login
-   * (device codes included). Kept until the backend's `login_exec_auth`
-   * shim goes; recognising the error lives in @/lib/auth/classify.
-   */
-  static async getAuthErrorHandler(
-    context: string,
-    kubeConfig: string,
-    errorMessage: string
-  ): Promise<{
-    canHandle: boolean;
-    callback: (authCompletedCallback?: (instructions?: string) => void) => void;
-  }> {
-    const failure = classifyAuthError(errorMessage);
-
-    // AWS SSO
-    if (failure?.awsSso) {
-      const context_auth_info = await invoke<ContextAuthSummary>(
-        "get_context_auth_info",
-        {
-          context: context,
-          kubeConfig: kubeConfigArg(kubeConfig),
-        }
-      );
-
-      const aws_profile = context_auth_info.awsProfile;
-
-      return {
-        canHandle: aws_profile !== null,
-        callback: async (authCompletedCallback?) => {
-          if (aws_profile === null) return;
-          // Must match the `aws` shell scope in capabilities/migrated.json.
-          const command = Command.create("aws", [
-            "sso",
-            "login",
-            "--profile",
-            aws_profile,
-          ]);
-          command.addListener("close", async () => {
-            authCompletedCallback?.();
-          });
-          await command.spawn();
-        },
-      };
-    }
-
-    // Exec credential plugins: kubelogin / oidc-login (and similar). These are
-    // used by AKS (kubelogin), GKE (gke-gcloud-auth-plugin, `kubectl
-    // oidc-login`) and other OIDC-protected clusters. The plugin needs to run
-    // interactively (device-code / browser flow), which can't happen in the GUI
-    // app - so we surface the plugin output (the URL / code) to the user and
-    // let them complete the login, then retry.
-    const context_auth_info = await invoke<ContextAuthSummary>(
-      "get_context_auth_info",
-      {
-        context: context,
-        kubeConfig: kubeConfigArg(kubeConfig),
-      }
-    );
-
-    const execCommand = getExecCommand(context_auth_info);
-    const isExecPluginAuth =
-      execCommand !== null &&
-      (EXEC_AUTH_PLUGINS.includes(execCommand) || !!failure?.execPlugin);
-
-    if (isExecPluginAuth) {
-      return {
-        canHandle: true,
-        callback: async (
-          authCompletedCallback?: (instructions?: string) => void
-        ) => {
-          try {
-            const authOutput = (await invoke("login_exec_auth", {
-              context: context,
-              kubeConfig: kubeConfigArg(kubeConfig),
-            })) as ExecAuthOutput;
-
-            const instructions = [authOutput.stderr, authOutput.stdout]
-              .map((part) => part.trim())
-              .filter(Boolean)
-              .join("\n\n");
-
-            if (instructions) {
-              authCompletedCallback?.(instructions);
-            } else {
-              authCompletedCallback?.();
-            }
-          } catch (e: any) {
-            authCompletedCallback?.(e?.message || String(e));
-          }
-        },
-      };
-    }
-
-    return {
-      canHandle: false,
-      callback: () => {
-        // Do nothing
-      },
-    };
-  }
-
   /**
    * The current-context of `kubeConfig`, or of the globally selected
    * kubeconfig (falling back to kube's default resolution) when omitted.

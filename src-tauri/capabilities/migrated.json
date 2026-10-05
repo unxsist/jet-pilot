@@ -115,19 +115,6 @@
           "sidecar": false
         },
         {
-          "args": [
-            "sso",
-            "login",
-            "--profile",
-            {
-              "validator": "[A-Za-z0-9_.@+=,:/][A-Za-z0-9_.@+=,:/-]{0,127}"
-            }
-          ],
-          "cmd": "aws",
-          "name": "aws",
-          "sidecar": false
-        },
-        {
           "args": true,
           "cmd": "helm",
           "name": "helm",

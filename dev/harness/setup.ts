@@ -1747,10 +1747,6 @@ mockIPC(
       case "replace_pod":
         await sleep(200);
         return p.object;
-      case "login_exec_auth":
-        await sleep(400);
-        return { command: "kubelogin", stdout: "", stderr: "" };
-
       default:
         if (!cmd.startsWith("plugin:event|")) {
           console.warn("[harness] unhandled IPC", cmd, p);
