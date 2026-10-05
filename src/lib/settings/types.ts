@@ -76,6 +76,10 @@ export interface Preferences {
   diagnostics: {
     logLevel: LogLevel;
   };
+  auth: {
+    /** Run exec sign-in plugins through JET Pilot's broker (timeouts, no hidden prompts). */
+    credentialBroker: boolean;
+  };
 }
 
 /** Per-context namespace lists of releases before 1.41 (now part of `clusters`). */

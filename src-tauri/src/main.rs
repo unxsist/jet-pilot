@@ -11,6 +11,7 @@ use std::sync::{Arc, RwLock};
 mod announcements;
 mod app_log;
 mod auth;
+mod clusters;
 mod env_import;
 mod kubeconfig_discovery;
 mod kubernetes;
@@ -25,6 +26,7 @@ mod probe;
 mod process;
 #[cfg(all(test, feature = "kwok-qa"))]
 mod qa_kwok;
+mod secrets;
 mod shell;
 mod themes;
 mod tools;
@@ -194,8 +196,37 @@ fn main() {
             tools::tools_detect,
             tools::tools_install,
             tools::tools_uninstall,
+            clusters::clusters_paths,
+            clusters::managed_list,
+            clusters::managed_remove,
+            clusters::managed_rename,
+            clusters::import::kubeconfig_import_preview,
+            clusters::import::kubeconfig_import_commit,
+            clusters::manual::cluster_add_manual,
+            clusters::manual::cluster_test_connection,
+            clusters::export::managed_export,
+            clusters::export::managed_export_to_kube_config,
+            clusters::helper_install::helper_status,
+            clusters::helper_install::helper_reinstall,
+            secrets::vault_status,
+            secrets::vault_init_passphrase,
+            secrets::vault_unlock,
+            secrets::vault_lock,
+            secrets::vault_change_passphrase,
+            secrets::vault_reset,
+            auth::broker::auth_set_broker,
+            auth::status::auth_credential_status,
+            auth::login::auth_login_start,
+            auth::login::auth_login_open_url,
+            auth::login::auth_login_cancel,
         ])
         .setup(|_app| {
+            // auth://issue and auth://resolved need the app handle.
+            auth::center::init(_app.handle().clone());
+            // Managed-kubeconfig/vault events, and installing the
+            // jetpilot-auth helper in the background.
+            clusters::init(_app.handle());
+
             #[cfg(target_os = "macos")]
             {
                 let metadata = AboutMetadataBuilder::new()
@@ -273,6 +304,8 @@ fn main() {
             logs::streaming::kill_all_log_streams();
             // Cluster statuses still waiting for their debounced write.
             probe::flush_status_cache();
+            // Sign-ins still running (aws sso login, kubelogin, ...).
+            auth::login::cancel_all();
         }
     });
 }

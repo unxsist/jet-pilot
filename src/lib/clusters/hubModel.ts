@@ -19,7 +19,7 @@ export const GROUP_BY_OPTIONS: { value: GroupBy; label: string }[] = [
   { value: "folder", label: "Folder" },
   { value: "provider", label: "Provider" },
   { value: "environment", label: "Environment" },
-  { value: "kubeconfig", label: "Kubeconfig file" },
+  { value: "kubeconfig", label: "File" },
   { value: "none", label: "No grouping" },
 ];
 
@@ -134,7 +134,7 @@ function groupOf(cluster: HubCluster, groupBy: GroupBy): { id: string; title: st
     case "kubeconfig":
       return {
         id: `file:${cluster.entry.kubeConfig}`,
-        title: fileLabel(cluster.entry.kubeConfig),
+        title: cluster.entry.origin === "managed" ? "Added in JET Pilot" : fileLabel(cluster.entry.kubeConfig),
         detail: cluster.entry.kubeConfig,
         order: cluster.entry.kubeConfig,
       };

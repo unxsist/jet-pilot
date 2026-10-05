@@ -21,6 +21,7 @@ import {
   FolderTree,
   History,
   Layers,
+  Plus,
   Loader2,
   Palette,
   SearchX,
@@ -392,6 +393,7 @@ const PALETTE_ICONS: Record<string, Component> = {
   "import-settings": Upload,
   "export-settings": Download,
   "open-setup-guide": Sparkles,
+  "add-cluster": Plus,
 };
 
 const commandIcon = (command: PaletteItem): Component => {

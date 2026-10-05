@@ -1,10 +1,18 @@
-import { nextTick, ref, shallowRef, WatchSource } from "vue";
+import { nextTick, onScopeDispose, ref, shallowRef, WatchSource } from "vue";
 import { useDataRefresher } from "./refresher";
 import { error as logError } from "@/lib/logger";
 import { markFirstData } from "@/lib/perf";
+import { contextKey } from "@/lib/contextKey";
+import { onRecovered, report } from "@/lib/auth/center";
 
 export interface ContextFailure {
   context: string;
+  /**
+   * The context's kubeconfig. With it, failures a sign-in fixes go to the
+   * auth center (notice + toast) instead of the error banner, and the list
+   * reloads once signed in.
+   */
+  kubeConfig?: string;
   reason: unknown;
 }
 
@@ -72,6 +80,8 @@ export type LoadMode = "reload" | "refresh" | "retry";
  *   never overwrite fresh ones.
  * - Errors are exposed (not toasted) so the view can show a persistent banner;
  *   when everything failed, polling stops until `retry`.
+ * - Failures a sign-in fixes are reported to the auth center instead (see
+ *   ContextFailure.kubeConfig) and retried once the credential recovered.
  */
 export function useResourceList<T>(
   load: (isCurrent: () => boolean) => Promise<ResourceListResult<T>>,
@@ -84,6 +94,31 @@ export function useResourceList<T>(
 
   let generation = 0;
   let inFlight = false;
+
+  /* Contexts waiting for a sign-in: reload once it succeeded. */
+  const signInWaits = new Map<string, () => void>();
+  const withoutSignInFailures = (failures: ContextFailure[]) => {
+    const waiting = new Set<string>();
+    const rest = failures.filter((failure) => {
+      if (failure.kubeConfig === undefined) return true;
+      const target = { context: failure.context, kubeConfig: failure.kubeConfig };
+      if (!report(target, failure.reason, "kubectl")) return true;
+      const key = contextKey(target.context, target.kubeConfig);
+      waiting.add(key);
+      if (!signInWaits.has(key)) signInWaits.set(key, onRecovered(target, () => retry()));
+      return false;
+    });
+    for (const [key, stop] of signInWaits) {
+      if (waiting.has(key)) continue;
+      stop();
+      signInWaits.delete(key);
+    }
+    return rest;
+  };
+  onScopeDispose(() => {
+    for (const stop of signInWaits.values()) stop();
+    signInWaits.clear();
+  });
 
   const fetchData = async (mode: LoadMode) => {
     if (mode === "refresh" && inFlight) {
@@ -110,7 +145,7 @@ export function useResourceList<T>(
       }
 
       const failure = describeFailures(
-        result.failures || [],
+        withoutSignInFailures(result.failures || []),
         result.attempted ?? 1
       );
 

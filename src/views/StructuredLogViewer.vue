@@ -13,6 +13,7 @@ import {
   Download,
   Eraser,
   History,
+  KeyRound,
   ListFilter,
   Loader2,
   PanelLeft,
@@ -36,6 +37,7 @@ import { formatSnakeCaseToHumanReadable, injectStrict } from "@/lib/utils";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { error } from "@/lib/logger";
 import { Kubernetes, type LogStreamSpec } from "@/services/Kubernetes";
+import { credential, onRecovered, report, requestSignIn } from "@/lib/auth/center";
 import {
   LogRow,
   SourceColors,
@@ -167,6 +169,36 @@ const logLines = ref<InstanceType<typeof LogLines> | null>(null);
 let streamToken = 0;
 let unmounted = false;
 
+/*
+ * The cluster needs a sign-in: the auth center knows (toast, badges), this
+ * view offers it and restarts the stream once signed in.
+ */
+const authTarget = { context: props.context, kubeConfig: props.kubeConfig || "" };
+const authView = credential(authTarget);
+const authBlocked = ref(false);
+const needsSignIn = computed(() => authBlocked.value && authView.value.needsSignIn);
+const reportAuth = (reason: unknown) => {
+  // The error says so, or the backend reported the cluster already.
+  if (report(authTarget, reason, "logs") || authView.value.needsSignIn) {
+    authBlocked.value = true;
+  }
+};
+const signIn = () => void requestSignIn(authTarget);
+/* Reported by the backend after the stream failed. */
+watch(
+  () => authView.value.needsSignIn,
+  (needs) => {
+    const failed = status.value === "error" || notices.value.some((n) => n.level === "error");
+    if (needs && failed) authBlocked.value = true;
+  }
+);
+/* The backend doesn't restart log streams after a sign-in: this view does. */
+const stopRecovered = onRecovered(authTarget, () => {
+  if (!authBlocked.value || unmounted) return;
+  authBlocked.value = false;
+  void startStream();
+});
+
 /* ---------------------------------------------------- target lookup -- */
 
 const isMultiPod = computed(() => target.value?.kind === "selector");
@@ -252,6 +284,7 @@ const startStream = async () => {
     if (token !== streamToken) return;
     status.value = "error";
     notices.value = [{ level: "error", message: String(e) }];
+    reportAuth(e);
     error(`Unable to start the log stream: ${e}`);
   }
 };
@@ -278,7 +311,10 @@ const handleEvent = (event: LogStreamEvent) => {
       break;
     case "notice":
       notices.value = [...notices.value.slice(-19), event];
-      if (event.level === "error") error(`Log stream: ${event.message}`);
+      if (event.level === "error") {
+        reportAuth(event.message);
+        error(`Log stream: ${event.message}`);
+      }
       break;
     case "ended":
       status.value = "ended";
@@ -705,6 +741,7 @@ const uid = Math.random().toString(36).slice(2, 8);
 /* ------------------------------------------------------- lifecycle -- */
 
 const statusText = computed(() => {
+  if (needsSignIn.value) return "Sign-in needed";
   switch (status.value) {
     case "resolving":
       return "Finding pods…";
@@ -725,6 +762,7 @@ const statusText = computed(() => {
 });
 
 const statusTone = computed<StatusTone>(() => {
+  if (needsSignIn.value) return "warning";
   if (status.value === "error") return "destructive";
   if (status.value === "streaming" && follow.value && !previous.value) {
     return paused.value ? "warning" : "success";
@@ -777,6 +815,7 @@ onMounted(async () => {
 const dispose = () => {
   if (unmounted) return;
   unmounted = true;
+  stopRecovered();
   window.clearInterval(rateTimer);
   window.clearTimeout(fetchTimer);
   stopStream();
@@ -1149,7 +1188,21 @@ onUnmounted(() => {
           >
             <template #empty>
               <EmptyState
-                v-if="status === 'error'"
+                v-if="needsSignIn"
+                :icon="KeyRound"
+                title="Sign-in needed"
+                description="The cluster needs you to sign in again. Logs stream again once you have."
+                size="sm"
+                class="max-w-lg"
+              >
+                <template #action>
+                  <Button size="sm" :disabled="authView.signingIn" @click="signIn">
+                    {{ authView.signingIn ? "Signing in…" : "Sign in" }}
+                  </Button>
+                </template>
+              </EmptyState>
+              <EmptyState
+                v-else-if="status === 'error'"
                 :icon="TriangleAlert"
                 title="Unable to stream logs"
                 :description="resolveError || lastNotice?.message"
@@ -1218,6 +1271,15 @@ onUnmounted(() => {
             >{{ rate.toLocaleString() }} lines/s</span
           >
           <span v-if="paused" class="font-medium text-warning">Paused</span>
+          <button
+            v-if="needsSignIn && rows.length > 0"
+            type="button"
+            class="rounded-sm font-medium text-link hover:underline focus-ring"
+            :disabled="authView.signingIn"
+            @click="signIn"
+          >
+            {{ authView.signingIn ? "Signing in…" : "Sign in" }}
+          </button>
           <span
             v-if="lastNotice"
             class="ml-auto inline-flex min-w-0 items-center gap-1.5"

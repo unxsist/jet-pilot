@@ -10,7 +10,7 @@ import { homeDir } from "@tauri-apps/api/path";
 import { warn } from "@/lib/logger";
 import type { Settings } from "@/lib/settings/types";
 
-export type KubeconfigOrigin = "default" | "env" | "directory" | "configD";
+export type KubeconfigOrigin = "managed" | "default" | "env" | "directory" | "configD";
 
 /** `kubeconfig_discover` (src-tauri). */
 export interface DiscoveredKubeconfig {
@@ -23,6 +23,7 @@ export interface DiscoveredKubeconfig {
 }
 
 export const ORIGIN_LABELS: Record<KubeconfigOrigin, string> = {
+  managed: "Added in JET Pilot",
   default: "Default",
   env: "$KUBECONFIG",
   directory: "~/.kube",

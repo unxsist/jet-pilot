@@ -11,9 +11,7 @@
 import { useRoute, useRouter } from "vue-router";
 import { useEventListener, useLocalStorage } from "@vueuse/core";
 import { type as getOsType } from "@tauri-apps/plugin-os";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { homeDir, join } from "@tauri-apps/api/path";
 import {
   ChevronRight,
   CircleAlert,
@@ -51,7 +49,7 @@ import {
 import { useClusters } from "@/lib/clusters/useClusters";
 import { isSameContext, parseContextKey } from "@/lib/contextKey";
 import { inventory, inventoryErrors, loadInventory } from "@/lib/clusters/inventory";
-import { discoveredKubeconfigs } from "@/lib/kubeconfigSources";
+import { discoverKubeconfigs, discoveredKubeconfigs } from "@/lib/kubeconfigSources";
 import {
   GROUP_BY_OPTIONS,
   buildSections,
@@ -61,6 +59,18 @@ import {
   type HubCluster,
 } from "@/lib/clusters/hubModel";
 import { cachedStatuses, cancelProbe, probeClusters, type ClusterStatus } from "@/lib/clusters/status";
+import { errorMessage, openAddCluster, removeManaged } from "@/lib/clusters/managed";
+import ExportDialog from "@/views/clusters/ExportDialog.vue";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const props = defineProps<{ embedded?: boolean }>();
 
@@ -244,25 +254,33 @@ watch(
   { immediate: true }
 );
 
+/* Clusters added in JET Pilot: export and remove. */
+const exportOpen = ref(false);
+const exportTargets = ref<string[]>([]);
+const removing = ref<HubCluster | null>(null);
+const removeCluster = async () => {
+  const cluster = removing.value;
+  removing.value = null;
+  if (!cluster) return;
+  try {
+    if (cluster.active) setActiveNamespaces(cluster.entry.context, cluster.entry.kubeConfig, []);
+    await removeManaged([cluster.entry.context], true);
+    clusters.update(cluster.entry.context, cluster.entry.kubeConfig, {
+      alias: undefined, color: undefined, env: undefined, folder: undefined, tags: undefined,
+      favorite: undefined, hidden: undefined, protected: undefined, readOnly: undefined, namespaces: undefined,
+    });
+    await discoverKubeconfigs(true);
+    toast({ title: `Removed ${cluster.meta.displayName}` });
+  } catch (e) {
+    toast({ title: "Couldn't remove the cluster", description: errorMessage(e), variant: "destructive" });
+  }
+};
+
 const bulk = (patch: Parameters<typeof clusters.updateMany>[1]) => {
   clusters.updateMany(
     selected.value.map((c) => ({ context: c.entry.context, kubeConfig: c.entry.kubeConfig })),
     patch
   );
-};
-
-const addKubeconfig = async () => {
-  const picked = await openDialog({
-    multiple: true,
-    title: "Add kubeconfig files",
-    defaultPath: await join(await homeDir(), ".kube"),
-  });
-  if (!picked) return;
-  const paths = (Array.isArray(picked) ? picked : [picked]).filter(
-    (path) => !settings.value.kubeconfig.sources.includes(path)
-  );
-  settings.value.kubeconfig.sources.push(...paths);
-  if (paths.length) toast({ title: `Added ${paths.length === 1 ? "a kubeconfig file" : `${paths.length} kubeconfig files`}` });
 };
 
 /* ------------------------------------------------------- keyboard -- */
@@ -361,9 +379,9 @@ const sectionList = computed(() => [
             <RefreshCw class="h-3.5 w-3.5" :class="checking ? 'animate-spin' : ''" />
             {{ checking ? "Checking…" : "Check status" }}
           </Button>
-          <Button size="sm" @click="addKubeconfig">
+          <Button size="sm" @click="openAddCluster()">
             <Plus class="h-3.5 w-3.5" />
-            Add kubeconfig file
+            Add cluster
           </Button>
         </div>
       </header>
@@ -392,7 +410,7 @@ const sectionList = computed(() => [
           </button>
         </div>
         <Select :model-value="storedGroupBy === 'auto' ? groupBy : storedGroupBy" @update:model-value="(v) => (storedGroupBy = v as GroupBy)">
-          <SelectTrigger class="h-8 w-44" aria-label="Group by">
+          <SelectTrigger class="h-8 w-48" aria-label="Group by">
             <span class="text-muted-foreground">Group:</span>
             <SelectValue />
           </SelectTrigger>
@@ -426,11 +444,11 @@ const sectionList = computed(() => [
         v-else-if="hubClusters.length === 0"
         :icon="ServerOff"
         title="No clusters yet"
-        description="JET Pilot didn't find any contexts in ~/.kube/config, $KUBECONFIG or ~/.kube/*.yaml. Add a kubeconfig file to get going."
+        description="JET Pilot didn't find any contexts in ~/.kube/config, $KUBECONFIG or ~/.kube/*.yaml. Add a cluster to get going: paste a kubeconfig, import a file or enter one by hand."
       >
         <template #action>
           <div class="flex gap-2">
-            <Button size="sm" @click="addKubeconfig"><Plus class="h-3.5 w-3.5" /> Add kubeconfig file</Button>
+            <Button size="sm" @click="openAddCluster()"><Plus class="h-3.5 w-3.5" /> Add cluster</Button>
             <Button size="sm" variant="outline" @click="router.push({ name: 'SettingsCategory', params: { category: 'clusters' } })">
               Kubeconfig settings
             </Button>
@@ -487,6 +505,8 @@ const sectionList = computed(() => [
               @hide="toggleHidden(cluster)"
               @check="check([cluster], true)"
               @copy="copyName(cluster)"
+              @export="exportTargets = [cluster.entry.context]; exportOpen = true"
+              @remove="removing = cluster"
               @select="(on) => toggleSelect(cluster, on)"
             />
           </div>
@@ -523,5 +543,23 @@ const sectionList = computed(() => [
     </Transition>
 
     <ClusterEditDialog v-model:open="editOpen" :clusters="editing" :folders="folders" />
+    <ExportDialog v-if="exportOpen" v-model:open="exportOpen" :contexts="exportTargets" />
+    <AlertDialog :open="!!removing" @update:open="(value) => !value && (removing = null)">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove {{ removing?.meta.displayName }} from JET Pilot?</AlertDialogTitle>
+          <AlertDialogDescription>
+            The cluster and its stored credentials are deleted from JET Pilot's kubeconfig and your keychain. The cluster
+            itself isn't touched; you can add it again later.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction class="bg-destructive text-destructive-foreground hover:bg-destructive/90" @click="removeCluster">
+            Remove
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>

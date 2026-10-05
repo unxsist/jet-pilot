@@ -4,7 +4,9 @@
 //! node in ring buffers (for sparklines / trends).
 //!
 //! Messages:
-//! - `{"type":"status","state":"syncing"|"ready"|"unavailable"|"forbidden"|"error","message"?}`
+//! - `{"type":"status","state":"syncing"|"ready"|"unavailable"|"forbidden"|"unauthorized"|"error","message"?}`
+//!   (`unauthorized`: the credentials were rejected or need a sign-in; the
+//!   poller is retried with a new client after a sign-in)
 //! - `{"type":"sample","timestamp":ms,"pods":[PodMetrics...],"nodes":[NodeMetrics...]}`
 //!   (objects tagged with metadata.context / metadata.kubeConfig, like rows)
 //! - `{"type":"history","pods":{"ns/name":[[ms,cpuMillicores,memoryBytes],...]},"nodes":{...}}`
@@ -31,7 +33,8 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tokio::time::Instant;
 use tracing::{debug, warn};
 
-use crate::kubernetes::client::{client_with_context, resolve_kubeconfig_path};
+use crate::auth::center::{self, AuthErrorKind, AuthFailure, AuthIssue, IssueSource};
+use crate::kubernetes::client::{auth_error_message, client_with_context, exec_command_for_context, resolve_kubeconfig_path};
 use crate::util::lock;
 use crate::watch::{channel_sink, next_subscription_id, paused_receiver, WatchSink as Sink};
 
@@ -101,7 +104,31 @@ enum MetricsState {
     Ready,
     Unavailable,
     Forbidden,
+    Unauthorized,
     Error,
+}
+
+/// A metrics request that failed for credential reasons: kind and a safe
+/// message (kube-rs' own exec errors are never formatted with `Display`,
+/// which includes the plugin's stdout).
+fn auth_problem(err: &kube::Error) -> Option<(AuthErrorKind, String)> {
+    if let Some(failure) = AuthFailure::of_kube_error(err) {
+        return Some((failure.info.kind, failure.message.clone()));
+    }
+    match err {
+        kube::Error::Api(status) if status.code == 401 => Some((
+            AuthErrorKind::Unauthorized,
+            "The API server rejected the credentials (401 Unauthorized)".to_string(),
+        )),
+        kube::Error::Auth(auth) => {
+            let message = auth_error_message(auth);
+            let kind = center::detect_kubectl_auth_failure(&message)
+                .filter(|kind| *kind != AuthErrorKind::Unauthorized)
+                .unwrap_or(AuthErrorKind::ExecFailed);
+            Some((kind, message))
+        }
+        _ => None,
+    }
 }
 
 struct PollerState {
@@ -199,6 +226,19 @@ async fn poll_once(poller: &Poller, client: &Client, key: &PollerKey) -> Duratio
     let pods = match pods {
         Ok(pods) => pods,
         Err(err) => {
+            if let Some((kind, message)) = auth_problem(&err) {
+                debug!("Pod metrics for {} unauthorized: {:?}", key.context, kind);
+                center::report(AuthIssue {
+                    kube_config: key.kube_config.clone(),
+                    context: key.context.clone(),
+                    kind,
+                    source: IssueSource::Metrics,
+                    message: message.clone(),
+                    command: exec_command_for_context(Some(&key.kube_config), &key.context),
+                });
+                poller.set_status(MetricsState::Unauthorized, Some(center::redact(&message)));
+                return UNAVAILABLE_INTERVAL;
+            }
             let (state, interval) = match &err {
                 kube::Error::Api(status) if status.code == 404 || status.code == 503 => {
                     (MetricsState::Unavailable, UNAVAILABLE_INTERVAL)
@@ -335,14 +375,55 @@ pub async fn metrics_subscribe(
 pub(crate) async fn subscribe(request: MetricsRequest, sink: Sink) -> Result<u64, String> {
     let epoch = EPOCH.load(Ordering::SeqCst);
     let key = key_for(&request);
-    let client = client_with_context(&key.context, Some(&key.kube_config))
+    let client = center::with_source(IssueSource::Metrics, client_with_context(&key.context, Some(&key.kube_config)))
         .await
         .map_err(|e| e.message)?;
     let id = next_subscription_id();
-    attach(&key, id, sink, epoch, |poller| {
-        Some(tauri::async_runtime::spawn(run_poller(poller, client, key.clone())))
-    })?;
+    attach(&key, id, sink, epoch, |poller| Some(spawn_poller(poller, client, key.clone())))?;
     Ok(id)
+}
+
+fn spawn_poller(poller: Arc<Poller>, client: Client, key: PollerKey) -> JoinHandle<()> {
+    tauri::async_runtime::spawn(center::with_source(IssueSource::Metrics, run_poller(poller, client, key)))
+}
+
+/// Restarts the pollers of the (kubeconfig, context) pairs that failed
+/// (unauthorized or erroring) with a fresh client, polling right away
+/// (after a sign-in). Returns how many were restarted.
+pub(crate) async fn retry_contexts(contexts: &[(String, String)]) -> usize {
+    let failed: Vec<(PollerKey, Arc<Poller>)> = lock(&POLLERS)
+        .iter()
+        .filter(|(key, poller)| {
+            contexts
+                .iter()
+                .any(|(kube_config, context)| &key.kube_config == kube_config && &key.context == context)
+                && matches!(lock(&poller.state).status.0, MetricsState::Unauthorized | MetricsState::Error)
+        })
+        .map(|(key, poller)| (key.clone(), poller.clone()))
+        .collect();
+
+    let mut restarted = 0;
+    for (key, poller) in failed {
+        let client = match center::with_source(IssueSource::Metrics, client_with_context(&key.context, Some(&key.kube_config))).await {
+            Ok(client) => client,
+            Err(err) => {
+                warn!("Not restarting metrics of {}: {}", key.context, err.message);
+                continue;
+            }
+        };
+        // Still the registered poller (not evicted meanwhile)?
+        let pollers = lock(&POLLERS);
+        if !pollers.get(&key).is_some_and(|p| Arc::ptr_eq(p, &poller)) {
+            continue;
+        }
+        let mut task = lock(&poller.task);
+        if let Some(old) = task.take() {
+            old.abort();
+        }
+        *task = Some(spawn_poller(poller.clone(), client, key.clone()));
+        restarted += 1;
+    }
+    restarted
 }
 
 fn new_poller() -> Arc<Poller> {
@@ -558,6 +639,45 @@ mod tests {
         assert!(attach(&key, 9_100, Arc::new(|_| true), stale_epoch, |_| None).is_err());
         assert!(!lock(&POLLERS).contains_key(&key));
         assert!(!lock(&SUBSCRIPTIONS).contains_key(&9_100));
+    }
+
+    #[tokio::test]
+    async fn unauthorized_pollers_are_retried_with_a_new_client() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kubeconfig.yaml");
+        std::fs::write(
+            &path,
+            "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster:\n    server: http://127.0.0.1:9\ncontexts:\n- name: metrics-retry\n  context:\n    cluster: c\n    user: u\nusers:\n- name: u\n  user:\n    token: t\n",
+        )
+        .unwrap();
+        let kube_config = path.to_string_lossy().into_owned();
+        let key = PollerKey {
+            kube_config: kube_config.clone(),
+            context: "metrics-retry".into(),
+            namespaces: vec![],
+        };
+        let epoch = EPOCH.load(Ordering::SeqCst);
+        let poller = attach(&key, 9_200, Arc::new(|_| true), epoch, |_| None).unwrap();
+        assert_eq!(retry_contexts(&[(kube_config.clone(), "metrics-retry".into())]).await, 0, "healthy pollers stay");
+
+        poller.set_status(MetricsState::Unauthorized, Some("401".into()));
+        assert_eq!(retry_contexts(&[(kube_config, "metrics-retry".into())]).await, 1);
+        assert!(lock(&poller.task).is_some());
+
+        let (_, generation) = detach(9_200).unwrap();
+        assert!(evict_if_idle(&key, generation));
+    }
+
+    #[test]
+    fn auth_problems_are_recognised() {
+        let status = |code| kube::Error::Api(kube::core::Status::failure("m", "r").with_code(code).boxed());
+        assert_eq!(auth_problem(&status(401)).map(|(k, _)| k), Some(AuthErrorKind::Unauthorized));
+        assert!(auth_problem(&status(403)).is_none());
+        assert!(auth_problem(&status(404)).is_none());
+        assert_eq!(
+            serde_json::to_value(MetricsState::Unauthorized).unwrap(),
+            serde_json::json!("unauthorized")
+        );
     }
 
     #[test]

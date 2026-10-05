@@ -25,6 +25,7 @@
 use super::structured_logging::{
     blocking, get_session, normalize_timestamp, parse_line_from, split_prefix, ParsedLine,
 };
+use crate::auth::center::{self, IssueSource};
 use crate::util::lock;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -591,6 +592,13 @@ struct Supervisor {
 }
 
 impl Supervisor {
+    /// Reports a kubectl error that is a credential problem (expired
+    /// sign-in, rejected token, missing plugin) to the auth center.
+    fn report_auth(&self, error: &str) {
+        let kube_config = crate::kubernetes::client::resolve_kubeconfig_path(self.spec.kube_config.as_deref());
+        center::report_kubectl_failure(&kube_config, &self.spec.context, IssueSource::Logs, error);
+    }
+
     fn notice(&self, level: NoticeLevel, message: impl Into<String>) {
         self.sink.send(LogStreamEvent::Notice {
             level,
@@ -622,6 +630,7 @@ impl Supervisor {
         )
         .await;
         if let Some(error) = outcome.error {
+            self.report_auth(&error);
             self.notice(NoticeLevel::Error, error);
         }
     }
@@ -649,6 +658,7 @@ impl Supervisor {
         let now = Instant::now();
         match outcome.error {
             Some(error) if outcome.lines == 0 => {
+                self.report_auth(&error);
                 track.state = Some(SourceState::Failed);
                 track.failures += 1;
                 let delay = RESUME_DELAY
@@ -681,12 +691,22 @@ impl Supervisor {
         let mut first = true;
         let mut capped_notice = false;
         let mut last_error: Option<String> = None;
+        let mut auth_epoch = center::auth_epoch();
 
         loop {
             // Nobody reads the lines anymore (the batcher stopped because the
             // session ended or the frontend is gone): stop discovering.
             if tx.is_closed() {
                 break;
+            }
+            // Someone signed in: retry failed pods now instead of after
+            // their backoff.
+            if center::auth_epoch() != auth_epoch {
+                auth_epoch = center::auth_epoch();
+                for track in pods.values_mut().filter(|t| t.state == Some(SourceState::Failed)) {
+                    track.retry_at = None;
+                    track.failures = 0;
+                }
             }
             match self.discover(selector).await {
                 Ok(found) => {
@@ -761,6 +781,7 @@ impl Supervisor {
                     }
                 }
                 Err(error) => {
+                    self.report_auth(&error);
                     if last_error.as_deref() != Some(error.as_str()) {
                         self.notice(NoticeLevel::Error, format!("Unable to list pods: {}", error));
                         last_error = Some(error);
@@ -1274,6 +1295,46 @@ exec sleep 300
             let state = stat.rsplit(')').next().unwrap_or("").split_whitespace().next();
             assert!(matches!(state, None | Some("Z") | Some("X")), "kubectl {} still runs: {}", pid, stat);
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// kubectl failing with expired credentials is reported to the auth
+    /// center (source `logs`).
+    #[cfg(unix)]
+    #[test]
+    fn auth_failures_are_reported() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("jet-fake-kubectl-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("kubectl");
+        std::fs::write(
+            &path,
+            "#!/bin/sh\necho 'Unable to connect to the server: getting credentials: exec: executable aws failed with exit code 255' >&2\necho 'Error loading SSO Token: Token for prod does not exist' >&2\nexit 1\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let session_id = uuid::Uuid::new_v4().to_string();
+        insert_session(session_id.clone(), StructuredLoggingSession::default());
+        let collector = Arc::new(Collector::default());
+        let mut s = spec(LogTarget::Pod { name: "web-1".into() });
+        s.context = "logs-auth-test".into();
+        s.follow = false;
+        start_stream_with(session_id, s, collector.clone(), path.to_str().unwrap()).unwrap();
+        let started = std::time::Instant::now();
+        while !collector.ended() {
+            assert!(started.elapsed() < Duration::from_secs(20), "stream did not end");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let issue = lock(&center::EMITTED)
+            .iter()
+            .find(|i| i.context == "logs-auth-test")
+            .cloned()
+            .expect("auth issue reported");
+        assert_eq!(issue.kind, center::AuthErrorKind::Expired);
+        assert_eq!(issue.source, IssueSource::Logs);
+        assert_eq!(issue.kube_config, "/kc");
+        assert_eq!(issue.command.as_deref(), Some("aws"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

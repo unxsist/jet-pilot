@@ -7,84 +7,84 @@ import {
   CarouselPrevious,
 } from "@/components/ui/carousel";
 import {
-  Cloud,
-  FolderTree,
-  Keyboard,
-  Palette,
-  Settings2,
-  TerminalSquare,
+  BellRing,
+  FileCheck2,
+  KeyRound,
+  RefreshCw,
+  ShieldCheck,
+  SquareTerminal,
 } from "lucide-vue-next";
 
-import hubDark from "@/assets/whats-new/hub-dark.webp";
-import hubLight from "@/assets/whats-new/hub-light.webp";
-import detailsDark from "@/assets/whats-new/cluster-details-dark.webp";
-import detailsLight from "@/assets/whats-new/cluster-details-light.webp";
-import guardDark from "@/assets/whats-new/guardrails-dark.webp";
-import guardLight from "@/assets/whats-new/guardrails-light.webp";
-import welcomeDark from "@/assets/whats-new/setup-guide-dark.webp";
-import welcomeLight from "@/assets/whats-new/setup-guide-light.webp";
+import addDark from "@/assets/whats-new/add-cluster-dark.webp";
+import addLight from "@/assets/whats-new/add-cluster-light.webp";
+import importDark from "@/assets/whats-new/import-preview-dark.webp";
+import importLight from "@/assets/whats-new/import-preview-light.webp";
+import signInDark from "@/assets/whats-new/sign-in-dark.webp";
+import signInLight from "@/assets/whats-new/sign-in-light.webp";
+import credentialsDark from "@/assets/whats-new/credentials-dark.webp";
+import credentialsLight from "@/assets/whats-new/credentials-light.webp";
 
 const slides = [
   {
-    title: "The Clusters hub",
+    title: "Add any cluster",
     description:
-      "Every cluster from every kubeconfig in one list: where it runs, its version and nodes, how it signs in, and whether it's reachable right now. Filter with env:prod or provider:aws, group by folder or provider, and connect with Enter. Open it from the sidebar or with Mod+O.",
-    dark: hubDark,
-    light: hubLight,
+      "Paste a kubeconfig, drop or import a file, or enter an API server with a token or certificate and test it before saving. Press Mod+N anywhere. Clusters you add live in JET Pilot's own kubeconfig; yours stays untouched.",
+    dark: addDark,
+    light: addLight,
   },
   {
-    title: "Clusters you recognise",
+    title: "See what you import",
     description:
-      "Give clusters a name and a colour, set their environment, sort them into folders and tag them. The name and colour follow you into the context switcher, tables and a thin bar across the top of the window. Your kubeconfig isn't touched.",
-    dark: detailsDark,
-    light: detailsLight,
+      "Before anything is added you see every context, how it signs in and what's wrong with it, which ones you already have, and exactly which commands its sign-in plugins would run.",
+    dark: importDark,
+    light: importLight,
   },
   {
-    title: "Guardrails for production",
+    title: "Sign in without leaving JET Pilot",
     description:
-      "Mark a cluster as protected and every destructive action asks you to type the resource name, and YAML always goes through a server dry run before it's applied. Read-only clusters hide every change altogether.",
-    dark: guardDark,
-    light: guardLight,
+      "When a token expires, every view says so and one Sign in button does the rest: device codes and browser sign-ins appear right in the app, and lists, logs and port forwards pick up where they left off.",
+    dark: signInDark,
+    light: signInLight,
   },
   {
-    title: "A guided start",
+    title: "Credentials in your keychain",
     description:
-      "New to JET Pilot? A short setup guide shows the kubeconfig files it found, the tools it uses and how it looks. Open it again anytime from the command palette.",
-    dark: welcomeDark,
-    light: welcomeLight,
+      "Tokens and keys of clusters you add go to your system keychain, or an encrypted file with a passphrase where there's none. A small credential helper makes them work with kubectl in your own terminal too.",
+    dark: credentialsDark,
+    light: credentialsLight,
   },
 ];
 
 const underTheHood = [
   {
-    icon: Cloud,
-    title: "Status without surprises",
-    text: "Clusters are checked in the background, but never in a way that opens a sign-in window.",
+    icon: ShieldCheck,
+    title: "No plain-text secrets",
+    text: "JET Pilot's kubeconfig only references credentials; it refuses to write a token or key into it.",
   },
   {
-    icon: FolderTree,
-    title: "Favourites and hiding",
-    text: "Favourites come first everywhere; hide clusters you never use without editing any file.",
+    icon: SquareTerminal,
+    title: "Your terminal, too",
+    text: "Add ~/.kube/jet-pilot/config to KUBECONFIG, or export clusters into ~/.kube/config (with a backup).",
   },
   {
-    icon: Keyboard,
-    title: "Keyboard first",
-    text: "Arrow through the hub, Enter to connect, E to edit, F to favourite, H to hide, / to filter.",
+    icon: BellRing,
+    title: "Credential status",
+    text: "The Clusters hub shows when credentials expire, so you can sign in before you need to.",
   },
   {
-    icon: TerminalSquare,
-    title: "Know where you type",
-    text: "Terminals on protected and read-only clusters say so before you run anything.",
+    icon: RefreshCw,
+    title: "Sign-in that never surprises",
+    text: "Background work never opens a browser: sign-ins only start when you ask for them.",
   },
   {
-    icon: Palette,
-    title: "Provider marks",
-    text: "Clusters show where they run: EKS, GKE, AKS, DigitalOcean, Akamai, Scaleway, local and more.",
+    icon: FileCheck2,
+    title: "Duplicates spotted",
+    text: "Importing a cluster you already have? It's unticked and labelled, so nothing is added twice.",
   },
   {
-    icon: Settings2,
-    title: "Namespaces per cluster",
-    text: "The namespace lists for clusters where you can't list namespaces now live in each cluster's details.",
+    icon: KeyRound,
+    title: "Works without a keychain",
+    text: "On systems without one, a passphrase protects the credentials, optionally unlocked for terminals for 12 hours.",
   },
 ];
 </script>
@@ -113,7 +113,7 @@ const underTheHood = [
         <div>
           <h3 class="text-base font-semibold">And under the hood</h3>
           <p class="mt-1 text-sm text-muted-foreground">
-            The small things that make JET Pilot feel like yours.
+            The details behind adding clusters safely.
           </p>
           <div class="mt-4 grid grid-cols-2 gap-3 pr-4">
             <div

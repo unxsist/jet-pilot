@@ -24,7 +24,7 @@ export const PINNED_SHORTCUT_COUNT = 9;
 
 /**
  * Cmd/Ctrl + , opens the settings (or focuses their search when open).
- * Cmd/Ctrl + O opens the Clusters hub.
+ * Cmd/Ctrl + O opens the Clusters hub, Cmd/Ctrl + N adds a cluster.
  * Cmd/Ctrl + 1..9 opens the n-th pinned resource.
  *
  * These are handled in-window: registering them as OS-global shortcuts
@@ -62,9 +62,15 @@ export default {
         openSettings();
         return;
       }
-      if (event.code === "KeyO" && !(event.target as Element | null)?.closest?.(".xterm, .monaco-editor")) {
+      const inEditor = !!(event.target as Element | null)?.closest?.(".xterm, .monaco-editor");
+      if (event.code === "KeyO" && !inEditor) {
         event.preventDefault();
         router.push({ name: "ClustersHub" });
+        return;
+      }
+      if (event.code === "KeyN" && !inEditor) {
+        event.preventDefault();
+        void import("@/lib/clusters/managed").then(({ openAddCluster }) => openAddCluster());
         return;
       }
 

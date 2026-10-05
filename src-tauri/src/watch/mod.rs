@@ -41,6 +41,7 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tokio::time::Instant;
 use tracing::{debug, info, warn};
 
+use crate::auth::center::{self, AuthErrorKind, AuthFailure, AuthIssue, IssueSource};
 use crate::kubernetes::client::{
     auth_error_message, client_with_context, exec_command_for_context, resolve_kubeconfig_path,
 };
@@ -208,6 +209,17 @@ fn classify(err: &watcher::Error, kube_config: &str, context: &str) -> Status {
         }
     };
 
+    // Credential broker failures (sign-in needed, expired, plugin missing /
+    // failed / too slow): stop until the user signs in.
+    if let Some(failure) = AuthFailure::of_kube_error(kube_err) {
+        return Status {
+            state: State::Unauthorized,
+            message: Some(failure.message.clone()),
+            code: None,
+            reason: Some(failure.info.kind.reason().into()),
+        };
+    }
+
     match kube_err {
         kube::Error::Api(status) => status_for_api(status.code, &status.reason, &status.message),
         kube::Error::Auth(auth) => {
@@ -232,6 +244,33 @@ fn classify(err: &watcher::Error, kube_config: &str, context: &str) -> Status {
             reason: None,
         },
     }
+}
+
+/// Reports an unauthorized watch to the auth center (debounced there; the
+/// client layers usually reported it already).
+fn report_unauthorized(status: &Status, kube_config: &str, context: &str) {
+    if status.state != State::Unauthorized {
+        return;
+    }
+    let message = status.message.clone().unwrap_or_default();
+    let kind = status
+        .reason
+        .as_deref()
+        .and_then(AuthErrorKind::from_reason)
+        .filter(|kind| *kind != AuthErrorKind::ExecFailed)
+        .or_else(|| match status.code {
+            Some(401) => Some(AuthErrorKind::Unauthorized),
+            _ => center::detect_kubectl_auth_failure(&message),
+        })
+        .unwrap_or(AuthErrorKind::ExecFailed);
+    center::report(AuthIssue {
+        kube_config: kube_config.to_string(),
+        context: context.to_string(),
+        kind,
+        source: IssueSource::Watch,
+        message,
+        command: exec_command_for_context(Some(kube_config), context),
+    });
 }
 
 fn status_for_api(code: u16, reason: &str, message: &str) -> Status {
@@ -296,8 +335,10 @@ async fn run_watcher(entry: Arc<Entry>, client: Client, namespace: Option<String
                     let status = classify(&err, &kube_config, &entry.tag.context);
                     warn!(
                         "Watch {} {} [{}] error ({:?}): {}",
-                        entry.tag.context, entry.ar.plural, entry.scope, status.state, err
+                        entry.tag.context, entry.ar.plural, entry.scope, status.state,
+                        status.message.as_deref().unwrap_or_default()
                     );
+                    report_unauthorized(&status, &kube_config, &entry.tag.context);
                     let terminal = status.state.is_terminal();
                     entry.set_status(status);
                     if terminal {
@@ -356,12 +397,15 @@ impl Hub {
         }
         watcher.stopped.store(false, Ordering::SeqCst);
         watcher.entry.set_status(Status::new(State::Syncing));
-        watcher.task = Some(tauri::async_runtime::spawn(run_watcher(
-            watcher.entry.clone(),
-            client,
-            key.namespace.clone(),
-            key.kube_config.clone(),
-            watcher.stopped.clone(),
+        watcher.task = Some(tauri::async_runtime::spawn(center::with_source(
+            IssueSource::Watch,
+            run_watcher(
+                watcher.entry.clone(),
+                client,
+                key.namespace.clone(),
+                key.kube_config.clone(),
+                watcher.stopped.clone(),
+            ),
         )));
     }
 
@@ -408,7 +452,7 @@ pub async fn watch_subscribe(
     request: WatchRequest,
     on_event: Channel<InvokeResponseBody>,
 ) -> Result<WatchSubscription, String> {
-    subscribe(request, channel_sink(on_event)).await
+    center::with_source(IssueSource::Watch, subscribe(request, channel_sink(on_event))).await
 }
 
 pub(crate) async fn subscribe(request: WatchRequest, sink: Sink) -> Result<WatchSubscription, String> {
@@ -505,6 +549,10 @@ pub fn watch_unsubscribe(id: u64) {
 /// watcher waiting in backoff reconnects right away.
 #[tauri::command]
 pub async fn watch_restart(id: u64) -> Result<(), String> {
+    center::with_source(IssueSource::Watch, restart_subscription(id)).await
+}
+
+async fn restart_subscription(id: u64) -> Result<(), String> {
     let keys = lock(&HUB.inner).subscriptions.get(&id).cloned().unwrap_or_default();
     for key in keys {
         let client = client_with_context(&key.context, Some(&key.kube_config))
@@ -518,6 +566,54 @@ pub async fn watch_restart(id: u64) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Restarts the watchers of the (kubeconfig, context) pairs that stopped as
+/// unauthorized, with a fresh client (after a sign-in). Returns how many
+/// were restarted.
+pub(crate) async fn restart_unauthorized(contexts: &[(String, String)]) -> usize {
+    center::with_source(IssueSource::Watch, restart_unauthorized_in(contexts)).await
+}
+
+async fn restart_unauthorized_in(contexts: &[(String, String)]) -> usize {
+    let stopped: Vec<WatcherKey> = lock(&HUB.inner)
+        .watchers
+        .iter()
+        .filter(|(key, watcher)| {
+            contexts
+                .iter()
+                .any(|(kube_config, context)| &key.kube_config == kube_config && &key.context == context)
+                && watcher.entry.status().state == State::Unauthorized
+        })
+        .map(|(key, _)| key.clone())
+        .collect();
+
+    let mut clients: HashMap<(String, String), Client> = HashMap::new();
+    let mut restarted = 0;
+    for key in stopped {
+        let target = (key.kube_config.clone(), key.context.clone());
+        let client = match clients.get(&target) {
+            Some(client) => client.clone(),
+            None => match client_with_context(&key.context, Some(&key.kube_config)).await {
+                Ok(client) => {
+                    clients.insert(target, client.clone());
+                    client
+                }
+                Err(err) => {
+                    warn!("Not restarting watches of {}: {}", key.context, err.message);
+                    continue;
+                }
+            },
+        };
+        let mut inner = lock(&HUB.inner);
+        if let Some(watcher) = inner.watchers.get_mut(&key) {
+            if watcher.entry.status().state == State::Unauthorized {
+                Hub::start(watcher, &key, client);
+                restarted += 1;
+            }
+        }
+    }
+    restarted
 }
 
 /// Drops every subscription (e.g. after a webview reload, whose channels
@@ -699,5 +795,74 @@ mod tests {
         let generation = entry.lock().idle_generation;
         HUB.evict_if_idle(&key, generation);
         assert!(!lock(&HUB.inner).watchers.contains_key(&key));
+    }
+
+    #[test]
+    fn broker_failures_stop_the_watch_as_unauthorized() {
+        let failure = AuthFailure {
+            info: crate::auth::center::AuthErrorInfo {
+                kube_config: "/kc".into(),
+                context: "ctx".into(),
+                kind: AuthErrorKind::InteractionRequired,
+                command: Some("kubelogin".into()),
+            },
+            message: "executable kubelogin needs an interactive sign-in".into(),
+        };
+        let err = watcher::Error::InitialListFailed(kube::Error::Service(Box::new(failure)));
+        let status = classify(&err, "/kc", "ctx");
+        assert_eq!(status.state, State::Unauthorized);
+        assert_eq!(status.reason.as_deref(), Some("InteractionRequired"));
+        assert!(status.state.is_terminal());
+    }
+
+    #[tokio::test]
+    async fn unauthorized_watchers_restart_after_a_sign_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kubeconfig.yaml");
+        std::fs::write(
+            &path,
+            "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster:\n    server: http://127.0.0.1:9\ncontexts:\n- name: restart-test\n  context:\n    cluster: c\n    user: u\nusers:\n- name: u\n  user:\n    token: t\n",
+        )
+        .unwrap();
+        let kube_config = path.to_string_lossy().into_owned();
+        let stopped_key = WatcherKey {
+            kube_config: kube_config.clone(),
+            context: "restart-test".into(),
+            ..key("a")
+        };
+        let ready_key = WatcherKey {
+            namespace: Some("b".into()),
+            ..stopped_key.clone()
+        };
+        let stopped = idle_watcher(true);
+        stopped.entry.set_status(Status {
+            state: State::Unauthorized,
+            message: None,
+            code: Some(401),
+            reason: None,
+        });
+        let ready = idle_watcher(true);
+        ready.entry.set_status(Status::new(State::Ready));
+        let (stopped_entry, ready_entry) = (stopped.entry.clone(), ready.entry.clone());
+        {
+            let mut inner = lock(&HUB.inner);
+            inner.watchers.insert(stopped_key.clone(), stopped);
+            inner.watchers.insert(ready_key.clone(), ready);
+        }
+
+        assert_eq!(restart_unauthorized(&[("/other".into(), "restart-test".into())]).await, 0);
+        let restarted = restart_unauthorized(&[(kube_config, "restart-test".into())]).await;
+        assert_eq!(restarted, 1);
+        assert_ne!(stopped_entry.status().state, State::Unauthorized);
+        assert_eq!(ready_entry.status().state, State::Ready);
+
+        let mut inner = lock(&HUB.inner);
+        for key in [stopped_key, ready_key] {
+            if let Some(watcher) = inner.watchers.remove(&key) {
+                if let Some(task) = watcher.task {
+                    task.abort();
+                }
+            }
+        }
     }
 }

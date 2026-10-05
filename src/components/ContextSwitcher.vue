@@ -9,7 +9,20 @@ import {
   CloseCommandPaletteKey,
   RerunLastCommandKey,
 } from "@/providers/CommandPaletteProvider";
-import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
+import {
+  credential,
+  credentialView,
+  onRecovered,
+  report,
+  requestSignIn,
+} from "@/lib/auth/center";
+/*
+ * Unused here since sign-in moved to the auth center, but keep it:
+ * evaluating DialogProvider from the sidebar lets rolldown keep merging the
+ * shared chunks (kind icons, ...) into the entry chunk. Without it the
+ * startup bundle grows by ~2 kB of chunk overhead (measured for 1.42).
+ */
+import "@/providers/DialogProvider";
 
 import {
   DropdownMenu,
@@ -30,6 +43,7 @@ import { useClusters } from "@/lib/clusters/useClusters";
 import { useRouter } from "vue-router";
 import {
   ChevronsUpDown,
+  KeyRound,
   Loader2,
   RefreshCw,
   LayoutGrid,
@@ -57,7 +71,6 @@ const {
   context: primaryContext,
   namespace: primaryNamespace,
   kubeConfig: primaryKubeConfig,
-  authenticated: clusterAuthenticated,
 } = injectStrict(KubeContextStateKey);
 const { settings } = injectStrict(SettingsContextStateKey);
 const setActiveNamespaces = injectStrict(KubeContextSetActiveNamespacesKey);
@@ -65,7 +78,6 @@ const switchContext = injectStrict(KubeContextSwitchContextKey);
 const registerCommand = injectStrict(RegisterCommandStateKey);
 const closeCommandPalette = injectStrict(CloseCommandPaletteKey);
 const rerunLastCommand = injectStrict(RerunLastCommandKey);
-const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 const isContextActive = injectStrict(KubeContextIsContextActiveKey);
 const isNamespaceActive = injectStrict(KubeContextIsNamespaceActiveKey);
 const clusters = useClusters();
@@ -77,8 +89,6 @@ interface ContextEntry {
   namespaces: string[];
   isFetching?: boolean;
   canConnect?: boolean;
-  canHandleAuth?: boolean;
-  handleAuthCallback?: () => void;
   kubeConfig: string;
 }
 
@@ -194,59 +204,15 @@ const listNamespaces = async (
   return namespaces.map((ns) => ns.metadata?.name || "");
 };
 
-/*
- * Offers the interactive login flow for contexts using exec auth plugins
- * (kubelogin / OIDC) and re-runs the palette command once logged in.
- */
-const spawnAuthDialog = (authErrorHandler: {
-  callback: (cb: (instructions?: string) => void) => void;
-}) => {
-  clusterAuthenticated.value = false;
-  spawnDialog({
-    title: "Authentication required",
-    message:
-      "Failed to authenticate with this cluster. Please log in to continue.",
-    buttons: [
-      {
-        label: "Close",
-        variant: "ghost",
-        handler: (dialog) => {
-          dialog.close();
-          closeCommandPalette();
-        },
-      },
-      {
-        label: "Login",
-        handler: async (dialog) => {
-          dialog.buttons = [];
-          dialog.title = "Awaiting login";
-          dialog.message = "Please wait while we complete the login flow.";
-          authErrorHandler.callback((instructions?: string) => {
-            if (instructions) {
-              dialog.title = "Complete login in your browser";
-              // The dialog only renders plain text, and plugin output can be
-              // long - keep the most useful part.
-              dialog.message = instructions.slice(0, 2000);
-              dialog.buttons = [
-                {
-                  label: "I've completed the login",
-                  handler: (dialog) => {
-                    dialog.close();
-                    clusterAuthenticated.value = true;
-                    rerunLastCommand();
-                  },
-                },
-              ];
-            } else {
-              dialog.close();
-              clusterAuthenticated.value = true;
-              rerunLastCommand();
-            }
-          });
-        },
-      },
-    ],
-  });
+/* Whether the auth center knows `ctx` needs a sign-in (and can do it). */
+const needsSignIn = (ctx: { context: string; kubeConfig: string }) => {
+  const view = credentialView({ context: ctx.context, kubeConfig: ctx.kubeConfig });
+  return view.needsSignIn && view.canSignIn;
+};
+
+const signIn = (ctx: ContextEntry) => {
+  menuOpen.value = false;
+  void requestSignIn({ context: ctx.context, kubeConfig: ctx.kubeConfig });
 };
 
 const namespaceCommands = (
@@ -313,14 +279,16 @@ onMounted(() => {
               context.kubeConfig
             );
           } catch (e: any) {
-            const authErrorHandler = await Kubernetes.getAuthErrorHandler(
-              context.context,
-              context.kubeConfig,
-              e.message
-            );
-
-            if (authErrorHandler.canHandle) {
-              spawnAuthDialog(authErrorHandler);
+            const target = {
+              context: context.context,
+              kubeConfig: context.kubeConfig,
+            };
+            if (report(target, e, "api")) {
+              // Picked in the palette: sign in, then show its namespaces.
+              closeCommandPalette();
+              void requestSignIn(target).then(
+                (signedIn) => signedIn && rerunLastCommand()
+              );
             } else if (context.defaultNamespace) {
               namespaces = [context.defaultNamespace];
             } else {
@@ -391,9 +359,13 @@ const namespaceSummaryOf = (context: string, kubeConfig: string) => {
     : pluralize(namespaces.length, "namespace");
 };
 
+const primaryCredential = credential(() => ({
+  context: primaryContext.value,
+  kubeConfig: primaryKubeConfig.value,
+}));
 const triggerStatus = computed(() => {
   if (!primaryContext.value) return null;
-  return clusterAuthenticated.value ? "success" : "warning";
+  return primaryCredential.value.needsSignIn ? "warning" : "success";
 });
 
 const contextFilter = ref("");
@@ -500,6 +472,12 @@ const fetchNamespaces = async (entry: ContextEntry) => {
     ctx.namespaces = await listNamespaces(ctx.context, ctx.kubeConfig);
     ctx.canConnect = true;
   } catch (err: any) {
+    // Needs a sign-in: the auth center marks it, the menu offers it.
+    if (report({ context: ctx.context, kubeConfig: ctx.kubeConfig }, err, "api")) {
+      ctx.canConnect = false;
+      return;
+    }
+
     if (err.code === 401 || err.code === 403) {
       // No permission to list namespaces; fall back to the context's default
       // namespace so the context can still be used.
@@ -509,20 +487,6 @@ const fetchNamespaces = async (entry: ContextEntry) => {
     }
 
     ctx.canConnect = false;
-
-    const authHandler = await Kubernetes.getAuthErrorHandler(
-      ctx.context,
-      ctx.kubeConfig,
-      err.message
-    );
-
-    ctx.canHandleAuth = authHandler.canHandle;
-    ctx.handleAuthCallback = () => {
-      authHandler.callback(() => {
-        ctx.canHandleAuth = false;
-        fetchNamespaces(ctx);
-      });
-    };
   } finally {
     ctx.isFetching = false;
   }
@@ -530,10 +494,16 @@ const fetchNamespaces = async (entry: ContextEntry) => {
 
 const retryNamespaces = (ctx: ContextEntry) => {
   ctx.canConnect = undefined;
-  ctx.canHandleAuth = false;
   ctx.namespaces = [];
   fetchNamespaces(ctx);
 };
+
+/* Signed in: list the namespaces that failed to load. */
+const stopRecovered = onRecovered("*", (target) => {
+  const ctx = findContext(target.context, target.kubeConfig);
+  if (ctx?.canConnect === false) retryNamespaces(ctx);
+});
+onUnmounted(stopRecovered);
 </script>
 <template>
   <div class="w-full">
@@ -616,7 +586,9 @@ const retryNamespaces = (ctx: ContextEntry) => {
               size="sm"
               :status="
                 isContextActive(context.context, context.kubeConfig)
-                  ? 'success'
+                  ? needsSignIn(context)
+                    ? 'warning'
+                    : 'success'
                   : null
               "
             />
@@ -725,21 +697,19 @@ const retryNamespaces = (ctx: ContextEntry) => {
               <DropdownMenuItem
                 v-if="
                   !context.isFetching &&
-                  context.canHandleAuth &&
-                  context.namespaces.length === 0
+                  context.namespaces.length === 0 &&
+                  needsSignIn(context)
                 "
-                @select.prevent="
-                  context.handleAuthCallback && context.handleAuthCallback()
-                "
+                @select="signIn(context)"
               >
-                <RefreshCw class="h-3.5 w-3.5 text-muted-foreground" />
-                Re-authenticate
+                <KeyRound class="h-3.5 w-3.5 text-warning" />
+                Sign in…
               </DropdownMenuItem>
               <template
                 v-if="
                   !context.isFetching &&
                   context.canConnect === false &&
-                  !context.canHandleAuth
+                  !needsSignIn(context)
                 "
               >
                 <DropdownMenuLabel

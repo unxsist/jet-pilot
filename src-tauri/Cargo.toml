@@ -8,9 +8,20 @@ repository = "https://github.com/unxsist/jet-pilot"
 default-run = "jet_pilot"
 edition = "2021"
 
+# jetpilot-auth: the kubectl credential helper for clusters added in JET
+# Pilot. Only depends on crates/jp-auth-core; Tauri bundles it next to the
+# app binary in every format and the app installs it to ~/.kube/jet-pilot/bin.
+[[bin]]
+name = "jetpilot-auth"
+path = "src/bin/jetpilot_auth.rs"
+
+[workspace]
+members = ["crates/jp-auth-core"]
+
 [build-dependencies]
 tauri-build = { version = "2.7.1", features = [] }
 cc = "1.0.106"
+serde_json = "1.0.100"
 
 [dependencies]
 serde_json = "1.0.100"
@@ -45,6 +56,17 @@ which = "8"
 sha2 = "0.10"
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 tar = "0.4"
+jp-auth-core = { path = "crates/jp-auth-core" }
+serde-saphyr = "0.0.29"
+pem = "3"
+rpassword = "7"
+# Credential broker (src/auth): client layers, redaction, credential status.
+tower = { version = "0.5", features = ["buffer", "util"] }
+http = "1"
+base64 = "0.22"
+regex = "1"
+secrecy = "0.10"
+x509-cert = { version = "0.2", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tempfile = "3"
@@ -71,3 +93,10 @@ custom-protocol = ["tauri/custom-protocol"]
 # Integration tests against a real API server (a local kwok cluster, see
 # src/qa_kwok.rs). Never enabled in CI.
 kwok-qa = []
+
+# Argon2id (vault passphrases) is unusably slow unoptimised.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3

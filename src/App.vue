@@ -21,6 +21,10 @@ import ClusterTint from "./components/clusters/ClusterTint.vue";
 /* Setup guide and typed confirmations: needed after the first paint. */
 const WelcomeHost = defineAsyncComponent(() => import("./components/welcome/WelcomeHost.vue"));
 const GuardrailsHost = defineAsyncComponent(() => import("./components/guardrails/GuardrailsHost.vue"));
+/* Sign-in dialog and "sign-in needed" toasts (src/lib/auth/center.ts). */
+const AuthHost = defineAsyncComponent(() => import("./components/auth/AuthHost.vue"));
+/* Add-cluster dialog and vault passphrase prompts. */
+const ClustersHost = defineAsyncComponent(() => import("./components/clusters/ClustersHost.vue"));
 import {
   ResizableHandle,
   ResizablePanel,
@@ -100,6 +104,8 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
                       <CommandPalette />
                       <DialogHandler />
                       <GuardrailsHost />
+                      <ClustersHost />
+                      <AuthHost />
                       <template v-if="idle">
                         <UpdateHandler />
                         <AnnouncementHandler />

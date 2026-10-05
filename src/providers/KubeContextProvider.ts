@@ -1,9 +1,10 @@
 import { Kubernetes } from "@/services/Kubernetes";
-import { provide, reactive, InjectionKey, toRefs, ToRefs } from "vue";
+import { computed, provide, reactive, watchEffect, InjectionKey, toRefs, ToRefs } from "vue";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
 import { isSameContext } from "@/lib/contextKey";
 import { warn } from "@/lib/logger";
+import { credentialView, setActiveClusters } from "@/lib/auth/center";
 
 export const KubeContextStateKey: InjectionKey<ToRefs<KubeContextState>> =
   Symbol("KubeContextState");
@@ -56,6 +57,10 @@ export interface KubeContextState {
   context: string;
   namespace: string | "all";
   kubeConfig: string;
+  /**
+   * The primary context's credential works (no sign-in needed). Read-only:
+   * follows the auth center (@/lib/auth/center), kept for compatibility.
+   */
   authenticated: boolean;
 
   /**
@@ -82,12 +87,26 @@ export default {
       context: settings.value.lastContext || "",
       namespace: settings.value.lastNamespace || "",
       kubeConfig: settings.value.lastKubeConfig || "",
-      authenticated: true,
+      authenticated: computed(
+        () =>
+          !credentialView({ context: state.context, kubeConfig: state.kubeConfig })
+            .needsSignIn
+      ) as unknown as boolean,
       contexts: new Map<string, string[]>(),
       contextKubeConfigMapping: new Map<string, string>(),
     });
 
     provide(KubeContextStateKey, toRefs(state));
+
+    /* The auth center only toasts sign-in issues of clusters in use. */
+    watchEffect(() =>
+      setActiveClusters(
+        [...state.contexts.keys()].map((context) => ({
+          context,
+          kubeConfig: state.contextKubeConfigMapping.get(context) || "",
+        }))
+      )
+    );
 
     const setContext = (context: { context: string; kubeConfig: string }) => {
       Kubernetes.setCurrentKubeConfig(context.kubeConfig);

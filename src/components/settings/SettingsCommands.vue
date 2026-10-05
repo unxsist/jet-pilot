@@ -17,6 +17,10 @@ import { formatSettingValue, validateSetting } from "@/lib/settings/values";
 import { getPath, setPath, type JsonObject } from "@/lib/settings/paths";
 import type { SettingDefinition } from "@/lib/settings/types";
 import { openWelcome } from "@/lib/welcome";
+import { openAddCluster } from "@/lib/clusters/managed";
+import { type as getOsType } from "@tauri-apps/plugin-os";
+
+const isMac = getOsType() === "macos";
 
 const registerCommand = injectStrict(RegisterCommandStateKey);
 const { settings } = injectStrict(SettingsContextStateKey);
@@ -87,6 +91,15 @@ registerCommand({
 for (const def of visible) {
   registerCommand(settingCommand(def, { searchOnly: true }));
 }
+
+registerCommand({
+  id: "add-cluster",
+  name: "Add cluster…",
+  description: "Paste a kubeconfig, import a file or enter a cluster",
+  keywords: ["kubeconfig", "import", "paste", "new cluster", "connect", "context"],
+  shortcut: [isMac ? "⌘" : "Ctrl", "N"],
+  execute: () => openAddCluster(),
+});
 
 registerCommand({
   id: "open-setup-guide",

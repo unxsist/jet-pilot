@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.39.0",
   "scripts": {
-    "dev": "RUST_BACKTRACE=1 tauri dev",
+    "dev": "cargo build --manifest-path src-tauri/Cargo.toml --bin jetpilot-auth && RUST_BACKTRACE=1 tauri dev",
     "build": "tauri build",
     "vite:dev": "vite dev",
     "vite:build": "vite build",

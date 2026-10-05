@@ -21,6 +21,8 @@ import { OpenCommandPaletteKey } from "@/providers/CommandPaletteProvider";
 import { Minus, Search, Square, X } from "lucide-vue-next";
 import { injectStrict } from "@/lib/utils";
 import { useDiscovery, type DiscoveredResource } from "@/lib/discovery";
+import { isSameContext } from "@/lib/contextKey";
+import { onRecovered, report } from "@/lib/auth/center";
 import { perfMark } from "@/lib/perf";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { getCurrentWebviewWindow as getWindow } from "@tauri-apps/api/webviewWindow";
@@ -30,11 +32,7 @@ import { ref } from "vue";
 import { RouteLocationRaw } from "vue-router";
 
 const targetOs = ref<string>(getOsType());
-const {
-  context,
-  kubeConfig,
-  authenticated: clusterAuthenticated,
-} = injectStrict(KubeContextStateKey);
+const { context, kubeConfig } = injectStrict(KubeContextStateKey);
 const { settings } = injectStrict(SettingsContextStateKey);
 const flushSettings = injectStrict(SettingsContextFlushKey);
 const refreshShortcuts = injectStrict(GlobalShortcutRegisterShortcutsKey);
@@ -251,12 +249,21 @@ const unpinResource = (resource: { name: string; kind: string }) => {
   refreshShortcuts();
 };
 
-// Re-discover after a successful re-authentication.
-watch(clusterAuthenticated, (authenticated, wasAuthenticated) => {
-  if (authenticated && !wasAuthenticated) {
+/*
+ * Discovery failing because the cluster needs a sign-in goes to the auth
+ * center; once signed in, discover again.
+ */
+watch(discovery.error, (message) => {
+  if (message && context.value) {
+    report({ context: context.value, kubeConfig: kubeConfig.value }, message, "api");
+  }
+});
+const stopRecovered = onRecovered("*", (target) => {
+  if (isSameContext(target, { context: context.value, kubeConfig: kubeConfig.value })) {
     discovery.refresh();
   }
 });
+onUnmounted(stopRecovered);
 </script>
 
 <template>
