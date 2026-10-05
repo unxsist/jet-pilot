@@ -194,7 +194,7 @@ const panelResource = computed(() =>
       aria-label="Relationships"
     >
       <h3
-        class="flex items-center gap-2 text-2xs font-semibold uppercase tracking-[0.06em] text-foreground"
+        class="flex items-center gap-2 text-xs font-medium text-foreground"
       >
         <Waypoints class="h-3.5 w-3.5" /> Relationships
       </h3>

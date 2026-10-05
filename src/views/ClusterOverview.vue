@@ -1747,7 +1747,7 @@ const navigateTo = (x: number, y: number) =>
         <PopoverContent align="start" class="w-72 p-0">
           <div class="space-y-3 p-3">
             <section>
-              <h3 class="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <h3 class="mb-1.5 text-xs font-medium text-muted-foreground">
                 Show
               </h3>
               <label
@@ -1763,7 +1763,7 @@ const navigateTo = (x: number, y: number) =>
               </label>
             </section>
             <section v-if="namespacesInGraph.length > 1">
-              <h3 class="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <h3 class="mb-1.5 text-xs font-medium text-muted-foreground">
                 Namespaces
               </h3>
               <div class="max-h-40 overflow-y-auto">
@@ -1784,7 +1784,7 @@ const navigateTo = (x: number, y: number) =>
               </div>
             </section>
             <section>
-              <h3 class="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <h3 class="mb-1.5 text-xs font-medium text-muted-foreground">
                 Labels
               </h3>
               <Input

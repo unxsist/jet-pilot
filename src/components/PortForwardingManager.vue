@@ -6,7 +6,6 @@ import {
   Cable,
   Play,
   Trash2,
-  ChevronRight,
   ExternalLink,
   Loader2,
   TriangleAlert,
@@ -117,29 +116,25 @@ const formatExpiry = (expiresAtMs: number | null): string | null => {
           type="button"
           :aria-label="summary"
           :title="summary"
-          class="group flex h-8 w-full items-center gap-2 rounded-md border px-2.5 text-sm text-foreground transition-colors duration-fast ease-out focus-ring focus-visible:ring-offset-sidebar"
-          :class="
-            activePortForwardings.length > 0
-              ? 'border-success/20 bg-success/[0.06] hover:border-success/30 hover:bg-success/10'
-              : 'bg-background/60 text-muted-foreground shadow-xs hover:border-border-strong hover:bg-background hover:text-foreground'
-          "
+          class="flex h-7 w-full items-center gap-2.5 rounded-md px-2 text-sm text-sidebar-foreground transition-colors duration-fast ease-out hover:bg-accent/70 hover:text-foreground focus-ring focus-visible:ring-offset-sidebar data-[state=open]:bg-accent"
         >
-          <StatusDot
-            v-if="activePortForwardings.length > 0"
-            :tone="overallTone"
-            :pulse="readyCount > 0"
-          />
-          <Cable v-else class="h-3.5 w-3.5 shrink-0" />
-          <span
-            v-if="activePortForwardings.length > 0"
-            class="flex-1 truncate text-left"
-          >
-            {{ readyCount }} port forward{{ readyCount === 1 ? "" : "s" }}
+          <span class="flex w-4 shrink-0 justify-center text-muted-foreground">
+            <StatusDot
+              v-if="activePortForwardings.length > 0"
+              :tone="overallTone"
+              :pulse="readyCount > 0"
+            />
+            <Cable v-else class="h-4 w-4" />
           </span>
-          <span v-else class="flex-1 truncate text-left">
-            {{ profiles.length }} saved forward{{
-              profiles.length === 1 ? "" : "s"
-            }}
+          <span class="min-w-0 flex-1 truncate text-left">
+            <template v-if="activePortForwardings.length > 0">
+              {{ readyCount }} port forward{{ readyCount === 1 ? "" : "s" }}
+            </template>
+            <template v-else>
+              {{ profiles.length }} saved forward{{
+                profiles.length === 1 ? "" : "s"
+              }}
+            </template>
           </span>
           <span
             v-if="startingCount > 0"
@@ -153,9 +148,6 @@ const formatExpiry = (expiresAtMs: number | null): string | null => {
           >
             <TriangleAlert class="h-3 w-3" />{{ failedCount }}
           </span>
-          <ChevronRight
-            class="h-3.5 w-3.5 text-muted-foreground transition-transform duration-fast group-hover:translate-x-0.5"
-          />
         </button>
       </DialogTrigger>
       <DialogContent class="max-w-lg gap-0 overflow-hidden p-0">
@@ -290,12 +282,10 @@ const formatExpiry = (expiresAtMs: number | null): string | null => {
         </ul>
         <div v-if="profiles.length > 0" class="border-t bg-surface-1">
           <div
-            class="flex items-center justify-between px-5 pb-1 pt-3 text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground/80"
+            class="flex items-center justify-between px-5 pb-1 pt-3 text-xs text-muted-foreground"
           >
-            <span>Saved profiles</span>
-            <span class="normal-case tracking-normal font-normal"
-              >Start on launch</span
-            >
+            <span class="font-medium">Saved profiles</span>
+            <span>Start on launch</span>
           </div>
           <ul class="max-h-[30vh] overflow-y-auto pb-2">
             <li

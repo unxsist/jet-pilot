@@ -7,26 +7,37 @@
  */
 import { homeDir, join } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
-import { FolderOpen, Plus, RefreshCw } from "lucide-vue-next";
+import { Loader2, Plus, RefreshCw } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import SettingsSection from "@/components/settings/SettingsSection.vue";
 import SettingRow from "@/components/settings/SettingRow.vue";
 import KubeconfigFileRow from "@/components/settings/sections/KubeconfigFileRow.vue";
-import { settingsBlock } from "@/components/settings/styles";
 import { SETTINGS_BY_KEY } from "@/lib/settings/registry";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { Kubernetes } from "@/services/Kubernetes";
 import { injectStrict } from "@/lib/utils";
 import {
-  ORIGIN_LABELS,
   discoverKubeconfigs,
   discoveredKubeconfigs,
   expandHome,
   normalizeKubeconfigPath,
+  type KubeconfigOrigin,
 } from "@/lib/kubeconfigSources";
 
 const { settings } = injectStrict(SettingsContextStateKey);
+
+/* Where a file was found, as its row's subtitle. */
+const ORIGINS: Record<KubeconfigOrigin, string> = {
+  managed: "Added in JET Pilot",
+  default: "Default kubeconfig",
+  env: "From $KUBECONFIG",
+  directory: "In ~/.kube",
+  configD: "In ~/.kube/config.d",
+};
+const home = ref("");
+onMounted(() => homeDir().then((dir) => (home.value = dir.replace(/[\\/]+$/, "")), () => undefined));
+
 const autoDetectDef = SETTINGS_BY_KEY.get("kubeconfig.autoDetect")!;
 
 const sources = computed(() => settings.value.kubeconfig.sources);
@@ -109,75 +120,96 @@ const remove = (index: number) => {
 <template>
   <SettingsSection
     title="Kubeconfig files"
-    description="Where your contexts come from. JET Pilot reads these files and never changes them."
+    description="Where your contexts come from. JET Pilot only reads these files."
   >
     <template #actions>
-      <Button size="sm" variant="ghost" :disabled="scanning" @click="scan">
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        class="text-muted-foreground"
+        :disabled="scanning"
+        title="Check the files again"
+        aria-label="Check the files again"
+        @click="scan"
+      >
         <RefreshCw class="h-3.5 w-3.5" :class="scanning ? 'animate-spin' : ''" />
-        Check again
+      </Button>
+      <Button size="sm" variant="outline" @click="browse">
+        <Plus class="h-3.5 w-3.5" />
+        Add files…
       </Button>
     </template>
 
     <SettingRow :def="autoDetectDef" />
 
-    <div :class="settingsBlock">
-      <div class="flex items-baseline justify-between gap-4">
-        <h3 class="text-xs font-medium text-muted-foreground">Added by you</h3>
+    <div class="space-y-6 py-5">
+      <div class="space-y-1">
+        <div class="flex h-7 items-center justify-between gap-4">
+          <h3 class="text-xs font-medium text-muted-foreground">
+            Added by you<span v-if="sources.length" class="ml-1.5 font-normal tabular-nums">{{ sources.length }}</span>
+          </h3>
+          <button
+            v-if="!typing"
+            type="button"
+            class="-mr-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors duration-fast hover:bg-accent/50 hover:text-foreground focus-ring"
+            @click="startTyping"
+          >
+            Type a path
+          </button>
+        </div>
+        <div v-if="sources.length" class="-mx-3 space-y-px">
+          <KubeconfigFileRow
+            v-for="(path, index) in sources"
+            :key="path"
+            :path="path"
+            :home="home"
+            :context-count="status.get(path)?.count ?? null"
+            :error="status.get(path)?.error"
+            removable
+            @remove="remove(index)"
+          />
+        </div>
+        <p v-else-if="!typing" class="text-xs text-muted-foreground">
+          None yet. Add files that aren't found automatically.
+        </p>
+        <form v-if="typing" class="flex items-center gap-2 pt-1" @submit.prevent="addTyped">
+          <Input
+            ref="typedInput"
+            v-model="typedPath"
+            placeholder="~/clusters/staging.yaml"
+            aria-label="Path to a kubeconfig file"
+            spellcheck="false"
+            class="flex-1 font-mono text-xs"
+            @keydown.esc.stop="typing = false"
+          />
+          <Button size="sm" variant="ghost" type="button" @click="typing = false">Cancel</Button>
+          <Button size="sm" type="submit" :disabled="!typedPath.trim()">Add</Button>
+        </form>
       </div>
-      <div v-if="sources.length" class="overflow-hidden rounded-md border">
-        <KubeconfigFileRow
-          v-for="(path, index) in sources"
-          :key="path"
-          :path="path"
-          :context-count="status.get(path)?.count ?? null"
-          :error="status.get(path)?.error"
-          removable
-          @remove="remove(index)"
-        />
-      </div>
-      <p v-else class="text-xs text-muted-foreground">
-        No extra files. Add kubeconfig files that aren't found automatically.
-      </p>
-      <form v-if="typing" class="flex items-center gap-2" @submit.prevent="addTyped">
-        <Input
-          ref="typedInput"
-          v-model="typedPath"
-          placeholder="~/clusters/staging.yaml"
-          aria-label="Path to a kubeconfig file"
-          spellcheck="false"
-          class="flex-1 font-mono text-xs"
-          @keydown.esc.stop="typing = false"
-        />
-        <Button size="sm" type="submit" :disabled="!typedPath.trim()">Add</Button>
-        <Button size="sm" variant="ghost" type="button" @click="typing = false">Cancel</Button>
-      </form>
-      <div v-else class="flex justify-end gap-2">
-        <Button size="sm" variant="ghost" @click="startTyping">Type a path</Button>
-        <Button size="sm" variant="outline" @click="browse">
-          <FolderOpen class="h-3.5 w-3.5" />
-          Add files…
-        </Button>
-      </div>
-    </div>
 
-    <div v-if="autoDetect" :class="settingsBlock">
-      <h3 class="text-xs font-medium text-muted-foreground">Found automatically</h3>
-      <div v-if="detected.length" class="overflow-hidden rounded-md border">
-        <KubeconfigFileRow
-          v-for="file in detected"
-          :key="file.path"
-          :path="file.path"
-          :origin="ORIGIN_LABELS[file.origin]"
-          :context-count="file.readable ? file.contextCount : null"
-          :error="file.readable ? null : (file.error ?? 'Not readable')"
-          :duplicate="added.has(normalizeKubeconfigPath(file.path))"
-        />
+      <div v-if="autoDetect" class="space-y-1">
+        <h3 class="flex h-7 items-center text-xs font-medium text-muted-foreground">
+          Found automatically<span v-if="detected.length" class="ml-1.5 font-normal tabular-nums">{{ detected.length }}</span>
+        </h3>
+        <div v-if="detected.length" class="-mx-3 space-y-px">
+          <KubeconfigFileRow
+            v-for="file in detected"
+            :key="file.path"
+            :path="file.path"
+            :home="home"
+            :origin="ORIGINS[file.origin]"
+            :context-count="file.readable ? file.contextCount : null"
+            :error="file.readable ? null : (file.error ?? 'Not readable')"
+            :duplicate="added.has(normalizeKubeconfigPath(file.path))"
+          />
+        </div>
+        <p v-else-if="discoveredKubeconfigs" class="text-xs text-muted-foreground">
+          No kubeconfig files in ~/.kube or $KUBECONFIG yet.
+        </p>
+        <p v-else class="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 class="h-3.5 w-3.5 animate-spin" /> Looking for kubeconfig files…
+        </p>
       </div>
-      <p v-else-if="discoveredKubeconfigs" class="flex items-center gap-2 text-xs text-muted-foreground">
-        <Plus class="h-3.5 w-3.5" />
-        No kubeconfig files in ~/.kube or $KUBECONFIG yet.
-      </p>
-      <p v-else class="text-xs text-muted-foreground">Looking for kubeconfig files…</p>
     </div>
   </SettingsSection>
 </template>

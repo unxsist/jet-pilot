@@ -23,6 +23,9 @@ const props = defineProps<ContextMenuSubTriggerProps & { class?: string; inset?:
     ]"
   >
     <slot />
-    <ChevronRightIcon class="ml-auto h-3.5 w-3.5 text-muted-foreground" />
+    <!-- Shown on the highlighted / open row only: no column of chevrons -->
+    <ChevronRightIcon
+      class="ml-auto h-3.5 w-3.5 text-muted-foreground opacity-0 [[data-highlighted]_&]:opacity-100 [[data-state=open]>&]:opacity-100"
+    />
   </ContextMenuSubTrigger>
 </template>

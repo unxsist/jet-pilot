@@ -852,7 +852,7 @@ onUnmounted(() => {
           <!-- Pods -->
           <section v-if="isMultiPod || podNames.length > 1" aria-label="Pods">
             <div
-              class="sticky top-0 z-10 flex h-9 items-center gap-2 bg-surface-1 px-3 text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground"
+              class="sticky top-0 z-10 flex h-9 items-center gap-2 bg-surface-1 px-3 text-xs font-medium text-muted-foreground"
             >
               Pods
               <span class="ml-auto font-normal normal-case tracking-normal tabular-nums">
@@ -896,7 +896,7 @@ onUnmounted(() => {
           <!-- Containers -->
           <section v-if="multiContainer" aria-label="Containers">
             <div
-              class="sticky top-0 z-10 flex h-9 items-center bg-surface-1 px-3 text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground"
+              class="sticky top-0 z-10 flex h-9 items-center bg-surface-1 px-3 text-xs font-medium text-muted-foreground"
             >
               Containers
             </div>
@@ -925,7 +925,7 @@ onUnmounted(() => {
           <!-- Parsed fields -->
           <section v-if="fieldColumns.length > 0" aria-label="Fields">
             <div
-              class="sticky top-0 z-10 flex h-9 items-center gap-2 bg-surface-1 px-3 text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground"
+              class="sticky top-0 z-10 flex h-9 items-center gap-2 bg-surface-1 px-3 text-xs font-medium text-muted-foreground"
             >
               <ListFilter class="h-3.5 w-3.5" />
               Fields

@@ -9,7 +9,7 @@ import { useRoute, useRouter } from "vue-router";
 import { getVersion } from "@tauri-apps/api/app";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
-import { Braces, Download, RotateCcw, Upload } from "lucide-vue-next";
+import { Braces, Download, FileJson, RotateCcw, Upload } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -31,7 +31,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import SettingsSection from "@/components/settings/SettingsSection.vue";
-import { settingsRow } from "@/components/settings/styles";
+import { settingsHint, settingsLabel, settingsRow } from "@/components/settings/styles";
 import { useToast } from "@/components/ui/toast";
 import { useTheme } from "@/providers/ThemeProvider";
 import {
@@ -193,25 +193,21 @@ watch(
     description="Edit settings.json directly, move your setup to another machine, or start over"
   >
     <div :class="settingsRow">
-      <div class="space-y-1">
-        <p class="text-sm font-medium">settings.json</p>
-        <p class="text-xs text-muted-foreground">
-          Every preference as JSON, with validation and completion. Only values you changed are stored.
-        </p>
+      <div class="min-w-0">
+        <p :class="settingsLabel">settings.json</p>
+        <p :class="[settingsHint, 'mt-0.5']">Every preference as JSON. Only values you changed are stored.</p>
       </div>
       <div class="flex sm:justify-end">
         <Button size="sm" variant="outline" @click="router.push({ name: 'SettingsJson' })">
           <Braces class="h-3.5 w-3.5" />
-          Open settings.json
+          Open
         </Button>
       </div>
     </div>
     <div :class="settingsRow">
-      <div class="space-y-1">
-        <p class="text-sm font-medium">Export and import</p>
-        <p class="text-xs text-muted-foreground">
-          Preferences, workspaces, port-forward profiles and your themes in one file. Never credentials.
-        </p>
+      <div class="min-w-0">
+        <p :class="settingsLabel">Export and import</p>
+        <p :class="[settingsHint, 'mt-0.5']">Preferences, workspaces, port forwards and themes. Never credentials.</p>
       </div>
       <div class="flex gap-2 sm:justify-end">
         <Button size="sm" variant="outline" @click="pickImport">
@@ -225,14 +221,12 @@ watch(
       </div>
     </div>
     <div :class="settingsRow">
-      <div class="space-y-1">
-        <p class="text-sm font-medium">Reset preferences</p>
-        <p class="text-xs text-muted-foreground">
-          Every preference back to its default. Workspaces, themes and port forwards stay.
-        </p>
+      <div class="min-w-0">
+        <p :class="settingsLabel">Reset preferences</p>
+        <p :class="[settingsHint, 'mt-0.5']">Every preference back to its default. Workspaces and themes stay.</p>
       </div>
       <div class="flex sm:justify-end">
-        <Button size="sm" variant="outline" class="text-destructive" @click="resetOpen = true">
+        <Button size="sm" variant="outline" class="text-destructive hover:text-destructive" @click="resetOpen = true">
           <RotateCcw class="h-3.5 w-3.5" />
           Reset…
         </Button>
@@ -241,17 +235,17 @@ watch(
   </SettingsSection>
 
   <Dialog v-model:open="exportOpen">
-    <DialogContent class="max-w-md">
+    <DialogContent class="max-w-md grid-cols-[minmax(0,1fr)]">
       <DialogHeader>
         <DialogTitle>Export settings</DialogTitle>
         <DialogDescription>Choose what goes into the file. Credentials are never included.</DialogDescription>
       </DialogHeader>
-      <div class="space-y-2.5 py-1">
+      <div class="-mx-2">
         <label
           v-for="{ part, label } in BUNDLE_PARTS"
           :key="part"
-          class="flex items-center gap-3 text-sm"
-          :class="counts[part] === 0 ? 'text-muted-foreground' : ''"
+          class="flex h-9 items-center gap-3 rounded-md px-2 text-sm transition-colors duration-fast"
+          :class="counts[part] === 0 ? 'text-muted-foreground' : 'cursor-pointer hover:bg-accent/50'"
         >
           <Checkbox
             :checked="exportParts.has(part) && counts[part] > 0"
@@ -260,17 +254,19 @@ watch(
           />
           <span class="flex-1">{{ label }}</span>
           <span class="text-xs tabular-nums text-muted-foreground">
-            {{ part === "preferences" ? `${counts[part]} changed` : counts[part] }}
-          </span>
-        </label>
-        <label class="flex items-start gap-3 border-t border-border-subtle pt-3 text-sm">
-          <Checkbox v-model:checked="includeMachine" class="mt-0.5" />
-          <span class="space-y-0.5">
-            <span class="block">Include machine-specific preferences</span>
-            <span class="block text-xs text-muted-foreground">Kubeconfig paths and the local shell.</span>
+            <template v-if="counts[part] === 0">None</template>
+            <template v-else-if="part === 'preferences'">{{ counts[part] }} changed</template>
+            <template v-else>{{ counts[part] }}</template>
           </span>
         </label>
       </div>
+      <label class="-mx-2 flex cursor-pointer items-start gap-3 rounded-md px-2 py-2 text-sm transition-colors duration-fast hover:bg-accent/50">
+        <Checkbox v-model:checked="includeMachine" class="mt-0.5" />
+        <span class="min-w-0">
+          <span class="block">Include machine-specific preferences</span>
+          <span class="block text-xs text-muted-foreground">Kubeconfig paths and the local shell.</span>
+        </span>
+      </label>
       <DialogFooter>
         <Button variant="ghost" @click="exportOpen = false">Cancel</Button>
         <Button @click="runExport">Export…</Button>
@@ -279,15 +275,21 @@ watch(
   </Dialog>
 
   <Dialog v-model:open="importOpen">
-    <DialogContent class="max-w-md">
+    <DialogContent class="max-w-md grid-cols-[minmax(0,1fr)]">
       <DialogHeader>
         <DialogTitle>Import settings</DialogTitle>
-        <DialogDescription class="truncate" :title="importFile?.path">
-          From {{ importFile?.path }}. Imported values win; everything else stays as it is.
-        </DialogDescription>
+        <DialogDescription>Imported values win; everything else stays as it is.</DialogDescription>
       </DialogHeader>
-      <div class="space-y-2.5 py-1">
-        <label v-for="item in importFile?.summary ?? []" :key="item.part" class="flex items-center gap-3 text-sm">
+      <p class="flex min-w-0 items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+        <FileJson class="h-3.5 w-3.5 shrink-0" />
+        <span class="truncate font-mono" :title="importFile?.path">{{ importFile?.path }}</span>
+      </p>
+      <div class="-mx-2">
+        <label
+          v-for="item in importFile?.summary ?? []"
+          :key="item.part"
+          class="flex h-9 cursor-pointer items-center gap-3 rounded-md px-2 text-sm transition-colors duration-fast hover:bg-accent/50"
+        >
           <Checkbox
             :checked="importParts.has(item.part)"
             @update:checked="(on: boolean) => (importParts = toggle(importParts, item.part, on))"
@@ -308,8 +310,8 @@ watch(
       <AlertDialogHeader>
         <AlertDialogTitle>Reset every preference?</AlertDialogTitle>
         <AlertDialogDescription>
-          Appearance, terminal, editor, tables, logs, kubeconfig and advanced preferences go back to
-          their defaults. Workspaces, themes, port forwards and open tabs are kept.
+          Every preference goes back to its default. Workspaces, themes, port forwards and open tabs are
+          kept.
         </AlertDialogDescription>
       </AlertDialogHeader>
       <AlertDialogFooter>

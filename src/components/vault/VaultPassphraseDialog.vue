@@ -5,18 +5,14 @@
  * reading cluster credentials needs it.
  */
 import { type as getOsType } from "@tauri-apps/plugin-os";
-import { KeyRound, Loader2 } from "lucide-vue-next";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { CircleAlert, KeyRound, Loader2 } from "lucide-vue-next";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import WizardHeader from "@/components/wizard/WizardHeader.vue";
+import WizardFooter from "@/components/wizard/WizardFooter.vue";
+import { WIZARD_BODY, WIZARD_DIALOG, WIZARD_ERROR } from "@/components/wizard/wizard";
 import { errorMessage, initPassphrase, unlockVault, type VaultPrompt } from "@/lib/clusters/managed";
 
 const props = defineProps<{ prompt: VaultPrompt }>();
@@ -33,6 +29,8 @@ const setup = computed(() => props.prompt.mode === "setup");
 const valid = computed(() =>
   setup.value ? passphrase.value.length >= 8 && passphrase.value === repeat.value : passphrase.value.length > 0
 );
+/* Only once both are typed: a mismatch while typing the second isn't news. */
+const mismatch = computed(() => setup.value && repeat.value.length >= passphrase.value.length && repeat.value !== passphrase.value && !!repeat.value);
 
 const submit = async () => {
   if (!valid.value || busy.value) return;
@@ -52,39 +50,57 @@ const submit = async () => {
 
 <template>
   <Dialog :open="true" @update:open="(value: boolean) => !value && emit('done', false)">
-    <DialogContent class="max-w-md">
-      <DialogHeader>
-        <DialogTitle class="flex items-center gap-2">
-          <KeyRound class="h-4 w-4 text-primary" />
-          {{ setup ? "Protect your cluster credentials" : "Unlock your cluster credentials" }}
-        </DialogTitle>
-        <DialogDescription v-if="setup">
-          There's no system keychain available, so JET Pilot encrypts the credentials of clusters you add with a
-          passphrase. You'll enter it once per session.
-        </DialogDescription>
-        <DialogDescription v-else>JET Pilot needs your vault passphrase to use these credentials.</DialogDescription>
-      </DialogHeader>
+    <DialogContent :class="[WIZARD_DIALOG, 'max-w-[30rem]']">
+      <WizardHeader
+        :title="setup ? 'Protect your cluster credentials' : 'Unlock your cluster credentials'"
+        :description="
+          setup
+            ? 'No system keychain here, so JET Pilot encrypts them with a passphrase you enter once per session.'
+            : 'Enter your vault passphrase to use them this session.'
+        "
+      >
+        <template #icon><KeyRound class="h-[18px] w-[18px]" /></template>
+      </WizardHeader>
 
-      <p v-if="setup && prompt.problem" class="rounded-md border bg-surface-1 px-3 py-2 text-xs text-muted-foreground">
-        {{ prompt.problem }} With a keychain set up, no passphrase is needed.
-      </p>
-
-      <form class="space-y-3" @submit.prevent="submit">
-        <Input v-model="passphrase" type="password" :placeholder="setup ? 'Passphrase (at least 8 characters)' : 'Passphrase'" autofocus autocomplete="off" aria-label="Passphrase" />
-        <Input v-if="setup" v-model="repeat" type="password" placeholder="Repeat the passphrase" autocomplete="off" aria-label="Repeat the passphrase" />
-        <label v-if="linux" class="flex items-start gap-2 text-xs text-muted-foreground">
-          <Checkbox v-model:checked="cacheForTerminals" class="mt-0.5" />
-          Also unlock for kubectl in your terminals for 12 hours
+      <form id="vault-passphrase" :class="[WIZARD_BODY, 'space-y-3']" @submit.prevent="submit">
+        <Input
+          v-model="passphrase"
+          type="password"
+          :placeholder="setup ? 'Passphrase, at least 8 characters' : 'Passphrase'"
+          autofocus
+          autocomplete="off"
+          aria-label="Passphrase"
+        />
+        <template v-if="setup">
+          <Input
+            v-model="repeat"
+            type="password"
+            placeholder="Repeat the passphrase"
+            autocomplete="off"
+            aria-label="Repeat the passphrase"
+            :aria-invalid="mismatch"
+          />
+          <p v-if="mismatch" class="text-xs text-destructive">The passphrases don't match.</p>
+        </template>
+        <label v-if="linux && !setup" class="flex w-fit cursor-pointer items-center gap-2 pt-1 text-sm text-muted-foreground">
+          <Checkbox v-model:checked="cacheForTerminals" />
+          Also unlock kubectl in your terminals for 12 hours
         </label>
-        <p v-if="error" class="text-xs text-destructive" role="alert">{{ error }}</p>
-        <DialogFooter>
-          <Button type="button" variant="ghost" @click="emit('done', false)">Cancel</Button>
-          <Button type="submit" :disabled="!valid || busy">
-            <Loader2 v-if="busy" class="h-3.5 w-3.5 animate-spin" />
-            {{ setup ? "Set passphrase" : "Unlock" }}
-          </Button>
-        </DialogFooter>
+        <p v-if="setup && prompt.problem" class="pt-1 text-xs text-muted-foreground">
+          {{ prompt.problem }} With a keychain set up, no passphrase is needed.
+        </p>
+        <p v-if="error" :class="WIZARD_ERROR" role="alert">
+          <CircleAlert class="mt-px h-3.5 w-3.5 shrink-0" /> {{ error }}
+        </p>
       </form>
+
+      <WizardFooter>
+        <Button type="button" variant="ghost" @click="emit('done', false)">Cancel</Button>
+        <Button type="submit" form="vault-passphrase" :disabled="!valid || busy">
+          <Loader2 v-if="busy" class="h-3.5 w-3.5 animate-spin" />
+          {{ setup ? "Set passphrase" : "Unlock" }}
+        </Button>
+      </WizardFooter>
     </DialogContent>
   </Dialog>
 </template>

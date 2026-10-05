@@ -1,13 +1,14 @@
 <script setup lang="ts">
 /*
- * Settings: a category rail with search on the left, the category (or the
- * search results) on the right. Every preference comes from the registry
+ * Settings: a quiet rail (search, categories, and at its foot what you
+ * changed, settings.json and the version) next to the category page or the
+ * search results. Every preference comes from the registry
  * (src/lib/settings/registry.ts); `?q=` searches, `?setting=<key>` jumps to
  * a preference.
  */
 import { getVersion } from "@tauri-apps/api/app";
 import { useRoute, useRouter } from "vue-router";
-import { useEventListener } from "@vueuse/core";
+import { useElementSize, useEventListener } from "@vueuse/core";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { Braces, Search, X } from "lucide-vue-next";
 import { Kbd } from "@/components/ui/kbd";
@@ -17,6 +18,8 @@ import { SETTINGS } from "@/lib/settings/registry";
 import { isModified } from "@/lib/settings/store";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict, cn } from "@/lib/utils";
+
+defineOptions({ name: "SettingsView" });
 
 const route = useRoute();
 const router = useRouter();
@@ -73,36 +76,36 @@ const clearSearch = () => {
   searchInput.value?.focus();
 };
 
-const modifiedCounts = computed(() => {
-  const counts = new Map<string, number>();
-  for (const def of SETTINGS) {
-    if (isModified(settings.value, def)) {
-      counts.set(def.category, (counts.get(def.category) ?? 0) + 1);
-    }
-  }
-  return counts;
-});
+/* One quiet entry for everything you changed (search @modified) instead of counts per category. */
+const modifiedCount = computed(() => SETTINGS.filter((def) => isModified(settings.value, def)).length);
+const listingModified = computed(() => query.value.trim().toLowerCase() === "@modified");
+const showModified = () => {
+  query.value = "@modified";
+  nextTick(() => searchInput.value?.focus());
+};
 
 const activeCategory = computed(() => String(route.params.category ?? ""));
 
 const openCategory = () => {
   query.value = "";
 };
+
+/* The rail fills the visible height (its foot sits at the bottom) and stays put while the page scrolls. */
+const scroller = ref<HTMLElement | null>(null);
+const { height: viewHeight } = useElementSize(scroller);
 </script>
 <template>
   <!-- Full-bleed settings pages (JSON editors) bring their own layout. -->
   <div v-if="route.meta.fullBleed" class="h-full">
     <router-view />
   </div>
-  <div v-else class="h-full overflow-auto" data-settings-scroll>
-    <div class="mx-auto flex max-w-5xl gap-10 px-10 py-8">
-      <aside class="w-52 shrink-0">
-        <div class="sticky top-8 space-y-5">
-          <div class="space-y-1">
-            <h1 class="text-xl font-semibold tracking-tight">Settings</h1>
-            <p class="text-sm text-muted-foreground">Fine-tune JET Pilot to your liking</p>
-          </div>
-
+  <div v-else ref="scroller" class="h-full overflow-auto bg-background" data-settings-scroll>
+    <div class="mx-auto flex max-w-5xl gap-14 px-10">
+      <aside class="w-48 shrink-0">
+        <div
+          class="sticky top-0 flex min-h-[22rem] flex-col pb-6 pt-10"
+          :style="viewHeight ? { height: `${viewHeight}px` } : undefined"
+        >
           <div class="relative">
             <Search
               class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
@@ -113,8 +116,9 @@ const openCategory = () => {
               type="search"
               placeholder="Search settings"
               aria-label="Search settings"
+              title="Type @modified to list what you changed"
               spellcheck="false"
-              class="h-8 w-full rounded-md border bg-background pl-8 pr-8 text-sm placeholder:text-muted-foreground focus-ring [&::-webkit-search-cancel-button]:hidden"
+              class="h-8 w-full rounded-lg border border-transparent bg-muted/60 pl-8 pr-8 text-sm transition-colors duration-fast placeholder:text-muted-foreground hover:bg-muted focus:border-input focus:bg-background focus:outline-none focus:ring-[3px] focus:ring-ring/15 [&::-webkit-search-cancel-button]:hidden"
               @keydown.esc="query ? clearSearch() : undefined"
             />
             <button
@@ -130,58 +134,61 @@ const openCategory = () => {
               v-else
               :keys="['/']"
               size="sm"
+              variant="ghost"
               class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2"
             />
           </div>
 
-          <nav class="flex flex-col gap-0.5" aria-label="Settings sections">
+          <nav class="mt-5 flex flex-col gap-px" aria-label="Settings sections">
             <router-link
               v-for="category in CATEGORIES"
               :key="category.id"
               :to="{ name: 'SettingsCategory', params: { category: category.id } }"
               :class="
                 cn(
-                  'group flex h-8 items-center gap-2.5 rounded-md px-2.5 text-sm text-muted-foreground transition-colors duration-fast hover:bg-accent/70 hover:text-foreground focus-ring',
-                  !searching &&
-                    activeCategory === category.id &&
-                    'bg-accent font-medium text-foreground'
+                  'flex h-8 items-center gap-2.5 rounded-md px-2.5 text-sm text-muted-foreground transition-colors duration-fast hover:bg-accent/50 hover:text-foreground focus-ring',
+                  !searching && activeCategory === category.id && 'bg-accent font-medium text-foreground hover:bg-accent'
                 )
               "
               :aria-current="!searching && activeCategory === category.id ? 'page' : undefined"
               @click="openCategory"
             >
-              <component
-                :is="category.icon"
-                class="h-4 w-4 shrink-0"
-                :class="!searching && activeCategory === category.id ? 'text-primary' : ''"
-                :stroke-width="1.75"
-              />
-              <span class="flex-1 truncate">{{ category.title }}</span>
-              <span
-                v-if="modifiedCounts.get(category.id)"
-                class="text-2xs tabular-nums text-muted-foreground"
-                :title="`${modifiedCounts.get(category.id)} changed from the default`"
-              >
-                {{ modifiedCounts.get(category.id) }}
-              </span>
+              <component :is="category.icon" class="h-4 w-4 shrink-0" :stroke-width="1.75" />
+              <span class="truncate">{{ category.title }}</span>
             </router-link>
           </nav>
 
-          <div class="space-y-1 border-t border-border-subtle pt-4">
+          <div class="mt-auto space-y-px pt-6 text-xs text-muted-foreground">
+            <button
+              v-if="modifiedCount"
+              type="button"
+              :class="
+                cn(
+                  'flex h-7 w-full items-center gap-2.5 rounded-md px-2.5 text-left transition-colors duration-fast hover:bg-accent/50 hover:text-foreground focus-ring',
+                  listingModified && 'bg-accent text-foreground hover:bg-accent'
+                )
+              "
+              :aria-pressed="listingModified"
+              title="List the settings you changed"
+              @click="showModified"
+            >
+              <span class="flex w-3.5 justify-center"><span class="h-1.5 w-1.5 rounded-full bg-primary" /></span>
+              <span class="tabular-nums">{{ modifiedCount }} changed {{ modifiedCount === 1 ? "setting" : "settings" }}</span>
+            </button>
             <router-link
               :to="{ name: 'SettingsJson' }"
-              class="flex h-7 items-center gap-2 rounded-md px-2.5 text-xs text-muted-foreground transition-colors duration-fast hover:bg-accent/70 hover:text-foreground focus-ring"
+              class="flex h-7 items-center gap-2.5 rounded-md px-2.5 transition-colors duration-fast hover:bg-accent/50 hover:text-foreground focus-ring"
             >
               <Braces class="h-3.5 w-3.5" :stroke-width="1.75" />
-              Open settings.json
+              settings.json
             </router-link>
-            <p class="px-2.5 text-xs tabular-nums text-muted-foreground">
-              JET Pilot {{ appVersion ? `v${appVersion}` : "" }}
+            <p class="flex h-7 items-center px-2.5 tabular-nums">
+              JET Pilot{{ appVersion ? ` v${appVersion}` : "" }}
             </p>
           </div>
         </div>
       </aside>
-      <main class="min-w-0 flex-1 space-y-6 pb-16">
+      <main class="min-w-0 flex-1 pb-16 pt-10">
         <SettingsSearchResults v-if="searching" :query="query" @navigate="query = ''" />
         <router-view v-else />
       </main>

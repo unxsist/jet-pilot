@@ -251,7 +251,11 @@ const handleResize = (size: number) => {
           </div>
         </div>
         <div class="flex shrink-0 items-center gap-1 pl-2">
-          <span class="text-2xs tabular-nums text-muted-foreground/70">
+          <!-- A count only once the strip may scroll -->
+          <span
+            v-if="tabs.length > 4"
+            class="text-2xs tabular-nums text-muted-foreground/70"
+          >
             {{ tabs.length }} open
           </span>
           <Button

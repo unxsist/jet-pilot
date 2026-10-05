@@ -132,7 +132,7 @@ const fractionDigits = computed(() => {
     :maxlength="def.maxLength"
     spellcheck="false"
     autocomplete="off"
-    :class="cn('w-full', def.mono && 'font-mono text-xs')"
+    :class="cn('w-full sm:w-64', def.mono && 'font-mono text-xs')"
     @blur="commitText"
     @keydown.enter="commitText"
     @keydown.esc.stop="revertText"
@@ -142,7 +142,7 @@ const fractionDigits = computed(() => {
     v-else-if="def.type === 'string[]'"
     :id="id"
     :model-value="(modelValue as string[]) ?? []"
-    class="w-full"
+    class="w-full sm:w-72"
     @update:model-value="(values: unknown[]) => set(values.map(String))"
   >
     <TagsInputItem v-for="item in (modelValue as string[]) ?? []" :key="item" :value="item">

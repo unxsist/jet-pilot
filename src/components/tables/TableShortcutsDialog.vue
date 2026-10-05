@@ -19,7 +19,10 @@ const groups = computed(() => tableShortcuts(props.isMac));
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="max-w-2xl gap-5" @close-auto-focus.prevent>
+    <DialogContent
+      class="max-h-[90vh] max-w-2xl gap-5 overflow-y-auto"
+      @close-auto-focus.prevent
+    >
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
           <Keyboard class="h-4 w-4 text-muted-foreground" />
@@ -35,12 +38,12 @@ const groups = computed(() => tableShortcuts(props.isMac));
       <div class="grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2">
         <section v-for="group in groups" :key="group.title">
           <h3
-            class="text-2xs font-medium uppercase tracking-wider text-muted-foreground"
+            class="text-xs font-medium text-muted-foreground"
             :class="group.note ? 'mb-0.5' : 'mb-1.5'"
           >
             {{ group.title }}
           </h3>
-          <p v-if="group.note" class="mb-1.5 text-2xs text-muted-foreground/80">
+          <p v-if="group.note" class="mb-1.5 text-xs text-muted-foreground">
             {{ group.note }}
           </p>
           <ul class="divide-y divide-border-subtle">

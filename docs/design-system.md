@@ -1,8 +1,12 @@
 # JET Pilot design system
 
-A calm, dense, pro-tool look (Linear / Raycast / Vercel): neutral zinc
+A calm, precise, pro-tool look (Linear / Raycast / Vercel): neutral zinc
 surfaces, one indigo accent, hairline borders, soft layered shadows, quick
-motion. Dark is the primary theme; light is equally supported.
+motion. Dark is the primary theme; light is equally supported. Work
+surfaces (tables, logs, editors, terminals) stay efficient; pages and
+dialogs are calm and spacious (see "Calm pages" below). JET Pilot aims to
+be the most beautiful Kubernetes client there is: judge every screen by a
+screenshot in both themes.
 
 Sources of truth:
 
@@ -187,12 +191,12 @@ The spacing scale is Tailwind's 4px grid. The density targets:
 | `Card` (+ `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter`) | Panel surface with a hairline border. |
 | `Tabs`, `TabsList`, `TabsTrigger`, `TabsContent` | `TabsList variant="segmented"` (default, pill control) or `variant="line"` (underline, for panel sections). |
 | `Input`, `Textarea`, `NumberField*`, `TagsInput*`, `Select*` | All share `fieldBase` (32px tall). Set `aria-invalid="true"` (or `invalid` on `SelectTrigger`) for the error state. |
-| `Checkbox`, `Switch`, `Label`, `Form*` | Switch is new; it's an 18×32 track. |
+| `Checkbox`, `Switch`, `Label`, `Form*` | Switch is an 18×32 track. A partly selected checkbox (`checked="indeterminate"`) shows a dash. |
 | `Dialog*`, `AlertDialog*` | Blurred backdrop, `rounded-xl` popover surface. `DialogContent` accepts `closeable`, `position="center"\|"top"` and `overlayClass`. |
-| `DropdownMenu*`, `ContextMenu*` | Compact rows. `*Item` accepts `variant="destructive"`. `*Shortcut` is a right-aligned muted hint. Recipes live in `ui/overlay-styles.ts`. |
+| `DropdownMenu*`, `ContextMenu*` | Compact rows. `*Item` accepts `variant="destructive"`. `*Shortcut` is a right-aligned muted hint. Submenu chevrons only show on the highlighted or open row. Recipes live in `ui/overlay-styles.ts`. |
 | `Popover`, `Tooltip` | Tooltips are inverse-contrast `text-xs` with a 300ms delay. Put `Kbd variant="ghost" size="sm"` inside for shortcuts. |
 | `Command*` | Palette is anchored 14vh from the top, with group headings, an accent rail on the highlighted item and a hint footer (`hints` prop). `CommandShortcut` renders as a kbd. |
-| `Toast` / `toast()` | Variants `default`, `success`, `warning`, `info`, `destructive`. Each shows a coloured stripe and icon on a neutral card. |
+| `Toast` / `toast()` | Variants `default`, `success`, `warning`, `info`, `destructive`: the variant's icon on a neutral card (no stripe). |
 | `Table*` | Compact header, subtle dividers, selected rows tinted `primary/10`, `numeric` prop. `TableHead sticky` stays opaque. |
 | `Alert` | Variants `default`, `info`, `success`, `warning`, `destructive` (tinted). |
 | `Skeleton`, `Progress`, `Separator`, `ScrollArea`, `Resizable*`, `Accordion*`, `Carousel*` | Restyled on tokens. |
@@ -226,8 +230,18 @@ Shared building blocks used across the screens:
 | `ContextAvatar` | `components/ContextAvatar.vue` | Cluster monogram with a name-derived hue and an optional status dot. Set `--avatar-ring` to the surface it sits on. |
 | `statusCell`, `contextCell`, `mutedCell`, `monoCell` | `components/tables/cells.ts` | Table cells: dot + label for states, muted secondary text, monospace machine values. Column `meta.numeric` right-aligns with tabular numerals. |
 | `actionIcon()`, `isDestructiveAction()` | `lib/actionIcons.ts` | Icons and destructive tone for row / context menu actions. |
-| `PanelSection` | `components/generic/PanelSection.vue` | Collapsible side panel section (small caps heading, icon, count). |
-| `SettingsSection` + `settingsRow` | `components/settings/` | Settings cards with label / description left and the control right. |
+| `PanelSection` | `components/generic/PanelSection.vue` | Collapsible side panel section (sentence-case heading, icon, quiet count). |
+| `SettingRow` + `settingsTile` | `components/settings/` | Settings sections: a quiet heading over a hairline, rows with label + one muted line left and the control right, faint row dividers, a small dot left of the label for changed settings, the row menu on hover. `settingsTile` gives list rows (tools, kubeconfig files, credentials) their icon tile. |
+
+Sidebar: app links (Clusters, Resource Graph) on top, then Pinned and the
+kind groups with sentence-case labels; everyday kinds first, rare ones
+(ReplicaSets, ReplicationControllers, Endpoints, IngressClasses, CSI kinds,
+CRDs) last; port forwards and Settings in the footer. Table toolbars: a
+calm filter field (`bg-muted/60`, borderless until focus) on the left and
+one "View" menu (group by, columns, keyboard shortcuts) on the right; list
+creation ("New") is an `outline` button. Section labels anywhere are
+sentence case `text-xs font-medium text-muted-foreground`, never uppercase
+micro-caps.
 
 Layout rules the screens follow: the sidebar and tab strip are chrome
 (`bg-sidebar` / `bg-surface-1`), content sits on an inset `bg-background`
@@ -247,3 +261,54 @@ variants. The fixture settings are a v1 `settings.json`, so every fresh load als
 key screens in dark and light with a local Chromium (needs
 `playwright-core`, which is not a project dependency). Nothing in
 `dev/harness` is part of the production build.
+
+## Calm pages and dialogs
+
+Pages (Clusters hub, Cloud accounts, Settings, setup guide) and dialogs
+(add cluster, sign-in, confirmations) follow these rules. The reference
+implementation is the Clusters hub (`src/views/clusters/ClustersHub.vue`,
+`HubRow.vue`, `ClusterDetailPanel.vue`, `AccountsPanel.vue`).
+
+**Principles**
+
+1. **Show less, reveal more.** A list row says what the thing is called,
+   one quiet line about it, and on the right only what needs the user (a
+   problem, a sign-in), else one quiet fact (connected, a version). The
+   rest lives one step away: a details panel on click, hover actions, a
+   menu.
+2. **Status only when it's actionable.** No "Signed in" / "Expires in 7h"
+   / "OK" chips in lists. Warnings and errors use a small dot + text, not a
+   filled badge. Inferred guesses (environment from a name) never appear in
+   lists; offer them as a hint in details.
+3. **One primary action per surface**, top right of the page or bottom
+   right of a dialog. Everything else is `outline`, `ghost` or a menu.
+4. **Few borders.** Separate with space and type, not boxes inside boxes.
+   One container level at most (a card, or a list) inside a page. Prefer
+   `space-y-6` between groups to drawing frames around them.
+5. **Typography carries hierarchy**: page title `text-2xl font-semibold
+   tracking-tight`; section heading `text-sm font-medium`; secondary text
+   `text-xs`/`text-sm text-muted-foreground`. Use mono only for machine
+   values (servers, ARNs, paths, versions), never for names people chose.
+6. **Repeated chrome goes up a level.** If every row would show the same
+   logo or label, show it once in the group heading.
+7. **Copy is short.** One sentence of description at most under a title;
+   explanations go in tooltips, details or docs. No instructions that just
+   restate the control.
+8. **Options in menus.** Page-level options (group by, show hidden, check
+   now) go in a "View" menu, not a row of selects and switches.
+
+**Building blocks**
+
+| Block | Where | Use |
+| --- | --- | --- |
+| `PageHeader` | `components/page/PageHeader.vue` | Title, one-line description, actions slot (primary right), tabs slot. |
+| `PageTabs` | `components/page/PageTabs.vue` | Text tabs with an underline under a page title (`v-model`, quiet counts). |
+| Page container | — | `mx-auto max-w-5xl px-10 pt-10 pb-16 space-y-6` on `bg-background`; `max-w-6xl` when a details panel is open. |
+| Calm list row | `HubRow.vue` | `h-14 rounded-lg px-3`, hover `bg-accent/50`, avatar/icon 32px, name `text-sm font-medium`, subtitle `text-xs text-muted-foreground`, hover-revealed actions in a fixed-width slot (no layout shift). Group headings `text-xs font-medium` with a quiet count. |
+| Details panel | `ClusterDetailPanel.vue` | `rounded-xl border bg-card shadow-sm`, sticky next to the list, `w-[22rem]`; header (avatar, name, subtitle, close), actions (primary + outline + menu), then `dl` grids (`grid-cols-[6.5rem_1fr]`) separated by `border-t`. |
+| Prompt card | hub "new clusters" | A full-width `rounded-xl border bg-card` button with an icon tile, a sentence and a link-coloured "Review ›". Use for one actionable thing, never for information. |
+| Entity card | `AccountsPanel.vue` | `rounded-xl border bg-card shadow-xs`: icon tile + title + kind, a status line (dot + text, action button on the right when needed), two quiet facts, a footer strip (`border-t text-xs`) for identity and a secondary action. Add a dashed "add" tile at the end of the grid. |
+| Search field | hub | `h-9 rounded-lg bg-muted/60`, borderless until focus. Token syntax goes in the tooltip, not the placeholder. |
+| Calm dialog | `components/wizard/` | `WizardHeader` (optional 40px icon tile: provider mark, avatar, outcome; title; one quiet line), a scrolling body (`WIZARD_BODY`), `WizardFooter` (Back or a hint on the left, actions right, primary last). `WIZARD_DIALOG` on `DialogContent`; lists use `WIZARD_LIST` + `WIZARD_ROW`; radio choices use `ChoiceRow`; errors `WIZARD_ERROR`. Every multi-step or form dialog uses this shape. |
+| Quiet env badge | `EnvBadge quiet` | Text-only environment label for dense places (table Context cells, switcher). The filled badge is for names in rows and headers. |
+| Protected chrome | `ClusterTint.vue` | A protected active cluster gets a 2px top bar, a faint frame around the content area and a soft glow from the top: noticeable, never loud. |

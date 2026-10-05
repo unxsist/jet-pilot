@@ -29,7 +29,6 @@ import { getCurrentWebviewWindow as getWindow } from "@tauri-apps/api/webviewWin
 import { exit } from "@tauri-apps/plugin-process";
 import { formatResourceKind } from "@/lib/utils";
 import { ref } from "vue";
-import { RouteLocationRaw } from "vue-router";
 
 const targetOs = ref<string>(getOsType());
 const { context, kubeConfig } = injectStrict(KubeContextStateKey);
@@ -46,31 +45,15 @@ interface NavigationGroup {
   title: string;
   coreResourceKinds: string[];
   apiGroupResources: string[];
-  customLinks?: { title: string; to: RouteLocationRaw; icon: string }[];
 }
 
+/* App destinations above the resource groups. */
+const appLinks = [
+  { title: "Clusters", to: { name: "ClustersHub" }, icon: "clustershub" },
+  { title: "Resource Graph", to: { name: "ClusterOverview" }, icon: "diagram" },
+];
+
 const navigationGroups: NavigationGroup[] = [
-  {
-    title: "",
-    coreResourceKinds: [],
-    apiGroupResources: [],
-    customLinks: [
-      {
-        title: "Clusters",
-        to: {
-          name: "ClustersHub",
-        },
-        icon: "clustershub",
-      },
-      {
-        title: "Resource Graph",
-        to: {
-          name: "ClusterOverview",
-        },
-        icon: "diagram",
-      },
-    ],
-  },
   {
     title: "Cluster",
     coreResourceKinds: [
@@ -158,57 +141,80 @@ const getResourceByName = (resource: string) => {
     .find((r) => r.name === resource);
 };
 
-const getCoreResourcesForGroup = (group: NavigationGroup) => {
-  return Array.from(clusterResources.value.values())
-    .flat()
-    .filter((resource) => group.coreResourceKinds.includes(resource.kind))
-    .filter((resource) => !resource.name.includes("/"))
+/*
+ * Everyday kinds lead their group; legacy and plumbing kinds
+ * (ReplicationControllers, Endpoints, LimitRanges, ...) sink to the end.
+ * Everything else sorts alphabetically in between.
+ */
+const FIRST = [
+  "Pod", "Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob",
+  "Service", "Ingress", "ConfigMap", "Secret", "PersistentVolumeClaim",
+  "PersistentVolume", "StorageClass", "Event", "Namespace", "Node",
+  "ServiceAccount", "Role", "RoleBinding", "ClusterRole",
+];
+const LAST = [
+  "ReplicaSet", "ReplicationController", "Endpoints", "EndpointSlice",
+  "IngressClass", "GatewayClass", "LimitRange", "CSIDriver", "CSINode",
+  "CSIStorageCapacity", "VolumeAttachment", "CustomResourceDefinition",
+];
+const rank = (kind: string) => {
+  const first = FIRST.indexOf(kind);
+  if (first >= 0) return first;
+  const last = LAST.indexOf(kind);
+  return last >= 0 ? 200 + last : 100;
+};
+const byUsefulness = (a: DiscoveredResource, b: DiscoveredResource) =>
+  rank(a.kind) - rank(b.kind) || a.kind.localeCompare(b.kind);
+
+/* Top-level resources, one entry per kind, pinned ones left out. */
+const visible = (resources: DiscoveredResource[]) => {
+  const kinds = new Set<string>();
+  return resources
+    .filter((r) => !r.name.includes("/"))
+    .filter((r) => !kinds.has(r.kind) && !!kinds.add(r.kind))
+    .filter((r) => !isPinned(r.name))
+    .sort(byUsefulness);
+};
+
+const matches = (key: string, patterns: string[]) =>
+  patterns.some((pattern) => key.match(pattern));
+
+const coreKinds = navigationGroups.flatMap((group) => group.coreResourceKinds);
+
+const sections = computed(() => {
+  const groups = [...clusterResources.value];
+  const all = groups.flatMap(([, resources]) => resources);
+  const builtIn = navigationGroups.map((group) => ({
+    title: group.title,
+    items: visible([
+      ...all.filter((r) => group.coreResourceKinds.includes(r.kind)),
+      ...groups
+        .filter(([key]) => matches(key, group.apiGroupResources))
+        .flatMap(([, resources]) => resources)
+        .filter((r) => !coreKinds.includes(r.kind)),
+    ]),
+  }));
+  /* Every other API group (CRDs, metrics, ...) gets a section of its own. */
+  const other = groups
     .filter(
-      (resource, index, self) =>
-        index ===
-        self.findIndex(
-          (t) => t.kind === resource.kind && t.name === resource.name
-        )
-    );
-};
-
-const getApiResourcesForGroup = (group: NavigationGroup) => {
-  return Array.from(clusterResources.value.keys())
-    .filter((key) => {
-      return group.apiGroupResources.some((group) => {
-        return key.match(group);
-      });
-    })
-    .map((key) => clusterResources.value.get(key)!)
-    .flat()
-    .filter((resource) => !group.coreResourceKinds.includes(resource.kind))
-    .filter((resource) => !resource.name.includes("/"))
-    .sort((a, b) => a.kind.localeCompare(b.kind));
-};
-
-const getApiResourcesForNonDefaultGroup = (group: string) => {
-  return (
-    clusterResources.value
-      .get(group)
-      ?.filter((resource) => !resource.name.includes("/"))
-      .sort((a, b) => a.kind.localeCompare(b.kind)) ?? []
-  );
-};
-
-const getNonDefaultApiGroups = () => {
-  return Array.from(clusterResources.value.keys())
-    .filter((key) => {
-      return (
-        !navigationGroups.some((group) => {
-          return group.apiGroupResources.some((group) => {
-            return key.match(group);
-          });
-        }) &&
+      ([key]) =>
         key !== "v1" &&
-        key !== "apps"
-      );
-    })
-    .sort((a, b) => a.localeCompare(b));
+        key !== "apps" &&
+        !navigationGroups.some((group) => matches(key, group.apiGroupResources))
+    )
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, resources]) => ({
+      title: key,
+      items: visible(resources.filter((r) => !coreKinds.includes(r.kind))),
+    }));
+  const filled = (list: typeof builtIn) => list.filter((s) => s.items.length);
+  return { builtIn: filled(builtIn), other: filled(other) };
+});
+
+/* Route of a resource list. */
+const listRoute = (resource: DiscoveredResource) => {
+  const plural = formatResourceKind(resource.kind).toLowerCase();
+  return { path: `/${plural}`, query: { resource: plural, kind: resource.kind } };
 };
 
 const maxOrUnmaximize = () => {
@@ -324,7 +330,7 @@ onUnmounted(stopRecovered);
         <WorkspaceSwitcher />
         <button
           type="button"
-          class="group flex h-8 w-full items-center gap-2 rounded-md border bg-background/60 px-2.5 text-sm text-muted-foreground shadow-xs transition-colors duration-fast ease-out hover:border-border-strong hover:bg-background hover:text-foreground focus-ring focus-visible:ring-offset-sidebar"
+          class="flex h-8 w-full items-center gap-2 rounded-md border bg-background/60 px-2.5 text-sm text-muted-foreground shadow-xs transition-colors duration-fast ease-out hover:border-border-strong hover:bg-background hover:text-foreground focus-ring focus-visible:ring-offset-sidebar"
           :aria-keyshortcuts="isMac ? 'Meta+K' : 'Control+K'"
           @click="openCommandPalette()"
         >
@@ -332,12 +338,21 @@ onUnmounted(stopRecovered);
           <span class="flex-1 truncate text-left">Search or run…</span>
           <Kbd :keys="isMac ? ['⌘', 'K'] : ['Ctrl', 'K']" size="sm" />
         </button>
-        <PortForwardingManager />
       </div>
       <div class="flex min-h-0 w-full flex-1 overflow-hidden">
         <ScrollArea class="w-full">
           <NavigationSkeleton v-if="discovering" />
           <div v-else class="px-2 pb-2">
+            <div class="mb-4 space-y-px">
+              <NavigationItem
+                v-for="link in appLinks"
+                :key="link.title"
+                :icon="link.icon"
+                :title="link.title"
+                :to="link.to"
+                :can-pin="false"
+              />
+            </div>
             <NavigationGroup
               v-if="
                 settings.pinnedResources.some((resource) =>
@@ -361,64 +376,20 @@ onUnmounted(stopRecovered);
                 />
               </template>
             </NavigationGroup>
-            <template v-for="(group, index) in navigationGroups" :key="index">
-              <NavigationGroup
-                :key="index"
-                :title="group.title"
-                v-if="
-                  getCoreResourcesForGroup(group).length > 0 ||
-                  getApiResourcesForGroup(group).length > 0 ||
-                  (group.customLinks && group.customLinks.length > 0)
-                "
-              >
-                <template v-for="link in group.customLinks" :key="link.title">
-                  <NavigationItem
-                    :icon="link.icon"
-                    :title="link.title"
-                    :to="link.to"
-                    :can-pin="false"
-                  />
-                </template>
-                <template
-                  v-for="resource in getCoreResourcesForGroup(group)"
-                  :key="`core-${resource.name}`"
-                >
-                  <NavigationItem
-                    v-if="!isPinned(resource.name)"
-                    :icon="formatResourceKind(resource.kind).toLowerCase()"
-                    :title="formatResourceKind(resource.kind)"
-                    :to="{
-                      path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
-                      query: {
-                        resource: formatResourceKind(resource.kind).toLowerCase(),
-                        kind: resource.kind,
-                      },
-                    }"
-                    @pinned="pinResource(resource)"
-                    @unpinned="unpinResource(resource)"
-                  />
-                </template>
-                <template
-                  v-for="resource in getApiResourcesForGroup(group)"
-                  :key="`api-${resource.name}`"
-                >
-                  <NavigationItem
-                    v-if="!isPinned(resource.name)"
-                    :icon="formatResourceKind(resource.kind).toLowerCase()"
-                    :title="formatResourceKind(resource.kind)"
-                    :to="{
-                      path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
-                      query: {
-                        resource: formatResourceKind(resource.kind).toLowerCase(),
-                        kind: resource.kind,
-                      },
-                    }"
-                    @pinned="pinResource(resource)"
-                    @unpinned="unpinResource(resource)"
-                  />
-                </template>
-              </NavigationGroup>
-            </template>
+            <NavigationGroup
+              v-for="section in sections.builtIn"
+              :key="section.title"
+              :title="section.title"
+            >
+              <NavigationItem
+                v-for="resource in section.items"
+                :key="resource.name"
+                :icon="formatResourceKind(resource.kind).toLowerCase()"
+                :title="formatResourceKind(resource.kind)"
+                :to="listRoute(resource)"
+                @pinned="pinResource(resource)"
+              />
+            </NavigationGroup>
             <NavigationGroup title="Helm">
               <NavigationItem
                 icon="helm"
@@ -441,47 +412,26 @@ onUnmounted(stopRecovered);
                 :can-pin="false"
               />
             </NavigationGroup>
-            <template
-              v-for="nonDefaultApiGroup in getNonDefaultApiGroups()"
-              :key="`non-default-group-${nonDefaultApiGroup}`"
+            <NavigationGroup
+              v-for="section in sections.other"
+              :key="section.title"
+              :title="section.title"
             >
-              <NavigationGroup
-                :title="nonDefaultApiGroup"
-                v-if="
-                  getApiResourcesForNonDefaultGroup(nonDefaultApiGroup).length >
-                  0
-                "
-              >
-                <template
-                  v-for="resource in getApiResourcesForNonDefaultGroup(
-                    nonDefaultApiGroup
-                  )"
-                  :key="`non-default-${resource.name}`"
-                >
-                  <NavigationItem
-                    v-if="!isPinned(resource.name)"
-                    :icon="formatResourceKind(resource.kind).toLowerCase()"
-                    :title="formatResourceKind(resource.kind)"
-                    :to="{
-                      path: `/${formatResourceKind(resource.kind).toLowerCase()}`,
-                      query: {
-                        resource: formatResourceKind(resource.kind).toLowerCase(),
-                        kind: resource.kind,
-                      },
-                    }"
-                    @pinned="pinResource(resource)"
-                    @unpinned="unpinResource(resource)"
-                  />
-                </template>
-              </NavigationGroup>
-            </template>
+              <NavigationItem
+                v-for="resource in section.items"
+                :key="resource.name"
+                :icon="formatResourceKind(resource.kind).toLowerCase()"
+                :title="formatResourceKind(resource.kind)"
+                :to="listRoute(resource)"
+                @pinned="pinResource(resource)"
+              />
+            </NavigationGroup>
           </div>
         </ScrollArea>
       </div>
-      <div
-        navigation-settings
-        class="shrink-0 border-t border-border-subtle px-2 pb-2 pt-2"
-      >
+      <!-- Footer: live port forwards, settings -->
+      <div class="shrink-0 space-y-px border-t border-border-subtle p-2">
+        <PortForwardingManager />
         <NavigationItem
           icon="settings"
           title="Settings"

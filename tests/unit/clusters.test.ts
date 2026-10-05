@@ -9,7 +9,15 @@ import {
   type ClusterRecord,
 } from "@/lib/clusters/meta";
 import { detectProvider } from "@/lib/clusters/provider";
-import { buildSections, folderNames, parseHubFilter, type HubCluster } from "@/lib/clusters/hubModel";
+import {
+  buildSections,
+  clusterSubtitle,
+  folderNames,
+  minorVersion,
+  parseHubFilter,
+  rowAttention,
+  type HubCluster,
+} from "@/lib/clusters/hubModel";
 import { mergeContextSettings } from "@/lib/settings/store";
 import type { InventoryEntry } from "@/lib/clusters/inventory";
 
@@ -169,6 +177,35 @@ describe("hub model", () => {
   it("groups by provider with the account", () => {
     const sections = buildSections(list, "provider", parseHubFilter(""), false);
     expect(sections.groups[0]).toMatchObject({ title: "Amazon EKS", detail: "123456789012" });
+  });
+
+  it("says where a cluster runs in one line", () => {
+    expect(clusterSubtitle(list[4]!)).toBe("Amazon EKS · eu-west-1 · 123456789012");
+    expect(
+      clusterSubtitle(list[4]!, { region: "eu-central-1", accountName: "acme-production", accountId: "210987654321" })
+    ).toBe("Amazon EKS · eu-central-1 · acme-production");
+    const other = { entry: { ...list[0]!.entry, server: "https://k8s.example.com:6443", provider: { id: "other", label: "Other" } } };
+    expect(clusterSubtitle(other as HubCluster)).toBe("k8s.example.com:6443");
+  });
+
+  it("mentions only problems that need attention", () => {
+    const base = list[1]!;
+    const status = (reachability: string, message?: string) =>
+      ({ ...base, status: { reachability, message, checkedAt: 0 } }) as unknown as HubCluster;
+    expect(rowAttention(base)).toBeNull();
+    expect(rowAttention(status("reachable"))).toBeNull();
+    expect(rowAttention(status("skipped"))).toBeNull();
+    expect(rowAttention(status("unreachable", "Timed out"))).toEqual({ tone: "destructive", text: "Unreachable", title: "Timed out" });
+    expect(rowAttention(status("forbidden"))).toMatchObject({ tone: "warning", text: "No access" });
+    expect(rowAttention(base, true)).toMatchObject({ tone: "warning", text: "Deleted in the cloud" });
+    const broken = { ...base, entry: { ...base.entry, problems: [{ code: "x", severity: "error", message: "No cluster" }] } };
+    expect(rowAttention(broken as HubCluster)).toMatchObject({ text: "Kubeconfig problem", title: "No cluster" });
+  });
+
+  it("shortens versions", () => {
+    expect(minorVersion("v1.31.4-eks-2d5f260")).toBe("1.31");
+    expect(minorVersion("1.30.6")).toBe("1.30");
+    expect(minorVersion(null)).toBeNull();
   });
 
   it("lists folder names", () => {
