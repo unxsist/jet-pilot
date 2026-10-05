@@ -1461,7 +1461,17 @@ mod tests {
             let statuses = results(&run(vec![target(&kubeconfig, "prod")], fast()));
             let status = &statuses[0];
             assert_eq!(status.reachability, reachability, "{url}: {status:?}");
-            assert_eq!(status.message.as_deref(), Some(message), "{url}");
+            // Windows retries a refused connection for ~2 s, so the probe's
+            // timeout fires first there.
+            let windows_closed_port = cfg!(windows) && url == closed_url;
+            if windows_closed_port {
+                assert!(
+                    matches!(status.message.as_deref(), Some("Connection refused" | "Timed out after 400 ms")),
+                    "{url}: {status:?}"
+                );
+            } else {
+                assert_eq!(status.message.as_deref(), Some(message), "{url}");
+            }
             assert_eq!(status.latency_ms.is_some(), latency, "{url}");
             assert_eq!(status.server_version, None);
             assert_eq!(status.node_count, None);
