@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /*
- * Add a cluster: paste (or drop) a kubeconfig, import a kubeconfig file, or
- * enter a cluster by hand. Imported and entered clusters go into JET
- * Pilot's own kubeconfig (~/.kube/jet-pilot/config) with their credentials
- * in the system keychain; a file can also be used where it is.
+ * Add a cluster: connect a cloud account (AwsConnect), paste (or drop) a
+ * kubeconfig, import a kubeconfig file, or enter a cluster by hand. Added
+ * clusters go into JET Pilot's own kubeconfig (~/.kube/jet-pilot/config)
+ * with their credentials in the system keychain; a file can also be used
+ * where it is.
  */
 import { useRouter } from "vue-router";
 import { homeDir, join } from "@tauri-apps/api/path";
@@ -31,6 +32,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import ClusterLabel from "@/components/clusters/ClusterLabel.vue";
+import ProviderMark from "@/components/clusters/ProviderMark.vue";
 import ImportPreview from "./ImportPreview.vue";
 import ManualEntry from "./ManualEntry.vue";
 import { emptyManualForm, toSpec, type ImportRow, type ManualForm } from "./forms";
@@ -49,14 +51,16 @@ import {
 } from "@/lib/clusters/managed";
 import type { ContextRef } from "@/lib/contextKey";
 
-const props = defineProps<{ method: AddMethod }>();
+const AwsConnect = defineAsyncComponent(() => import("./AwsConnect.vue"));
+
+const props = defineProps<{ method: AddMethod; connectionId?: string | null }>();
 const open = defineModel<boolean>("open", { required: true });
 
 const router = useRouter();
 const { settings } = injectStrict(SettingsContextStateKey);
 const switchContext = injectStrict(KubeContextSwitchContextKey);
 
-type Step = "choose" | "paste" | "file" | "preview" | "manual" | "done";
+type Step = "choose" | "paste" | "file" | "preview" | "manual" | "aws" | "done";
 const step = ref<Step>("choose");
 const history: Step[] = [];
 const go = (next: Step) => {
@@ -181,6 +185,21 @@ const runManual = async () => {
   }
 };
 
+/* -------------------------------------------------------------- cloud -- */
+
+const cloudTitle = ref("Connect AWS");
+const folders = computed(() =>
+  [...new Set((settings.value.clusters ?? []).map((record) => record.folder).filter((f): f is string => !!f))].sort()
+);
+const cloudDone = (targets: ContextRef[]) => {
+  if (!targets.length) {
+    open.value = false;
+    return;
+  }
+  added.value = targets;
+  go("done");
+};
+
 /* ------------------------------------------------------------- drops -- */
 
 let unlisten: UnlistenFn | null = null;
@@ -241,6 +260,7 @@ const title = computed(
       file: "Import a kubeconfig file",
       preview: "Choose the clusters to add",
       manual: "Enter a cluster",
+      aws: cloudTitle.value,
       done: added.value.length === 1 ? "Cluster added" : `${added.value.length} clusters added`,
     })[step.value]
 );
@@ -262,6 +282,24 @@ const title = computed(
 
       <!-- Choose -->
       <div v-if="step === 'choose'" class="grid gap-2">
+        <p class="text-xs font-medium text-muted-foreground">From a cloud account</p>
+        <button
+          type="button"
+          class="flex items-start gap-3 rounded-lg border bg-card p-3.5 text-left transition-colors duration-fast hover:border-border-strong hover:bg-accent/40 focus-ring"
+          @click="go('aws')"
+        >
+          <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-1">
+            <ProviderMark provider="aws" :size="20" />
+          </span>
+          <span class="space-y-0.5">
+            <span class="block text-sm font-medium">Amazon EKS</span>
+            <span class="block text-xs text-muted-foreground">
+              Sign in with IAM Identity Center, an AWS profile or access keys, and pick clusters from every account and
+              region.
+            </span>
+          </span>
+        </button>
+        <p class="pt-2 text-xs font-medium text-muted-foreground">From a kubeconfig, or by hand</p>
         <button
           v-for="option in [
             { step: 'paste', icon: ClipboardPaste, title: 'Paste a kubeconfig', text: 'From a colleague, a dashboard or a cloud console. You can also drop a file here.' },
@@ -321,6 +359,16 @@ const title = computed(
         <ImportPreview v-if="!(source?.kind === 'path' && fileMode === 'reference')" v-model:trusted="trusted" :rows="rows" />
       </div>
 
+      <!-- Cloud -->
+      <AwsConnect
+        v-else-if="step === 'aws'"
+        :connection-id="connectionId"
+        :folders="folders"
+        @back="back"
+        @done="cloudDone"
+        @title="(text: string) => (cloudTitle = text)"
+      />
+
       <!-- Manual -->
       <ManualEntry v-else-if="step === 'manual'" v-model="manual" @valid="(ok) => (manualValid = ok)" />
 
@@ -337,11 +385,11 @@ const title = computed(
         </ul>
       </div>
 
-      <p v-if="error" class="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive" role="alert">
+      <p v-if="error && step !== 'aws'" class="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive" role="alert">
         {{ error }}
       </p>
 
-      <DialogFooter class="items-center">
+      <DialogFooter v-if="step !== 'aws'" class="items-center">
         <Button v-if="step !== 'choose' && step !== 'done'" variant="ghost" class="mr-auto" @click="back">
           <ArrowLeft class="h-3.5 w-3.5" /> Back
         </Button>

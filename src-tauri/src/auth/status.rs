@@ -8,6 +8,9 @@
 //! - for `aws eks get-token` with an SSO profile: `~/.aws/config` (the
 //!   profile's `sso_session` / `sso_start_url`) and the `expiresAt` of the
 //!   matching `~/.aws/sso/cache/*.json` (tokens are never read into IPC);
+//! - for clusters of an AWS connection (`jetpilot-auth credential
+//!   aws-eks`): the connection's IAM Identity Center session (vault /
+//!   `~/.aws/sso/cache`), MFA session or keys;
 //! - recent auth issues (`needsLogin`).
 
 use std::collections::{HashMap, HashSet};
@@ -203,8 +206,38 @@ fn status_of(
     // A broker credential without expiry that is still in use.
     let mut fresh_without_expiry = false;
     let mut minted_at: Option<SystemTime> = None;
+    // Signing in is the only way forward (an AWS connection never signed in).
+    let mut needs_login = false;
+
+    let aws_eks = match (status.kind, auth.exec.as_ref()) {
+        (AuthKind::Exec, Some(exec)) => match crate::clusters::managed_kubeconfig::helper_request(exec) {
+            Some(jp_auth_core::request::Request::CredentialAwsEks(args)) => Some((exec, args)),
+            _ => None,
+        },
+        _ => None,
+    };
 
     match status.kind {
+        AuthKind::Exec if aws_eks.is_some() => {
+            // Clusters of an AWS connection: the state of the connection's
+            // session, not of the 14-minute EKS token.
+            let (exec, args) = aws_eks.as_ref().expect("checked above");
+            status.command = Some(broker::display_command(exec)).filter(|c| !c.is_empty());
+            let key = CredentialKey::with_server(path, &found.user, exec, found.server.as_deref());
+            let meta = broker::cached_meta(&key);
+            minted_at = meta.map(|m| m.minted_at);
+            let entry = crate::clusters::providers::aws::entry_status(args);
+            status.can_sign_in = entry.can_sign_in;
+            status.sign_in_label = entry.sign_in_label;
+            let at = |secs: i64| UNIX_EPOCH + Duration::from_secs(secs.max(0) as u64);
+            use crate::clusters::providers::aws::EntrySession;
+            match entry.session {
+                EntrySession::Expires(secs) | EntrySession::Expired(secs) => expires_at = Some(at(secs)),
+                EntrySession::Ongoing => fresh_without_expiry = true,
+                EntrySession::Missing => needs_login = true,
+                EntrySession::Unknown => fresh_without_expiry = meta.is_some_and(|m| m.fresh),
+            }
+        }
         AuthKind::Exec => {
             let exec = auth.exec.as_ref().expect("exec kind has an exec config");
             let command = broker::display_command(exec);
@@ -269,7 +302,7 @@ fn status_of(
         // An issue older than the credential minted since is stale.
         kind.needs_login() && minted_at.is_none_or(|minted| *at > system_time_ms(minted))
     });
-    status.state = if issue.is_some() {
+    status.state = if issue.is_some() || needs_login {
         CredentialState::NeedsLogin
     } else if let Some(expires_at) = expires_at {
         state_for(expires_at, env.now)

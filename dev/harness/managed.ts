@@ -234,6 +234,10 @@ export function createManagedMocks(scenario: string, knownContexts: () => string
 
   return {
     handlers,
+    /* Cloud clusters added from the catalog (dev/harness/cloud.ts). */
+    addEntry: add,
+    contextNames,
+    removeContexts: (contexts: string[]) => store(load().filter((e) => !contexts.includes(e.context))),
     /* kubeconfig_discover entry for the managed file (first, when it has clusters). */
     discovery: () => {
       const entries = load();

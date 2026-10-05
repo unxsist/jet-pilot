@@ -7,84 +7,84 @@ import {
   CarouselPrevious,
 } from "@/components/ui/carousel";
 import {
-  BellRing,
-  FileCheck2,
-  KeyRound,
-  RefreshCw,
-  ShieldCheck,
+  CloudCog,
+  EyeOff,
+  FileKey2,
+  Radar,
   SquareTerminal,
+  TriangleAlert,
 } from "lucide-vue-next";
 
-import addDark from "@/assets/whats-new/add-cluster-dark.webp";
-import addLight from "@/assets/whats-new/add-cluster-light.webp";
-import importDark from "@/assets/whats-new/import-preview-dark.webp";
-import importLight from "@/assets/whats-new/import-preview-light.webp";
-import signInDark from "@/assets/whats-new/sign-in-dark.webp";
-import signInLight from "@/assets/whats-new/sign-in-light.webp";
-import credentialsDark from "@/assets/whats-new/credentials-dark.webp";
-import credentialsLight from "@/assets/whats-new/credentials-light.webp";
+import signInDark from "@/assets/whats-new/aws-sign-in-dark.webp";
+import signInLight from "@/assets/whats-new/aws-sign-in-light.webp";
+import accountsDark from "@/assets/whats-new/aws-accounts-dark.webp";
+import accountsLight from "@/assets/whats-new/aws-accounts-light.webp";
+import availableDark from "@/assets/whats-new/available-dark.webp";
+import availableLight from "@/assets/whats-new/available-light.webp";
+import cloudAccountsDark from "@/assets/whats-new/accounts-dark.webp";
+import cloudAccountsLight from "@/assets/whats-new/accounts-light.webp";
 
 const slides = [
   {
-    title: "Add any cluster",
+    title: "Connect AWS",
     description:
-      "Paste a kubeconfig, drop or import a file, or enter an API server with a token or certificate and test it before saving. Press Mod+N anywhere. Clusters you add live in JET Pilot's own kubeconfig; yours stays untouched.",
-    dark: addDark,
-    light: addLight,
-  },
-  {
-    title: "See what you import",
-    description:
-      "Before anything is added you see every context, how it signs in and what's wrong with it, which ones you already have, and exactly which commands its sign-in plugins would run.",
-    dark: importDark,
-    light: importLight,
-  },
-  {
-    title: "Sign in without leaving JET Pilot",
-    description:
-      "When a token expires, every view says so and one Sign in button does the rest: device codes and browser sign-ins appear right in the app, and lists, logs and port forwards pick up where they left off.",
+      "Add cluster › Amazon EKS signs you in with IAM Identity Center right in JET Pilot: enter the code, approve in your browser, done. No aws CLI needed, and the aws CLI shares the sign-in.",
     dark: signInDark,
     light: signInLight,
   },
   {
-    title: "Credentials in your keychain",
+    title: "Every account, every region",
     description:
-      "Tokens and keys of clusters you add go to your system keychain, or an encrypted file with a passphrase where there's none. A small credential helper makes them work with kubectl in your own terminal too.",
-    dark: credentialsDark,
-    light: credentialsLight,
+      "Pick the accounts and the role to use in each, and where to look. JET Pilot finds the EKS clusters in all of them and adds the ones you choose, into a folder if you like.",
+    dark: accountsDark,
+    light: accountsLight,
+  },
+  {
+    title: "Clusters you haven't added yet",
+    description:
+      "New clusters in your accounts show up in the Clusters hub as available: add one, add them all, or ignore the ones you don't need. Clusters deleted in AWS are flagged.",
+    dark: availableDark,
+    light: availableLight,
+  },
+  {
+    title: "Your cloud accounts",
+    description:
+      "The new Cloud accounts tab shows how each account signs in and until when, what it reaches and its clusters. Sign in again in one click when a session ends.",
+    dark: cloudAccountsDark,
+    light: cloudAccountsLight,
   },
 ];
 
 const underTheHood = [
   {
-    icon: ShieldCheck,
-    title: "No plain-text secrets",
-    text: "JET Pilot's kubeconfig only references credentials; it refuses to write a token or key into it.",
+    icon: FileKey2,
+    title: "Profiles and keys too",
+    text: "Use a profile from ~/.aws/config (MFA included) or an IAM user's access keys, kept in your system keychain.",
   },
   {
     icon: SquareTerminal,
-    title: "Your terminal, too",
-    text: "Add ~/.kube/jet-pilot/config to KUBECONFIG, or export clusters into ~/.kube/config (with a backup).",
+    title: "Works with the aws CLI",
+    text: "Signing in also saves the session where the aws CLI looks for it. ~/.aws/config is never changed.",
   },
   {
-    icon: BellRing,
-    title: "Credential status",
-    text: "The Clusters hub shows when credentials expire, so you can sign in before you need to.",
+    icon: Radar,
+    title: "Quiet discovery",
+    text: "The list refreshes when you open the hub, at most every 30 minutes, and never starts a sign-in.",
   },
   {
-    icon: RefreshCw,
-    title: "Sign-in that never surprises",
-    text: "Background work never opens a browser: sign-ins only start when you ask for them.",
+    icon: TriangleAlert,
+    title: "Gone clusters flagged",
+    text: "A cluster deleted in AWS is marked “No longer in AWS” instead of quietly failing.",
   },
   {
-    icon: FileCheck2,
-    title: "Duplicates spotted",
-    text: "Importing a cluster you already have? It's unticked and labelled, so nothing is added twice.",
+    icon: EyeOff,
+    title: "Ignore what you don't need",
+    text: "Ignored clusters leave the list; Show hidden brings them back.",
   },
   {
-    icon: KeyRound,
-    title: "Works without a keychain",
-    text: "On systems without one, a passphrase protects the credentials, optionally unlocked for terminals for 12 hours.",
+    icon: CloudCog,
+    title: "Shorter names",
+    text: "Clusters added from AWS are called eks-<region>-<name> and shown by their cluster name.",
   },
 ];
 </script>
@@ -113,7 +113,7 @@ const underTheHood = [
         <div>
           <h3 class="text-base font-semibold">And under the hood</h3>
           <p class="mt-1 text-sm text-muted-foreground">
-            The details behind adding clusters safely.
+            The details behind connecting AWS.
           </p>
           <div class="mt-4 grid grid-cols-2 gap-3 pr-4">
             <div

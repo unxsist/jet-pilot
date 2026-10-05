@@ -35,6 +35,8 @@ use super::naming::INTERNAL_PREFIX;
 
 /// Context extension with our metadata.
 pub const EXTENSION_CLUSTER: &str = "jet-pilot.app/cluster";
+/// Context extension of clusters added from a cloud catalog.
+pub const EXTENSION_CLOUD: &str = "jet-pilot.app/cloud";
 pub const INSTALL_HINT: &str =
     "Added with JET Pilot. Open JET Pilot to reinstall its credential helper.";
 pub const MANAGED_CHANGED_EVENT: &str = "clusters://managed-changed";
@@ -65,6 +67,28 @@ pub struct ClusterMeta {
     pub fingerprint: Option<String>,
 }
 
+/// Where a cluster added from a cloud catalog comes from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudMeta {
+    /// `aws`
+    pub provider: String,
+    pub connection_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    pub region: String,
+    /// The provider's cluster name.
+    pub name: String,
+    /// The provider's id (EKS: the cluster ARN).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_id: Option<String>,
+    pub catalog_key: String,
+}
+
 /// A cluster of the managed kubeconfig, for the hub.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,6 +99,9 @@ pub struct ManagedCluster {
     /// Milliseconds since the epoch.
     pub added_at: i64,
     pub server: Option<String>,
+    /// Clusters added from a cloud catalog.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud: Option<CloudMeta>,
 }
 
 pub fn now_ms() -> i64 {
@@ -107,6 +134,31 @@ pub fn set_meta(context: &mut Context, meta: &ClusterMeta) {
     });
 }
 
+fn extension<T: serde::de::DeserializeOwned>(context: &NamedContext, name: &str) -> Option<T> {
+    context
+        .context
+        .as_ref()?
+        .extensions
+        .as_ref()?
+        .iter()
+        .find(|ext| ext.name == name)
+        .and_then(|ext| serde_json::from_value(ext.extension.clone()).ok())
+}
+
+pub fn cloud_meta_of(context: &NamedContext) -> Option<CloudMeta> {
+    extension(context, EXTENSION_CLOUD)
+}
+
+pub fn set_cloud_meta(context: &mut Context, meta: &CloudMeta) {
+    let extension = serde_json::to_value(meta).expect("metadata always serializes");
+    let extensions = context.extensions.get_or_insert_with(Vec::new);
+    extensions.retain(|ext| ext.name != EXTENSION_CLOUD);
+    extensions.push(NamedExtension {
+        name: EXTENSION_CLOUD.to_string(),
+        extension,
+    });
+}
+
 /// The clusters JET Pilot added (contexts with our metadata).
 pub fn list(doc: &Kubeconfig) -> Vec<ManagedCluster> {
     doc.contexts
@@ -125,6 +177,7 @@ pub fn list(doc: &Kubeconfig) -> Vec<ManagedCluster> {
                 origin: meta.origin,
                 added_at: meta.added_at,
                 server,
+                cloud: cloud_meta_of(named),
             })
         })
         .collect()
@@ -142,6 +195,20 @@ pub fn static_exec(cluster_id: &str, helper: &Path) -> ExecConfig {
         api_version: Some(jp_auth_core::exec_credential::API_VERSION_V1.to_string()),
         command: Some(helper_command(helper)),
         args: Some(jp_auth_core::request::static_args(cluster_id)),
+        install_hint: Some(INSTALL_HINT.to_string()),
+        interactive_mode: Some(ExecInteractiveMode::Never),
+        ..ExecConfig::default()
+    }
+}
+
+/// `jetpilot-auth credential aws-eks --connection <id> ...`: an EKS token
+/// from a cloud connection's AWS credentials. Never interactive (the
+/// helper exits 3 when a sign-in in JET Pilot is needed).
+pub fn aws_eks_exec(args: &jp_auth_core::request::AwsEksArgs, helper: &Path) -> ExecConfig {
+    ExecConfig {
+        api_version: Some(jp_auth_core::exec_credential::API_VERSION_V1.to_string()),
+        command: Some(helper_command(helper)),
+        args: Some(jp_auth_core::request::aws_eks_args(args)),
         install_hint: Some(INSTALL_HINT.to_string()),
         interactive_mode: Some(ExecInteractiveMode::Never),
         ..ExecConfig::default()
@@ -689,6 +756,7 @@ extensions:
                 origin: "manual".into(),
                 added_at: 42,
                 server: Some("https://abc.example".into()),
+                cloud: None,
             }]
         );
         // kube-rs (and so kubectl-compatible YAML) reads it back.

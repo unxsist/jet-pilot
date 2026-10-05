@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import type { HubCluster } from "@/lib/clusters/hubModel";
 import { STATUS_LABELS, STATUS_TONES, relativeTime } from "@/lib/clusters/status";
 import { PROVIDER_LABELS } from "@/lib/clusters/provider";
+import type { CatalogCluster } from "@/lib/clusters/cloud";
 
 const props = defineProps<{
   cluster: HubCluster;
@@ -37,6 +38,8 @@ const props = defineProps<{
   selecting: boolean;
   focused: boolean;
   modKey: string;
+  /** Its entry in a cloud account's catalog (added from there). */
+  cloud?: CatalogCluster | null;
 }>();
 
 const emit = defineEmits<{
@@ -71,7 +74,9 @@ const statusTitle = computed(() => {
 });
 
 const providerDetail = computed(() =>
-  [entry.value.provider.region, entry.value.provider.account].filter(Boolean).join(" · ")
+  props.cloud
+    ? `${props.cloud.region} · ${props.cloud.accountName ?? props.cloud.accountId}`
+    : [entry.value.provider.region, entry.value.provider.account].filter(Boolean).join(" · ")
 );
 
 const AUTH_TEXT: Record<string, string> = {
@@ -82,6 +87,7 @@ const AUTH_TEXT: Record<string, string> = {
   none: "No credentials",
 };
 const authText = computed(() => {
+  if (props.cloud) return props.cloud.roleName ? `AWS · ${props.cloud.roleName}` : "AWS";
   const auth = entry.value.auth;
   if (auth.kind === "exec") {
     const command = auth.command ?? "Exec plugin";
@@ -142,7 +148,14 @@ const problems = computed(() => entry.value.problems.map((p) => p.message).join(
         <span v-else-if="meta.tags.length" class="truncate">{{ meta.tags.join(" · ") }}</span>
         <span v-else-if="entry.namespace" class="truncate">{{ entry.namespace }}</span>
         <span
-          v-if="status && status.reachability !== 'reachable' && status.reachability !== 'skipped'"
+          v-if="cloud?.state === 'removed'"
+          class="truncate text-warning"
+          title="This cluster wasn't found in its AWS account any more. Remove it if it was deleted."
+        >
+          No longer in AWS
+        </span>
+        <span
+          v-else-if="status && status.reachability !== 'reachable' && status.reachability !== 'skipped'"
           class="truncate"
           :class="tone === 'destructive' ? 'text-destructive' : 'text-warning'"
         >

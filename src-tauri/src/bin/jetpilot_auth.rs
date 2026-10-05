@@ -4,7 +4,11 @@
 //! - `credential static --id <id>` prints the stored token / client
 //!   certificate of a cluster as an `ExecCredential`;
 //! - `credential wrap-exec --id <id> -- <cmd> <args...>` runs the original
-//!   exec plugin with its secret environment variables from the vault.
+//!   exec plugin with its secret environment variables from the vault;
+//! - `credential aws-eks --connection <id> ...` mints an EKS token from the
+//!   connection's AWS credentials (IAM Identity Center session, profile or
+//!   access keys) without the aws CLI. It never signs in: an expired
+//!   session exits 3 ("Sign in to AWS in JET Pilot").
 //!
 //! stdout carries only the `ExecCredential` (or the wrapped plugin's own
 //! output, untouched); human messages go to stderr through `redact()`. Exit
@@ -15,9 +19,10 @@
 
 use std::io::Write;
 
+use jp_auth_core::aws::{self, AwsContext, AwsError};
 use jp_auth_core::credentials::{env_secret_id, static_secret_id, EnvSecrets, StaticCredential};
-use jp_auth_core::exec_credential::api_version_from_env;
-use jp_auth_core::request::{self, exit, Request};
+use jp_auth_core::exec_credential::{api_version_from_env, ExecCredential, ExecCredentialStatus};
+use jp_auth_core::request::{self, exit, AwsEksArgs, Request};
 use jp_auth_core::vault::{self, Backend, KeySpec, Vault, VaultEnv, VaultError};
 use jp_auth_core::zeroize::Zeroizing;
 use jp_auth_core::{paths, redact, PASSPHRASE_ENV};
@@ -69,6 +74,7 @@ fn run(args: Vec<String>) -> i32 {
     match request {
         Request::CredentialStatic { id } => credential_static(&id),
         Request::CredentialWrapExec { id, command, args } => wrap_exec(&id, &command, &args),
+        Request::CredentialAwsEks(args) => aws_eks(&args),
         Request::Unlock => unlock(),
         Request::Lock => lock(),
         Request::Doctor => doctor(),
@@ -152,11 +158,12 @@ fn credential_static(id: &str) -> i32 {
     if credential.is_empty() {
         return missing_credentials(id);
     }
-    let json = Zeroizing::new(
-        credential
-            .to_exec_credential(&api_version_from_env())
-            .to_json(),
-    );
+    print_credential(&credential.to_exec_credential(&api_version_from_env()))
+}
+
+/// Writes the ExecCredential to stdout (the only thing ever printed there).
+fn print_credential(credential: &ExecCredential) -> i32 {
+    let json = Zeroizing::new(credential.to_json());
     let mut stdout = std::io::stdout().lock();
     let written = stdout
         .write_all(json.as_bytes())
@@ -165,6 +172,66 @@ fn credential_static(id: &str) -> i32 {
     match written {
         Ok(()) => exit::OK,
         Err(e) => fail(exit::OTHER, &format!("Could not write the credential: {e}")),
+    }
+}
+
+/* ------------------------------------------------------------------ aws */
+
+/// The in-app key of a passphrase vault that is locked for terminals but
+/// unlockable with `JET_PILOT_VAULT_PASSPHRASE`. Vault problems are only
+/// reported when the vault is actually needed (an SSO session may come
+/// from `~/.aws/sso/cache` alone).
+fn passphrase_session(env: &VaultEnv) -> Option<jp_auth_core::vault::MasterKey> {
+    match Vault::open_with(env, None) {
+        Err(VaultError::Locked) => {
+            let passphrase = Zeroizing::new(std::env::var(PASSPHRASE_ENV).unwrap_or_default());
+            if passphrase.is_empty() {
+                return None;
+            }
+            Vault::key_from_passphrase(env, &passphrase).ok()
+        }
+        _ => None,
+    }
+}
+
+fn aws_eks(args: &AwsEksArgs) -> i32 {
+    let env = VaultEnv::system();
+    let session = passphrase_session(&env);
+    let ctx = AwsContext::system(vault::Store::new(env, session));
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(e) => return fail(exit::OTHER, &format!("Could not start: {e}")),
+    };
+    let result = runtime.block_on(async {
+        let credentials = aws::creds::for_eks(&ctx, args).await?;
+        aws::token::eks_token(
+            &credentials,
+            &args.region,
+            &args.cluster,
+            std::time::SystemTime::now(),
+            None,
+        )
+    });
+    match result {
+        Ok((token, expires_at)) => print_credential(&ExecCredential::new(
+            api_version_from_env(),
+            ExecCredentialStatus {
+                expiration_timestamp: Some(jp_auth_core::time::format_rfc3339(expires_at)),
+                token: Some(token),
+                ..Default::default()
+            },
+        )),
+        Err(AwsError::SignInRequired(message)) => fail(
+            exit::NOT_FOUND,
+            &format!("Sign in to AWS in JET Pilot. {message}"),
+        ),
+        Err(AwsError::MfaRequired(message)) => fail(exit::NOT_FOUND, &message),
+        Err(AwsError::NotFound(message)) => fail(exit::NOT_FOUND, &message),
+        Err(AwsError::Vault(error)) => vault_failure(error),
+        Err(other) => fail(exit::OTHER, &other.to_string()),
     }
 }
 

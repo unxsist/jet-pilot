@@ -106,8 +106,15 @@ export function findRecord(
   return fallback;
 }
 
-/** EKS / GKE context names are ARNs or paths: the cluster name is the last part. */
+/*
+ * EKS / GKE context names are ARNs or paths: the cluster name is the last
+ * part. Clusters added from AWS are named eks-<region>-<cluster>.
+ */
+const ADDED_EKS = /^eks-[a-z]{2}(?:-gov)?-[a-z]+-\d+-(.+)$/;
+
 export function shortName(context: string): string {
+  const added = ADDED_EKS.exec(context);
+  if (added) return added[1]!;
   if (context.startsWith("gke_")) {
     const parts = context.split("_");
     return parts[parts.length - 1] || context;

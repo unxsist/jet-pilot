@@ -19,6 +19,7 @@
  *   ?version=<x.y.z>         app version (default: package.json)
  *   ?readonly=1              (hub) the active cluster is read-only
  *   ?scenario=auth-expired   the first cluster needs a sign-in (auth.ts)
+ *   ?scenario=cloud          AWS accounts with added / available clusters (cloud.ts)
  *
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views; `large-graph` swaps the
@@ -66,6 +67,7 @@ import {
 } from "./fixtures";
 import { HUB_CLUSTER_RECORDS, HUB_FILES, hubStatus } from "./clusters";
 import { createManagedMocks } from "./managed";
+import { createCloudMocks } from "./cloud";
 import { installAuthMocks } from "./auth";
 
 const params = new URLSearchParams(location.search);
@@ -1202,6 +1204,8 @@ const ptyChannels = new Map<string, any>();
 const managed = createManagedMocks(scenario, () =>
   scenario === "hub" ? Object.values(HUB_FILES).flatMap((f) => f.contexts.map((c) => c.name)) : CONTEXTS.map((c) => c.name)
 );
+/* Cloud accounts and the cluster catalog (dev/harness/cloud.ts). */
+const cloud = createCloudMocks(scenario, sendToChannel, managed);
 let probeBatches = 0;
 
 /* ------------------------------------------------------------------ fs -- */
@@ -1368,6 +1372,7 @@ mockIPC(
   async (cmd: string, payload: any) => {
     const p = payload || {};
     if (cmd in managed.handlers) return managed.handlers[cmd]!(p);
+    if (cmd in cloud.handlers) return cloud.handlers[cmd]!(p);
     switch (cmd) {
       // fs / path / app / os / updater / window / clipboard
       case "plugin:fs|exists":
@@ -1539,7 +1544,7 @@ mockIPC(
             const interactive =
               auth?.interactive ?? (target.context === CONTEXTS[1]!.name ? "interactive" : "nonInteractive");
             const status = hubStatus(target.context, target.kubeConfig, p.includeInteractive ? "nonInteractive" : interactive);
-            sendToChannel(p.onEvent, { type: "result", status: { ...status, interactive } });
+            sendToChannel(p.onEvent, { type: "result", status: { ...status, ...cloud.status(target.context), interactive } });
           }
           sendToChannel(p.onEvent, { type: "done" });
         })();
