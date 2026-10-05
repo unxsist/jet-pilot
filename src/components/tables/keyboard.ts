@@ -194,6 +194,18 @@ export function isInOverlay(target: unknown): boolean {
   );
 }
 
+/**
+ * Regions with their own keyboard handling next to a table (the details
+ * side panel): keys pressed there never move the table cursor or run row
+ * commands (describe, edit, ...).
+ */
+export const KEYBOARD_SCOPE_ATTRIBUTE = "data-keyboard-scope";
+
+export function isInKeyboardScope(target: unknown): boolean {
+  const element = target as ElementLike | null;
+  return !!element?.closest?.(`[${KEYBOARD_SCOPE_ATTRIBUTE}]`);
+}
+
 /** Buttons / links / checkboxes activate themselves on Enter / Space. */
 export function isActivatable(target: unknown): boolean {
   const element = target as ElementLike | null;

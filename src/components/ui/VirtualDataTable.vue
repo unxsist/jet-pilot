@@ -69,6 +69,7 @@ import {
   findRowAction,
   isActivatable,
   isEditableTarget,
+  isInKeyboardScope,
   isInOverlay,
   rangeIds,
   resolveTableKey,
@@ -1211,7 +1212,7 @@ const isTableVisible = () =>
  *   letter / digit starts type-to-filter (and leaves row mode). Keys pressed
  *   in fields, editors, terminals and open overlays are left alone, and so
  *   are keys while text is selected (copying from e.g. the describe drawer
- *   keeps working, #69).
+ *   keeps working, #69) and keys pressed in the details side panel.
  */
 const handleWindowKeyDown = (event: KeyboardEvent) => {
   if (event.defaultPrevented || event.isComposing) return;
@@ -1222,6 +1223,10 @@ const handleWindowKeyDown = (event: KeyboardEvent) => {
   const target = event.target;
   if (target === searchInput.value) return;
   if (isEditableTarget(target) || isInOverlay(target)) return;
+  // e.g. the details side panel: its keys are not table commands
+  if (isInKeyboardScope(target) && !root.value?.contains(target as Node)) {
+    return;
+  }
 
   const command = resolveTableKey(event, isMac, navigating.value);
   if (command && (keyboardEnabled.value || command.type === "focusFilter")) {

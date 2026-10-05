@@ -7,6 +7,7 @@ import {
   isCommandKey,
   isEditableTarget,
   isInOverlay,
+  isInKeyboardScope,
   rangeIds,
   resolveTableKey,
   tableShortcuts,
@@ -221,6 +222,12 @@ describe("key targets", () => {
     expect(isInOverlay(element("BUTTON", ["[role='dialog']"]))).toBe(true);
     expect(isInOverlay(element("DIV", ["[role='menu']"]))).toBe(true);
     expect(isInOverlay(element("BODY"))).toBe(false);
+  });
+
+  test("the details side panel keeps its keys", () => {
+    expect(isInKeyboardScope(element("BUTTON", ["[data-keyboard-scope]"]))).toBe(true);
+    expect(isInKeyboardScope(element("DIV"))).toBe(false);
+    expect(isInKeyboardScope(null)).toBe(false);
   });
 
   test("buttons keep Enter / Space", () => {
