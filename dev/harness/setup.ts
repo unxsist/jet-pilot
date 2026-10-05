@@ -26,8 +26,9 @@
  * themes/, ...) live in sessionStorage, so a reload sees them (restored
  * tabs, workspaces). `?fresh=1` clears them. fs watchers get events for
  * writes and removals under the watched path. Open VSX (openvsx_search /
- * openvsx_install) answers from fixtures; installing `harness.gpl-theme`
- * fails the licence check.
+ * openvsx_install) answers from fixtures; installing `harness.apache-theme`
+ * fails the licence check (only MIT), `harness.pastel-icons` has no colour
+ * themes.
  */
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import yaml from "js-yaml";
@@ -1141,7 +1142,8 @@ const fsRemove = (path: string, recursive: boolean) => {
 
 /*
  * Open VSX fixtures. Search filters by query; install returns the same light
- * and dark theme for every extension (gpl-theme fails the licence check).
+ * and dark theme for every extension (apache-theme fails the licence check,
+ * pastel-icons is an icon theme).
  */
 const openVsxSearch = (query = "", offset = 0, size = 24) => {
   const q = query.trim().toLowerCase();
@@ -1157,10 +1159,14 @@ const openVsxSearch = (query = "", offset = 0, size = 24) => {
 const openVsxInstall = (namespace: string, name: string) => {
   const extension = OPENVSX_EXTENSIONS.find((e) => e.namespace === namespace && e.name === name);
   if (!extension) throw `Open VSX extension details could not be found on Open VSX.`;
-  if (extension.name === "gpl-theme") {
-    throw `"${extension.displayName}" is licensed under GPL-3.0, which is not on the allowlist. Only permissively licensed themes (MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0, Unlicense, CC0-1.0, 0BSD, Zlib) can be installed.`;
+  // src-tauri/src/openvsx.rs: only MIT (an "OR" alternative counts).
+  if (!/(^|\bOR\s+)MIT(\s+OR\b|$)/i.test(extension.license ?? "")) {
+    throw `"${extension.displayName}" is licensed under ${extension.license}. Only MIT-licensed themes can be installed, so JET Pilot stays MIT.`;
   }
-  return { extension: { ...extension, license: "MIT" }, themes: openVsxThemes() };
+  if (extension.name.endsWith("-icons")) {
+    throw "This extension has no colour themes (it is an icon theme).";
+  }
+  return { extension, themes: openVsxThemes() };
 };
 
 mockIPC(

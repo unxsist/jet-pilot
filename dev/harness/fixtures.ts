@@ -1034,6 +1034,7 @@ export const OPENVSX_EXTENSIONS = [
     version: "3.17.0",
     downloadCount: 1_284_301,
     averageRating: 4.9,
+    license: "MIT",
   },
   {
     namespace: "harness",
@@ -1043,6 +1044,7 @@ export const OPENVSX_EXTENSIONS = [
     version: "1.4.2",
     downloadCount: 412_877,
     averageRating: 4.6,
+    license: "MIT",
   },
   {
     namespace: "harness",
@@ -1051,15 +1053,26 @@ export const OPENVSX_EXTENSIONS = [
     description: "Low-contrast light theme for long reading sessions.",
     version: "0.9.0",
     downloadCount: 98_120,
+    license: "MIT OR Apache-2.0",
   },
   {
     namespace: "harness",
-    name: "gpl-theme",
-    displayName: "Copyleft Colours",
-    description: "Installing this fails the licence check (GPL-3.0).",
+    name: "pastel-icons",
+    displayName: "Pastel Icons",
+    description: "File icons only: installing this finds no colour themes.",
+    version: "1.0.0",
+    downloadCount: 77_310,
+    license: "MIT",
+  },
+  {
+    namespace: "harness",
+    name: "apache-theme",
+    displayName: "Apache Amber",
+    description: "Installing this fails the licence check (Apache-2.0: only MIT is allowed).",
     version: "2.0.0",
     downloadCount: 5_402,
     averageRating: 3.8,
+    license: "Apache-2.0",
   },
 ];
 

@@ -7,8 +7,9 @@
 //! and runs every theme text through its VS Code / TextMate importer.
 //!
 //! Install safety (modelled on T3 Code's importer):
-//! - only permissively licensed extensions (SPDX allowlist, `OR` expressions
-//!   pass when any alternative is allowed);
+//! - only MIT-licensed extensions, so JET Pilot stays MIT (the SPDX
+//!   expression is evaluated: `MIT OR X` passes, `MIT AND X` and `WITH`
+//!   exceptions don't);
 //! - the .vsix is streamed with a hard 20 MB cap (Content-Length is not
 //!   trusted) and opened in memory;
 //! - every file read from the archive is capped (512 KB per theme file) and
@@ -42,19 +43,8 @@ const MAX_THEMES: usize = 32;
 const MAX_INCLUDE_DEPTH: usize = 8;
 const MAX_PATH_LEN: usize = 1_024;
 
-/// Permissive SPDX identifiers (T3 Code's list plus Zlib).
-const ALLOWED_LICENSES: &[&str] = &[
-    "MIT",
-    "Apache-2.0",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-    "ISC",
-    "MPL-2.0",
-    "Unlicense",
-    "CC0-1.0",
-    "0BSD",
-    "Zlib",
-];
+/// The only licence a theme may be installed under: JET Pilot stays MIT.
+const ALLOWED_LICENSE: &str = "MIT";
 
 const SORTS: &[&str] = &["relevance", "downloadCount", "averageRating", "timestamp"];
 
@@ -225,6 +215,8 @@ pub async fn openvsx_install(
 fn http_client(app: &tauri::AppHandle) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .user_agent(format!("JET-Pilot/{}", app.package_info().version))
+        // Redirects (e.g. to the download CDN) must stay on https too.
+        .https_only(true)
         .connect_timeout(API_TIMEOUT)
         .read_timeout(API_TIMEOUT)
         .build()
@@ -354,43 +346,159 @@ fn is_safe_segment(s: &str) -> bool {
 
 /* ----------------------------------------------------------------- licence */
 
-/// Accepts an SPDX identifier from the allowlist, or an expression whose
-/// `OR` alternatives include one (`AND` terms must all be allowed).
-pub fn is_permissive_license(spdx: &str) -> bool {
-    let expr = spdx.trim().trim_start_matches('(').trim_end_matches(')');
-    if expr.is_empty() {
+/// Evaluates an SPDX licence expression: only `MIT` is acceptable
+/// (case-insensitive; not MIT-0 or `MIT+`). `X OR Y` passes when either
+/// side does (a dual licence: MIT is picked), `X AND Y` only when both do
+/// (`AND` binds tighter) and parentheses group. A `WITH` exception is
+/// rejected. Anything missing or unparsable is rejected.
+pub fn is_allowed_license(spdx: &str) -> bool {
+    let Some(tokens) = spdx_tokens(spdx) else {
         return false;
+    };
+    let mut parser = SpdxParser {
+        tokens: &tokens,
+        pos: 0,
+        depth: 0,
+    };
+    matches!(parser.or_expr(), Some(true)) && parser.pos == tokens.len()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SpdxToken<'a> {
+    Open,
+    Close,
+    Word(&'a str),
+}
+
+fn spdx_tokens(expr: &str) -> Option<Vec<SpdxToken<'_>>> {
+    if expr.len() > 512 {
+        return None;
     }
-    expr.split(" OR ").any(|alternative| {
-        alternative
-            .trim()
-            .trim_start_matches('(')
-            .trim_end_matches(')')
-            .split(" AND ")
-            .all(|term| {
-                let term = term
-                    .trim()
-                    .trim_start_matches('(')
-                    .trim_end_matches(')')
-                    .trim();
-                ALLOWED_LICENSES
-                    .iter()
-                    .any(|allowed| allowed.eq_ignore_ascii_case(term))
-            })
-    })
+    let mut tokens = Vec::new();
+    let mut rest = expr;
+    loop {
+        rest = rest.trim_start();
+        let Some(c) = rest.chars().next() else {
+            break;
+        };
+        match c {
+            '(' => {
+                tokens.push(SpdxToken::Open);
+                rest = &rest[1..];
+            }
+            ')' => {
+                tokens.push(SpdxToken::Close);
+                rest = &rest[1..];
+            }
+            _ => {
+                let end = rest
+                    .find(|c: char| c.is_whitespace() || c == '(' || c == ')')
+                    .unwrap_or(rest.len());
+                tokens.push(SpdxToken::Word(&rest[..end]));
+                rest = &rest[end..];
+            }
+        }
+    }
+    Some(tokens)
+}
+
+struct SpdxParser<'a, 'b> {
+    tokens: &'b [SpdxToken<'a>],
+    pos: usize,
+    depth: usize,
+}
+
+impl SpdxParser<'_, '_> {
+    fn is_operator(word: &str, operator: &str) -> bool {
+        word.eq_ignore_ascii_case(operator)
+    }
+
+    fn peek_operator(&self, operator: &str) -> bool {
+        matches!(self.tokens.get(self.pos), Some(SpdxToken::Word(w)) if Self::is_operator(w, operator))
+    }
+
+    fn or_expr(&mut self) -> Option<bool> {
+        let mut allowed = self.and_expr()?;
+        while self.peek_operator("OR") {
+            self.pos += 1;
+            allowed |= self.and_expr()?;
+        }
+        Some(allowed)
+    }
+
+    fn and_expr(&mut self) -> Option<bool> {
+        let mut allowed = self.term()?;
+        while self.peek_operator("AND") {
+            self.pos += 1;
+            allowed &= self.term()?;
+        }
+        Some(allowed)
+    }
+
+    fn term(&mut self) -> Option<bool> {
+        match *self.tokens.get(self.pos)? {
+            SpdxToken::Open => {
+                self.depth += 1;
+                if self.depth > 16 {
+                    return None;
+                }
+                self.pos += 1;
+                let allowed = self.or_expr()?;
+                if self.tokens.get(self.pos) != Some(&SpdxToken::Close) {
+                    return None;
+                }
+                self.pos += 1;
+                self.depth -= 1;
+                Some(allowed)
+            }
+            SpdxToken::Close => None,
+            SpdxToken::Word(word) => {
+                Self::license_id(word)?;
+                self.pos += 1;
+                let mut allowed = word.eq_ignore_ascii_case(ALLOWED_LICENSE);
+                if self.peek_operator("WITH") {
+                    self.pos += 1;
+                    match self.tokens.get(self.pos) {
+                        Some(SpdxToken::Word(exception)) if Self::license_id(exception).is_some() => {
+                            self.pos += 1;
+                            // An exception changes the licence: not plain MIT.
+                            allowed = false;
+                        }
+                        _ => return None,
+                    }
+                }
+                Some(allowed)
+            }
+        }
+    }
+
+    /// A licence (or exception) identifier without its `+`; None for an
+    /// operator or something that isn't an identifier.
+    fn license_id(word: &str) -> Option<&str> {
+        if ["AND", "OR", "WITH"]
+            .iter()
+            .any(|operator| Self::is_operator(word, operator))
+        {
+            return None;
+        }
+        let id = word.strip_suffix('+').unwrap_or(word);
+        (!id.is_empty()
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | ':')))
+        .then_some(id)
+    }
 }
 
 fn check_license(license: &str, display_name: &str) -> Result<(), String> {
-    if license.is_empty() {
+    if license.trim().is_empty() {
         return Err(format!(
-            "\"{display_name}\" does not declare a licence, so it can't be imported. Only permissively licensed themes ({}) can be installed.",
-            ALLOWED_LICENSES.join(", ")
+            "\"{display_name}\" does not declare a licence, so it can't be installed. Only MIT-licensed themes can be installed, so JET Pilot stays MIT."
         ));
     }
-    if !is_permissive_license(license) {
+    if !is_allowed_license(license) {
         return Err(format!(
-            "\"{display_name}\" is licensed under {license}, which is not on the allowlist. Only permissively licensed themes ({}) can be installed.",
-            ALLOWED_LICENSES.join(", ")
+            "\"{display_name}\" is licensed under {license}. Only MIT-licensed themes can be installed, so JET Pilot stays MIT."
         ));
     }
     Ok(())
@@ -508,7 +616,14 @@ pub fn extract_themes(vsix: Vec<u8>) -> Result<(Vec<OpenVsxTheme>, Vec<String>),
         .map(|list| list.iter().filter(|v| v.is_object()).collect())
         .unwrap_or_default();
     if contributions.is_empty() {
-        return Err("This extension does not contain colour themes.".to_string());
+        let icon_theme = ["/contributes/iconThemes", "/contributes/productIconThemes"]
+            .iter()
+            .any(|pointer| manifest.pointer(pointer).is_some_and(|v| v.is_array()));
+        return Err(if icon_theme {
+            "This extension has no colour themes (it is an icon theme).".to_string()
+        } else {
+            "This extension has no colour themes (it may be an icon theme).".to_string()
+        });
     }
     if contributions.len() > MAX_THEMES {
         return Err(format!(
@@ -947,9 +1062,18 @@ mod tests {
     #[test]
     fn rejects_non_theme_extensions_and_garbage() {
         let pack = vsix(&[("extension/package.json", r#"{"name":"x"}"#)]);
-        assert!(extract_themes(pack)
-            .unwrap_err()
-            .contains("does not contain"));
+        assert_eq!(
+            extract_themes(pack).unwrap_err(),
+            "This extension has no colour themes (it may be an icon theme)."
+        );
+        let pack = vsix(&[(
+            "extension/package.json",
+            r#"{"name":"catppuccin-vsc-icons","contributes":{"iconThemes":[{"id":"x","path":"x.json"}]}}"#,
+        )]);
+        assert_eq!(
+            extract_themes(pack).unwrap_err(),
+            "This extension has no colour themes (it is an icon theme)."
+        );
         assert!(extract_themes(b"not a zip".to_vec()).is_err());
         let pack = vsix(&[("extension/readme.md", "hi")]);
         assert!(extract_themes(pack).unwrap_err().contains("package.json"));
@@ -960,32 +1084,64 @@ mod tests {
         for ok in [
             "MIT",
             "mit",
-            "Apache-2.0",
-            "BSD-3-Clause",
-            "0BSD",
-            "Zlib",
-            "MIT OR GPL-3.0",
+            "MIT OR Apache-2.0",
+            "(MIT OR GPL-3.0)",
             "(GPL-2.0 OR MIT)",
-            "MIT AND ISC",
+            "mit or gpl-3.0",
+            "GPL-3.0 OR MIT AND MIT",
+            "((MIT))",
+            "MIT AND MIT",
         ] {
-            assert!(is_permissive_license(ok), "{ok}");
+            assert!(is_allowed_license(ok), "{ok}");
         }
         for bad in [
             "",
+            "   ",
+            "Apache-2.0",
+            "ISC",
+            "BSD-3-Clause",
+            "BSD-2-Clause",
+            "MPL-2.0",
+            "Unlicense",
+            "CC0-1.0",
+            "0BSD",
+            "Zlib",
+            "MIT-0",
+            "MIT+",
             "GPL-3.0",
             "SEE LICENSE IN LICENSE.md",
             "Proprietary",
-            "CC-BY-NC-4.0",
+            "MIT AND Apache-2.0",
             "MIT AND GPL-3.0",
             "MITX",
+            "GPL-3.0 AND (MIT OR Apache-2.0)",
+            "(MIT OR Apache-2.0) AND ISC",
+            "(MIT OR Apache-2.0) AND GPL-3.0",
+            "MIT AND GPL-3.0 OR ISC AND GPL-2.0",
+            "MIT WITH Some-exception",
+            "GPL-3.0 WITH Classpath-exception-2.0",
+            "MIT OR",
+            "OR MIT",
+            "(MIT",
+            "MIT)",
+            "()",
+            "MIT ISC",
+            "MIT WITH",
+            "MIT AND (",
+            "MIT/Apache-2.0",
+            "SEE LICENSE IN MIT",
         ] {
-            assert!(!is_permissive_license(bad), "{bad}");
+            assert!(!is_allowed_license(bad), "{bad}");
         }
-        let err = check_license("GPL-3.0", "Some Theme").unwrap_err();
-        assert!(err.contains("GPL-3.0") && err.contains("MIT"), "{err}");
+        let err = check_license("Apache-2.0", "Some Theme").unwrap_err();
+        assert_eq!(
+            err,
+            "\"Some Theme\" is licensed under Apache-2.0. Only MIT-licensed themes can be installed, so JET Pilot stays MIT."
+        );
         assert!(check_license("", "Some Theme")
             .unwrap_err()
-            .contains("licence"));
+            .contains("does not declare a licence"));
+        assert!(check_license("MIT OR Apache-2.0", "Some Theme").is_ok());
     }
 
     #[test]

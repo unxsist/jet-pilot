@@ -364,8 +364,7 @@ const install = async (files: ThemeFile[]) => {
       </template>
 
       <p class="text-xs text-muted-foreground">
-        Only themes with permissive licences (MIT, Apache-2.0, BSD, ISC, MPL-2.0, …) can be
-        installed.
+        Only MIT-licensed themes can be installed, so JET Pilot stays MIT.
       </p>
     </div>
 
