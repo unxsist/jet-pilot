@@ -1,10 +1,10 @@
 import { Kubernetes } from "@/services/Kubernetes";
-import { computed, provide, reactive, watchEffect, InjectionKey, toRefs, ToRefs } from "vue";
+import { provide, reactive, watchEffect, InjectionKey, toRefs, ToRefs } from "vue";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
 import { isSameContext } from "@/lib/contextKey";
 import { warn } from "@/lib/logger";
-import { credentialView, setActiveClusters } from "@/lib/auth/center";
+import { setActiveClusters } from "@/lib/auth/center";
 
 export const KubeContextStateKey: InjectionKey<ToRefs<KubeContextState>> =
   Symbol("KubeContextState");
@@ -57,11 +57,6 @@ export interface KubeContextState {
   context: string;
   namespace: string | "all";
   kubeConfig: string;
-  /**
-   * The primary context's credential works (no sign-in needed). Read-only:
-   * follows the auth center (@/lib/auth/center), kept for compatibility.
-   */
-  authenticated: boolean;
 
   /**
    * context -> list of active namespaces; ["all"] means all namespaces.
@@ -87,11 +82,6 @@ export default {
       context: settings.value.lastContext || "",
       namespace: settings.value.lastNamespace || "",
       kubeConfig: settings.value.lastKubeConfig || "",
-      authenticated: computed(
-        () =>
-          !credentialView({ context: state.context, kubeConfig: state.kubeConfig })
-            .needsSignIn
-      ) as unknown as boolean,
       contexts: new Map<string, string[]>(),
       contextKubeConfigMapping: new Map<string, string>(),
     });
