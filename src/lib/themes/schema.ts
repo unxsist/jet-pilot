@@ -209,5 +209,16 @@ export const THEME_JSON_SCHEMA = {
       required: ["id", "label"],
     },
     managed: { type: "boolean" },
+    origin: {
+      type: "object",
+      description: "Where the theme came from (JET Pilot; T3 Code ignores it).",
+      properties: {
+        label: { type: "string", description: 'E.g. "Open VSX", "VS Code", "T3 Code".' },
+        url: { type: "string" },
+        author: { type: "string" },
+        license: { type: "string" },
+      },
+      required: ["label"],
+    },
   },
 } as const;

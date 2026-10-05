@@ -39,6 +39,13 @@ describe("parseThemeFile", () => {
     expect(parseThemeFile(full({ author: "me", $schema: "x" }))).toMatchObject({ author: "me", $schema: "x" });
   });
 
+  it("passes the origin through", () => {
+    const origin = { label: "Open VSX", url: "https://open-vsx.org/extension/a/b", license: "MIT" };
+    expect(parseThemeFile(full({ origin: { ...origin, label: " Open VSX " } })).origin).toEqual(origin);
+    expect(() => parseThemeFile(full({ origin: { url: "x" } }))).toThrow(/origins need a label/);
+    expect(() => parseThemeFile(full({ origin: { label: "x", url: 1 } }))).toThrow(/origins need a label/);
+  });
+
   it.each([
     [null, "Theme files must contain a JSON object."],
     [full({ version: 2 }), "This theme file uses an unsupported version. Expected 1."],

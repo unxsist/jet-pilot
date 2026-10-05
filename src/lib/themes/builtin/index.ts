@@ -1,12 +1,13 @@
 /*
- * The built-in themes. JET (the default) is bundled eagerly; every other
- * built-in is a JSON file under ./themes, generated once by
- * scripts/convert-themes.mjs (T3 Code's palettes and curated VS Code
- * themes) and loaded on demand, so the startup bundle only carries the
- * small manifest. Licences: THIRD_PARTY_THEMES.md.
+ * The built-in themes. Only this list (the small manifest) is part of the
+ * startup bundle: every file is loaded on demand. JET (the default) is
+ * built from ./jet.ts, which needs the colour maths (culori); the runtime
+ * doesn't need its file to paint it (the stylesheet does). The others are
+ * JSON files under ./themes, generated once by scripts/convert-themes.mjs
+ * (T3 Code's palettes and curated VS Code themes). Licences:
+ * THIRD_PARTY_THEMES.md.
  */
 import type { ThemeAppearance, ThemeFile, ThemeOrigin } from "../types";
-import { JET_THEME, JET_THEME_ID } from "./jet";
 import manifest from "./manifest.json";
 
 export interface BuiltinTheme {
@@ -17,17 +18,18 @@ export interface BuiltinTheme {
   load: () => Promise<ThemeFile>;
 }
 
-export const DEFAULT_THEME_ID = JET_THEME_ID;
+/** The built-in JET theme (src/assets/main.postcss); also the fallback. */
+export const DEFAULT_THEME_ID = "jet";
 
 const files = import.meta.glob<ThemeFile>("./themes/*.json", { import: "default" });
 
 export const BUILTIN_THEMES: BuiltinTheme[] = [
   {
-    id: JET_THEME_ID,
-    name: JET_THEME.name,
+    id: DEFAULT_THEME_ID,
+    name: "JET",
     origin: { label: "JET Pilot" },
     appearances: ["light", "dark"],
-    load: () => Promise.resolve(JET_THEME),
+    load: () => import("./jet").then((module) => module.JET_THEME),
   },
   ...(manifest as Omit<BuiltinTheme, "load">[]).map((entry) => ({
     ...entry,
@@ -38,5 +40,3 @@ export const BUILTIN_THEMES: BuiltinTheme[] = [
     },
   })),
 ];
-
-export { JET_THEME, JET_THEME_ID };

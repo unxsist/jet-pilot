@@ -11,6 +11,7 @@
  * apps/web/src/themePalette.ts → parseThemeFile).
  */
 import { isColor, TRIPLET_PATTERN } from "./contrast";
+import { THEME_ID_PATTERN, themeIdFromName } from "./runtime";
 import {
   type JetPilotThemeExtensions,
   type ThemeAppearance,
@@ -24,6 +25,8 @@ import {
   THEME_TOKENS,
 } from "./types";
 
+export { THEME_ID_PATTERN, themeIdFromName };
+
 /** Ids a user theme may not take: the appearance keywords and JET's default. */
 export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
   "system",
@@ -32,7 +35,6 @@ export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
   "jet",
 ]);
 
-export const THEME_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,47})$/;
 const COLLECTION_ID_PATTERN = /^[a-z0-9][a-z0-9.:-]{0,127}$/i;
 const MAX_NAME_LENGTH = 48;
 
@@ -50,6 +52,7 @@ const FILE_KEYS = new Set([
   "jetPilot",
   "collection",
   "managed",
+  "origin",
 ]);
 const STRUCTURED_VARIANT_KEYS = new Set(["canvas", "accent", "colors", "jetPilot"]);
 
@@ -63,20 +66,6 @@ const isLabel = (value: unknown): value is string =>
   typeof value === "string" &&
   value.trim().length > 0 &&
   value.trim().length <= MAX_NAME_LENGTH;
-
-/** "Tokyo Night Storm" → "tokyo-night-storm" (T3's rule). */
-export function themeIdFromName(name: string): string {
-  const normalized = name
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48)
-    .replace(/-+$/, "");
-  return normalized || "custom-theme";
-}
 
 const colorError = (where: string, key: string) =>
   new Error(
@@ -283,6 +272,24 @@ export function parseThemeFile(value: unknown): ThemeFile {
     collection = { id: raw.id, label: raw.label.trim() };
   }
 
+  let origin: ThemeFile["origin"];
+  if (value.origin !== undefined) {
+    const raw = value.origin;
+    const extras = ["url", "author", "license"] as const;
+    if (
+      !isRecord(raw) ||
+      typeof raw.label !== "string" ||
+      !raw.label.trim() ||
+      extras.some((key) => raw[key] !== undefined && typeof raw[key] !== "string")
+    ) {
+      throw new Error("Theme origins need a label (and optional url, author and license strings).");
+    }
+    origin = { label: raw.label.trim() };
+    for (const key of extras) {
+      if (typeof raw[key] === "string") origin[key] = raw[key] as string;
+    }
+  }
+
   // Unknown top-level keys are kept, known ones replaced by their parsed form.
   const rest = Object.fromEntries(
     Object.entries(value).filter(([key]) => !FILE_KEYS.has(key))
@@ -297,5 +304,6 @@ export function parseThemeFile(value: unknown): ThemeFile {
     ...(variants ? { variants } : {}),
     ...(collection ? { collection } : {}),
     ...(value.managed === true ? { managed: true } : {}),
+    ...(origin ? { origin } : {}),
   };
 }

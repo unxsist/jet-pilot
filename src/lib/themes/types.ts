@@ -205,6 +205,11 @@ export interface ThemeFile extends ThemeVariant {
   /** Groups variants imported together (e.g. one Open VSX extension). */
   collection?: { id: string; label: string };
   managed?: boolean;
+  /**
+   * Where the theme came from (JET Pilot extension; T3 ignores it). Written
+   * by install(); `label: "Open VSX"` marks Open VSX installs.
+   */
+  origin?: ThemeOrigin;
 }
 
 export type ThemeSource = "builtin" | "user" | "openvsx";
@@ -219,15 +224,23 @@ export interface ThemeOrigin {
 
 /** A theme known to the app (built-in or loaded from the themes folder). */
 export interface ThemeEntry {
+  /** User themes: the file name without ".json" (T3's rule). */
   id: string;
   name: string;
   source: ThemeSource;
-  /** Appearances this theme can render (base + variants). */
+  /** Appearances this theme can render (base + variants); empty when `error` is set. */
   appearances: ThemeAppearance[];
-  file: ThemeFile;
+  /**
+   * The parsed file of user themes. Built-ins are loaded on demand
+   * (ThemeContext.loadFile / resolve), so it is absent for them, as it is
+   * for broken user files.
+   */
+  file?: ThemeFile;
   origin?: ThemeOrigin;
   /** Absolute path for user themes. */
   path?: string;
+  /** Why a user theme file can't be used (invalid JSON, too large...): show it, don't hide it. */
+  error?: string;
 }
 
 /** Monaco `IStandaloneThemeData` without importing monaco into src/lib. */
@@ -336,25 +349,57 @@ export interface ThemeSettings {
   darkTheme: string;
 }
 
+/**
+ * `useTheme()` (src/providers/ThemeProvider.ts). The theme engine (culori,
+ * derivation) is a lazy chunk: `active` is null until it has loaded (shortly
+ * after start-up); the colours on screen don't depend on it (the CSS / boot
+ * cache paint them).
+ */
 export interface ThemeContext {
-  /** Built-in + user themes, built-ins first, then by name. */
-  themes: import("vue").Ref<ThemeEntry[]>;
-  /** The theme currently painted (respecting a live preview). */
-  active: import("vue").Ref<ResolvedTheme>;
-  /** The appearance currently painted. */
-  appearance: import("vue").Ref<ThemeAppearance>;
-  /** Paints a theme without saving it (id of a known theme, or a draft file); null restores the saved choice. */
+  /** Built-in + user themes: built-ins first (manifest order), then user themes by name. */
+  themes: Readonly<import("vue").Ref<ThemeEntry[]>>;
+  /** The theme currently painted (respecting a live preview); null while the engine loads. */
+  active: Readonly<import("vue").Ref<ResolvedTheme | null>>;
+  /** Id of the theme currently painted (respecting a live preview; "preview" for drafts). */
+  activeId: Readonly<import("vue").Ref<string>>;
+  /** The appearance currently painted (a theme without the wanted appearance paints its own). */
+  appearance: Readonly<import("vue").Ref<ThemeAppearance>>;
+  /** True while preview() overrides the saved choice. */
+  previewing: Readonly<import("vue").Ref<boolean>>;
+  /** The active theme, waiting for the engine (Monaco / xterm use it before creating editors). */
+  resolved(): Promise<ResolvedTheme>;
+  /** Resolves any theme (id or draft) for previews and swatches; cached. */
+  resolve(theme: string | ThemeFile, appearance: ThemeAppearance): Promise<ResolvedTheme>;
+  /**
+   * Paints a theme without saving it (id of a known theme, or a draft file);
+   * null restores the saved choice. `appearance` defaults to the one the
+   * colour scheme wants.
+   */
   preview(theme: string | ThemeFile | null, appearance?: ThemeAppearance): Promise<void>;
-  /** Saves the choice: "both" sets lightTheme and darkTheme. */
+  /** Saves the choice ("both" sets lightTheme and darkTheme) and ends a preview. */
   setTheme(id: string, mode: ThemeAppearance | "both"): void;
   setColorScheme(scheme: ColorScheme): void;
-  /** Writes theme files to $APPCONFIG/themes/<id>.json (ids de-duplicated); returns the stored entries. */
+  /**
+   * Writes theme files to $APPCONFIG/themes/<id>.json; ids are made unique
+   * (-2, -3... never a built-in's id). `origin` is stored in files that have
+   * none; source "openvsx" stores `origin.label = "Open VSX"`. Returns the
+   * stored entries, in order.
+   */
   install(files: ThemeFile[], source?: ThemeSource, origin?: ThemeOrigin): Promise<ThemeEntry[]>;
-  /** Overwrites a user theme (used by the JSON editor); `id` is the file's current id. */
+  /**
+   * Overwrites a user theme (the JSON editor); `id` is the theme's current
+   * id. A changed `file.id` renames the file (and the settings follow).
+   * Throws a readable Error for invalid files or taken ids.
+   */
   save(id: string, file: ThemeFile): Promise<ThemeEntry>;
+  /** Deletes a user theme; the appearances that used it fall back to JET. */
   remove(id: string): Promise<void>;
-  /** Loads a built-in's file on demand. */
+  /** The file of any theme (built-ins are loaded on demand). */
   loadFile(id: string): Promise<ThemeFile>;
   /** Absolute path of the themes folder (created on demand). */
   folder(): Promise<string>;
+  /** Opens the themes folder in the OS file manager. */
+  openFolder(): Promise<void>;
+  /** Re-reads the themes folder (it is also watched). */
+  reload(): Promise<void>;
 }

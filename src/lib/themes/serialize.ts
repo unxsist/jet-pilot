@@ -39,6 +39,7 @@ const KEY_ORDER = [
   "jetPilot",
   "collection",
   "managed",
+  "origin",
 ];
 
 function ordered(file: ThemeFile): Record<string, unknown> {
