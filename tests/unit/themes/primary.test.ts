@@ -37,7 +37,7 @@ describe("primary action colour", () => {
     expect(contrastRatio(primary, "#282a36")).toBeGreaterThanOrEqual(3);
   });
 
-  it("imported VS Code themes keep hairline borders (visible, never loud)", () => {
+  it("imported VS Code themes keep hairline borders and quiet hover surfaces", () => {
     const vscode = [
       ...builtinFiles().filter((file) => file.id !== "jet" && !file.id!.startsWith("t3-")),
       importFixture("dracula-color-theme.json"),
@@ -49,6 +49,8 @@ describe("primary action colour", () => {
         const ratio = contrastRatio(roles.border, roles.canvas);
         expect(ratio, `${file.id} ${appearance}`).toBeGreaterThanOrEqual(1.1);
         expect(ratio, `${file.id} ${appearance}`).toBeLessThanOrEqual(3.2);
+        // The hover / highlighted row surface stays a quiet surface.
+        expect(contrastRatio(roles.accentSurface, roles.canvas), `${file.id} ${appearance}`).toBeLessThanOrEqual(2.2);
       }
     }
   });

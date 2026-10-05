@@ -63,6 +63,9 @@ const BORDER_KEYS = [
 /** Contrast range (on the canvas) of a border that reads as a hairline. */
 const BORDER_CONTRAST = { min: 1.1, max: 3.2 } as const;
 
+/** Contrast range (on the canvas) of a list colour usable as the hover surface. */
+const ACCENT_SURFACE_CONTRAST = { min: 1.05, max: 2.2 } as const;
+
 /** Workbench keys tried, in order, for the primary action colour. */
 const ACTION_KEYS = [
   "button.background",
@@ -428,8 +431,18 @@ export function convertVsCodeTheme(
   };
 
   const surfaceRaisedHex = raisedCandidate ?? derived.surfaceRaised;
+  // JET's accent surface is the neutral hover / highlighted row: a list
+  // colour only wins when it reads as a quiet surface. Nord's bright
+  // #88c0d0 selection would light up every hovered row and swallow the
+  // primary indicator on the active nav item.
   const accentSurfaceHex =
-    solidOver(canvas, "list.activeSelectionBackground", "list.hoverBackground") ?? derived.accentSurface;
+    ["list.activeSelectionBackground", "list.hoverBackground", "list.inactiveSelectionBackground"]
+      .map((key) => solidOver(canvas, key))
+      .find((candidate) => {
+        if (!candidate) return false;
+        const ratio = contrastRgb(rgb(candidate), canvas);
+        return ratio >= ACCENT_SURFACE_CONTRAST.min && ratio <= ACCENT_SURFACE_CONTRAST.max;
+      }) ?? derived.accentSurface;
   // The primary button maps to messageAction; resolve it before the input
   // role. It must be a vivid action colour (≥ 3:1 on the canvas, apart from
   // the selection surface): many themes give their buttons the selection
