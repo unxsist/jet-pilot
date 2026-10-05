@@ -66,6 +66,8 @@ import {
 } from "@/components/vue-flow/nodeStatus";
 import { cn, formatResourceKind, injectStrict } from "@/lib/utils";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+import { kubectlPollingForced } from "@/lib/multicontext";
 import {
   PanelProviderSetSidePanelComponentKey,
   PanelProviderStateKey,
@@ -89,6 +91,7 @@ import {
   nodeSize,
 } from "@/lib/clusterGraphLayout";
 import {
+  GRAPH_REFRESH_INTERVAL,
   GraphScope,
   useClusterTopology,
 } from "@/composables/useClusterTopology";
@@ -97,6 +100,7 @@ import {
 
 const { context, namespace, kubeConfig, contexts, contextKubeConfigMapping } =
   injectStrict(KubeContextStateKey);
+const { settings } = injectStrict(SettingsContextStateKey);
 
 /*
  * The graph shows one context: the primary one, or the one picked here
@@ -150,9 +154,12 @@ const {
   lastUpdated,
   timings,
   paused,
+  mode: sourceMode,
   refresh,
   retry,
-} = useClusterTopology(scope);
+} = useClusterTopology(scope, {
+  forcePolling: () => kubectlPollingForced(settings.value),
+});
 
 /* -------------------------------------------------------- view state -- */
 
@@ -851,7 +858,11 @@ const onNodeDoubleClick = ({ node }: NodeMouseEvent) => {
   );
 };
 
-/* Keep the selection (and its panel) in sync with live refreshes. */
+/*
+ * Keep the selection (and its panel) in sync with live updates: the panel
+ * is only refreshed when the selected object or the relationships changed
+ * (unchanged nodes and edges keep their identity across updates).
+ */
 watch(topology, (next, previous) => {
   if (!selected.value) return;
   const node = next?.nodes.get(selected.value);
@@ -859,7 +870,12 @@ watch(topology, (next, previous) => {
     clearSelection();
     return;
   }
-  if (next !== previous) openDetails(node);
+  if (
+    node !== previous?.nodes.get(selected.value) ||
+    next!.edges !== previous?.edges
+  ) {
+    openDetails(node);
+  }
 });
 
 /* New objects of a live refresh fade in. */
@@ -1071,6 +1087,23 @@ const updatedLabel = computed(() => {
   if (seconds < 5) return "Updated just now";
   if (seconds < 60) return `Updated ${seconds}s ago`;
   return `Updated ${Math.floor(seconds / 60)}m ago`;
+});
+/* Watched data is live; polled data is as fresh as its last poll. */
+const statusLabel = computed(() =>
+  paused.value
+    ? "Paused"
+    : sourceMode.value === "poll"
+      ? updatedLabel.value
+      : "Live"
+);
+const statusTitle = computed(() => {
+  if (paused.value) return "Live updates paused";
+  const every = `${GRAPH_REFRESH_INTERVAL / 1000} s`;
+  if (sourceMode.value === "watch") return "Live: watching the cluster";
+  if (sourceMode.value === "mixed") {
+    return `Live (some kinds are polled with kubectl every ${every})`;
+  }
+  return `Polling with kubectl every ${every} · ${updatedLabel.value}`;
 });
 
 /* Timings for the performance harness (and the curious). */
@@ -1409,7 +1442,7 @@ const showGraph = computed(
           v-if="showGraph"
           class="inline-flex items-center gap-1.5 whitespace-nowrap text-muted-foreground"
           aria-live="polite"
-          :title="paused ? 'Live updates paused' : updatedLabel"
+          :title="statusTitle"
         >
           <span
             :class="
@@ -1420,10 +1453,8 @@ const showGraph = computed(
             "
             aria-hidden="true"
           />
-          <span v-if="!narrow">{{ paused ? "Paused" : updatedLabel }}</span>
-          <span v-else class="sr-only">{{
-            paused ? "Paused" : updatedLabel
-          }}</span>
+          <span v-if="!narrow">{{ statusLabel }}</span>
+          <span v-else class="sr-only">{{ statusLabel }}</span>
         </span>
         <Button
           variant="ghost"

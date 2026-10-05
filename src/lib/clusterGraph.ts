@@ -1658,6 +1658,146 @@ function push<K, V>(map: Map<K, V[]>, k: K, value: V) {
   else map.set(k, [value]);
 }
 
+/* ------------------------------------------------------- live updates -- */
+
+const sameArray = <T>(a: readonly T[] | undefined, b: readonly T[] | undefined) => {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+};
+
+const sameRecord = (
+  a: Record<string, string> | undefined,
+  b: Record<string, string> | undefined
+) => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((k) => a[k] === b[k]);
+};
+
+/** Whether two builds of a node draw and behave the same. */
+export function sameNode(a: TopoNode, b: TopoNode): boolean {
+  return (
+    a.id === b.id &&
+    a.object === b.object &&
+    a.health === b.health &&
+    a.group === b.group &&
+    a.category === b.category &&
+    a.kind === b.kind &&
+    a.name === b.name &&
+    a.namespace === b.namespace &&
+    a.parent === b.parent &&
+    a.old === b.old &&
+    a.missing === b.missing &&
+    a.external === b.external &&
+    sameArray(a.reasons, b.reasons) &&
+    sameRecord(a.labels, b.labels) &&
+    sameArray(a.pods, b.pods) &&
+    sameArray(a.jobs, b.jobs) &&
+    sameArray(a.replicaSets?.active, b.replicaSets?.active) &&
+    sameArray(a.replicaSets?.old, b.replicaSets?.old)
+  );
+}
+
+const sameGroup = (a: AppGroup, b: AppGroup) =>
+  a.id === b.id &&
+  a.name === b.name &&
+  a.type === b.type &&
+  a.health === b.health &&
+  sameArray(a.nodeIds, b.nodeIds);
+
+export interface TopologyChange {
+  /** Nodes / edges / groups were added or removed (layout input changed). */
+  structure: boolean;
+  /** Ids of nodes that are new or drawn differently. */
+  nodes: Set<string>;
+  /** Ids of nodes that are gone. */
+  removed: Set<string>;
+}
+
+/**
+ * Carries unchanged parts of `previous` over into `next`: nodes, edges and
+ * groups that did not change keep their object identity, so views can skip
+ * them (and a status-only change does not look like a new graph).
+ * Returns `previous` itself when nothing changed at all.
+ */
+export function reconcileTopology(
+  previous: Topology | null,
+  next: Topology
+): { topology: Topology; change: TopologyChange } {
+  if (!previous) {
+    return {
+      topology: next,
+      change: {
+        structure: true,
+        nodes: new Set(next.nodes.keys()),
+        removed: new Set(),
+      },
+    };
+  }
+  const changedNodes = new Set<string>();
+  let structure = next.nodes.size !== previous.nodes.size;
+  const nodes = new Map<string, TopoNode>();
+  for (const [id, node] of next.nodes) {
+    const old = previous.nodes.get(id);
+    if (old && sameNode(old, node)) {
+      nodes.set(id, old);
+    } else {
+      nodes.set(id, node);
+      changedNodes.add(id);
+      if (!old) structure = true;
+    }
+  }
+  const removed = new Set<string>();
+  for (const id of previous.nodes.keys()) {
+    if (!next.nodes.has(id)) removed.add(id);
+  }
+  if (removed.size > 0) structure = true;
+
+  const oldEdges = new Map(previous.edges.map((edge) => [edge.id, edge]));
+  let edgesSame = previous.edges.length === next.edges.length;
+  const edges = next.edges.map((edge, i) => {
+    const old = oldEdges.get(edge.id);
+    if (!old) {
+      edgesSame = false;
+      return edge;
+    }
+    if (previous.edges[i] !== old) edgesSame = false;
+    return old;
+  });
+  if (!edgesSame) structure = true;
+
+  let groupsSame = previous.groups.size === next.groups.size;
+  const groups = new Map<string, AppGroup>();
+  for (const [id, group] of next.groups) {
+    const old = previous.groups.get(id);
+    if (old && sameGroup(old, group)) {
+      groups.set(id, old);
+    } else {
+      groups.set(id, group);
+      groupsSame = false;
+      if (!old || !sameArray(old.nodeIds, group.nodeIds)) structure = true;
+    }
+  }
+  if (changedNodes.size === 0 && removed.size === 0 && edgesSame && groupsSame) {
+    return {
+      topology: previous,
+      change: { structure: false, nodes: changedNodes, removed },
+    };
+  }
+  return {
+    topology: {
+      nodes,
+      edges: edgesSame ? previous.edges : edges,
+      groups,
+    },
+    change: { structure, nodes: changedNodes, removed },
+  };
+}
+
 /* ------------------------------------------------------- visible graph -- */
 
 export interface GraphFilters {
@@ -1741,20 +1881,33 @@ export function visibleGraph(
 
 /* --------------------------------------------------------- neighbourhood -- */
 
-/**
- * Everything upstream (transitively pointing at `id`) and downstream
- * (transitively reachable from `id`), plus the edges on those paths.
- */
-export function traceNeighbourhood(
-  edges: TopoEdge[],
-  id: string
-): { nodes: Set<string>; edges: Set<string> } {
+/** Edges by source and by target: built once per graph, reused per query. */
+export interface Adjacency {
+  outgoing: Map<string, TopoEdge[]>;
+  incoming: Map<string, TopoEdge[]>;
+}
+
+export function buildAdjacency(edges: TopoEdge[]): Adjacency {
   const outgoing = new Map<string, TopoEdge[]>();
   const incoming = new Map<string, TopoEdge[]>();
   for (const edge of edges) {
     push(outgoing, edge.source, edge);
     push(incoming, edge.target, edge);
   }
+  return { outgoing, incoming };
+}
+
+/**
+ * Everything upstream (transitively pointing at `id`) and downstream
+ * (transitively reachable from `id`), plus the edges on those paths.
+ */
+export function traceNeighbourhood(
+  edges: TopoEdge[] | Adjacency,
+  id: string
+): { nodes: Set<string>; edges: Set<string> } {
+  const { outgoing, incoming } = Array.isArray(edges)
+    ? buildAdjacency(edges)
+    : edges;
   const nodes = new Set<string>([id]);
   const litEdges = new Set<string>();
   const walk = (
@@ -1764,8 +1917,8 @@ export function traceNeighbourhood(
   ) => {
     const seen = new Set<string>([start]);
     const queue = [start];
-    while (queue.length) {
-      const current = queue.shift()!;
+    for (let head = 0; head < queue.length; head++) {
+      const current = queue[head];
       for (const edge of index.get(current) || []) {
         litEdges.add(edge.id);
         const other = next(edge);

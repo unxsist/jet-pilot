@@ -59,3 +59,25 @@ export function openShell(deps: GraphActionDeps, pod: GraphObject) {
     "shell"
   );
 }
+
+/** The full Secret behind a metadata-only graph row (explicit user action). */
+export async function loadSecret(row: GraphObject): Promise<GraphObject> {
+  const { Kubernetes } = await import("@/services/Kubernetes");
+  const args = [
+    "get",
+    "secret",
+    row.metadata.name || "",
+    "--namespace",
+    row.metadata.namespace || "",
+    "--context",
+    row.metadata.context || "",
+    "-o",
+    "json",
+  ];
+  if (row.metadata.kubeConfig) args.push("--kubeconfig", row.metadata.kubeConfig);
+  const secret = JSON.parse(await Kubernetes.kubectl(args)) as GraphObject;
+  delete secret.metadata.managedFields;
+  secret.metadata.context = row.metadata.context;
+  secret.metadata.kubeConfig = row.metadata.kubeConfig;
+  return secret;
+}

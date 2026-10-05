@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Focus, SquareTerminal, Waypoints } from "lucide-vue-next";
+import { Focus, KeyRound, Loader2, SquareTerminal, Waypoints } from "lucide-vue-next";
 import KindIcon from "@/components/KindIcon.vue";
 import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/components/ui/status";
@@ -11,7 +11,7 @@ import {
 } from "@/providers/PanelProvider";
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 import { HEALTH_LABEL, HEALTH_TONE, nodeSubtitle } from "./nodeStatus";
-import { openShell, shellTarget } from "./graphActions";
+import { loadSecret, openShell, shellTarget } from "./graphActions";
 
 /*
  * Side panel content for a graph object: why it is (un)healthy, what it is
@@ -85,6 +85,37 @@ const pods = computed(() =>
 );
 
 const shellPod = computed(() => shellTarget(props.node));
+
+/*
+ * The graph lists Secrets metadata-only: their values are only fetched
+ * when asked for here (like opening the Secret from its list).
+ */
+const isSecret = computed(() => props.node.kind === "Secret" && !!props.resource);
+const secret = shallowRef<TopoNode["object"]>(null);
+const secretLoading = ref(false);
+const secretError = ref("");
+watch(
+  () => props.resource,
+  () => {
+    secret.value = null;
+    secretError.value = "";
+  }
+);
+const showSecretData = async () => {
+  if (!props.resource) return;
+  secretLoading.value = true;
+  secretError.value = "";
+  try {
+    secret.value = await loadSecret(props.resource);
+  } catch (e) {
+    secretError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    secretLoading.value = false;
+  }
+};
+const panelResource = computed(() =>
+  isSecret.value ? secret.value : props.resource
+);
 </script>
 
 <template>
@@ -247,6 +278,28 @@ const shellPod = computed(() => shellTarget(props.node));
       </div>
     </section>
 
-    <ResourcePanel v-if="resource" :resource="resource" />
+    <section
+      v-if="isSecret && !secret"
+      class="space-y-2 border-b px-4 py-3 text-xs text-muted-foreground"
+    >
+      <p>
+        The graph does not load secret values. Load this Secret to see its
+        data and details.
+      </p>
+      <Button
+        variant="outline"
+        size="xs"
+        :disabled="secretLoading"
+        @click="showSecretData"
+      >
+        <Loader2 v-if="secretLoading" class="h-3 w-3 animate-spin" />
+        <KeyRound v-else class="h-3 w-3" />
+        Load Secret
+      </Button>
+      <p v-if="secretError" class="break-words text-destructive">
+        {{ secretError }}
+      </p>
+    </section>
+    <ResourcePanel v-if="panelResource" :resource="panelResource" />
   </div>
 </template>

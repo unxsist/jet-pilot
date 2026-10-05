@@ -1,23 +1,36 @@
-import { Ref, shallowRef, ref, watch, onMounted, onBeforeUnmount } from "vue";
-import type { V1APIResource } from "@kubernetes/client-node";
-import { Kubernetes } from "@/services/Kubernetes";
-import { error as logError } from "@/lib/logger";
+import { Ref, onScopeDispose, ref, shallowRef, watch } from "vue";
+import { log as logInfo } from "@/lib/logger";
+import { DiscoveryService, getDiscoveryService } from "@/lib/discovery";
+import { WatchTransport, tauriWatchTransport } from "@/lib/watch";
+import {
+  ContextTarget,
+  WatchedListController,
+} from "@/composables/useWatchedList";
 import {
   DiscoveredResource,
   GraphObject,
   Topology,
+  TopologyChange,
   buildTopology,
-  dedupeResources,
-  mapWithConcurrency,
   qualifiedResourceName,
-  selectGraphResources,
-  GRAPH_RESOURCES,
+  reconcileTopology,
 } from "@/lib/clusterGraph";
+import {
+  graphResourcesOf,
+  isHelmReleaseSecret,
+  isMetadataOnly,
+  namespaceTargets,
+  parseSecretMetadata,
+  prepareListed,
+  secretMetadataArgs,
+} from "@/lib/clusterGraphSources";
 
-/** Maximum number of concurrent kubectl processes. */
-const MAX_CONCURRENT_REQUESTS = 6;
-/** Live refresh interval of the graph. */
+/** kubectl polling interval of the fallback path. */
 export const GRAPH_REFRESH_INTERVAL = 15_000;
+/** Show what has loaded when some kinds take longer than this. */
+const INITIAL_LOAD_TIMEOUT = 20_000;
+/** Minimum gap between two model rebuilds of live updates. */
+const MIN_BUILD_GAP = 120;
 
 export interface GraphScope {
   context: string;
@@ -27,332 +40,413 @@ export interface GraphScope {
 }
 
 export interface GraphTimings {
+  /** Discovery + first snapshot of every kind. */
   fetchMs: number;
+  /** Last model build (buildTopology + reconcile). */
   buildMs: number;
   objects: number;
+  /** Model builds so far (live updates included). */
+  builds: number;
 }
+
+export interface GraphSourceOptions {
+  /** kubectl polling for every kind (settings.experimental.useKubectlPolling). */
+  forcePolling?: () => boolean;
+  transport?: WatchTransport;
+  discovery?: DiscoveryService;
+  /** Runs kubectl (fallback path); the backend command by default. */
+  kubectl?: (args: string[]) => Promise<string>;
+  pollInterval?: number;
+}
+
+/** How the graph gets its data: live watches, kubectl polling or both. */
+export type GraphSourceMode = "watch" | "poll" | "mixed";
+
+const defaultKubectl = async (args: string[]) => {
+  const { Kubernetes } = await import("@/services/Kubernetes");
+  return Kubernetes.kubectl(args);
+};
 
 /*
- * API discovery is slow (one call per API group) and rarely changes: cache
- * the graphable resources per context for the session.
+ * Cache key of metadata-only Secret rows in the watched-list row cache:
+ * distinct from the Secrets list (full objects), so neither picks up the
+ * other's rows.
  */
-const discoveryCache = new Map<string, Promise<DiscoveredResource[]>>();
+const METADATA_KIND = "Secret:metadata";
 
-const GRAPH_GROUPS = new Set(GRAPH_RESOURCES.map((resource) => resource.group));
+const sameItems = (a: GraphObject[], b: GraphObject[]) => {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+};
 
-async function discoverGraphResources(
-  context: string,
-  kubeConfig: string
-): Promise<DiscoveredResource[]> {
-  const toDiscovered = (group: string) => (resource: V1APIResource) => ({
-    name: resource.name,
-    group,
-    kind: resource.kind,
-    namespaced: resource.namespaced,
-  });
-  const resources: DiscoveredResource[] = [];
-
-  const versions = await Kubernetes.getCoreApiVersions(context, kubeConfig);
-  for (const version of versions) {
-    const core = await Kubernetes.getCoreApiResources(
-      context,
-      version,
-      kubeConfig
-    );
-    resources.push(
-      ...core.filter((r) => !r.name.includes("/")).map(toDiscovered(""))
-    );
-  }
-
-  // Only the API groups the graph knows how to relate.
-  const groups = (await Kubernetes.getApiGroups(context, kubeConfig)).filter(
-    (group) => GRAPH_GROUPS.has(group.name)
-  );
-  const results = await mapWithConcurrency(
-    groups,
-    MAX_CONCURRENT_REQUESTS,
-    (group) =>
-      Kubernetes.getApiGroupResources(
-        context,
-        group.preferredVersion?.groupVersion || "",
-        kubeConfig
-      )
-  );
-  results.forEach((result, i) => {
-    if (result.status === "rejected") {
-      logError(
-        `Error fetching resources for group ${groups[i].name}: ${result.reason}`
-      );
-      return;
-    }
-    resources.push(
-      ...result.value
-        .filter((r) => !r.name.includes("/"))
-        .map(toDiscovered(groups[i].name))
-    );
-  });
-
-  return selectGraphResources(dedupeResources(resources));
-}
-
-function discover(context: string, kubeConfig: string, fresh: boolean) {
-  const cacheKey = `${kubeConfig}\n${context}`;
-  if (fresh || !discoveryCache.has(cacheKey)) {
-    const pending = discoverGraphResources(context, kubeConfig);
-    // A failed discovery is retried next time.
-    pending.catch(() => discoveryCache.delete(cacheKey));
-    discoveryCache.set(cacheKey, pending);
-  }
-  return discoveryCache.get(cacheKey)!;
-}
-
-/* Secrets Helm keeps its release history in: big, never graphed. */
-const isHelmReleaseSecret = (object: GraphObject) =>
-  object.kind === "Secret" &&
-  String(object.type || "").startsWith("helm.sh/release");
-
-async function fetchResource(
-  resource: DiscoveredResource,
-  scope: GraphScope,
-  namespace: string | null
-): Promise<GraphObject[]> {
-  const args = [
-    "get",
-    qualifiedResourceName(resource),
-    "--context",
-    scope.context,
-    "-o",
-    "json",
-    "--request-timeout=30s",
-  ];
-  if (scope.kubeConfig) args.push("--kubeconfig", scope.kubeConfig);
-  if (resource.namespaced !== false) {
-    if (namespace) args.push("--namespace", namespace);
-    else args.push("--all-namespaces");
-  }
-
-  const items: GraphObject[] =
-    JSON.parse(await Kubernetes.kubectl(args)).items || [];
-  const result: GraphObject[] = [];
-  for (const item of items) {
-    if (!item.metadata) continue;
-    // kubectl lists do not always carry the kind of their items.
-    item.kind = item.kind || resource.kind;
-    if (isHelmReleaseSecret(item)) continue;
-    // Managed fields are large and never shown.
-    delete item.metadata.managedFields;
-    // Tag objects with their origin so actions target the right cluster.
-    item.metadata.context = scope.context;
-    item.metadata.kubeConfig = scope.kubeConfig;
-    result.push(item);
-  }
-  return result;
+interface KindSource {
+  resource: DiscoveredResource;
+  controller: WatchedListController<GraphObject>;
+  /** Rows of the last build (compared by identity). */
+  items: GraphObject[];
 }
 
 /**
- * Fetches the graphable objects of a scope and builds the topology, live:
- * a full load when the scope changes, background refreshes every
- * GRAPH_REFRESH_INTERVAL (paused while the window is hidden; a refresh is
- * skipped while one is in flight). Newer loads supersede older ones.
+ * The topology of a scope, live: the graphable kinds come from the shared
+ * discovery service, each kind is a WatchHub subscription (snapshot +
+ * batched deltas) per namespace scope with a per-kind fallback to kubectl
+ * polling (watch unavailable / forbidden, or forced by the setting).
+ * Secrets are always listed metadata-only with kubectl.
+ *
+ * Changes are coalesced into model rebuilds, which only happen when rows
+ * actually changed; reconcileTopology keeps unchanged nodes, edges and
+ * groups identical, so views redraw only what changed (`change`).
  */
-export function useClusterTopology(scope: Ref<GraphScope | null>) {
+export function useClusterTopology(
+  scope: Ref<GraphScope | null>,
+  options: GraphSourceOptions = {}
+) {
+  const transport = options.transport ?? tauriWatchTransport;
+  const kubectl = options.kubectl ?? defaultKubectl;
+  const pollInterval = options.pollInterval ?? GRAPH_REFRESH_INTERVAL;
+  const discovery = () => options.discovery ?? getDiscoveryService();
+
   const topology = shallowRef<Topology | null>(null);
+  /** What the last model update changed. */
+  const change = shallowRef<TopologyChange | null>(null);
   /** First load of a scope (the graph is empty meanwhile). */
   const loading = ref(false);
-  /** A background refresh is running. */
+  /** A manual refresh is running. */
   const refreshing = ref(false);
   const progress = ref({ done: 0, total: 0 });
-  /** Resources that failed to load in the last load. */
+  /** Resources that failed to load. */
   const failedResources = ref<DiscoveredResource[]>([]);
-  /** Nothing could be loaded (first load) / the last refresh failed. */
+  /** Nothing could be loaded (first load) / live updates are failing. */
   const loadError = ref<string | null>(null);
   const refreshError = ref<string | null>(null);
   const lastUpdated = ref<Date | null>(null);
   const timings = ref<GraphTimings | null>(null);
   const paused = ref(false);
+  const mode = ref<GraphSourceMode>("watch");
 
+  let sources: KindSource[] = [];
   let generation = 0;
-  let inFlight = false;
+  let startedAt = 0;
+  let buildTimer: ReturnType<typeof setTimeout> | undefined;
+  let initialTimer: ReturnType<typeof setTimeout> | undefined;
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  let buildQueued = false;
+  let lastBuildAt = -Infinity;
+  let lastBuildMs = 0;
+  let builds = 0;
+  let failedKey = "";
+  let initialTimedOut = false;
 
-  const load = async (
-    mode: "reload" | "refresh" | "manual" | "rediscover"
-  ) => {
-    const current = scope.value;
-    if (mode === "refresh" && (inFlight || paused.value)) return;
-    if (mode === "manual") {
-      if (inFlight) return;
-      mode = "refresh";
+  /* -------------------------------------------------------- fallback -- */
+
+  const listOne = async (
+    resource: DiscoveredResource,
+    target: ContextTarget,
+    namespace: string | null
+  ): Promise<GraphObject[]> => {
+    const tag = { context: target.context, kubeConfig: target.kubeConfig };
+    if (isMetadataOnly(resource)) {
+      const output = await kubectl(
+        secretMetadataArgs(target.context, target.kubeConfig, namespace)
+      );
+      return parseSecretMetadata(output, tag).filter(
+        (secret) => !isHelmReleaseSecret(secret)
+      );
     }
-    const thisGeneration = ++generation;
-    const isCurrent = () => thisGeneration === generation;
+    const args = [
+      "get",
+      qualifiedResourceName(resource),
+      "--context",
+      target.context,
+      "-o",
+      "json",
+      "--request-timeout=30s",
+    ];
+    if (target.kubeConfig) args.push("--kubeconfig", target.kubeConfig);
+    if (resource.namespaced !== false) {
+      if (namespace) args.push("--namespace", namespace);
+      else args.push("--all-namespaces");
+    }
+    const items: GraphObject[] = JSON.parse(await kubectl(args)).items || [];
+    return prepareListed(items, resource, tag);
+  };
 
-    if (!current?.context) {
+  const listResource = async (
+    resource: DiscoveredResource,
+    target: ContextTarget
+  ): Promise<GraphObject[]> => {
+    const namespaces = target.namespaces.includes("all")
+      ? [null]
+      : target.namespaces;
+    const lists = await Promise.all(
+      namespaces.map((namespace) => listOne(resource, target, namespace))
+    );
+    return lists.flat();
+  };
+
+  /* ----------------------------------------------------------- build -- */
+
+  const now = () => performance.now();
+
+  const schedule = () => {
+    if (buildQueued) return;
+    buildQueued = true;
+    const gap = topology.value
+      ? Math.max(MIN_BUILD_GAP, lastBuildMs * 4)
+      : 0;
+    const wait = Math.max(0, lastBuildAt + gap - now());
+    // A timeout even when due: coalesces the kinds updated in this tick.
+    buildTimer = setTimeout(build, wait);
+  };
+
+  const build = () => {
+    buildQueued = false;
+    const current = scope.value;
+    if (!current || sources.length === 0) return;
+    const initial = topology.value === null;
+
+    let done = 0;
+    for (const source of sources) {
+      if (!source.controller.loading()) done++;
+    }
+    progress.value = { done, total: sources.length };
+    if (initial && done < sources.length && !initialTimedOut) return;
+    if (paused.value && !initial) return;
+
+    const failed: DiscoveredResource[] = [];
+    let firstError = "";
+    const loadedKinds = new Set<string>();
+    for (const source of sources) {
+      const error = source.controller.error();
+      if (error) {
+        failed.push(source.resource);
+        firstError ||= error.message;
+      } else if (!source.controller.loading()) {
+        loadedKinds.add(source.resource.kind);
+      }
+    }
+    if (failed.length === sources.length) {
+      const message = `Failed to fetch any resources of this cluster${firstError ? `: ${firstError}` : ""}`;
+      if (initial) {
+        loadError.value = message;
+        loading.value = false;
+      } else {
+        refreshError.value = message;
+      }
+      return;
+    }
+    refreshError.value = null;
+    loadError.value = null;
+
+    let changed = initial;
+    for (const source of sources) {
+      const items = source.controller.items();
+      if (!sameItems(items, source.items)) {
+        source.items = items;
+        changed = true;
+      }
+    }
+    const nextFailedKey = failed.map(qualifiedResourceName).join(",");
+    if (nextFailedKey !== failedKey) {
+      failedKey = nextFailedKey;
+      failedResources.value = failed;
+      changed = true;
+    }
+
+    let watching = 0;
+    let polling = 0;
+    for (const source of sources) {
+      if (isMetadataOnly(source.resource)) continue;
+      for (const sourceMode of source.controller.modes().values()) {
+        if (sourceMode === "watch") watching++;
+        else polling++;
+      }
+    }
+    mode.value = polling === 0 ? "watch" : watching === 0 ? "poll" : "mixed";
+
+    lastUpdated.value = new Date();
+    if (!changed) return;
+
+    const started = now();
+    const wanted = new Set(current.namespaces);
+    const seen = new Set<string>();
+    const objects: GraphObject[] = [];
+    for (const source of sources) {
+      for (const object of source.items) {
+        if (!object?.metadata) continue;
+        const uid = object.metadata.uid;
+        if (uid) {
+          if (seen.has(uid)) continue;
+          seen.add(uid);
+        }
+        const namespace = object.metadata.namespace;
+        if (namespace && wanted.size > 0 && !wanted.has(namespace)) continue;
+        objects.push(
+          object.kind
+            ? object
+            : { ...object, kind: source.resource.kind }
+        );
+      }
+    }
+    const built = buildTopology(objects, {
+      loadedKinds,
+      namespaceInScope: (namespace) =>
+        wanted.size === 0 || wanted.has(namespace),
+    });
+    const result = reconcileTopology(topology.value, built);
+    lastBuildMs = now() - started;
+    lastBuildAt = now();
+    builds++;
+
+    if (result.topology !== topology.value) {
+      change.value = result.change;
+      topology.value = result.topology;
+    }
+    timings.value = {
+      fetchMs: initial ? now() - startedAt : (timings.value?.fetchMs ?? 0),
+      buildMs: lastBuildMs,
+      objects: objects.length,
+      builds,
+    };
+    loading.value = false;
+    refreshing.value = false;
+  };
+
+  /* ------------------------------------------------------- lifecycle -- */
+
+  const stop = () => {
+    for (const source of sources) source.controller.dispose();
+    sources = [];
+    clearTimeout(buildTimer);
+    clearTimeout(initialTimer);
+    clearTimeout(refreshTimer);
+    buildQueued = false;
+  };
+
+  const start = async (mode: "reload" | "rediscover" | "restart") => {
+    stop();
+    const thisGeneration = ++generation;
+    const current = scope.value;
+    if (mode !== "restart") {
       topology.value = null;
+      change.value = null;
+      failedResources.value = [];
+      failedKey = "";
+    }
+    loadError.value = null;
+    refreshError.value = null;
+    if (!current?.context) {
+      loading.value = false;
+      return;
+    }
+    loading.value = topology.value === null;
+    progress.value = { done: 0, total: 0 };
+    startedAt = now();
+    lastBuildAt = -Infinity;
+    builds = 0;
+    initialTimedOut = false;
+
+    const service = discovery();
+    const snapshot = await service
+      .load(current.context, current.kubeConfig, {
+        force: mode === "rediscover",
+      })
+      .catch(() => null);
+    if (thisGeneration !== generation) return;
+    if (!snapshot) {
+      const reason = service.get(current.context, current.kubeConfig).error
+        .value;
+      loadError.value = `API discovery failed${reason ? `: ${reason}` : ""}`;
+      loading.value = false;
+      return;
+    }
+    const resources = graphResourcesOf(snapshot);
+    if (resources.length === 0) {
+      topology.value = buildTopology([]);
       loading.value = false;
       return;
     }
 
-    inFlight = true;
-    if (mode !== "refresh") {
-      loading.value = topology.value === null || mode === "reload";
-      loadError.value = null;
-      progress.value = { done: 0, total: 0 };
-      if (mode === "reload") topology.value = null;
-    }
-    refreshing.value = true;
-
-    const started = performance.now();
-    try {
-      const resources = await discover(
-        current.context,
-        current.kubeConfig,
-        mode === "rediscover"
-      );
-      if (!isCurrent()) return;
-
-      // One call per namespace when a few are selected (works with
-      // namespace-scoped RBAC), one --all-namespaces call otherwise.
-      const namespaces: (string | null)[] =
-        current.namespaces.length > 0 && current.namespaces.length <= 4
-          ? current.namespaces
-          : [null];
-      const tasks = resources.flatMap((resource) =>
-        resource.namespaced === false
-          ? [{ resource, namespace: null }]
-          : namespaces.map((namespace) => ({ resource, namespace }))
-      );
-      if (mode !== "refresh") progress.value = { done: 0, total: tasks.length };
-
-      const results = await mapWithConcurrency(
-        tasks,
-        MAX_CONCURRENT_REQUESTS,
-        async (task) => {
-          try {
-            return await fetchResource(task.resource, current, task.namespace);
-          } finally {
-            if (isCurrent() && mode !== "refresh") progress.value.done++;
+    const forcePolling = options.forcePolling?.() ?? false;
+    progress.value = { done: 0, total: resources.length };
+    sources = resources.map((resource) => {
+      const metadataOnly = isMetadataOnly(resource);
+      return {
+        resource,
+        items: [],
+        controller: new WatchedListController<GraphObject>(
+          {
+            resource: qualifiedResourceName(resource),
+            kind: metadataOnly ? METADATA_KIND : resource.kind,
+            fallback: (target) => listResource(resource, target),
+            fallbackInterval: pollInterval,
+            forcePolling: forcePolling || metadataOnly,
+            transport,
+          },
+          () => {
+            if (thisGeneration === generation) schedule();
           }
-        }
-      );
-      if (!isCurrent()) return;
-      const fetchMs = performance.now() - started;
-
-      const failed = new Map<string, DiscoveredResource>();
-      const loadedKinds = new Set<string>();
-      const objects: GraphObject[] = [];
-      const seen = new Set<string>();
-      const wanted = new Set(current.namespaces);
-      results.forEach((result, i) => {
-        const { resource } = tasks[i];
-        if (result.status === "rejected") {
-          failed.set(qualifiedResourceName(resource), resource);
-          logError(
-            `Failed to fetch ${qualifiedResourceName(resource)}: ${result.reason}`
-          );
-          return;
-        }
-        for (const object of result.value) {
-          const uid = object.metadata.uid;
-          if (uid) {
-            if (seen.has(uid)) continue;
-            seen.add(uid);
-          }
-          const namespace = object.metadata.namespace;
-          if (namespace && wanted.size > 0 && !wanted.has(namespace)) continue;
-          objects.push(object);
-        }
-      });
-      for (const resource of resources) {
-        if (!failed.has(qualifiedResourceName(resource))) {
-          loadedKinds.add(resource.kind);
-        }
-      }
-
-      if (resources.length > 0 && failed.size === resources.length) {
-        const first = results.find(
-          (result): result is PromiseRejectedResult =>
-            result.status === "rejected"
-        );
-        const reason =
-          first?.reason instanceof Error
-            ? first.reason.message
-            : String(first?.reason ?? "");
-        throw new Error(
-          `Failed to fetch any resources of this cluster${reason ? `: ${reason}` : ""}`
-        );
-      }
-
-      const buildStarted = performance.now();
-      const built = buildTopology(objects, {
-        loadedKinds,
-        namespaceInScope: (namespace) =>
-          wanted.size === 0 || wanted.has(namespace),
-      });
-      const buildMs = performance.now() - buildStarted;
-
-      topology.value = built;
-      failedResources.value = [...failed.values()];
-      timings.value = { fetchMs, buildMs, objects: objects.length };
-      lastUpdated.value = new Date();
-      refreshError.value = null;
-      loadError.value = null;
-    } catch (e) {
-      if (!isCurrent()) return;
-      const message = e instanceof Error ? e.message : String(e);
-      logError(`Failed to load the resource graph: ${message}`);
-      if (topology.value) refreshError.value = message;
-      else loadError.value = message;
-    } finally {
-      if (isCurrent()) {
-        inFlight = false;
-        loading.value = false;
-        refreshing.value = false;
-      }
+        ),
+      };
+    });
+    for (const source of sources) {
+      source.controller.setTargets([
+        {
+          context: current.context,
+          kubeConfig: current.kubeConfig,
+          namespaces: namespaceTargets(source.resource, current.namespaces),
+        },
+      ]);
     }
+    initialTimer = setTimeout(() => {
+      if (thisGeneration !== generation || topology.value) return;
+      const pending = sources
+        .filter((source) => source.controller.loading())
+        .map((source) => qualifiedResourceName(source.resource));
+      if (pending.length > 0) {
+        logInfo(`Resource graph: still loading ${pending.join(", ")}, showing what has loaded`);
+      }
+      initialTimedOut = true;
+      schedule();
+    }, INITIAL_LOAD_TIMEOUT);
   };
 
-  /* Polling, paused while the document is hidden. */
-  let timer: ReturnType<typeof setInterval> | null = null;
-  const stop = () => {
-    if (timer) clearInterval(timer);
-    timer = null;
-  };
-  const start = () => {
-    stop();
-    if (document.hidden) return;
-    timer = setInterval(() => load("refresh"), GRAPH_REFRESH_INTERVAL);
-  };
   const onVisibility = () => {
-    if (document.hidden) {
-      stop();
-    } else {
-      load("refresh");
-      start();
-    }
+    for (const source of sources) source.controller.visibilityChanged();
   };
-
-  onMounted(() => {
+  if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", onVisibility);
-    load("reload");
-    start();
-  });
-  onBeforeUnmount(() => {
-    document.removeEventListener("visibilitychange", onVisibility);
-    stop();
-    generation++;
-  });
+  }
 
   const scopeKey = () =>
     scope.value
-      ? `${scope.value.kubeConfig}\n${scope.value.context}\n${scope.value.namespaces.join(",")}`
+      ? JSON.stringify([
+          scope.value.kubeConfig,
+          scope.value.context,
+          scope.value.namespaces,
+        ])
       : "";
-  watch(scopeKey, () => {
-    load("reload");
-    start();
+  watch(scopeKey, () => start("reload"), { immediate: true });
+  watch(
+    () => options.forcePolling?.() ?? false,
+    () => start("restart")
+  );
+  watch(paused, (value) => {
+    if (!value) schedule();
+  });
+
+  onScopeDispose(() => {
+    generation++;
+    stop();
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", onVisibility);
+    }
   });
 
   return {
     topology,
+    change,
     loading,
     refreshing,
     progress,
@@ -362,12 +456,20 @@ export function useClusterTopology(scope: Ref<GraphScope | null>) {
     lastUpdated,
     timings,
     paused,
-    /** Refresh now, keeping the graph. */
-    refresh: () => load("manual"),
-    /** Retry after an error: rediscover the API and load again. */
-    retry: () => {
-      load("rediscover");
-      start();
+    mode,
+    /** Re-poll / reconnect now, keeping the graph. */
+    refresh: () => {
+      if (sources.length === 0) {
+        start("restart");
+        return;
+      }
+      refreshing.value = true;
+      for (const source of sources) source.controller.retry();
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => (refreshing.value = false), 1200);
+      schedule();
     },
+    /** Retry after an error: rediscover the API and load again. */
+    retry: () => start("rediscover"),
   };
 }
