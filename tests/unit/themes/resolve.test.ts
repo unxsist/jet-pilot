@@ -8,6 +8,7 @@ import { contrastRatio } from "@/lib/themes/contrast";
 import { CONTRAST_PAIRS } from "@/lib/themes/derive";
 import { resolveTheme, themeAppearances } from "@/lib/themes/resolve";
 import { THEME_JSON_SCHEMA } from "@/lib/themes/schema";
+import { JET_XTERM } from "@/lib/themes/xtermTheme";
 import { serializeTheme } from "@/lib/themes/serialize";
 import {
   type ThemeAppearance,
@@ -33,15 +34,6 @@ function postcssTokens(selector: string): Record<string, string> {
 }
 
 /** DARK_THEME / LIGHT_THEME of PtyTerminal.vue. */
-function ptyTheme(name: string): Record<string, string> {
-  const source = readFileSync(join(repo, "src/components/PtyTerminal.vue"), "utf8");
-  const start = source.indexOf(`const ${name} = {`);
-  const block = source.slice(start, source.indexOf("};", start));
-  return Object.fromEntries(
-    [...block.matchAll(/(\w+):\s*"([^"]+)"/g)].map(([, key, value]) => [key, value])
-  );
-}
-
 const allThemes = (): [string, ThemeFile][] => [
   ["jet", JET_THEME],
   ...builtinFiles().map((file): [string, ThemeFile] => [file.id!, file]),
@@ -70,9 +62,11 @@ describe("the JET built-in", () => {
     expect(JetLight.rules).toContainEqual({ token: "string.key.json", foreground: "3f37c9" });
   });
 
-  it("reproduces the terminal themes of PtyTerminal.vue", () => {
-    expect(resolveTheme(JET_THEME, "dark").xterm).toEqual(ptyTheme("DARK_THEME"));
-    expect(resolveTheme(JET_THEME, "light").xterm).toEqual(ptyTheme("LIGHT_THEME"));
+  it("reproduces JET's terminal themes", () => {
+    expect(resolveTheme(JET_THEME, "dark").xterm).toEqual(JET_XTERM.dark);
+    expect(resolveTheme(JET_THEME, "light").xterm).toEqual(JET_XTERM.light);
+    expect(JET_XTERM.dark.background).toBe("#101011");
+    expect(JET_XTERM.light.cursor).toBe("#5048e5");
   });
 
   it("is the default and first built-in", () => {

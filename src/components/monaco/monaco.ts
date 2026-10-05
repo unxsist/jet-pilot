@@ -12,9 +12,7 @@
  * - monaco-yaml provides validation, completion and hover from per-model
  *   JSON schemas (see setModelSchema); JSON models get the same from
  *   setJsonSchema.
- * - Colours: applyMonacoTheme() paints the active app theme. The fixed
- *   "light"/"dark" JET themes and setColorMode() remain until every editor
- *   follows the theme runtime.
+ * - Colours: applyMonacoTheme() paints the active app theme (useTheme()).
  */
 import * as monaco from "monaco-editor/esm/vs/editor/edcore.main";
 import "monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution";
@@ -23,7 +21,6 @@ import { configureMonacoYaml, type SchemasSettings } from "monaco-yaml";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import JsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import YamlWorker from "./yaml.worker?worker";
-import { JetDark, JetLight } from "./themes/jet";
 import type { MonacoThemeData } from "@/lib/themes/types";
 import "./monaco.css";
 
@@ -35,9 +32,6 @@ self.MonacoEnvironment = {
     return new EditorWorker();
   },
 };
-
-monaco.editor.defineTheme("light", JetLight);
-monaco.editor.defineTheme("dark", JetDark);
 
 // Monaco measures glyphs on first use; the bundled JetBrains Mono may still
 // be loading at that point.
@@ -114,13 +108,6 @@ export function setJsonSchema(
   if (current?.uri === uri && current.schema === schema) return;
   jsonSchemas.set(key, { uri, fileMatch: [key], schema });
   publishJsonSchemas();
-}
-
-export type ColorMode = "light" | "dark" | string;
-
-/** @deprecated Use applyMonacoTheme() with the active theme. */
-export function setColorMode(mode: ColorMode) {
-  monaco.editor.setTheme(mode === "light" ? "light" : "dark");
 }
 
 /**
