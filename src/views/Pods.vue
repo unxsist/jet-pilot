@@ -2,7 +2,6 @@
 import { injectStrict } from "@/lib/utils";
 import { PodMetric, V1Pod } from "@kubernetes/client-node";
 import { Kubernetes } from "@/services/Kubernetes";
-import { error } from "@/lib/logger";
 
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 
@@ -10,13 +9,20 @@ import DataTable from "@/components/ui/VirtualDataTable.vue";
 import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { ColumnDef } from "@tanstack/vue-table";
 import { multiContextColumns } from "@/components/tables/multicontext";
-import { kubectlGetForContext } from "@/lib/multicontext";
-import { columns } from "@/components/tables/pods";
 import {
-  useResourceList,
-  ContextFailure,
-  ResourceListResult,
-} from "@/composables/useResourceList";
+  activeTargets,
+  kubectlGetForContext,
+  kubectlPollingForced,
+} from "@/lib/multicontext";
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+import { columns } from "@/components/tables/pods";
+import type { MetricsSample } from "@/components/tables/metrics";
+import { actions as podActions } from "@/actions/pods";
+import {
+  ContextTarget,
+  useWatchedList,
+} from "@/composables/useWatchedList";
+import { podMetricKey, usePodMetrics } from "@/composables/usePodMetrics";
 import {
   getResourceTabId,
   getResourceTabTitle,
@@ -31,6 +37,7 @@ const {
 } = injectStrict(KubeContextStateKey);
 
 const addTab = injectStrict(PanelProviderAddTabKey);
+const { settings } = injectStrict(SettingsContextStateKey);
 
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 import { useRoute } from "vue-router";
@@ -53,7 +60,7 @@ type ContextAwarePod = V1Pod & {
     context: string;
     kubeConfig: string;
   };
-} & { metrics: PodMetric[] };
+} & { metrics: PodMetric[]; metricsHistory?: MetricsSample[] };
 
 type ContextAwarePodMetric = PodMetric & {
   metadata: PodMetric["metadata"] & {
@@ -184,6 +191,7 @@ const rowActions: RowAction<ContextAwarePod>[] = [
       ];
     },
   },
+  ...podActions<ContextAwarePod>(addTab, spawnDialog),
   {
     label: "Kill",
     handler: (row: ContextAwarePod) => {
@@ -303,114 +311,108 @@ const handleAuthError = async (
 };
 
 /*
- * Pods and metrics for one context. Metrics are optional: clusters without
+ * kubectl fallback for one context (watch unavailable, or the
+ * `experimental.useKubectlPolling` setting): pods, plus metrics when the
+ * metrics service is disabled. Metrics are optional: clusters without
  * metrics-server (kind, minikube, ...) fail `get podmetrics`, which must not
  * hide the pods themselves.
  */
+const kubectlMetrics = shallowRef<Map<string, ContextAwarePodMetric>>(
+  new Map()
+);
+
 const fetchContext = async (
-  ctx: string,
-  kubeConfig: string,
-  namespaces: string[]
-): Promise<{ pods: ContextAwarePod[]; metrics: ContextAwarePodMetric[] }> => {
+  target: ContextTarget
+): Promise<ContextAwarePod[]> => {
+  const { context: ctx, kubeConfig, namespaces } = target;
   const [podsResult, metricsResult] = await Promise.allSettled([
     kubectlGetForContext<V1Pod>("pods", ctx, kubeConfig, namespaces),
-    kubectlGetForContext<PodMetric>("podmetrics", ctx, kubeConfig, namespaces),
+    forcePolling()
+      ? kubectlGetForContext<PodMetric>("podmetrics", ctx, kubeConfig, namespaces)
+      : Promise.resolve([]),
   ]);
 
   if (podsResult.status === "rejected") {
     throw podsResult.reason;
   }
 
-  return {
-    pods: podsResult.value.map((pod) => ({ ...pod, metrics: [] })),
-    metrics:
-      metricsResult.status === "fulfilled"
-        ? (metricsResult.value as ContextAwarePodMetric[])
-        : [],
-  };
+  if (metricsResult.status === "fulfilled" && forcePolling()) {
+    const next = new Map(
+      [...kubectlMetrics.value].filter(([key]) => !key.startsWith(`${ctx}/`))
+    );
+    for (const metric of metricsResult.value as ContextAwarePodMetric[]) {
+      next.set(podMetricKey(metric.metadata), metric);
+    }
+    kubectlMetrics.value = next;
+  }
+
+  return podsResult.value as ContextAwarePod[];
 };
+
+const forcePolling = () => kubectlPollingForced(settings.value);
+const targets = () =>
+  activeTargets(contexts.value, contextKubeConfigMapping.value);
 
 /*
- * Aggregates pods + metrics across every activated (context, namespaces).
- * Superseded fetches, interval skipping and error state are handled by
- * useResourceList. Authentication failures that open the login dialog are not
- * reported as errors (refreshing keeps running for the other contexts).
+ * Live pods across every activated (context, namespaces) from the backend
+ * WatchHub. Authentication failures that open the login dialog are not
+ * reported as errors (the other contexts keep updating).
  */
-const loadPods = async (
-  isCurrent: () => boolean
-): Promise<ResourceListResult<ContextAwarePod>> => {
-  const activeContexts = [...contexts.value.entries()].map(
-    ([ctx, namespaces]) => ({
-      ctx,
-      namespaces,
-      kubeConfig: contextKubeConfigMapping.value.get(ctx) || "",
-    })
-  );
-
-  const results = await Promise.allSettled(
-    activeContexts.map(({ ctx, kubeConfig, namespaces }) =>
-      fetchContext(ctx, kubeConfig, namespaces)
-    )
-  );
-
-  const aggregatedPods: ContextAwarePod[] = [];
-  const metricsByPod = new Map<string, ContextAwarePodMetric>();
-  const failures: (ContextFailure & { kubeConfig: string })[] = [];
-
-  results.forEach((result, i) => {
-    if (result.status === "fulfilled") {
-      aggregatedPods.push(...result.value.pods);
-      for (const metric of result.value.metrics) {
-        metricsByPod.set(podKey(metric.metadata), metric);
-      }
-    } else {
-      const { ctx, kubeConfig } = activeContexts[i];
-      failures.push({ context: ctx, kubeConfig, reason: result.reason });
-      error(`Failed to fetch pods for context ${ctx}: ${result.reason}`);
-    }
-  });
-
-  for (const pod of aggregatedPods) {
-    const podMetric = metricsByPod.get(podKey(pod.metadata));
-    if (podMetric) {
-      pod.metrics.push(podMetric);
-    }
-  }
-
-  if (isCurrent()) {
-    for (const failure of failures) {
-      if (
-        await handleAuthError(
-          failure.context,
-          failure.kubeConfig,
-          failure.reason
-        )
-      ) {
-        return { items: aggregatedPods, attempted: results.length };
-      }
-    }
-  }
-
-  return { items: aggregatedPods, failures, attempted: results.length };
-};
-
-const podKey = (metadata?: {
-  context?: string;
-  namespace?: string;
-  name?: string;
-}) => `${metadata?.context}/${metadata?.namespace}/${metadata?.name}`;
-
 const {
-  items: pods,
+  items: watchedPods,
   loading,
   error: loadError,
   lastUpdated,
   retry,
-} = useResourceList(loadPods, {
-  interval: 5000,
-  // contexts and contextKubeConfigMapping always change together; watching
-  // both would reload twice per selection change.
-  dependencies: [contexts.value],
+} = useWatchedList<ContextAwarePod>({
+  resource: () => "pods",
+  kind: () => "Pod",
+  targets,
+  fallback: (_resource, target) => fetchContext(target),
+  fallbackInterval: 5000,
+  forcePolling,
+  onAuthError: (target, message) =>
+    handleAuthError(target.context, target.kubeConfig, message),
+});
+
+const { metrics, history: metricsHistory } = usePodMetrics(
+  targets,
+  () => !forcePolling()
+);
+
+/*
+ * Pods joined with their latest metric and usage history (the sparkline
+ * columns, see tables/metrics.ts). A row object is reused while neither the
+ * pod, its metric nor its history changed (history arrays are replaced when
+ * a sample is added), so the table only re-renders changed rows. Without a
+ * history (kubectl fallback) the columns show the single latest sample.
+ */
+const rowCache = new WeakMap<
+  object,
+  { metric: unknown; history: unknown; row: ContextAwarePod }
+>();
+const pods = computed<ContextAwarePod[]>(() => {
+  const serviceMetrics = metrics.value;
+  const fallbackMetrics = kubectlMetrics.value;
+  const histories = metricsHistory.value;
+  return watchedPods.value.map((pod) => {
+    const key = podMetricKey(pod.metadata);
+    const metric = (serviceMetrics.get(key) ?? fallbackMetrics.get(key)) as
+      | ContextAwarePodMetric
+      | undefined;
+    const history = histories.get(key);
+    const cached = rowCache.get(pod);
+    if (cached && cached.metric === metric && cached.history === history) {
+      return cached.row;
+    }
+    const row = markRaw({
+      ...pod,
+      metrics: metric ? [metric] : [],
+      ...(history ? { metricsHistory: history } : {}),
+    });
+    rowCache.set(pod, { metric, history, row });
+    return row;
+  });
 });
 
 const rowClasses = (row: V1Pod) => {

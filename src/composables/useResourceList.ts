@@ -1,6 +1,7 @@
-import { ref, shallowRef, WatchSource } from "vue";
+import { nextTick, ref, shallowRef, WatchSource } from "vue";
 import { useDataRefresher } from "./refresher";
 import { error as logError } from "@/lib/logger";
+import { markFirstData } from "@/lib/perf";
 
 export interface ContextFailure {
   context: string;
@@ -117,6 +118,7 @@ export function useResourceList<T>(
       if (!failure?.fatal) {
         items.value = result.items;
         lastUpdated.value = new Date();
+        if (result.items.length > 0) nextTick(markFirstData);
       }
 
       error.value = failure;

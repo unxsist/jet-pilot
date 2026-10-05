@@ -1,17 +1,15 @@
 pub mod client {
     use either::Either;
-    use k8s_metrics::v1beta1::PodMetrics;
-    use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
+    use k8s_openapi::api::apps::v1::Deployment;
     use k8s_openapi::api::batch::v1::{CronJob, Job};
     use k8s_openapi::api::core::v1::{
-        ConfigMap, Namespace, PersistentVolume, PersistentVolumeClaim, Pod, Secret, Service,
+        ConfigMap, Namespace, PersistentVolumeClaim, Pod, Secret, Service,
     };
     use k8s_openapi::api::networking::v1::Ingress;
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::{APIGroup, APIResource};
     use kube::api::{DeleteParams, ListParams, ObjectMeta, PostParams};
     use kube::config::{KubeConfigOptions, Kubeconfig, KubeconfigError, NamedContext};
-    use k8s_openapi::NamespaceResourceScope;
-    use kube::{api::Api, Client, Config, Error, Resource};
+    use kube::{api::Api, Client, Config, Error};
     use once_cell::sync::Lazy;
     use rand::distributions::DistString;
     use serde::{Deserialize, Serialize};
@@ -29,20 +27,6 @@ pub mod client {
     #[cfg(windows)]
     use std::os::windows::process::CommandExt;
 
-    /// Build a resource API that lists across all namespaces when the
-    /// frontend's global namespace selection is empty ("All namespaces"
-    /// mode), mirroring `kubectl get -A`. Otherwise scope to the namespace.
-    fn api_all_or_namespaced<K>(client: Client, namespace: &str) -> Api<K>
-    where
-        K: Resource<DynamicType = (), Scope = NamespaceResourceScope>,
-    {
-        if namespace.is_empty() {
-            Api::all(client)
-        } else {
-            Api::namespaced(client, namespace)
-        }
-    }
-
     #[derive(Serialize)]
     pub enum DeletionResult {
         Deleted(String),
@@ -51,9 +35,9 @@ pub mod client {
 
     #[derive(Debug, Serialize)]
     pub struct SerializableKubeError {
-        message: String,
-        code: Option<u16>,
-        reason: Option<String>,
+        pub(crate) message: String,
+        pub(crate) code: Option<u16>,
+        pub(crate) reason: Option<String>,
         details: Option<String>,
     }
 
@@ -79,46 +63,7 @@ pub mod client {
                 // the user needs to complete the OIDC login. Surface it so the
                 // UI can show it instead of a generic "auth error".
                 Error::Auth(auth_error) => {
-                    let message = match &auth_error {
-                        kube::client::AuthError::ExecPluginFailed { .. } => {
-                            "Exec credential plugin did not return credentials".to_string()
-                        }
-                        kube::client::AuthError::AuthExecStart(io_err) => {
-                            format!(
-                                "Unable to run the Kubernetes exec credential plugin ({}) - it may need to be installed separately. {}",
-                                io_err,
-                                hint_for_exec_plugin(io_err)
-                            )
-                        }
-                        kube::client::AuthError::AuthExecRun { out, .. } => {
-                            let stderr = String::from_utf8_lossy(&out.stderr);
-                            let stdout = displayable_exec_stdout(&String::from_utf8_lossy(&out.stdout));
-                            if !stderr.trim().is_empty() {
-                                format!(
-                                    "The Kubernetes exec credential plugin failed: {}\n\n{}",
-                                    stderr.trim(),
-                                    "Complete the login (e.g. open the URL above in a browser and enter the code) and try again."
-                                )
-                            } else if !stdout.trim().is_empty() {
-                                format!(
-                                    "The Kubernetes exec credential plugin failed: {}\n\nComplete the login and try again.",
-                                    stdout.trim()
-                                )
-                            } else {
-                                format!(
-                                    "The Kubernetes exec credential plugin failed ({}). Complete the login and try again.",
-                                    auth_error
-                                )
-                            }
-                        }
-                        kube::client::AuthError::ExecMissingClusterInfo => {
-                            "The exec credential plugin requires cluster info that is missing from the kubeconfig".to_string()
-                        }
-                        kube::client::AuthError::MissingCommand => {
-                            "The kubeconfig exec credential plugin is missing its command".to_string()
-                        }
-                        _ => auth_error.to_string(),
-                    };
+                    let message = auth_error_message(&auth_error);
                     SerializableKubeError {
                         message,
                         code: None,
@@ -135,6 +80,50 @@ pub mod client {
                     };
                 }
             }
+        }
+    }
+
+    /// User-facing message for an auth (exec credential plugin) failure.
+    pub(crate) fn auth_error_message(auth_error: &kube::client::AuthError) -> String {
+        match auth_error {
+            kube::client::AuthError::ExecPluginFailed => {
+                "Exec credential plugin did not return credentials".to_string()
+            }
+            kube::client::AuthError::AuthExecStart(io_err) => {
+                format!(
+                    "Unable to run the Kubernetes exec credential plugin ({}) - it may need to be installed separately. {}",
+                    io_err,
+                    hint_for_exec_plugin(io_err)
+                )
+            }
+            kube::client::AuthError::AuthExecRun { out, .. } => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let stdout = displayable_exec_stdout(&String::from_utf8_lossy(&out.stdout));
+                if !stderr.trim().is_empty() {
+                    format!(
+                        "The Kubernetes exec credential plugin failed: {}\n\n{}",
+                        stderr.trim(),
+                        "Complete the login (e.g. open the URL above in a browser and enter the code) and try again."
+                    )
+                } else if !stdout.trim().is_empty() {
+                    format!(
+                        "The Kubernetes exec credential plugin failed: {}\n\nComplete the login and try again.",
+                        stdout.trim()
+                    )
+                } else {
+                    format!(
+                        "The Kubernetes exec credential plugin failed ({}). Complete the login and try again.",
+                        auth_error
+                    )
+                }
+            }
+            kube::client::AuthError::ExecMissingClusterInfo => {
+                "The exec credential plugin requires cluster info that is missing from the kubeconfig".to_string()
+            }
+            kube::client::AuthError::MissingCommand => {
+                "The kubeconfig exec credential plugin is missing its command".to_string()
+            }
+            _ => auth_error.to_string(),
         }
     }
 
@@ -206,7 +195,7 @@ pub mod client {
     /// The kubeconfig path a command should use: the explicit `kube_config`
     /// argument when given, otherwise the globally selected one (empty string
     /// = kube's default resolution via $KUBECONFIG / ~/.kube/config).
-    fn resolve_kubeconfig_path(kube_config: Option<&str>) -> String {
+    pub(crate) fn resolve_kubeconfig_path(kube_config: Option<&str>) -> String {
         match kube_config {
             Some(path) if !path.is_empty() => path.to_string(),
             _ => lock(&CURRENT_KUBECONFIG).clone().unwrap_or_default(),
@@ -333,7 +322,7 @@ pub mod client {
         config
             .auth_infos
             .iter()
-            .find(|a| a.name == user)
+            .find(|a| Some(&a.name) == user.as_ref())
             .and_then(|a| a.auth_info.clone())
             .ok_or_else(|| SerializableKubeError {
                 message: "Auth info not found".to_string(),
@@ -356,13 +345,37 @@ pub mod client {
         }
     }
 
+    /// The exec credential plugin command (basename) a context authenticates
+    /// with, if any. Used to word watch auth errors like kubectl does
+    /// ("executable aws failed") so the frontend's re-login detection works.
+    /// The kubeconfig of `kube_config` (None / "" = the selected one, else
+    /// kube's default resolution), like the API clients use it.
+    fn read_kubeconfig(kube_config: Option<&str>) -> Result<Kubeconfig, KubeconfigError> {
+        let path = resolve_kubeconfig_path(kube_config);
+        if path.is_empty() {
+            Kubeconfig::read()
+        } else {
+            Kubeconfig::read_from(path.as_str())
+        }
+    }
+
+    pub(crate) fn exec_command_for_context(kube_config: Option<&str>, context: &str) -> Option<String> {
+        let config = read_kubeconfig(kube_config).ok()?;
+        let command = auth_info_for_context(&config, context).ok()?.exec?.command?;
+        Some(
+            std::path::Path::new(&command)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or(command),
+        )
+    }
+
     #[tauri::command]
     pub async fn get_context_auth_info(
         context: &str,
-        kube_config: &str,
+        kube_config: Option<String>,
     ) -> Result<ContextAuthSummary, SerializableKubeError> {
-        let config = Kubeconfig::read_from(kube_config)
-            .map_err(SerializableKubeError::from)?;
+        let config = read_kubeconfig(kube_config.as_deref()).map_err(SerializableKubeError::from)?;
 
         let auth_info = auth_info_for_context(&config, context)?;
         Ok(summarize_auth_info(&auth_info))
@@ -406,7 +419,7 @@ pub mod client {
     /// Returns a (cached) client for `context`. `kube_config` selects the
     /// kubeconfig file the context lives in; when absent or empty the globally
     /// selected kubeconfig (see `set_current_kubeconfig`) is used.
-    async fn client_with_context(
+    pub(crate) async fn client_with_context(
         context: &str,
         kube_config: Option<&str>,
     ) -> Result<Client, SerializableKubeError> {
@@ -458,88 +471,6 @@ pub mod client {
     }
 
     #[tauri::command]
-    pub async fn list_pods(
-        context: &str,
-        namespace: &str,
-        label_selector: &str,
-        field_selector: &str,
-        kube_config: Option<String>,
-    ) -> Result<Vec<Pod>, SerializableKubeError> {
-        debug!("Listing pods in namespace {} for context: {}", namespace, context);
-        trace!("Using selectors - label: {}, field: {}", label_selector, field_selector);
-        
-        let client = client_with_context(context, kube_config.as_deref()).await?;
-        let pod_api: Api<Pod> = api_all_or_namespaced(client, namespace);
-
-        let pods = pod_api.list(
-            &ListParams::default()
-                .labels(label_selector)
-                .fields(field_selector),
-        ).await.map_err(|err| {
-            error!("Failed to list pods in namespace {}: {}", namespace, err);
-            SerializableKubeError::from(err)
-        })?;
-
-        info!("Found {} pods in namespace {}", pods.items.len(), namespace);
-        Ok(pods.items)
-    }
-
-    #[tauri::command]
-    pub async fn get_pod_metrics(
-        context: &str,
-        namespace: &str,
-        kube_config: Option<String>,
-    ) -> Result<Vec<PodMetrics>, SerializableKubeError> {
-        debug!("Fetching pod metrics for namespace {} in context {}", namespace, context);
-        let client = client_with_context(context, kube_config.as_deref()).await?;
-        let metrics_api: Api<PodMetrics> = api_all_or_namespaced(client, namespace);
-
-        let metrics = metrics_api.list(&ListParams::default()).await.map_err(|err| {
-            error!("Failed to get pod metrics for namespace {}: {}", namespace, err);
-            SerializableKubeError::from(err)
-        })?;
-
-        info!("Retrieved metrics for {} pods in namespace {}", metrics.items.len(), namespace);
-        Ok(metrics.items)
-    }
-
-    #[tauri::command]
-    pub async fn get_pod_metric(
-        context: &str,
-        namespace: &str,
-        name: &str,
-        kube_config: Option<String>,
-    ) -> Result<PodMetrics, SerializableKubeError> {
-        debug!("Fetching metrics for pod {}/{}", namespace, name);
-        let client = client_with_context(context, kube_config.as_deref()).await?;
-        let metrics_api: Api<PodMetrics> = Api::namespaced(client, namespace);
-
-        let metric = metrics_api.get(name).await.map_err(|err| {
-            error!("Failed to get metrics for pod {}/{}: {}", namespace, name, err);
-            SerializableKubeError::from(err)
-        })?;
-
-        info!("Successfully retrieved metrics for pod {}/{}", namespace, name);
-        Ok(metric)
-    }
-
-    #[tauri::command]
-    pub async fn get_pod(
-        context: &str,
-        namespace: &str,
-        name: &str,
-        kube_config: Option<String>,
-    ) -> Result<Pod, SerializableKubeError> {
-        let client = client_with_context(context, kube_config.as_deref()).await?;
-        let pod_api: Api<Pod> = Api::namespaced(client, namespace);
-
-        return pod_api
-            .get(name)
-            .await
-            .map_err(|err| SerializableKubeError::from(err));
-    }
-
-    #[tauri::command]
     pub async fn delete_pod(
         context: &str,
         namespace: &str,
@@ -568,198 +499,6 @@ pub mod client {
                 Err(SerializableKubeError::from(err))
             }
         }
-    }
-
-    #[tauri::command]
-    pub async fn list_deployments(
-        context: &str,
-        namespace: &str,
-        kube_config: Option<String>,
-    ) -> Result<Vec<Deployment>, SerializableKubeError> {
-        let client = client_with_context(context, kube_config.as_deref()).await?;
-        let deployment_api: Api<Deployment> = api_all_or_namespaced(client, namespace);
-
-        return deployment_api
-            .list(&ListParams::default())
-            .await
-            .map(|deployments| deployments.items)
-            .map_err(|err| SerializableKubeError::from(err));
-    }
-
-    #[tauri::command]
-    pub async fn restart_deployment(
-        context: &str,
-        namespace: &str,
-        name: &str,
-        kube_config: Option<String>,
-    ) -> Result<bool, SerializableKubeError> {
-        debug!("Restarting deployment {}/{}", namespace, name);
-        let client = client_with_context(context, kube_config.as_deref()).await?;
-        let deployment_api: Api<Deployment> = Api::namespaced(client, namespace);
-
-        match deployment_api.restart(name).await {
-            Ok(_) => {
-                info!("Successfully restarted deployment {}/{}", namespace, name);
-                Ok(true)
-            }
-            Err(err) => {
-                error!("Failed to restart deployment {}/{}: {}", namespace, name, err);
-                Err(SerializableKubeError::from(err))
-            }
-        }
-    }
-
-    #[tauri::command]
-    pub async fn restart_statefulset(
-        context: &str,
-        namespace: &str,
-        name: &str,
-        kube_config: Option<String>,
-    ) -> Result<bool, SerializableKubeError> {
-        debug!("Restarting statefulset {}/{}", namespace, name);
-        let client = client_with_context(context, kube_config.as_deref()).await?;
-        let statefulset_api: Api<StatefulSet> = Api::namespaced(client, namespace);
-
-        match statefulset_api.restart(name).await {
-            Ok(_) => {
-                info!("Successfully restarted statefulset {}/{}", namespace, name);
-                Ok(true)
-            }
-            Err(err) => {
-                error!("Failed to restart statefulset {}/{}: {}", namespace, name, err);
-                Err(SerializableKubeError::from(err))
-            }
-        }
-    }
-
-    #[tauri::command]
-    pub async fn list_services(
-        context: &str,
-        namespace: &str,
-        kube_config: Option<String>,
-    ) -> Result<Vec<Service>, SerializableKubeError> {
-        let client = client_with_context(context, kube_config.as_deref()).await?;
-        let services_api: Api<Service> = api_all_or_namespaced(client, namespace);
-
-        return services_api
-            .list(&ListParams::default())
-            .await
-            .map(|services| services.items)
-            .map_err(|err| SerializableKubeError::from(err));
-    }
-
-    #[tauri::command]
-    pub async fn list_jobs(
-        context: &str,
-        namespace: &str,
-        kube_config: Option<String>,
-    ) -> Result<Vec<Job>, SerializableKubeError> {
-        let client = client_with_context(context, kube_config.as_deref()).await?;
-        let jobs_api: Api<Job> = api_all_or_namespaced(client, namespace);
-
-        return jobs_api
-            .list(&ListParams::default())
-            .await
-            .map(|jobs| jobs.items)
-            .map_err(|err| SerializableKubeError::from(err));
-    }
-
-    #[tauri::command]
-    pub async fn list_cronjobs(
-        context: &str,
-        namespace: &str,
-        kube_config: Option<String>,
-    ) -> Result<Vec<CronJob>, SerializableKubeError> {
-        let client = client_with_context(context, kube_config.as_deref()).await?;
-        let cronjobs_api: Api<CronJob> = api_all_or_namespaced(client, namespace);
-
-        return cronjobs_api
-            .list(&ListParams::default())
-            .await
-            .map(|cronjobs| cronjobs.items)
-            .map_err(|err| SerializableKubeError::from(err));
-    }
-
-    #[tauri::command]
-    pub async fn list_configmaps(
-        context: &str,
-        namespace: &str,
-        kube_config: Option<String>,
-    ) -> Result<Vec<ConfigMap>, SerializableKubeError> {
-        let client: Client = client_with_context(context, kube_config.as_deref()).await?;
-        let configmaps_api: Api<ConfigMap> = api_all_or_namespaced(client, namespace);
-
-        return configmaps_api
-            .list(&ListParams::default())
-            .await
-            .map(|configmaps| configmaps.items)
-            .map_err(|err| SerializableKubeError::from(err));
-    }
-
-    #[tauri::command]
-    pub async fn list_secrets(
-        context: &str,
-        namespace: &str,
-        kube_config: Option<String>,
-    ) -> Result<Vec<Secret>, SerializableKubeError> {
-        let client: Client = client_with_context(context, kube_config.as_deref()).await?;
-        let secrets_api: Api<Secret> = api_all_or_namespaced(client, namespace);
-
-        return secrets_api
-            .list(&ListParams::default())
-            .await
-            .map(|secrets| secrets.items)
-            .map_err(|err| SerializableKubeError::from(err));
-    }
-
-    #[tauri::command]
-    pub async fn list_ingresses(
-        context: &str,
-        namespace: &str,
-        kube_config: Option<String>,
-    ) -> Result<Vec<Ingress>, SerializableKubeError> {
-        let client: Client = client_with_context(context, kube_config.as_deref()).await?;
-        let ingress_api: Api<Ingress> = api_all_or_namespaced(client, namespace);
-
-        return ingress_api
-            .list(&ListParams::default())
-            .await
-            .map(|ingresses| ingresses.items)
-            .map_err(|err| SerializableKubeError::from(err));
-    }
-
-    #[tauri::command]
-    pub async fn list_persistentvolumes(
-        context: &str,
-        kube_config: Option<String>,
-    ) -> Result<Vec<PersistentVolume>, SerializableKubeError> {
-        debug!("Listing persistent volumes in context {}", context);
-        let client: Client = client_with_context(context, kube_config.as_deref()).await?;
-        let pv_api: Api<PersistentVolume> = Api::all(client);
-
-        let pvs = pv_api.list(&ListParams::default()).await.map_err(|err| {
-            error!("Failed to list persistent volumes: {}", err);
-            SerializableKubeError::from(err)
-        })?;
-
-        info!("Found {} persistent volumes", pvs.items.len());
-        Ok(pvs.items)
-    }
-
-    #[tauri::command]
-    pub async fn list_persistentvolumeclaims(
-        context: &str,
-        namespace: &str,
-        kube_config: Option<String>,
-    ) -> Result<Vec<PersistentVolumeClaim>, SerializableKubeError> {
-        let client: Client = client_with_context(context, kube_config.as_deref()).await?;
-        let pvc_api: Api<PersistentVolumeClaim> = api_all_or_namespaced(client, namespace);
-
-        return pvc_api
-            .list(&ListParams::default())
-            .await
-            .map(|pvcs| pvcs.items)
-            .map_err(|err| SerializableKubeError::from(err));
     }
 
     #[tauri::command]
@@ -991,12 +730,11 @@ pub mod client {
     #[tauri::command]
     pub async fn login_exec_auth(
         context: &str,
-        kube_config: &str,
+        kube_config: Option<String>,
     ) -> Result<ExecAuthOutput, SerializableKubeError> {
         debug!("Running exec credential plugin for context: {}", context);
 
-        let config = Kubeconfig::read_from(kube_config)
-            .map_err(SerializableKubeError::from)?;
+        let config = read_kubeconfig(kube_config.as_deref()).map_err(SerializableKubeError::from)?;
 
         let auth_info = auth_info_for_context(&config, context)?;
 
@@ -1078,12 +816,14 @@ pub mod client {
 
     /// Builds the kubectl arguments for `apply_manifest`. Values are passed in
     /// `--flag=value` form so a value starting with `-` can't be parsed as a
-    /// separate flag.
+    /// separate flag. `dry_run` adds `--dry-run=server`: the API server runs
+    /// validation and admission (webhooks included) without persisting.
     fn manifest_args(
         mode: ManifestMode,
         context: &str,
         namespace: &str,
         kube_config: Option<&str>,
+        dry_run: bool,
     ) -> Vec<String> {
         let mut args = vec![
             match mode {
@@ -1099,6 +839,9 @@ pub mod client {
         if let Some(kube_config) = kube_config.filter(|k| !k.is_empty()) {
             args.push(format!("--kubeconfig={}", kube_config));
         }
+        if dry_run {
+            args.push("--dry-run=server".to_string());
+        }
         args.push("--filename=-".to_string());
         args
     }
@@ -1113,9 +856,14 @@ pub mod client {
         manifest: String,
         mode: ManifestMode,
         kube_config: Option<String>,
+        dry_run: Option<bool>,
     ) -> Result<String, String> {
-        let args = manifest_args(mode, context, namespace, kube_config.as_deref());
-        debug!("Running kubectl {:?} with manifest on stdin", mode);
+        let dry_run = dry_run.unwrap_or(false);
+        // Same kubeconfig the API client of this context uses (the selected
+        // one when the frontend passes none / "").
+        let kube_config = resolve_kubeconfig_path(kube_config.as_deref());
+        let args = manifest_args(mode, context, namespace, Some(&kube_config), dry_run);
+        debug!("Running kubectl {:?} (dry run: {}) with manifest on stdin", mode, dry_run);
 
         let mut cmd = Command::new("kubectl");
         cmd.args(&args)
@@ -1275,7 +1023,7 @@ users:
         #[test]
         fn manifest_args_use_flag_value_form() {
             assert_eq!(
-                manifest_args(ManifestMode::Replace, "-ctx", "ns", Some("/tmp/kc")),
+                manifest_args(ManifestMode::Replace, "-ctx", "ns", Some("/tmp/kc"), false),
                 vec![
                     "replace",
                     "--context=-ctx",
@@ -1285,8 +1033,12 @@ users:
                 ]
             );
             assert_eq!(
-                manifest_args(ManifestMode::Apply, "ctx", "", None),
+                manifest_args(ManifestMode::Apply, "ctx", "", None, false),
                 vec!["apply", "--context=ctx", "--filename=-"]
+            );
+            assert_eq!(
+                manifest_args(ManifestMode::Replace, "ctx", "", None, true),
+                vec!["replace", "--context=ctx", "--dry-run=server", "--filename=-"]
             );
         }
 

@@ -172,6 +172,7 @@ const showLogs = () => {
   <ResizablePanel
     v-if="sidePanel !== null"
     :default-size="30"
+    data-keyboard-scope="side-panel"
     class="max-h-screen !overflow-y-auto bg-card"
   >
     <div

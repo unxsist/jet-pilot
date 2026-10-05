@@ -30,6 +30,26 @@ export function actions<
 
   return [
     {
+      label: "Node shell",
+      handler: (row: T) => {
+        spawnDialog({
+          title: `Shell on node ${row.metadata?.name}`,
+          message:
+            "Opens a root shell on the node through kubectl debug node.",
+          component: defineAsyncComponent(
+            () => import("@/views/dialogs/NodeShell.vue")
+          ),
+          props: {
+            context: row.metadata.context,
+            kubeConfig: row.metadata.kubeConfig,
+            node: row,
+            addTab,
+          },
+          buttons: [],
+        });
+      },
+    },
+    {
       label: (row: T) => {
         return isCordoned(row) ? "Uncordon" : "Cordon";
       },

@@ -8,8 +8,10 @@ import {
 import { injectStrict } from "@/lib/utils";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { getVersion } from "@tauri-apps/api/app";
-import Updates from "./whats-new/Updates.vue";
 import { Sparkles } from "lucide-vue-next";
+
+// The slides (carousel + images) only load when the dialog is shown.
+const Updates = defineAsyncComponent(() => import("./whats-new/Updates.vue"));
 
 const { settings } = injectStrict(SettingsContextStateKey);
 

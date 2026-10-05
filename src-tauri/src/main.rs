@@ -11,9 +11,15 @@ use std::sync::{Arc, RwLock};
 mod app_log;
 mod kubernetes;
 mod logs;
+mod metrics;
+mod manifest;
 mod port_forward;
+#[cfg(all(test, feature = "kwok-qa"))]
+mod qa_kwok;
 mod shell;
 mod util;
+mod watch;
+mod workloads;
 
 static RELOAD_HANDLE: Lazy<Arc<RwLock<reload::Handle<LevelFilter, Registry>>>> = Lazy::new(|| {
     let (_, reload_handle) = reload::Layer::new(LevelFilter::INFO);
@@ -113,20 +119,7 @@ fn main() {
             kubernetes::client::get_core_api_resources,
             kubernetes::client::get_api_groups,
             kubernetes::client::get_api_group_resources,
-            kubernetes::client::list_pods,
-            kubernetes::client::get_pod,
             kubernetes::client::delete_pod,
-            kubernetes::client::list_deployments,
-            kubernetes::client::restart_deployment,
-            kubernetes::client::restart_statefulset,
-            kubernetes::client::list_jobs,
-            kubernetes::client::list_cronjobs,
-            kubernetes::client::list_configmaps,
-            kubernetes::client::list_secrets,
-            kubernetes::client::list_services,
-            kubernetes::client::list_ingresses,
-            kubernetes::client::list_persistentvolumes,
-            kubernetes::client::list_persistentvolumeclaims,
             kubernetes::client::replace_pod,
             kubernetes::client::replace_deployment,
             kubernetes::client::replace_job,
@@ -136,8 +129,6 @@ fn main() {
             kubernetes::client::replace_service,
             kubernetes::client::replace_ingress,
             kubernetes::client::replace_persistentvolumeclaim,
-            kubernetes::client::get_pod_metrics,
-            kubernetes::client::get_pod_metric,
             kubernetes::client::trigger_cronjob,
             kubernetes::client::run_kubectl,
             kubernetes::client::apply_manifest,
@@ -160,6 +151,22 @@ fn main() {
             logs::structured_logging::get_columns_for_structured_logging_session,
             logs::structured_logging::set_filtered_for_facet_value,
             logs::structured_logging::get_filtered_data_for_structured_logging_session,
+            watch::watch_subscribe,
+            watch::watch_unsubscribe,
+            watch::watch_restart,
+            watch::watch_reset,
+            watch::watch_set_paused,
+            watch::watch_get,
+            watch::watch_stats,
+            metrics::metrics_subscribe,
+            metrics::metrics_unsubscribe,
+            metrics::metrics_reset,
+            manifest::get_openapi_v3_schema,
+            logs::structured_logging::export_structured_logging_session,
+            logs::streaming::start_log_stream,
+            logs::streaming::stop_log_stream,
+            logs::streaming::log_stream_reset,
+            workloads::run_helm_with_values,
         ])
         .setup(|_app| {
             #[cfg(target_os = "macos")]
@@ -235,6 +242,8 @@ fn main() {
             // Same for kubectl exec / local shell sessions (and their
             // temporary kubeconfigs).
             shell::tty::kill_all_tty_sessions();
+            // And backend log streams (kubectl logs --follow).
+            logs::streaming::kill_all_log_streams();
         }
     });
 }

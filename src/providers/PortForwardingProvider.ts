@@ -1,8 +1,26 @@
-import { provide, reactive, InjectionKey, toRefs, ToRefs } from "vue";
+import {
+  computed,
+  provide,
+  reactive,
+  InjectionKey,
+  toRefs,
+  ToRefs,
+  type ComputedRef,
+} from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-shell";
 import { error as logError } from "@/lib/logger";
+import { injectStrict } from "@/lib/utils";
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+import {
+  createProfile,
+  isProfileRunning,
+  parseProfiles,
+  profilesToAutoStart,
+  upsertProfile,
+  type PortForwardProfile,
+} from "@/lib/portForwardProfiles";
 
 export const PortForwardingStateKey: InjectionKey<
   ToRefs<PortForwardingState>
@@ -17,6 +35,22 @@ export const PortForwardingAddPortForwarding: InjectionKey<
 export const PortForwardingRemovePortForwarding: InjectionKey<
   (portForwarding: ActivePortForwarding) => void
 > = Symbol("PortForwardingRemovePortForwarding");
+
+export interface PortForwardProfiles {
+  profiles: ComputedRef<PortForwardProfile[]>;
+  /** Saves (or updates) the profile of a forward spec. */
+  save(
+    spec: PortForwarding,
+    options?: { name?: string; autoStart?: boolean }
+  ): PortForwardProfile;
+  remove(id: string): void;
+  setAutoStart(id: string, autoStart: boolean): void;
+  isRunning(profile: PortForwardProfile): boolean;
+  /** Starts the profile unless it is running already. */
+  start(id: string, openInBrowser?: boolean): Promise<void>;
+}
+export const PortForwardingProfilesKey: InjectionKey<PortForwardProfiles> =
+  Symbol("PortForwardingProfiles");
 
 export interface PortForwarding {
   kubeConfig: string;
@@ -55,6 +89,8 @@ interface PendingForward {
 export default {
   name: "PortForwardingProvider",
   setup() {
+    const { settings } = injectStrict(SettingsContextStateKey);
+
     const state: PortForwardingState = reactive({
       activePortForwardings: [],
     });
@@ -146,7 +182,20 @@ export default {
       .then((portForwardings) => {
         state.activePortForwardings = portForwardings;
       })
-      .catch((e) => logError(`Failed to list port forwards: ${e}`));
+      .catch((e) => logError(`Failed to list port forwards: ${e}`))
+      .finally(() => {
+        // Profiles marked "start automatically" (not already running).
+        for (const profile of profilesToAutoStart(
+          profiles.value,
+          state.activePortForwardings
+        )) {
+          profileApi
+            .start(profile.id)
+            .catch((e) =>
+              logError(`Failed to auto-start ${profile.name}: ${e}`)
+            );
+        }
+      });
 
     const addPortForwarding = async (
       portForwarding: PortForwarding,
@@ -199,6 +248,43 @@ export default {
         )
       );
     };
+
+    /* ------------------------------------------------------ profiles -- */
+
+    const profiles = computed(() =>
+      parseProfiles(settings.value.portForwardProfiles)
+    );
+    const setProfiles = (next: PortForwardProfile[]) => {
+      settings.value.portForwardProfiles = next;
+    };
+
+    const profileApi: PortForwardProfiles = {
+      profiles,
+      save: (spec, options) => {
+        const existing = profiles.value.find(
+          (p) => p.id === createProfile(spec).id
+        );
+        const profile = createProfile(spec, {
+          name: options?.name ?? existing?.name,
+          autoStart: options?.autoStart ?? existing?.autoStart,
+        });
+        setProfiles(upsertProfile(profiles.value, profile));
+        return profile;
+      },
+      remove: (id) => setProfiles(profiles.value.filter((p) => p.id !== id)),
+      setAutoStart: (id, autoStart) =>
+        setProfiles(
+          profiles.value.map((p) => (p.id === id ? { ...p, autoStart } : p))
+        ),
+      isRunning: (profile) =>
+        isProfileRunning(profile, state.activePortForwardings),
+      start: async (id, openInBrowser = false) => {
+        const profile = profiles.value.find((p) => p.id === id);
+        if (!profile || profileApi.isRunning(profile)) return;
+        await addPortForwarding({ ...profile.spec }, openInBrowser);
+      },
+    };
+    provide(PortForwardingProfilesKey, profileApi);
 
     provide(PortForwardingAddPortForwarding, addPortForwarding);
     provide(PortForwardingRemovePortForwarding, removePortForwarding);

@@ -1,3 +1,8 @@
+/// Backend log streams: kubectl runs in Rust and its lines go straight into
+/// a structured logging session (see `log_stream.rs`).
+#[path = "log_stream.rs"]
+pub mod streaming;
+
 pub mod structured_logging {
     use access_log_parser::{LogEntry, LogType};
     use once_cell::sync::Lazy;
@@ -28,7 +33,15 @@ pub mod structured_logging {
         columns: Vec<String>,
         column_set: HashSet<String>,
         facets: Vec<FacetState>,
+        /// Bumped whenever a backend log stream takes over the session;
+        /// batches of a superseded stream are dropped.
+        pub(crate) stream_generation: u64,
     }
+
+    /// Pseudo facet properties for the source of a line (multi-pod streams).
+    /// The frontend offers them in a separate "Sources" section.
+    pub const POD_FACET: &str = "@pod";
+    pub const CONTAINER_FACET: &str = "@container";
 
     #[derive(Clone, Debug, PartialEq, serde::Serialize)]
     pub struct StructuredLogEntry {
@@ -37,8 +50,13 @@ pub mod structured_logging {
         /// frontend to fetch only new entries.
         seq: u64,
         content: String,
+        /// RFC3339 in UTC with exactly 9 fractional digits when parseable, so
+        /// timestamps of different pods compare correctly as strings.
         timestamp: String,
         data: Value,
+        /// Pod / container the line came from (`kubectl logs --prefix`).
+        pod: Option<String>,
+        container: Option<String>,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
@@ -70,12 +88,25 @@ pub mod structured_logging {
 
     impl FacetState {
         fn matches(&self, entry: &StructuredLogEntry) -> bool {
-            entry
-                .data
-                .get(&self.property)
-                .map(|value| self.filtered.contains(&facet_key(value)))
+            facet_value(entry, &self.property)
+                .map(|value| self.filtered.contains(&value))
                 .unwrap_or(false)
         }
+    }
+
+    /// Facet key of `property` for an entry: a parsed data property, or the
+    /// pod / container the line came from for the pseudo properties.
+    fn facet_value(entry: &StructuredLogEntry, property: &str) -> Option<String> {
+        match property {
+            POD_FACET => entry.pod.as_deref().map(string_key),
+            CONTAINER_FACET => entry.container.as_deref().map(string_key),
+            _ => entry.data.get(property).map(facet_key),
+        }
+    }
+
+    /// Same serialized form as [`facet_key`] for a string value.
+    fn string_key(value: &str) -> String {
+        Value::String(value.to_string()).to_string()
     }
 
     #[derive(Clone, Debug, serde::Serialize)]
@@ -122,13 +153,15 @@ pub mod structured_logging {
 
     /// A parsed log line, before it gets a sequence number.
     #[derive(Debug, PartialEq)]
-    struct ParsedLine {
+    pub(crate) struct ParsedLine {
         timestamp: String,
         content: String,
         data: Value,
+        pod: Option<String>,
+        container: Option<String>,
     }
 
-    fn get_session(session_id: &str) -> Option<Arc<Mutex<StructuredLoggingSession>>> {
+    pub(crate) fn get_session(session_id: &str) -> Option<Arc<Mutex<StructuredLoggingSession>>> {
         lock(&STRUCTURED_LOGGING_SESSIONS).get(session_id).cloned()
     }
 
@@ -141,8 +174,16 @@ pub mod structured_logging {
         /// Appends parsed lines, updating columns and facet counts and
         /// evicting the oldest lines beyond [`MAX_ENTRIES_PER_SESSION`].
         /// Returns whether new columns were discovered.
-        fn push_lines(&mut self, lines: Vec<ParsedLine>) -> bool {
+        pub(crate) fn push_lines(&mut self, lines: Vec<ParsedLine>) -> bool {
             self.push_lines_capped(lines, MAX_ENTRIES_PER_SESSION)
+        }
+
+        pub(crate) fn len(&self) -> usize {
+            self.entries.len()
+        }
+
+        pub(crate) fn latest_seq(&self) -> u64 {
+            self.entries.back().map(|e| e.seq).unwrap_or(0)
         }
 
         fn push_lines_capped(&mut self, lines: Vec<ParsedLine>, capacity: usize) -> bool {
@@ -158,20 +199,24 @@ pub mod structured_logging {
                     }
                 }
 
-                for facet in self.facets.iter_mut() {
-                    if let Some(value) = line.data.get(&facet.property) {
-                        *facet.counts.entry(facet_key(value)).or_insert(0) += 1;
-                    }
-                }
-
                 self.next_seq += 1;
-                self.entries.push_back(Arc::new(StructuredLogEntry {
+                let entry = Arc::new(StructuredLogEntry {
                     id: Uuid::new_v4(),
                     seq: self.next_seq,
                     content: line.content,
                     timestamp: line.timestamp,
                     data: line.data,
-                }));
+                    pod: line.pod,
+                    container: line.container,
+                });
+
+                for facet in self.facets.iter_mut() {
+                    if let Some(value) = facet_value(&entry, &facet.property) {
+                        *facet.counts.entry(value).or_insert(0) += 1;
+                    }
+                }
+
+                self.entries.push_back(entry);
             }
 
             while self.entries.len() > capacity {
@@ -185,10 +230,9 @@ pub mod structured_logging {
 
         fn forget_facet_values(&mut self, entry: &StructuredLogEntry) {
             for facet in self.facets.iter_mut() {
-                let Some(value) = entry.data.get(&facet.property) else {
+                let Some(key) = facet_value(entry, &facet.property) else {
                     continue;
                 };
-                let key = facet_key(value);
                 if let Some(count) = facet.counts.get_mut(&key) {
                     *count = count.saturating_sub(1);
                     // Values that no longer occur disappear from the sidebar,
@@ -202,11 +246,15 @@ pub mod structured_logging {
             }
         }
 
-        fn clear_entries(&mut self) {
+        /// Drops every line. Active facet filters are kept (with a zero
+        /// count) so clearing the view doesn't silently widen it.
+        pub(crate) fn clear_entries(&mut self) {
             self.entries.clear();
             for facet in self.facets.iter_mut() {
                 facet.counts.clear();
-                facet.filtered.clear();
+                for value in facet.filtered.iter() {
+                    facet.counts.insert(value.clone(), 0);
+                }
             }
         }
 
@@ -217,8 +265,8 @@ pub mod structured_logging {
 
             let mut counts: HashMap<String, u32> = HashMap::new();
             for entry in self.entries.iter() {
-                if let Some(value) = entry.data.get(&property) {
-                    *counts.entry(facet_key(value)).or_insert(0) += 1;
+                if let Some(value) = facet_value(entry, &property) {
+                    *counts.entry(value).or_insert(0) += 1;
                 }
             }
 
@@ -280,7 +328,12 @@ pub mod structured_logging {
     }
 
     fn matches_search(entry: &StructuredLogEntry, search_query_lower: &str) -> bool {
-        search_query_lower.is_empty() || entry.content.to_lowercase().contains(search_query_lower)
+        search_query_lower.is_empty()
+            || entry.content.to_lowercase().contains(search_query_lower)
+            || entry
+                .pod
+                .as_deref()
+                .is_some_and(|pod| pod.to_lowercase().contains(search_query_lower))
     }
 
     fn run_query(
@@ -327,6 +380,8 @@ pub mod structured_logging {
         match key {
             "timestamp" => Some(SortValue::Str(&entry.timestamp)),
             "content" => Some(SortValue::Str(&entry.content)),
+            POD_FACET | "pod" => entry.pod.as_deref().map(SortValue::Str),
+            CONTAINER_FACET | "container" => entry.container.as_deref().map(SortValue::Str),
             _ => entry.data.get(key).map(SortValue::Json),
         }
     }
@@ -452,12 +507,63 @@ pub mod structured_logging {
     /// into one object; surrounding text is kept as `message` when the JSON
     /// doesn't already have one. Returns `None` for blank lines.
     fn parse_line(line: &str) -> Option<ParsedLine> {
+        parse_line_from(line, None, None)
+    }
+
+    /// Splits the `[pod/<pod>/<container>] ` prefix written by
+    /// `kubectl logs --prefix` off a line. Returns (pod, container, rest).
+    pub(crate) fn split_prefix(line: &str) -> (Option<&str>, Option<&str>, &str) {
+        let Some(rest) = line.strip_prefix('[') else {
+            return (None, None, line);
+        };
+        let Some((prefix, rest)) = rest.split_once("] ") else {
+            return (None, None, line);
+        };
+        let mut parts = prefix.splitn(3, '/');
+        match (parts.next(), parts.next(), parts.next()) {
+            (Some("pod"), Some(pod), Some(container)) if !pod.is_empty() => {
+                (Some(pod), Some(container), rest)
+            }
+            _ => (None, None, line),
+        }
+    }
+
+    /// Normalizes an RFC3339 timestamp to UTC with exactly 9 fractional
+    /// digits. The API server trims trailing zeros (RFC3339Nano), which makes
+    /// plain string comparison wrong (`…:00.1Z` sorts after `…:00.12Z`).
+    /// Anything unparseable is returned unchanged.
+    pub(crate) fn normalize_timestamp(timestamp: &str) -> String {
+        // Fast path: already normalized (`2024-01-01T00:00:00.123456789Z`).
+        let bytes = timestamp.as_bytes();
+        if bytes.len() == 30 && bytes[10] == b'T' && bytes[19] == b'.' && bytes[29] == b'Z' {
+            return timestamp.to_string();
+        }
+        match chrono::DateTime::parse_from_rfc3339(timestamp) {
+            Ok(parsed) => parsed
+                .with_timezone(&chrono::Utc)
+                .format("%Y-%m-%dT%H:%M:%S%.9fZ")
+                .to_string(),
+            Err(_) => timestamp.to_string(),
+        }
+    }
+
+    /// [`parse_line`] for a line of a known source. A `kubectl logs --prefix`
+    /// prefix on the line takes precedence over the given pod / container.
+    pub(crate) fn parse_line_from(
+        line: &str,
+        pod: Option<&str>,
+        container: Option<&str>,
+    ) -> Option<ParsedLine> {
         let line = line.trim_end_matches(['\r', '\n']);
+        let (prefix_pod, prefix_container, line) = split_prefix(line);
         if line.trim().is_empty() {
             return None;
         }
+        let pod = prefix_pod.or(pod).map(str::to_string);
+        let container = prefix_container.or(container).map(str::to_string);
 
         let (timestamp, content) = line.split_once(' ').unwrap_or((line, ""));
+        let timestamp = normalize_timestamp(timestamp);
 
         let mut merged: Option<Map<String, Value>> = None;
         let mut text_parts: Vec<&str> = Vec::new();
@@ -491,9 +597,11 @@ pub mod structured_logging {
         };
 
         Some(ParsedLine {
-            timestamp: timestamp.to_string(),
+            timestamp,
             content: content.to_string(),
             data,
+            pod,
+            container,
         })
     }
 
@@ -536,7 +644,7 @@ pub mod structured_logging {
 
     /// Runs CPU-heavy work (parsing / filtering / sorting) off the async
     /// runtime's worker threads.
-    async fn blocking<T, F>(work: F) -> T
+    pub(crate) async fn blocking<T, F>(work: F) -> T
     where
         F: FnOnce() -> T + Send + 'static,
         T: Send + 'static,
@@ -567,9 +675,18 @@ pub mod structured_logging {
         let mut session = StructuredLoggingSession::default();
         session.push_lines(lines);
 
-        lock(&STRUCTURED_LOGGING_SESSIONS).insert(session_id.clone(), Arc::new(Mutex::new(session)));
+        insert_session(session_id.clone(), session);
 
         session_id
+    }
+
+    /// Ends every session (after a webview reload). Returns how many.
+    pub(crate) fn clear_sessions() -> usize {
+        std::mem::take(&mut *lock(&STRUCTURED_LOGGING_SESSIONS)).len()
+    }
+
+    pub(crate) fn insert_session(session_id: String, session: StructuredLoggingSession) {
+        lock(&STRUCTURED_LOGGING_SESSIONS).insert(session_id, Arc::new(Mutex::new(session)));
     }
 
     #[tauri::command]
@@ -583,6 +700,7 @@ pub mod structured_logging {
     #[tauri::command]
     pub async fn end_structured_logging_session(session_id: String) {
         info!("Ending structured logging session: {}", session_id);
+        super::streaming::stop_stream(&session_id);
         lock(&STRUCTURED_LOGGING_SESSIONS).remove(&session_id);
     }
 
@@ -749,6 +867,86 @@ pub mod structured_logging {
         }
     }
 
+    /// Writes one exported line. `text`: `<timestamp> [<pod>/<container>] <content>`
+    /// (the source only when known); `jsonl`: one JSON object per line.
+    fn write_export_line(
+        out: &mut impl std::io::Write,
+        entry: &StructuredLogEntry,
+        jsonl: bool,
+    ) -> std::io::Result<()> {
+        if jsonl {
+            let record = json!({
+                "timestamp": entry.timestamp,
+                "pod": entry.pod,
+                "container": entry.container,
+                "message": entry.content,
+                "data": entry.data,
+            });
+            return writeln!(out, "{}", record);
+        }
+
+        match (&entry.pod, &entry.container) {
+            (Some(pod), Some(container)) => {
+                writeln!(out, "{} [{}/{}] {}", entry.timestamp, pod, container, entry.content)
+            }
+            (Some(pod), None) => writeln!(out, "{} [{}] {}", entry.timestamp, pod, entry.content),
+            _ => writeln!(out, "{} {}", entry.timestamp, entry.content),
+        }
+    }
+
+    /// Exports the lines matching the current facet filters and
+    /// `search_query` to `path` (chosen by the user in a save dialog), so
+    /// the lines never have to be copied to the webview. `format` is `text`
+    /// or `jsonl`. Returns the number of lines written.
+    #[tauri::command]
+    pub async fn export_structured_logging_session(
+        session_id: String,
+        path: String,
+        search_query: String,
+        format: String,
+    ) -> Result<u32, String> {
+        info!("Exporting structured logging session: {}", session_id);
+        let session = get_session(&session_id).ok_or("The log session has ended")?;
+
+        let snapshot = {
+            let session = lock(&session);
+            QuerySnapshot {
+                entries: session.entries.iter().cloned().collect(),
+                active_facets: session
+                    .facets
+                    .iter()
+                    .filter(|facet| !facet.filtered.is_empty())
+                    .cloned()
+                    .collect(),
+                total: session.entries.len() as u32,
+                oldest_seq: 0,
+                latest_seq: 0,
+            }
+        };
+
+        let jsonl = format == "jsonl";
+        tauri::async_runtime::spawn_blocking(move || -> Result<u32, String> {
+            let search_query = search_query.to_lowercase();
+            let file = std::fs::File::create(&path)
+                .map_err(|e| format!("Unable to create {}: {}", path, e))?;
+            let mut out = std::io::BufWriter::new(file);
+            let mut written = 0u32;
+            for entry in snapshot.entries.iter() {
+                if matches_search(entry, &search_query)
+                    && matches_facets(entry, &snapshot.active_facets)
+                {
+                    write_export_line(&mut out, entry, jsonl)
+                        .map_err(|e| format!("Unable to write {}: {}", path, e))?;
+                    written += 1;
+                }
+            }
+            std::io::Write::flush(&mut out).map_err(|e| format!("Unable to write {}: {}", path, e))?;
+            Ok(written)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -760,6 +958,8 @@ pub mod structured_logging {
                 content: data.to_string(),
                 timestamp: timestamp.to_string(),
                 data,
+                pod: None,
+                container: None,
             })
         }
 
@@ -772,7 +972,107 @@ pub mod structured_logging {
                 timestamp: timestamp.to_string(),
                 content: data.to_string(),
                 data,
+                pod: None,
+                container: None,
             }
+        }
+
+        fn sourced_line(pod: &str, container: &str, data: Value) -> ParsedLine {
+            ParsedLine {
+                pod: Some(pod.to_string()),
+                container: Some(container.to_string()),
+                ..line("t", data)
+            }
+        }
+
+        #[test]
+        fn prefix_is_split_into_pod_and_container() {
+            assert_eq!(
+                split_prefix("[pod/web-1/app] 2024-01-01T00:00:00Z hi"),
+                (Some("web-1"), Some("app"), "2024-01-01T00:00:00Z hi")
+            );
+            // Not a kubectl prefix: kept as content.
+            assert_eq!(split_prefix("[INFO] started"), (None, None, "[INFO] started"));
+            assert_eq!(split_prefix("[pod/] x"), (None, None, "[pod/] x"));
+
+            let parsed =
+                parse_line_from("[pod/web-1/app] 2024-01-01T00:00:00.5Z {\"level\":\"info\"}", Some("other"), None)
+                    .unwrap();
+            assert_eq!(parsed.pod.as_deref(), Some("web-1"));
+            assert_eq!(parsed.container.as_deref(), Some("app"));
+            assert_eq!(parsed.timestamp, "2024-01-01T00:00:00.500000000Z");
+            assert_eq!(parsed.data, json!({ "level": "info" }));
+
+            // Without a prefix the given source is used.
+            let parsed = parse_line_from("ts hello", Some("web-2"), Some("c")).unwrap();
+            assert_eq!(parsed.pod.as_deref(), Some("web-2"));
+            // A prefixed blank line is skipped.
+            assert!(parse_line_from("[pod/web-1/app] ", None, None).is_none());
+        }
+
+        #[test]
+        fn timestamps_are_normalized_for_string_ordering() {
+            let a = normalize_timestamp("2024-01-01T00:00:00.1Z");
+            let b = normalize_timestamp("2024-01-01T00:00:00.12Z");
+            assert!(a < b, "{a} should sort before {b}");
+            assert_eq!(normalize_timestamp("2024-01-01T02:00:00+02:00"), "2024-01-01T00:00:00.000000000Z");
+            assert_eq!(normalize_timestamp("not-a-timestamp"), "not-a-timestamp");
+            let already = "2024-01-01T00:00:00.123456789Z";
+            assert_eq!(normalize_timestamp(already), already);
+        }
+
+        #[test]
+        fn pod_and_container_facets_count_and_filter() {
+            let mut session = StructuredLoggingSession::default();
+            session.push_lines(vec![
+                sourced_line("web-1", "app", json!({ "n": 1 })),
+                sourced_line("web-2", "app", json!({ "n": 2 })),
+                sourced_line("web-2", "sidecar", json!({ "n": 3 })),
+            ]);
+            session.add_facet(POD_FACET.to_string(), MatchType::OR);
+            session.add_facet(CONTAINER_FACET.to_string(), MatchType::AND);
+            assert_eq!(session.facets[0].counts.get("\"web-2\""), Some(&2));
+            assert_eq!(session.facets[1].counts.get("\"app\""), Some(&2));
+
+            session.facets[0].filtered.insert("\"web-2\"".to_string());
+            session.facets[1].filtered.insert("\"app\"".to_string());
+            let snapshot = QuerySnapshot {
+                entries: session.entries.iter().cloned().collect(),
+                active_facets: session.facets.clone(),
+                total: 3,
+                oldest_seq: 1,
+                latest_seq: 3,
+            };
+            let result = run_query(snapshot, "", &[], None, None);
+            let ns: Vec<Value> = result.entries.iter().map(|e| e.data["n"].clone()).collect();
+            assert_eq!(ns, vec![json!(2)]);
+
+            // Clearing keeps the active filters.
+            session.clear_entries();
+            assert!(session.facets[0].filtered.contains("\"web-2\""));
+            assert_eq!(session.facets[0].counts.get("\"web-2\""), Some(&0));
+        }
+
+        #[test]
+        fn export_lines_include_the_source() {
+            let e = StructuredLogEntry {
+                id: Uuid::new_v4(),
+                seq: 1,
+                content: "hello".to_string(),
+                timestamp: "2024-01-01T00:00:00.000000000Z".to_string(),
+                data: json!({ "message": "hello" }),
+                pod: Some("web-1".to_string()),
+                container: Some("app".to_string()),
+            };
+            let mut out = Vec::new();
+            write_export_line(&mut out, &e, false).unwrap();
+            assert_eq!(String::from_utf8(out).unwrap(), "2024-01-01T00:00:00.000000000Z [web-1/app] hello\n");
+
+            let mut out = Vec::new();
+            write_export_line(&mut out, &e, true).unwrap();
+            let record: Value = serde_json::from_str(String::from_utf8(out).unwrap().trim()).unwrap();
+            assert_eq!(record["pod"], json!("web-1"));
+            assert_eq!(record["message"], json!("hello"));
         }
 
         #[test]
@@ -851,7 +1151,7 @@ pub mod structured_logging {
         #[test]
         fn json_line_becomes_single_entry() {
             let parsed = parse_line(r#"2024-01-01T00:00:00Z {"level":"info","msg":"hi"}"#).unwrap();
-            assert_eq!(parsed.timestamp, "2024-01-01T00:00:00Z");
+            assert_eq!(parsed.timestamp, "2024-01-01T00:00:00.000000000Z");
             assert_eq!(parsed.data, json!({ "level": "info", "msg": "hi" }));
         }
 

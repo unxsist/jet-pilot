@@ -9,7 +9,12 @@ import { Plus } from "lucide-vue-next";
 import { ColumnDef } from "@tanstack/vue-table";
 import { columns as defaultGenericColumns } from "@/components/tables/generic";
 import { multiContextColumns } from "@/components/tables/multicontext";
-import { kubectlGetForContext } from "@/lib/multicontext";
+import {
+  activeTargets,
+  kubectlGetForContext,
+  kubectlPollingForced,
+} from "@/lib/multicontext";
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 
 const route = useRoute();
 const router = useRouter();
@@ -22,6 +27,10 @@ const {
 
 const actions = ref<any>(null);
 const currentResource = ref(route.query.resource as string);
+const currentKind = ref<string | undefined>(
+  (route.query.kind as string) || undefined
+);
+const { settings } = injectStrict(SettingsContextStateKey);
 
 import { RowAction, getDefaultActions } from "@/components/tables/types";
 import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
@@ -32,11 +41,7 @@ import { error } from "@/lib/logger";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
 import { PanelProviderSetSidePanelComponentKey } from "@/providers/PanelProvider";
-import {
-  useResourceList,
-  ContextFailure,
-  ResourceListResult,
-} from "@/composables/useResourceList";
+import { useWatchedList } from "@/composables/useWatchedList";
 import { resolveCreateTarget } from "@/components/tables/identity";
 const setSidePanelComponent = injectStrict(
   PanelProviderSetSidePanelComponentKey
@@ -137,56 +142,34 @@ const create = () => {
 };
 
 /*
- * Aggregates rows across every activated (context, namespaces) combination.
- * Superseded fetches, interval skipping and error state are handled by
- * useResourceList.
+ * Live rows across every activated (context, namespaces) combination from the
+ * backend WatchHub; contexts whose watch can't start (or with the
+ * `experimental.useKubectlPolling` setting) poll with kubectl instead.
  */
-const loadResources = async (): Promise<ResourceListResult<object>> => {
-  const fetchingResource = currentResource.value;
-  const activeContexts = [...contexts.value.entries()];
-
-  const results = await Promise.allSettled(
-    activeContexts.map(([ctx, namespaces]) =>
-      kubectlGetForContext<any>(
-        fetchingResource,
-        ctx,
-        contextKubeConfigMapping.value.get(ctx) || "",
-        namespaces
-      )
-    )
-  );
-
-  const items: object[] = [];
-  const failures: ContextFailure[] = [];
-  results.forEach((result, i) => {
-    if (result.status === "fulfilled") {
-      items.push(...result.value);
-    } else {
-      failures.push({ context: activeContexts[i][0], reason: result.reason });
-      error(
-        `Failed to fetch ${fetchingResource} for context ${activeContexts[i][0]}: ${result.reason}`
-      );
-    }
-  });
-
-  return { items, failures, attempted: activeContexts.length };
-};
-
 const {
   items: resourceData,
   loading,
   error: loadError,
   lastUpdated,
   retry,
-} = useResourceList(loadResources, {
-  interval: 5000,
-  // contexts and contextKubeConfigMapping always change together; watching
-  // both would reload twice per selection change. Switching resources (route
-  // update) reloads through currentResource.
-  dependencies: [contexts.value, currentResource],
+} = useWatchedList<any>({
+  resource: () => currentResource.value,
+  kind: () => currentKind.value,
+  targets: () =>
+    activeTargets(contexts.value, contextKubeConfigMapping.value),
+  fallback: (resource, target) =>
+    kubectlGetForContext<any>(
+      resource,
+      target.context,
+      target.kubeConfig,
+      target.namespaces
+    ),
+  fallbackInterval: 5000,
+  forcePolling: () => kubectlPollingForced(settings.value),
 });
 
 onBeforeRouteUpdate(async (to) => {
+  currentKind.value = (to.query.kind as string) || undefined;
   currentResource.value = to.query.resource as string;
 
   await initColumns(to.query.resource as string);

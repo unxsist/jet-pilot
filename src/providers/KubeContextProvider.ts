@@ -29,6 +29,17 @@ export const KubeContextSwitchContextKey: InjectionKey<
 > = Symbol("KubeContextSwitchContext");
 
 /**
+ * Replace the whole activation (workspaces): every listed context becomes
+ * active with its namespaces, all others are deactivated. The first entry
+ * becomes the primary context. An empty list is ignored.
+ */
+export const KubeContextSetActivationKey: InjectionKey<
+  (
+    entries: { context: string; kubeConfig: string; namespaces: string[] }[]
+  ) => void
+> = Symbol("KubeContextSetActivation");
+
+/**
  * Whether `context` is active. Pass `kubeConfig` to only match the context
  * of that kubeconfig (context names are only unique per kubeconfig).
  */
@@ -188,6 +199,26 @@ export default {
       setActiveNamespaces(context, kubeConfig, [namespace || "all"]);
     };
     provide(KubeContextSwitchContextKey, switchContext);
+
+    const setActivation = (
+      entries: { context: string; kubeConfig: string; namespaces: string[] }[]
+    ) => {
+      const valid = entries.filter(
+        (e) => e.context && e.namespaces.length > 0
+      );
+      if (valid.length === 0) {
+        return;
+      }
+      state.contexts.clear();
+      state.contextKubeConfigMapping.clear();
+      // Primary last: setActiveNamespaces makes the latest one primary.
+      for (const entry of [...valid.slice(1), valid[0]]) {
+        setActiveNamespaces(entry.context, entry.kubeConfig, [
+          ...entry.namespaces,
+        ]);
+      }
+    };
+    provide(KubeContextSetActivationKey, setActivation);
 
     const isContextActive = (context: string, kubeConfig?: string): boolean => {
       return isActiveEntry(context, kubeConfig);

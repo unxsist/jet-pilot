@@ -13,9 +13,9 @@ import PortForwardingProvider from "./providers/PortForwardingProvider";
 import CommandPaletteProvider from "./providers/CommandPaletteProvider";
 import PanelProvider from "./providers/PanelProvider";
 import DialogProvider from "./providers/DialogProvider";
+import WorkspaceProvider from "./providers/WorkspaceProvider";
 import DialogHandler from "./components/DialogHandler.vue";
-import UpdateHandler from "./components/UpdateHandler.vue";
-import WhatsNew from "./components/WhatsNew.vue";
+import AppSkeleton from "./components/skeletons/AppSkeleton.vue";
 import TerminalLauncher from "./components/TerminalLauncher.vue";
 import {
   ResizableHandle,
@@ -23,8 +23,22 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { type as getOsType } from "@tauri-apps/plugin-os";
+import { whenIdle } from "@/lib/perf";
 
 const osType = ref(getOsType());
+
+/*
+ * Not needed for the first frame: the update check (marked + DOMPurify for
+ * the release notes) and "What's new" are loaded once the app is idle.
+ */
+const UpdateHandler = defineAsyncComponent(
+  () => import("./components/UpdateHandler.vue")
+);
+const WhatsNew = defineAsyncComponent(
+  () => import("./components/WhatsNew.vue")
+);
+const idle = ref(false);
+onMounted(() => whenIdle(() => (idle.value = true), 2000));
 </script>
 
 <template>
@@ -32,15 +46,18 @@ const osType = ref(getOsType());
     class="bg-sidebar text-sm text-foreground rounded-lg border border-border overflow-hidden"
     :class="`os:${osType}`"
   >
-    <Suspense>
-      <SettingsContextProvider>
-        <GlobalShortcutProvider>
-          <ColorSchemeProvider>
-            <DialogProvider>
-              <KubeContextProvider>
-                <PortForwardingProvider>
-                  <PanelProvider>
-                    <CommandPaletteProvider>
+    <SettingsContextProvider>
+      <template #fallback>
+        <AppSkeleton />
+      </template>
+      <GlobalShortcutProvider>
+        <ColorSchemeProvider>
+          <DialogProvider>
+            <KubeContextProvider>
+              <PortForwardingProvider>
+                <PanelProvider>
+                  <CommandPaletteProvider>
+                    <WorkspaceProvider>
                       <Navigation />
                       <!--
                         Content sits on an inset canvas: the app chrome
@@ -64,17 +81,19 @@ const osType = ref(getOsType());
                       <Toaster />
                       <CommandPalette />
                       <DialogHandler />
-                      <UpdateHandler />
-                      <WhatsNew />
+                      <template v-if="idle">
+                        <UpdateHandler />
+                        <WhatsNew />
+                      </template>
                       <TerminalLauncher />
-                    </CommandPaletteProvider>
-                  </PanelProvider>
-                </PortForwardingProvider>
-              </KubeContextProvider>
-            </DialogProvider>
-          </ColorSchemeProvider>
-        </GlobalShortcutProvider>
-      </SettingsContextProvider>
-    </Suspense>
+                    </WorkspaceProvider>
+                  </CommandPaletteProvider>
+                </PanelProvider>
+              </PortForwardingProvider>
+            </KubeContextProvider>
+          </DialogProvider>
+        </ColorSchemeProvider>
+      </GlobalShortcutProvider>
+    </SettingsContextProvider>
   </AppLayout>
 </template>

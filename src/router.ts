@@ -3,7 +3,9 @@ import { createRouter, createWebHistory, RouteRecordRaw } from "vue-router";
 const routes: Array<RouteRecordRaw> = [
   {
     path: "/",
-    redirect: "/pods",
+    // Same location as the sidebar's Pods link: kept-alive views are keyed
+    // by full path, so the start page and the link share one cached view.
+    redirect: { path: "/pods", query: { resource: "pods", kind: "Pod" } },
   },
   {
     path: "/settings",

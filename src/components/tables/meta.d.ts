@@ -14,5 +14,9 @@ declare module "@tanstack/table-core" {
     numeric?: boolean;
     /** Cell tooltip; defaults to the cell value (useful for truncated cells). */
     title?: (row: TData) => string | undefined;
+    /** Header tooltip (e.g. a printer column description). */
+    headerTitle?: string;
+    /** Hidden until the user shows it (e.g. priority > 0 printer columns). */
+    defaultHidden?: boolean;
   }
 }

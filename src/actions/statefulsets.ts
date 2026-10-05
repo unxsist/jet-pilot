@@ -2,10 +2,7 @@ import { V1StatefulSet } from "@kubernetes/client-node";
 import { RowAction } from "@/components/tables/types";
 import { Router } from "vue-router";
 import { actions as scalableActions } from "./scalables";
-import { BaseDialogInterface } from "@/providers/DialogProvider";
-import { Kubernetes } from "@/services/Kubernetes";
-import { useToast } from "@/components/ui/toast";
-import { error } from "@/lib/logger";
+import { logsAction, restartAction, rolloutHistoryAction } from "./workload";
 
 export function actions<
   T extends V1StatefulSet & {
@@ -18,54 +15,9 @@ export function actions<
   router: Router
 ): RowAction<T>[] {
   return [
-    {
-      label: "Restart",
-      massAction: true,
-      handler: (rows: T[]) => {
-        const dialog: BaseDialogInterface = {
-          title: "Restart statefulset",
-          message: `Are you sure you want to restart statefulsets?`,
-          buttons: [
-            {
-              label: "Cancel",
-              variant: "ghost",
-              handler: (dialog) => {
-                dialog.close();
-              },
-            },
-            {
-              label: "Restart",
-              handler: (dialog) => {
-                rows.forEach((row) => {
-                  Kubernetes.restartStatefulset(
-                    row.metadata.context,
-                    row.metadata?.namespace || "",
-                    row.metadata?.name || "",
-                    row.metadata.kubeConfig
-                  )
-                    .then(() => {
-                      dialog.close();
-                    })
-                    .catch((e) => {
-                      error(`Failed to restart statefulset: ${e.message}`);
-                      dialog.close();
-
-                      const { toast } = useToast();
-
-                      toast({
-                        title: "An error occured",
-                        description: e.message,
-                        variant: "destructive",
-                      });
-                    });
-                });
-              },
-            },
-          ],
-        };
-        spawnDialog(dialog);
-      },
-    },
+    logsAction<any>(addTab),
+    rolloutHistoryAction<any>(addTab),
+    restartAction<any>(spawnDialog),
     ...scalableActions(addTab, spawnDialog, setSidePanelComponent, router),
   ];
 }
