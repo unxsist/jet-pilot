@@ -16,6 +16,7 @@
 //! subscriber leaves, like the WatchHub.
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -120,6 +121,9 @@ struct Poller {
 
 static POLLERS: Lazy<Mutex<HashMap<PollerKey, Arc<Poller>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 static SUBSCRIPTIONS: Lazy<Mutex<HashMap<u64, PollerKey>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+/// Bumped by `metrics_reset` (webview reload): a subscribe that started
+/// before it registers nothing (its channel belongs to the old page).
+static EPOCH: AtomicU64 = AtomicU64::new(0);
 
 fn status_message(state: MetricsState, message: &Option<String>) -> String {
     serde_json::json!({ "type": "status", "state": state, "message": message }).to_string()
@@ -329,39 +333,59 @@ pub async fn metrics_subscribe(
 }
 
 pub(crate) async fn subscribe(request: MetricsRequest, sink: Sink) -> Result<u64, String> {
+    let epoch = EPOCH.load(Ordering::SeqCst);
     let key = key_for(&request);
     let client = client_with_context(&key.context, Some(&key.kube_config))
         .await
         .map_err(|e| e.message)?;
     let id = next_subscription_id();
+    attach(&key, id, sink, epoch, |poller| {
+        Some(tauri::async_runtime::spawn(run_poller(poller, client, key.clone())))
+    })?;
+    Ok(id)
+}
 
-    let poller = {
-        let mut pollers = lock(&POLLERS);
-        pollers
-            .entry(key.clone())
-            .or_insert_with(|| {
-                let poller = Arc::new(Poller {
-                    state: Mutex::new(PollerState {
-                        status: (MetricsState::Syncing, None),
-                        last_sample: None,
-                        pods: Rings::default(),
-                        nodes: Rings::default(),
-                        sinks: HashMap::new(),
-                        idle_generation: 0,
-                        idle: true,
-                    }),
-                    task: Mutex::new(None),
-                });
-                *lock(&poller.task) = Some(tauri::async_runtime::spawn(run_poller(
-                    poller.clone(),
-                    client,
-                    key.clone(),
-                )));
-                poller
-            })
-            .clone()
+fn new_poller() -> Arc<Poller> {
+    Arc::new(Poller {
+        state: Mutex::new(PollerState {
+            status: (MetricsState::Syncing, None),
+            last_sample: None,
+            pods: Rings::default(),
+            nodes: Rings::default(),
+            sinks: HashMap::new(),
+            idle_generation: 0,
+            idle: true,
+        }),
+        task: Mutex::new(None),
+    })
+}
+
+/// Adds subscriber `id` to the poller of `key`, creating it (and starting
+/// its task with `start`) when there is none. Lookup and registration
+/// happen under the `POLLERS` lock, which eviction holds while it checks
+/// idleness: a poller is never attached to just after it was evicted (it
+/// would never deliver).
+fn attach(
+    key: &PollerKey,
+    id: u64,
+    sink: Sink,
+    epoch: u64,
+    start: impl FnOnce(Arc<Poller>) -> Option<JoinHandle<()>>,
+) -> Result<Arc<Poller>, String> {
+    let mut pollers = lock(&POLLERS);
+    // The webview was reloaded while this subscribe was resolving.
+    if EPOCH.load(Ordering::SeqCst) != epoch {
+        return Err("The subscription was reset".to_string());
+    }
+    let poller = match pollers.get(key) {
+        Some(poller) => poller.clone(),
+        None => {
+            let poller = new_poller();
+            *lock(&poller.task) = start(poller.clone());
+            pollers.insert(key.clone(), poller.clone());
+            poller
+        }
     };
-
     {
         let mut state = lock(&poller.state);
         sink(status_message(state.status.0, &state.status.1));
@@ -379,50 +403,67 @@ pub(crate) async fn subscribe(request: MetricsRequest, sink: Sink) -> Result<u64
         state.sinks.insert(id, sink);
         state.idle = false;
     }
-    lock(&SUBSCRIPTIONS).insert(id, key);
-    Ok(id)
+    lock(&SUBSCRIPTIONS).insert(id, key.clone());
+    Ok(poller)
+}
+
+/// Removes subscriber `id`. Returns the key and idle generation of its
+/// poller when that has no subscribers left.
+fn detach(id: u64) -> Option<(PollerKey, u64)> {
+    let key = lock(&SUBSCRIPTIONS).remove(&id)?;
+    let pollers = lock(&POLLERS);
+    let poller = pollers.get(&key)?;
+    let mut state = lock(&poller.state);
+    state.sinks.remove(&id);
+    if !state.sinks.is_empty() {
+        return None;
+    }
+    state.idle = true;
+    state.idle_generation += 1;
+    let generation = state.idle_generation;
+    drop(state);
+    Some((key, generation))
+}
+
+/// Evicts the poller of `key` when it has been idle since `generation`.
+fn evict_if_idle(key: &PollerKey, generation: u64) -> bool {
+    let mut pollers = lock(&POLLERS);
+    let evict = pollers.get(key).is_some_and(|p| {
+        let state = lock(&p.state);
+        state.idle && state.idle_generation == generation
+    });
+    if !evict {
+        return false;
+    }
+    if let Some(poller) = pollers.remove(key) {
+        if let Some(task) = lock(&poller.task).take() {
+            task.abort();
+        }
+        debug!("Evicted idle metrics poller for {}", key.context);
+    }
+    true
 }
 
 #[tauri::command]
 pub fn metrics_unsubscribe(id: u64) {
-    let Some(key) = lock(&SUBSCRIPTIONS).remove(&id) else {
+    let Some((key, generation)) = detach(id) else {
         return;
-    };
-    let Some(poller) = lock(&POLLERS).get(&key).cloned() else {
-        return;
-    };
-    let generation = {
-        let mut state = lock(&poller.state);
-        state.sinks.remove(&id);
-        if !state.sinks.is_empty() {
-            return;
-        }
-        state.idle = true;
-        state.idle_generation += 1;
-        state.idle_generation
     };
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(WARM_PERIOD).await;
-        let mut pollers = lock(&POLLERS);
-        let evict = pollers.get(&key).is_some_and(|p| {
-            let state = lock(&p.state);
-            state.idle && state.idle_generation == generation
-        });
-        if evict {
-            if let Some(poller) = pollers.remove(&key) {
-                if let Some(task) = lock(&poller.task).take() {
-                    task.abort();
-                }
-                debug!("Evicted idle metrics poller for {}", key.context);
-            }
-        }
+        evict_if_idle(&key, generation);
     });
 }
 
-/// Drops all metrics subscriptions (webview reload).
+/// Drops all metrics subscriptions (webview reload). Subscribes still
+/// resolving (started before the reset) are rejected.
 #[tauri::command]
 pub fn metrics_reset() {
-    let ids: Vec<u64> = lock(&SUBSCRIPTIONS).keys().copied().collect();
+    let ids: Vec<u64> = {
+        let _pollers = lock(&POLLERS);
+        EPOCH.fetch_add(1, Ordering::SeqCst);
+        lock(&SUBSCRIPTIONS).keys().copied().collect()
+    };
     if !ids.is_empty() {
         warn!("Dropping {} stale metrics subscriptions", ids.len());
     }
@@ -474,6 +515,49 @@ mod tests {
         assert_eq!(value["metadata"]["kubeConfig"], "/kc");
         assert_eq!(value["kind"], "PodMetrics");
         assert!(value["metadata"].get("managedFields").is_none());
+    }
+
+    fn test_key(context: &str) -> PollerKey {
+        PollerKey {
+            kube_config: "/kc".into(),
+            context: context.into(),
+            namespaces: vec![],
+        }
+    }
+
+    #[test]
+    fn attaching_and_evicting_are_atomic() {
+        let key = test_key("metrics-attach-test");
+        let epoch = EPOCH.load(Ordering::SeqCst);
+        let sink: Sink = Arc::new(|_| true);
+
+        let first = attach(&key, 9_001, sink.clone(), epoch, |_| None).unwrap();
+        let (_, stale) = detach(9_001).unwrap();
+        // Re-used before the warm period's eviction timer fired: the stale
+        // timer must not evict the poller the new subscriber is on.
+        let again = attach(&key, 9_002, sink.clone(), epoch, |_| None).unwrap();
+        assert!(Arc::ptr_eq(&first, &again));
+        assert!(!evict_if_idle(&key, stale));
+        assert!(lock(&POLLERS).get(&key).is_some_and(|p| Arc::ptr_eq(p, &again)));
+
+        // Evicted: the next subscriber gets a new poller, not the dead one.
+        let (_, generation) = detach(9_002).unwrap();
+        assert!(evict_if_idle(&key, generation));
+        let fresh = attach(&key, 9_003, sink, epoch, |_| None).unwrap();
+        assert!(!Arc::ptr_eq(&first, &fresh));
+        assert!(lock(&POLLERS).get(&key).is_some_and(|p| Arc::ptr_eq(p, &fresh)));
+        assert_eq!(lock(&fresh.state).sinks.len(), 1);
+        detach(9_003);
+    }
+
+    #[test]
+    fn subscribes_that_straddle_a_reset_register_nothing() {
+        let key = test_key("metrics-epoch-test");
+        // An epoch before the latest reset.
+        let stale_epoch = EPOCH.load(Ordering::SeqCst).wrapping_sub(1);
+        assert!(attach(&key, 9_100, Arc::new(|_| true), stale_epoch, |_| None).is_err());
+        assert!(!lock(&POLLERS).contains_key(&key));
+        assert!(!lock(&SUBSCRIPTIONS).contains_key(&9_100));
     }
 
     #[test]
