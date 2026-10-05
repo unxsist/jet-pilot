@@ -15,6 +15,7 @@
  *   ?themeId=<id>            app theme for both appearances
  *                            (settings.appearance.lightTheme/darkTheme;
  *                            `jet` is the default)
+ *   ?version=<x.y.z>         app version (default: package.json)
  *
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views; `large-graph` swaps the
@@ -26,12 +27,13 @@
  * themes/, ...) live in sessionStorage, so a reload sees them (restored
  * tabs, workspaces). `?fresh=1` clears them. fs watchers get events for
  * writes and removals under the watched path. Open VSX (openvsx_search /
- * openvsx_install) answers from fixtures; installing `harness.apache-theme`
- * fails the licence check (only MIT), `harness.pastel-icons` has no colour
+ * openvsx_install) answers from fixtures; installing `amberlabs.apache-theme`
+ * fails the licence check (only MIT), `pastelcraft.pastel-icons` has no colour
  * themes.
  */
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import yaml from "js-yaml";
+import { version as packageVersion } from "../../package.json";
 import {
   API_GROUPS,
   CLUSTERS,
@@ -56,7 +58,7 @@ if (params.get("fresh")) {
   localStorage.removeItem("jet-theme-cache");
 }
 const delay = Number(params.get("delay") || 0);
-for (const key of ["theme", "os", "scenario", "polling", "themeId"]) {
+for (const key of ["theme", "os", "scenario", "polling", "themeId", "version"]) {
   const value = params.get(key);
   if (value) localStorage.setItem(`harness-${key}`, value);
 }
@@ -65,6 +67,7 @@ const theme = localStorage.getItem("harness-theme") || "dark";
 const themeId = localStorage.getItem("harness-themeId");
 const os = localStorage.getItem("harness-os") || "linux";
 const scenario = localStorage.getItem("harness-scenario") || "default";
+const VERSION = localStorage.getItem("harness-version") || packageVersion;
 const polling = localStorage.getItem("harness-polling") === "1";
 
 /* ?scenario=large-graph swaps the first context for a 2,000+ object cluster. */
@@ -121,7 +124,7 @@ const settings = {
     { name: "services", kind: "Service" },
   ],
   appearance: { colorScheme: theme, lightTheme: themeId || "jet", darkTheme: themeId || "jet" },
-  updates: { checkOnStartup: false, whatsNew: scenario === "whatsnew" ? "1.0.0" : "1.35.0" },
+  updates: { checkOnStartup: false, whatsNew: scenario === "whatsnew" ? "1.0.0" : VERSION },
   logLevel: "error",
   ...(polling ? { experimental: { useKubectlPolling: true } } : {}),
 };
@@ -1213,7 +1216,7 @@ mockIPC(
       case "plugin:path|join":
         return (p.paths as string[]).join("/").replace(/\/{2,}/g, "/");
       case "plugin:app|version":
-        return "1.35.0";
+        return VERSION;
       case "plugin:app|name":
         return "JET Pilot";
       case "plugin:app|tauri_version":

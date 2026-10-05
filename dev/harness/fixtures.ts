@@ -1027,17 +1027,17 @@ export function describe(kind: string, obj: any): string {
 /** `openvsx_search` results (OpenVsxExtension, src/lib/themes/types.ts). */
 export const OPENVSX_EXTENSIONS = [
   {
-    namespace: "harness",
+    namespace: "pastelcraft",
     name: "pastel-theme",
     displayName: "Pastel Cappuccino",
-    description: "Soothing pastel theme in a latte and a mocha flavour (harness fixture).",
+    description: "Soothing pastel theme in a latte and a mocha flavour.",
     version: "3.17.0",
     downloadCount: 1_284_301,
     averageRating: 4.9,
     license: "MIT",
   },
   {
-    namespace: "harness",
+    namespace: "inkwell",
     name: "midnight-ink",
     displayName: "Midnight Ink",
     description: "A deep blue dark theme with vivid accents.",
@@ -1047,7 +1047,7 @@ export const OPENVSX_EXTENSIONS = [
     license: "MIT",
   },
   {
-    namespace: "harness",
+    namespace: "papermill",
     name: "paper-light",
     displayName: "Paper Light",
     description: "Low-contrast light theme for long reading sessions.",
@@ -1056,19 +1056,19 @@ export const OPENVSX_EXTENSIONS = [
     license: "MIT OR Apache-2.0",
   },
   {
-    namespace: "harness",
+    namespace: "pastelcraft",
     name: "pastel-icons",
     displayName: "Pastel Icons",
-    description: "File icons only: installing this finds no colour themes.",
+    description: "Pastel file and folder icons to match Pastel Cappuccino.",
     version: "1.0.0",
     downloadCount: 77_310,
     license: "MIT",
   },
   {
-    namespace: "harness",
+    namespace: "amberlabs",
     name: "apache-theme",
     displayName: "Apache Amber",
-    description: "Installing this fails the licence check (Apache-2.0: only MIT is allowed).",
+    description: "Warm amber accents on a charcoal canvas for late nights.",
     version: "2.0.0",
     downloadCount: 5_402,
     averageRating: 3.8,
