@@ -1,15 +1,19 @@
 //! Cloud connections (`~/.kube/jet-pilot/connections.json`, see
 //! `jp_auth_core::connections`): AWS IAM Identity Center, `~/.aws`
-//! profiles and access keys. Secrets go to the vault; listing computes
-//! each connection's sign-in state without network calls or prompts.
+//! profiles and access keys; the signed-in user of `gcloud`, `az` or
+//! `doctl`; API tokens (DigitalOcean, Akamai, Civo, Scaleway, Vultr) and
+//! Exoscale API keys. Secrets go to the vault; listing computes each
+//! connection's state without prompts (CLI connections from the CLI's
+//! status, cached for a minute).
 
 use std::collections::BTreeSet;
 
 use jp_auth_core::aws::creds::{self, StoredKeys};
 use jp_auth_core::aws::AwsContext;
+use jp_auth_core::cloud::{CloudError, Provider as ApiProvider};
 use jp_auth_core::connections::{
-    self as store, keys_secret_id, CloudConnection, ConnectionKind, ConnectionStatus, SsoSettings,
-    SsoTarget,
+    self as store, api_key_secret_id, api_token_secret_id, keys_secret_id, CloudConnection,
+    ConnectionKind, ConnectionStatus, ExoscaleSettings, SsoSettings, SsoTarget,
 };
 use jp_auth_core::request::{valid_account_id, valid_profile_name, valid_region, valid_role_name};
 use serde::Deserialize;
@@ -17,7 +21,7 @@ use tracing::info;
 
 use super::error::AppError;
 use super::managed_kubeconfig as managed;
-use super::providers::aws;
+use super::providers::{self, api, aws, cli, gcp};
 
 #[derive(Clone, Deserialize)]
 #[serde(
@@ -46,6 +50,39 @@ pub enum ConnectionSpec {
         session_token: Option<String>,
         region: String,
     },
+    /// The signed-in user of `gcloud` (gcp), `az` (azure) or `doctl`
+    /// (digitalocean).
+    Cli {
+        provider: String,
+        #[serde(default)]
+        label: Option<String>,
+        /// The gcloud account / az user / doctl context (None = current).
+        #[serde(default)]
+        cli_account: Option<String>,
+    },
+    /// An API token: digitalocean, linode, civo, scaleway (with an optional
+    /// project), vultr.
+    Token {
+        provider: String,
+        #[serde(default)]
+        label: Option<String>,
+        token: String,
+        #[serde(default)]
+        project_id: Option<String>,
+    },
+    /// An Exoscale API key and secret.
+    ApiKey {
+        #[serde(default)]
+        provider: Option<String>,
+        #[serde(default)]
+        label: Option<String>,
+        key: String,
+        secret: String,
+        #[serde(default)]
+        user: Option<String>,
+        #[serde(default)]
+        groups: Option<Vec<String>>,
+    },
 }
 
 impl std::fmt::Debug for ConnectionSpec {
@@ -56,6 +93,13 @@ impl std::fmt::Debug for ConnectionSpec {
             } => write!(f, "Sso({start_url}, {region})"),
             ConnectionSpec::Profile { profile, .. } => write!(f, "Profile({profile})"),
             ConnectionSpec::Keys { region, .. } => write!(f, "Keys(<redacted>, {region})"),
+            ConnectionSpec::Cli {
+                provider,
+                cli_account,
+                ..
+            } => write!(f, "Cli({provider}, {cli_account:?})"),
+            ConnectionSpec::Token { provider, .. } => write!(f, "Token({provider}, <redacted>)"),
+            ConnectionSpec::ApiKey { key, .. } => write!(f, "ApiKey({key}, <redacted>)"),
         }
     }
 }
@@ -69,6 +113,9 @@ pub struct ConnectionPatch {
     pub regions: Option<Vec<String>>,
     #[serde(default)]
     pub targets: Option<Vec<SsoTarget>>,
+    /// Exoscale: who minted client certificates are for.
+    #[serde(default)]
+    pub exoscale: Option<ExoscaleSettings>,
 }
 
 fn vault_error(e: jp_auth_core::vault::VaultError) -> AppError {
@@ -79,9 +126,55 @@ fn load(ctx: &AwsContext) -> Result<Vec<CloudConnection>, AppError> {
     store::load(&ctx.connections_file).map_err(|e| AppError::io("The connections can't be read", e))
 }
 
-/// The connection with its sign-in state computed.
+/// The state of a CLI connection from the CLI's last known status.
+fn cli_state(
+    connection: &CloudConnection,
+) -> Option<(ConnectionStatus, Option<i64>, Option<String>)> {
+    let tool = cli::CliTool::for_provider(&connection.provider)?;
+    let status = cli::cached_status(tool)?;
+    let account = connection.cli_account.as_deref().filter(|a| !a.is_empty());
+    Some(if !status.installed {
+        (
+            ConnectionStatus::Error,
+            None,
+            Some(format!(
+                "{} is not installed. Install it from {}.",
+                tool.binary(),
+                tool.install_url()
+            )),
+        )
+    } else if !status.signed_in {
+        (ConnectionStatus::SignedOut, None, status.message.clone())
+    } else if account.is_some_and(|a| !status.accounts.iter().any(|x| x == a)) {
+        (
+            ConnectionStatus::SignedOut,
+            None,
+            Some(format!(
+                "{} is not signed in as {}",
+                tool.binary(),
+                account.unwrap_or_default()
+            )),
+        )
+    } else {
+        (ConnectionStatus::SignedIn, None, None)
+    })
+}
+
+/// The connection with its state computed (no network, no prompts).
 pub(crate) fn with_status(ctx: &AwsContext, mut connection: CloudConnection) -> CloudConnection {
-    let (status, expires_at, message) = aws::credential_state(ctx, &connection);
+    let computed = match connection.kind {
+        ConnectionKind::Sso | ConnectionKind::Profile | ConnectionKind::Keys => {
+            Some(aws::credential_state(ctx, &connection))
+        }
+        ConnectionKind::Cli => cli_state(&connection),
+        // The key / token is in the vault; failures are recorded by use.
+        ConnectionKind::Token | ConnectionKind::ApiKey => {
+            Some((ConnectionStatus::SignedIn, None, None))
+        }
+    };
+    let Some((status, expires_at, message)) = computed else {
+        return connection;
+    };
     // A failed discovery is kept until the next one succeeds, unless the
     // connection is signed out meanwhile.
     if status == ConnectionStatus::SignedIn && connection.status == ConnectionStatus::Error {
@@ -92,6 +185,20 @@ pub(crate) fn with_status(ctx: &AwsContext, mut connection: CloudConnection) -> 
     connection.expires_at = expires_at;
     connection.message = message;
     connection
+}
+
+/// Refreshes the (cached) status of the CLIs `connections` use.
+async fn refresh_cli_statuses(connections: &[CloudConnection], max_age: std::time::Duration) {
+    let tools: BTreeSet<&str> = connections
+        .iter()
+        .filter(|c| c.kind == ConnectionKind::Cli)
+        .map(|c| c.provider.as_str())
+        .collect();
+    let checks = tools
+        .into_iter()
+        .filter_map(cli::CliTool::for_provider)
+        .map(|tool| cli::status(tool, max_age));
+    futures::future::join_all(checks).await;
 }
 
 /// One connection (with status).
@@ -177,10 +284,104 @@ fn validate_region(region: &str, field: &str) -> Result<String, AppError> {
     }
 }
 
-fn new_connection(kind: ConnectionKind, label: String) -> CloudConnection {
+/// A region (zone, location) of another provider: 1-40 of `[A-Za-z0-9-]`.
+fn validate_cloud_region(provider: &str, region: &str) -> Result<String, AppError> {
+    let region = region.trim();
+    let ok = !region.is_empty()
+        && region.len() <= 40
+        && !region.starts_with('-')
+        && region
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-');
+    let ok = ok
+        && (provider != providers::SCALEWAY
+            || jp_auth_core::cloud::scaleway::REGIONS.contains(&region));
+    if ok {
+        Ok(region.to_string())
+    } else {
+        Err(AppError::invalid(
+            "regions",
+            format!(
+                "\"{region}\" is not a {} region.",
+                providers::display_name(provider)
+            ),
+        ))
+    }
+}
+
+/// An account / user / context name of a CLI: printable, no flags.
+fn validate_cli_account(account: Option<String>) -> Result<Option<String>, AppError> {
+    let Some(account) = account
+        .map(|a| a.trim().to_string())
+        .filter(|a| !a.is_empty())
+    else {
+        return Ok(None);
+    };
+    if account.len() > 256
+        || account.starts_with('-')
+        || account.chars().any(|c| c.is_control() || c.is_whitespace())
+    {
+        return Err(AppError::invalid(
+            "cliAccount",
+            "This is not an account of the CLI.",
+        ));
+    }
+    Ok(Some(account))
+}
+
+/// Exoscale certificate identity: a user and its groups (Kubernetes RBAC
+/// subjects).
+fn validate_exoscale(settings: ExoscaleSettings) -> Result<ExoscaleSettings, AppError> {
+    let name_ok =
+        |name: &str| !name.is_empty() && name.len() <= 128 && !name.chars().any(|c| c.is_control());
+    let user = settings.user.trim().to_string();
+    if !name_ok(&user) {
+        return Err(AppError::invalid(
+            "exoscale.user",
+            "Enter the Kubernetes user the certificates are for.",
+        ));
+    }
+    let mut groups = Vec::new();
+    for group in settings.groups {
+        let group = group.trim().to_string();
+        if !name_ok(&group) {
+            return Err(AppError::invalid(
+                "exoscale.groups",
+                "Group names can't be empty or contain control characters.",
+            ));
+        }
+        if !groups.contains(&group) {
+            groups.push(group);
+        }
+    }
+    if groups.len() > 32 {
+        return Err(AppError::invalid(
+            "exoscale.groups",
+            "Use at most 32 groups.",
+        ));
+    }
+    Ok(ExoscaleSettings { user, groups })
+}
+
+/// A token as pasted: trimmed, one line, no spaces.
+fn clean_secret(value: &str, field: &str, what: &str) -> Result<String, AppError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(AppError::invalid(field, format!("Enter the {what}.")));
+    }
+    if value.len() > 1024 || value.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(AppError::invalid(
+            field,
+            format!("This doesn't look like a {what}."),
+        ));
+    }
+    Ok(value.to_string())
+}
+
+fn new_connection(provider: &str, kind: ConnectionKind, label: String) -> CloudConnection {
     CloudConnection {
         id: jp_auth_core::fsutil::random_id(),
-        provider: "aws".to_string(),
+        provider: provider.to_string(),
         kind,
         label,
         identity: None,
@@ -199,12 +400,26 @@ fn new_connection(kind: ConnectionKind, label: String) -> CloudConnection {
     }
 }
 
+/// A validation failure of a token / key: refused credentials point at the
+/// field, the rest is a provider error.
+fn credentials_error(error: CloudError, field: &str) -> AppError {
+    match error {
+        CloudError::Unauthorized(message) => AppError::invalid(field, message),
+        other => AppError::from(other),
+    }
+}
+
 /// Cloud connections, with their sign-in state.
 #[tauri::command]
 pub async fn connections_list() -> Result<Vec<CloudConnection>, AppError> {
-    super::blocking(|| {
-        let ctx = aws::context();
-        Ok(load(&ctx)?
+    let ctx = aws::context();
+    let connections = {
+        let ctx = ctx.clone();
+        super::blocking(move || load(&ctx)).await?
+    };
+    refresh_cli_statuses(&connections, cli::STATUS_MAX_AGE).await;
+    super::blocking(move || {
+        Ok(connections
             .into_iter()
             .map(|c| with_status(&ctx, c))
             .collect())
@@ -212,8 +427,15 @@ pub async fn connections_list() -> Result<Vec<CloudConnection>, AppError> {
     .await
 }
 
-/// Adds a connection. Access keys are checked with `GetCallerIdentity`
-/// and stored in the vault; a profile must exist.
+/// What a new connection stores in the vault.
+enum NewSecret {
+    Keys(StoredKeys),
+    Value(String, serde_json::Value),
+}
+
+/// Adds a connection. Access keys, API tokens and keys are checked with a
+/// cheap authenticated call and stored in the vault; a profile must exist;
+/// a CLI must be installed (signed out is fine: sign in after).
 #[tauri::command]
 pub async fn connection_create(spec: ConnectionSpec) -> Result<CloudConnection, AppError> {
     let ctx = aws::context();
@@ -221,7 +443,7 @@ pub async fn connection_create(spec: ConnectionSpec) -> Result<CloudConnection, 
         let ctx = ctx.clone();
         super::blocking(move || load(&ctx)).await?
     };
-    let (connection, keys) = match spec {
+    let (connection, secret) = match spec {
         ConnectionSpec::Sso {
             label,
             start_url,
@@ -247,6 +469,7 @@ pub async fn connection_create(spec: ConnectionSpec) -> Result<CloudConnection, 
                 })
                 .unwrap_or_else(|| start_url.clone());
             let mut connection = new_connection(
+                providers::AWS,
                 ConnectionKind::Sso,
                 clean_label(label).unwrap_or(default_label),
             );
@@ -280,6 +503,7 @@ pub async fn connection_create(spec: ConnectionSpec) -> Result<CloudConnection, 
                 ));
             }
             let mut connection = new_connection(
+                providers::AWS,
                 ConnectionKind::Profile,
                 clean_label(label).unwrap_or_else(|| profile.clone()),
             );
@@ -334,21 +558,189 @@ pub async fn connection_create(spec: ConnectionSpec) -> Result<CloudConnection, 
                     ),
                     other => AppError::from(other),
                 })?;
-            let mut connection =
-                new_connection(ConnectionKind::Keys, clean_label(label).unwrap_or(account));
+            let mut connection = new_connection(
+                providers::AWS,
+                ConnectionKind::Keys,
+                clean_label(label).unwrap_or(account),
+            );
             connection.region = Some(region);
             connection.identity = Some(arn);
             connection.status = ConnectionStatus::SignedIn;
-            (connection, Some(keys))
+            (connection, Some(NewSecret::Keys(keys)))
+        }
+        ConnectionSpec::Cli {
+            provider,
+            label,
+            cli_account,
+        } => {
+            let tool = cli::CliTool::for_provider(&provider).ok_or_else(|| {
+                AppError::invalid(
+                    "provider",
+                    "Only Google Cloud (gcp), Azure (azure) and DigitalOcean (digitalocean) connect through a CLI.",
+                )
+            })?;
+            let cli_account = validate_cli_account(cli_account)?;
+            let status = cli::status(tool, std::time::Duration::ZERO).await;
+            if !status.installed {
+                return Err(AppError::invalid(
+                    "provider",
+                    format!(
+                        "{} is not installed. Install it from {}, then try again.",
+                        tool.binary(),
+                        tool.install_url()
+                    ),
+                ));
+            }
+            if let Some(account) = &cli_account {
+                if status.signed_in && !status.accounts.iter().any(|a| a == account) {
+                    return Err(AppError::invalid(
+                        "cliAccount",
+                        format!("{} is not signed in as {account}.", tool.binary()),
+                    ));
+                }
+            }
+            if existing.iter().any(|c| {
+                c.kind == ConnectionKind::Cli
+                    && c.provider == provider
+                    && c.cli_account == cli_account
+            }) {
+                return Err(AppError::invalid(
+                    "cliAccount",
+                    format!("This {} sign-in is already connected.", tool.binary()),
+                ));
+            }
+            let account = cli_account.clone().or(status.account.clone());
+            let default_label = match (&account, tool) {
+                (Some(account), cli::CliTool::Doctl) => format!("DigitalOcean ({account})"),
+                (Some(account), _) => account.clone(),
+                (None, _) => providers::display_name(&provider).to_string(),
+            };
+            let mut connection = new_connection(
+                &provider,
+                ConnectionKind::Cli,
+                clean_label(label).unwrap_or(default_label),
+            );
+            connection.cli_account = cli_account;
+            connection.identity = account;
+            (connection, None)
+        }
+        ConnectionSpec::Token {
+            provider,
+            label,
+            token,
+            project_id,
+        } => {
+            let api_provider = ApiProvider::from_id(&provider)
+                .filter(|p| *p != ApiProvider::Exoscale)
+                .ok_or_else(|| {
+                    AppError::invalid(
+                        "provider",
+                        "API tokens work for DigitalOcean, Akamai (linode), Civo, Scaleway and Vultr.",
+                    )
+                })?;
+            let token = clean_secret(&token, "token", "API token")?;
+            let project_id = project_id
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty());
+            if let Some(project) = &project_id {
+                if api_provider != ApiProvider::Scaleway {
+                    return Err(AppError::invalid(
+                        "projectId",
+                        "Only Scaleway connections have a project.",
+                    ));
+                }
+                if !jp_auth_core::request::valid_cloud_cluster_id(project) {
+                    return Err(AppError::invalid(
+                        "projectId",
+                        "Enter the project ID, such as 11111111-1111-4111-8111-111111111111.",
+                    ));
+                }
+            }
+            let validated = api::validate_token(
+                &providers::context(),
+                api_provider,
+                &token,
+                project_id.as_deref(),
+            )
+            .await
+            .map_err(|e| credentials_error(e, "token"))?;
+            let mut connection = new_connection(
+                &provider,
+                ConnectionKind::Token,
+                clean_label(label)
+                    .or(validated.label)
+                    .unwrap_or_else(|| providers::display_name(&provider).to_string()),
+            );
+            connection.identity = validated.identity;
+            connection.project_id = project_id;
+            connection.status = ConnectionStatus::SignedIn;
+            let secret = NewSecret::Value(
+                api_token_secret_id(&connection.id),
+                serde_json::json!({ "token": token }),
+            );
+            (connection, Some(secret))
+        }
+        ConnectionSpec::ApiKey {
+            provider,
+            label,
+            key,
+            secret,
+            user,
+            groups,
+        } => {
+            if provider
+                .as_deref()
+                .is_some_and(|p| p != providers::EXOSCALE)
+            {
+                return Err(AppError::invalid(
+                    "provider",
+                    "API keys with a secret are for Exoscale.",
+                ));
+            }
+            let key = clean_secret(&key, "key", "API key")?;
+            let secret = clean_secret(&secret, "secret", "API secret")?;
+            let defaults = ExoscaleSettings::default();
+            let settings = validate_exoscale(ExoscaleSettings {
+                user: user.unwrap_or(defaults.user),
+                groups: groups.unwrap_or(defaults.groups),
+            })?;
+            let api_key = jp_auth_core::cloud::ApiKey {
+                key: key.clone(),
+                secret: secret.clone(),
+            };
+            let validated = api::validate_key(&providers::context(), &api_key)
+                .await
+                .map_err(|e| credentials_error(e, "key"))?;
+            let mut connection = new_connection(
+                providers::EXOSCALE,
+                ConnectionKind::ApiKey,
+                clean_label(label)
+                    .or(validated.label)
+                    .unwrap_or_else(|| "Exoscale".to_string()),
+            );
+            connection.identity = validated.identity;
+            connection.exoscale = Some(settings);
+            connection.status = ConnectionStatus::SignedIn;
+            let secret = NewSecret::Value(
+                api_key_secret_id(&connection.id),
+                serde_json::json!({ "key": key, "secret": secret }),
+            );
+            (connection, Some(secret))
         }
     };
     let ctx2 = ctx.clone();
     let created = super::blocking(move || {
-        if let Some(keys) = keys {
-            let value =
-                serde_json::to_value(&keys).map_err(|e| AppError::internal(e.to_string()))?;
+        let item = match secret {
+            Some(NewSecret::Keys(keys)) => Some((
+                keys_secret_id(&connection.id),
+                serde_json::to_value(&keys).map_err(|e| AppError::internal(e.to_string()))?,
+            )),
+            Some(NewSecret::Value(id, value)) => Some((id, value)),
+            None => None,
+        };
+        if let Some(item) = item {
             ctx2.store
-                .put_and_remove(vec![(keys_secret_id(&connection.id), value)], &[])
+                .put_and_remove(vec![item], &[])
                 .map_err(vault_error)?;
         }
         let saved = connection.clone();
@@ -359,11 +751,96 @@ pub async fn connection_create(spec: ConnectionSpec) -> Result<CloudConnection, 
         Ok(with_status(&ctx2, connection))
     })
     .await?;
-    info!("Added AWS connection {} ({:?})", created.id, created.kind);
+    info!(
+        "Added {} connection {} ({:?})",
+        created.provider, created.id, created.kind
+    );
     Ok(created)
 }
 
-/// Renames a connection, or sets its regions / account + role targets.
+/// Validates scope targets for a connection: AWS account + role pairs (SSO),
+/// GCP project ids or Azure subscription ids (CLI, role empty).
+fn validate_targets(
+    connection: &CloudConnection,
+    targets: Vec<SsoTarget>,
+) -> Result<Vec<SsoTarget>, AppError> {
+    let kind = (connection.provider.as_str(), connection.kind);
+    let mut out: Vec<SsoTarget> = Vec::new();
+    for target in targets {
+        let account_id = target.account_id.trim().to_string();
+        match kind {
+            (providers::AWS, _) => {
+                if !valid_account_id(&account_id) {
+                    return Err(AppError::invalid(
+                        "targets",
+                        format!("\"{account_id}\" is not an AWS account id."),
+                    ));
+                }
+                if !valid_role_name(&target.role_name) {
+                    return Err(AppError::invalid(
+                        "targets",
+                        format!("\"{}\" is not a role name.", target.role_name),
+                    ));
+                }
+            }
+            (providers::GCP, ConnectionKind::Cli) => {
+                if !gcp::valid_project_id(&account_id) {
+                    return Err(AppError::invalid(
+                        "targets",
+                        format!("\"{account_id}\" is not a Google Cloud project id."),
+                    ));
+                }
+            }
+            (providers::AZURE, ConnectionKind::Cli) => {
+                if !providers::azure::valid_subscription_id(&account_id) {
+                    return Err(AppError::invalid(
+                        "targets",
+                        format!("\"{account_id}\" is not an Azure subscription id."),
+                    ));
+                }
+            }
+            _ => {
+                return Err(AppError::invalid(
+                    "targets",
+                    "This connection has no accounts, projects or subscriptions to choose.",
+                ))
+            }
+        }
+        let role_name = if connection.provider == providers::AWS {
+            target.role_name.clone()
+        } else {
+            String::new()
+        };
+        if !out
+            .iter()
+            .any(|t| t.account_id == account_id && t.role_name == role_name)
+        {
+            out.push(SsoTarget {
+                account_id,
+                account_name: clean_label(target.account_name),
+                role_name,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// The managed contexts' users of a connection's clusters (to forget their
+/// cached credentials).
+fn connection_users(connection_id: &str) -> Vec<String> {
+    let path = super::catalog::managed_file();
+    let Ok(doc) = managed::read(&path) else {
+        return Vec::new();
+    };
+    doc.contexts
+        .iter()
+        .filter(|c| managed::cloud_meta_of(c).is_some_and(|m| m.connection_id == connection_id))
+        .filter_map(|c| c.context.as_ref()?.user.clone())
+        .collect()
+}
+
+/// Renames a connection, or sets its regions, targets (accounts + roles,
+/// projects, subscriptions) or Exoscale certificate identity.
 #[tauri::command]
 pub async fn connection_update(
     id: String,
@@ -371,6 +848,10 @@ pub async fn connection_update(
 ) -> Result<CloudConnection, AppError> {
     super::blocking(move || {
         let ctx = aws::context();
+        let current = load(&ctx)?
+            .into_iter()
+            .find(|c| c.id == id)
+            .ok_or_else(|| AppError::not_found("This connection no longer exists."))?;
         let label = match patch.label {
             Some(label) => Some(
                 clean_label(Some(label))
@@ -382,7 +863,11 @@ pub async fn connection_update(
             Some(regions) => {
                 let mut set = BTreeSet::new();
                 for region in regions {
-                    set.insert(validate_region(&region, "regions")?);
+                    set.insert(if current.provider == providers::AWS {
+                        validate_region(&region, "regions")?
+                    } else {
+                        validate_cloud_region(&current.provider, &region)?
+                    });
                 }
                 Some(set.into_iter().collect::<Vec<_>>())
             }
@@ -390,34 +875,34 @@ pub async fn connection_update(
         };
         let targets = match patch.targets {
             Some(targets) => {
-                let mut out: Vec<SsoTarget> = Vec::new();
-                for target in targets {
-                    if !valid_account_id(&target.account_id) {
-                        return Err(AppError::invalid(
-                            "targets",
-                            format!("\"{}\" is not an AWS account id.", target.account_id),
-                        ));
-                    }
-                    if !valid_role_name(&target.role_name) {
-                        return Err(AppError::invalid(
-                            "targets",
-                            format!("\"{}\" is not a role name.", target.role_name),
-                        ));
-                    }
-                    if !out.iter().any(|t| {
-                        t.account_id == target.account_id && t.role_name == target.role_name
-                    }) {
-                        out.push(SsoTarget {
-                            account_id: target.account_id,
-                            account_name: clean_label(target.account_name),
-                            role_name: target.role_name,
-                        });
-                    }
+                if current.provider == providers::AWS
+                    && current.kind != ConnectionKind::Sso
+                    && !targets.is_empty()
+                {
+                    return Err(AppError::invalid(
+                        "targets",
+                        "Only IAM Identity Center connections have account targets.",
+                    ));
                 }
-                Some(out)
+                Some(validate_targets(&current, targets)?)
             }
             None => None,
         };
+        let exoscale = match patch.exoscale {
+            Some(settings) => {
+                if current.provider != providers::EXOSCALE {
+                    return Err(AppError::invalid(
+                        "exoscale",
+                        "Only Exoscale connections mint client certificates.",
+                    ));
+                }
+                Some(validate_exoscale(settings)?)
+            }
+            None => None,
+        };
+        let identity_changed = exoscale
+            .as_ref()
+            .is_some_and(|s| *s != current.exoscale_settings());
         let updated = store::update::<_, AppError>(&ctx.connections_file, |list| {
             let connection = list
                 .iter_mut()
@@ -430,16 +915,31 @@ pub async fn connection_update(
                 connection.regions = regions;
             }
             if let Some(targets) = targets {
-                if connection.kind != ConnectionKind::Sso && !targets.is_empty() {
-                    return Err(AppError::invalid(
-                        "targets",
-                        "Only IAM Identity Center connections have account targets.",
-                    ));
-                }
                 connection.targets = targets;
+            }
+            if let Some(exoscale) = exoscale {
+                connection.exoscale = Some(exoscale);
             }
             Ok(connection.clone())
         })?;
+        if identity_changed {
+            // Certificates for the old user / groups: mint new ones.
+            let cached = ctx
+                .store
+                .ids_with_prefix(&store::cache_prefix(providers::EXOSCALE, &id))
+                .map_err(vault_error)?;
+            ctx.store
+                .put_and_remove(Vec::new(), &cached)
+                .map_err(vault_error)?;
+            let users = connection_users(&id);
+            let path = super::catalog::managed_file();
+            let path =
+                crate::kubernetes::client::resolve_kubeconfig_path(Some(&path.to_string_lossy()));
+            crate::auth::broker::invalidate(|key| {
+                key.kube_config == path && users.contains(&key.user)
+            });
+            api::forget_entry_statuses();
+        }
         super::catalog::prune_connection_scope(&updated)?;
         aws::forget_entry_statuses();
         Ok(with_status(&ctx, updated))
@@ -448,16 +948,17 @@ pub async fn connection_update(
 }
 
 /// Removes a connection and forgets its secrets (SSO session copy, client
-/// registration, keys, cached role credentials). `remove_clusters` also
-/// removes the clusters added from it. The aws CLI's own token cache is
-/// left alone.
+/// registration, keys, tokens, cached role credentials, minted tokens and
+/// certificates). `remove_clusters` also removes the clusters added from
+/// it (and their stored credentials). The aws CLI's token cache and the
+/// cloud CLIs' own sign-ins are left alone.
 #[tauri::command]
 pub async fn connection_delete(id: String, remove_clusters: bool) -> Result<(), AppError> {
     super::blocking(move || {
         let ctx = aws::context();
-        if !load(&ctx)?.iter().any(|c| c.id == id) {
+        let Some(connection) = load(&ctx)?.into_iter().find(|c| c.id == id) else {
             return Err(AppError::not_found("This connection no longer exists."));
-        }
+        };
         let mut secret_ids = Vec::new();
         for prefix in store::secret_prefixes(&id) {
             secret_ids.extend(ctx.store.ids_with_prefix(&prefix).map_err(vault_error)?);
@@ -474,7 +975,8 @@ pub async fn connection_delete(id: String, remove_clusters: bool) -> Result<(), 
                 .filter(|c| managed::cloud_meta_of(c).is_some_and(|m| m.connection_id == id))
                 .map(|c| c.name.clone())
                 .collect();
-            super::remove(&path, &contexts, false)?;
+            let forget = connection.provider != providers::AWS;
+            super::remove(&path, &contexts, forget)?;
         }
         store::update::<_, AppError>(&ctx.connections_file, |list| {
             list.retain(|c| c.id != id);
@@ -482,7 +984,8 @@ pub async fn connection_delete(id: String, remove_clusters: bool) -> Result<(), 
         })?;
         super::catalog::forget_connection(&id)?;
         aws::forget_entry_statuses();
-        info!("Removed AWS connection {}", id);
+        api::forget_entry_statuses();
+        info!("Removed {} connection {}", connection.provider, id);
         Ok(())
     })
     .await
@@ -510,12 +1013,42 @@ mod tests {
             serde_json::from_value(serde_json::json!({"kind": "profile", "profile": "dev"}))
                 .unwrap();
         assert!(matches!(profile, ConnectionSpec::Profile { .. }));
+        // AWS specs keep working with a provider field.
+        let with_provider: ConnectionSpec = serde_json::from_value(serde_json::json!({
+            "kind": "profile", "provider": "aws", "profile": "dev"
+        }))
+        .unwrap();
+        assert!(matches!(with_provider, ConnectionSpec::Profile { .. }));
         let patch: ConnectionPatch = serde_json::from_value(serde_json::json!({
             "targets": [{"accountId": "123456789012", "accountName": "prod", "roleName": "ReadOnly"}]
         }))
         .unwrap();
         assert_eq!(patch.targets.unwrap()[0].role_name, "ReadOnly");
-        assert!(patch.label.is_none() && patch.regions.is_none());
+        assert!(patch.label.is_none() && patch.regions.is_none() && patch.exoscale.is_none());
+
+        let cli: ConnectionSpec = serde_json::from_value(serde_json::json!({
+            "kind": "cli", "provider": "gcp", "cliAccount": "me@example.com"
+        }))
+        .unwrap();
+        assert!(
+            matches!(cli, ConnectionSpec::Cli { ref provider, cli_account: Some(ref a), .. } if provider == "gcp" && a == "me@example.com")
+        );
+        let token: ConnectionSpec = serde_json::from_value(serde_json::json!({
+            "kind": "token", "provider": "scaleway", "token": "scw-secret-key", "projectId": "p1"
+        }))
+        .unwrap();
+        assert!(!format!("{token:?}").contains("scw-secret-key"));
+        let key: ConnectionSpec = serde_json::from_value(serde_json::json!({
+            "kind": "apiKey", "provider": "exoscale", "key": "EXOabc", "secret": "exo-secret",
+            "user": "alice", "groups": ["devs"]
+        }))
+        .unwrap();
+        assert!(!format!("{key:?}").contains("exo-secret"));
+        let patch: ConnectionPatch = serde_json::from_value(serde_json::json!({
+            "exoscale": {"user": "bob", "groups": ["system:masters"]}
+        }))
+        .unwrap();
+        assert_eq!(patch.exoscale.unwrap().user, "bob");
 
         assert!(validate_start_url("http://acme.awsapps.com/start").is_err());
         assert!(validate_start_url("https://user:pw@acme.awsapps.com/start").is_err());
@@ -523,5 +1056,71 @@ mod tests {
             validate_start_url(" https://d-1234567890.awsapps.com/start ").unwrap(),
             "https://d-1234567890.awsapps.com/start"
         );
+    }
+
+    #[test]
+    fn validation_of_regions_targets_and_exoscale_settings() {
+        assert_eq!(validate_cloud_region("civo", "LON1").unwrap(), "LON1");
+        assert!(validate_cloud_region("scaleway", "us-east-1").is_err());
+        assert!(validate_cloud_region("vultr", "ams/../x").is_err());
+        assert!(validate_cloud_region("linode", "").is_err());
+
+        let mut gcp = new_connection("gcp", ConnectionKind::Cli, "g".into());
+        let targets = validate_targets(
+            &gcp,
+            vec![SsoTarget {
+                account_id: "my-project-123".into(),
+                account_name: Some("My project".into()),
+                role_name: "ignored".into(),
+            }],
+        )
+        .unwrap();
+        assert_eq!(targets[0].role_name, "");
+        assert!(validate_targets(
+            &gcp,
+            vec![SsoTarget {
+                account_id: "--flag".into(),
+                account_name: None,
+                role_name: String::new(),
+            }]
+        )
+        .is_err());
+        gcp.provider = "azure".into();
+        assert!(validate_targets(
+            &gcp,
+            vec![SsoTarget {
+                account_id: "00000000-0000-0000-0000-000000000000".into(),
+                account_name: None,
+                role_name: String::new(),
+            }]
+        )
+        .is_ok());
+        let token = new_connection("vultr", ConnectionKind::Token, "v".into());
+        assert!(validate_targets(
+            &token,
+            vec![SsoTarget {
+                account_id: "x".into(),
+                account_name: None,
+                role_name: String::new(),
+            }]
+        )
+        .is_err());
+
+        let settings = validate_exoscale(ExoscaleSettings {
+            user: " alice ".into(),
+            groups: vec!["devs".into(), "devs".into(), "system:masters".into()],
+        })
+        .unwrap();
+        assert_eq!(settings.user, "alice");
+        assert_eq!(settings.groups, ["devs", "system:masters"]);
+        assert!(validate_exoscale(ExoscaleSettings {
+            user: "".into(),
+            groups: vec![]
+        })
+        .is_err());
+        assert!(clean_secret("a b", "token", "API token").is_err());
+        assert_eq!(clean_secret(" t0k ", "token", "API token").unwrap(), "t0k");
+        assert!(validate_cli_account(Some("-x".into())).is_err());
+        assert_eq!(validate_cli_account(Some(" ".into())).unwrap(), None);
     }
 }

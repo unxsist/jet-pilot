@@ -349,6 +349,16 @@ async fn status_for(
     status
 }
 
+/// The version of an installed tool of the table (`gcloud`, `az`, ...),
+/// None when it can't be told.
+pub(crate) async fn version_of(id: &str, path: &Path) -> Option<String> {
+    let tool = find_tool(id).ok()?;
+    run_version(tool, path, VERSION_TIMEOUT)
+        .await
+        .ok()
+        .flatten()
+}
+
 /// Runs the tool's version command. Ok(None): it ran but printed no version
 /// we recognise.
 async fn run_version(

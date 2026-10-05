@@ -13,6 +13,61 @@ const PROVIDER: Provider = Provider::Linode;
 const PAGE_SIZE: usize = 500;
 const MAX_PAGES: u64 = 50;
 
+/// Regions with LKE (October 2026), when the public list can't be fetched.
+pub const REGIONS: &[&str] = &[
+    "ap-northeast",
+    "ap-south",
+    "ap-southeast",
+    "ap-west",
+    "au-mel",
+    "br-gru",
+    "ca-central",
+    "de-fra-2",
+    "es-mad",
+    "eu-central",
+    "eu-west",
+    "fr-par",
+    "fr-par-2",
+    "gb-lon",
+    "id-cgk",
+    "in-bom-2",
+    "in-maa",
+    "it-mil",
+    "jp-osa",
+    "jp-tyo-3",
+    "nl-ams",
+    "se-sto",
+    "sg-sin-2",
+    "us-central",
+    "us-east",
+    "us-iad",
+    "us-iad-2",
+    "us-lax",
+    "us-mia",
+    "us-ord",
+    "us-sea",
+    "us-southeast",
+    "us-west",
+];
+
+/// `GET /v4/regions` (public): the regions with Kubernetes.
+pub async fn regions(ctx: &CloudContext) -> Result<Vec<String>, CloudError> {
+    let url = format!("{}/v4/regions?page_size=500", ctx.origin(PROVIDER, None));
+    let value = http::json(ctx, PROVIDER, &|| Ok(ApiRequest::get(url.clone()))).await?;
+    Ok(value
+        .get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|r| {
+            r.get("capabilities")
+                .and_then(Value::as_array)
+                .is_some_and(|c| c.iter().any(|c| c.as_str() == Some("Kubernetes")))
+        })
+        .filter_map(|r| text(r, "id"))
+        .collect())
+}
+
 /// `GET /v4/profile`: validates a token; the user name.
 pub async fn profile(ctx: &CloudContext, token: &str) -> Result<Option<String>, CloudError> {
     let url = format!("{}/v4/profile", ctx.origin(PROVIDER, None));

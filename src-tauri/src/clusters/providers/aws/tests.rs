@@ -17,8 +17,7 @@ use crate::clusters::managed_kubeconfig as managed;
 use crate::probe::ContextRef;
 use crate::util::lock;
 
-/// Serialises tests that swap the process-wide AWS context.
-static TEST_LOCK: Mutex<()> = Mutex::new(());
+use crate::clusters::providers::TEST_LOCK;
 
 const IDENTITY_XML: &str = r#"<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
   <GetCallerIdentityResult>
@@ -167,6 +166,7 @@ async fn connections_catalog_minting_and_status() {
                 account_name: Some("acme-prod".into()),
                 role_name: "ReadOnly".into(),
             }]),
+            exoscale: None,
         },
     )
     .await
@@ -238,7 +238,7 @@ async fn connections_catalog_minting_and_status() {
     assert_eq!(snapshot.clusters.len(), 4);
     assert!(snapshot.refreshed_at.is_some());
     let key = |connection: &str, account: &str, name: &str| {
-        catalog::catalog_key(connection, account, "eu-west-1", name)
+        catalog::catalog_key("aws", connection, account, "eu-west-1", name)
     };
     catalog::catalog_set_state(
         vec![key(&keys.id, "123456789012", "dev")],

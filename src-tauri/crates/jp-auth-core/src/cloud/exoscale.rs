@@ -71,6 +71,20 @@ pub fn authorization(
     header
 }
 
+/// `GET /v2/zone` (public): every zone.
+pub async fn zones(ctx: &CloudContext) -> Result<Vec<String>, CloudError> {
+    let url = format!("{}/v2/zone", ctx.origin(PROVIDER, Some("ch-gva-2")));
+    let value = http::json(ctx, PROVIDER, &|| Ok(ApiRequest::get(url.clone()))).await?;
+    Ok(value
+        .get("zones")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|z| text(z, "name"))
+        .filter(|z| crate::request::valid_region(z))
+        .collect())
+}
+
 fn zone_param(zone: &str) -> Result<&str, CloudError> {
     if crate::request::valid_region(zone) {
         Ok(zone)

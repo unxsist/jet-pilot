@@ -13,6 +13,31 @@ const PROVIDER: Provider = Provider::Vultr;
 const PER_PAGE: usize = 100;
 const MAX_PAGES: usize = 50;
 
+/// Regions with VKE (October 2026), when the public list can't be fetched.
+pub const REGIONS: &[&str] = &[
+    "ams", "atl", "blr", "bom", "cdg", "del", "dfw", "ewr", "fra", "hnl", "icn", "itm", "jnb",
+    "lax", "lhr", "mad", "man", "mel", "mex", "mia", "mxp", "nrt", "ord", "sao", "scl", "sea",
+    "sgp", "sjc", "sto", "syd", "tlv", "waw", "yto",
+];
+
+/// `GET /v2/regions` (public): the regions with Kubernetes.
+pub async fn regions(ctx: &CloudContext) -> Result<Vec<String>, CloudError> {
+    let url = format!("{}/v2/regions?per_page=500", ctx.origin(PROVIDER, None));
+    let value = http::json(ctx, PROVIDER, &|| Ok(ApiRequest::get(url.clone()))).await?;
+    Ok(value
+        .get("regions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|r| {
+            r.get("options")
+                .and_then(Value::as_array)
+                .is_some_and(|o| o.iter().any(|o| o.as_str() == Some("kubernetes")))
+        })
+        .filter_map(|r| text(r, "id"))
+        .collect())
+}
+
 /// `GET /v2/account`: validates the key; the account name or email.
 pub async fn account(ctx: &CloudContext, key: &str) -> Result<Option<String>, CloudError> {
     let url = format!("{}/v2/account", ctx.origin(PROVIDER, None));

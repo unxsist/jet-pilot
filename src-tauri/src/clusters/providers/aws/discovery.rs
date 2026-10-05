@@ -13,71 +13,14 @@ use jp_auth_core::aws_client_config;
 use jp_auth_core::connections::{CloudConnection, ConnectionKind};
 
 use super::regions;
+pub use crate::clusters::providers::{
+    Discovery, Found, Listing, Progress, ProgressFn, ProgressState,
+};
 
 /// Region listings running at once.
 const REGION_CONCURRENCY: usize = 6;
 /// `DescribeCluster` calls at once per region.
 const DESCRIBE_CONCURRENCY: usize = 8;
-
-/// A cluster EKS reported.
-#[derive(Debug, Clone, PartialEq)]
-pub struct DiscoveredCluster {
-    pub name: String,
-    pub arn: Option<String>,
-    pub version: Option<String>,
-    pub status: Option<String>,
-    pub endpoint: Option<String>,
-    /// Unix ms.
-    pub created_at: Option<i64>,
-    /// base64 PEM.
-    pub certificate_authority: Option<String>,
-    /// DescribeCluster worked (else only the name is known).
-    pub described: bool,
-}
-
-/// The clusters of one account + region. `complete` = the listing
-/// finished, so clusters missing from it are gone.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Listing {
-    pub account_id: String,
-    pub account_name: Option<String>,
-    pub role_name: Option<String>,
-    pub profile: Option<String>,
-    pub region: String,
-    pub complete: bool,
-    pub clusters: Vec<DiscoveredCluster>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProgressState {
-    Running,
-    Done,
-    Error,
-}
-
-/// A progress update of one scope.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Progress {
-    /// `acme-prod (123456789012) · eu-west-1`, `... · regions`.
-    pub scope: String,
-    pub account_id: Option<String>,
-    pub account_name: Option<String>,
-    pub region: Option<String>,
-    pub state: ProgressState,
-    pub message: Option<String>,
-}
-
-/// The outcome of discovering one connection.
-#[derive(Debug, Clone, Default)]
-pub struct Discovery {
-    pub listings: Vec<Listing>,
-    /// The ARN `GetCallerIdentity` returned (profile / key connections).
-    pub identity: Option<String>,
-    /// Why nothing (or not everything) could be listed.
-    pub error: Option<String>,
-    /// The connection needs an interactive sign-in first.
-    pub needs_sign_in: bool,
-}
 
 /// Where a scope's credentials come from.
 #[derive(Debug, Clone)]
@@ -118,8 +61,6 @@ impl Scope {
         }
     }
 }
-
-pub type ProgressFn = dyn Fn(Progress) + Send + Sync;
 
 /// The message for a connection that needs a person.
 pub fn sign_in_message(connection: &CloudConnection, error: &AwsError) -> String {
@@ -176,7 +117,7 @@ pub async fn list_region(
     ctx: &AwsContext,
     credentials: &AwsCredentials,
     region: &str,
-) -> Result<Vec<DiscoveredCluster>, AwsError> {
+) -> Result<Vec<Found>, AwsError> {
     let client = eks_client(ctx, region, credentials);
     let mut names = Vec::new();
     let mut next: Option<String> = None;
@@ -194,14 +135,15 @@ pub async fn list_region(
             _ => break,
         }
     }
-    let described: Vec<DiscoveredCluster> = stream::iter(names.into_iter().map(|name| {
+    let described: Vec<Found> = stream::iter(names.into_iter().map(|name| {
         let client = client.clone();
         async move {
             match client.describe_cluster().name(&name).send().await {
                 Ok(output) => match output.cluster() {
-                    Some(cluster) => DiscoveredCluster {
+                    Some(cluster) => Found {
                         name: cluster.name().unwrap_or(&name).to_string(),
-                        arn: cluster.arn().map(str::to_string),
+                        region: region.to_string(),
+                        native_id: cluster.arn().map(str::to_string),
                         version: cluster.version().map(str::to_string),
                         status: cluster.status().map(|s| s.as_str().to_string()),
                         endpoint: cluster.endpoint().map(str::to_string),
@@ -210,11 +152,12 @@ pub async fn list_region(
                             .certificate_authority()
                             .and_then(|ca| ca.data())
                             .map(str::to_string),
+                        resource_group: None,
                         described: true,
                     },
-                    None => bare(name),
+                    None => bare(name, region),
                 },
-                Err(_) => bare(name),
+                Err(_) => bare(name, region),
             }
         }
     }))
@@ -224,16 +167,11 @@ pub async fn list_region(
     Ok(described)
 }
 
-fn bare(name: String) -> DiscoveredCluster {
-    DiscoveredCluster {
+fn bare(name: String, region: &str) -> Found {
+    Found {
         name,
-        arn: None,
-        version: None,
-        status: None,
-        endpoint: None,
-        created_at: None,
-        certificate_authority: None,
-        described: false,
+        region: region.to_string(),
+        ..Found::default()
     }
 }
 
@@ -458,7 +396,7 @@ pub async fn discover(
                     account_name: scope.account_name.clone(),
                     role_name: scope.role_name.clone(),
                     profile: scope.profile.clone(),
-                    region,
+                    regions: Some(vec![region]),
                     complete,
                     clusters,
                 }
