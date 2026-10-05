@@ -108,3 +108,15 @@ jobs:
           repo: unxsist/jet-pilot-docs
           ref: main
           token: "${{ secrets.SEMANTIC_RELEASE_PAT }}"
+
+  # macOS installs go through unxsist/homebrew-tap: homebrew/cask disabled
+  # the cask because JET Pilot isn't notarized by Apple.
+  update_homebrew_tap:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bump the jet-pilot cask
+        env:
+          GH_TOKEN: "${{ secrets.SEMANTIC_RELEASE_PAT }}"
+        run: .github/scripts/bump-homebrew-cask.sh "${{ github.event.release.tag_name }}"
