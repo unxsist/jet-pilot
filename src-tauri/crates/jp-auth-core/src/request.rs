@@ -5,12 +5,15 @@
 //! jetpilot-auth credential wrap-exec --id <clusterId> -- <command> [args...]
 //! jetpilot-auth credential aws-eks --connection <id> [--account <id> --role <name> | --profile <name>]
 //!     --region <region> --cluster <name>
+//! jetpilot-auth credential digitalocean --connection <id> --cluster <cluster-id>
+//! jetpilot-auth credential exoscale --connection <id> --zone <zone> --cluster <cluster-id>
 //! jetpilot-auth unlock | lock | doctor | version | help
 //! ```
 //!
 //! The app writes these argv lists into the managed kubeconfig with
-//! [`static_args`] / [`wrap_exec_args`] / [`aws_eks_args`] and recognises
-//! them with [`parse`].
+//! [`static_args`] / [`wrap_exec_args`] / [`aws_eks_args`] /
+//! [`digitalocean_args`] / [`exoscale_args`] and recognises them with
+//! [`parse`].
 
 /// Exit codes of the helper.
 pub mod exit {
@@ -34,6 +37,8 @@ pub enum Request {
         args: Vec<String>,
     },
     CredentialAwsEks(AwsEksArgs),
+    CredentialDigitalocean(DigitaloceanArgs),
+    CredentialExoscale(ExoscaleArgs),
     Unlock,
     Lock,
     Doctor,
@@ -54,6 +59,25 @@ pub struct AwsEksArgs {
     pub cluster: String,
 }
 
+/// A short-lived DigitalOcean Kubernetes token, minted with the API token
+/// of a connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DigitaloceanArgs {
+    pub connection: String,
+    /// The cluster's UUID.
+    pub cluster: String,
+}
+
+/// An Exoscale SKS client certificate, minted with the API key of a
+/// connection in the cluster's zone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExoscaleArgs {
+    pub connection: String,
+    pub zone: String,
+    /// The cluster's UUID.
+    pub cluster: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UsageError(pub String);
 
@@ -69,6 +93,8 @@ Usage:
   jetpilot-auth credential wrap-exec --id <cluster-id> -- <command> [args...]
   jetpilot-auth credential aws-eks --connection <id> [--account <id> --role <name> | --profile <name>]
                 --region <region> --cluster <name>
+  jetpilot-auth credential digitalocean --connection <id> --cluster <cluster-id>
+  jetpilot-auth credential exoscale --connection <id> --zone <zone> --cluster <cluster-id>
   jetpilot-auth unlock      unlock a passphrase vault for terminals (12 hours)
   jetpilot-auth lock        forget the terminal unlock
   jetpilot-auth doctor      show paths and vault status
@@ -129,6 +155,47 @@ pub fn aws_eks_args(args: &AwsEksArgs) -> Vec<String> {
     argv
 }
 
+/// `credential digitalocean --connection <id> --cluster <cluster-id>`.
+pub fn digitalocean_args(args: &DigitaloceanArgs) -> Vec<String> {
+    [
+        "credential",
+        "digitalocean",
+        "--connection",
+        &args.connection,
+        "--cluster",
+        &args.cluster,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// `credential exoscale --connection <id> --zone <zone> --cluster <id>`.
+pub fn exoscale_args(args: &ExoscaleArgs) -> Vec<String> {
+    [
+        "credential",
+        "exoscale",
+        "--connection",
+        &args.connection,
+        "--zone",
+        &args.zone,
+        "--cluster",
+        &args.cluster,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// Cluster ids of the cloud APIs (UUIDs, numbers): 1-64 of
+/// `[A-Za-z0-9-]`, not starting with `-`. Safe as a URL path segment.
+pub fn valid_cloud_cluster_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && !id.starts_with('-')
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
 /// A 12-digit AWS account id.
 pub fn valid_account_id(id: &str) -> bool {
     id.len() == 12 && id.bytes().all(|b| b.is_ascii_digit())
@@ -173,19 +240,12 @@ pub fn valid_eks_cluster_name(name: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
-fn parse_aws_eks(options: &[String], trailing: Option<&[String]>) -> Result<Request, UsageError> {
-    if trailing.is_some() {
-        return Err(UsageError("credential aws-eks takes no command".into()));
-    }
-    let mut values: std::collections::BTreeMap<&str, String> = std::collections::BTreeMap::new();
-    let names = [
-        "--connection",
-        "--account",
-        "--role",
-        "--profile",
-        "--region",
-        "--cluster",
-    ];
+/// `--name value` / `--name=value` options, each at most once.
+fn parse_options<'a>(
+    options: &[String],
+    names: &[&'a str],
+) -> Result<std::collections::BTreeMap<&'a str, String>, UsageError> {
+    let mut values = std::collections::BTreeMap::new();
     let mut i = 0;
     while i < options.len() {
         let arg = options[i].as_str();
@@ -201,12 +261,92 @@ fn parse_aws_eks(options: &[String], trailing: Option<&[String]>) -> Result<Requ
             }
             _ => return Err(UsageError(format!("unexpected argument '{arg}'"))),
         };
-        let name = names.iter().find(|n| **n == name).expect("known option");
+        let name = *names.iter().find(|n| **n == name).expect("known option");
         if values.insert(name, value).is_some() {
             return Err(UsageError(format!("{name} given twice")));
         }
         i += 1;
     }
+    Ok(values)
+}
+
+fn connection_option(
+    values: &mut std::collections::BTreeMap<&str, String>,
+) -> Result<String, UsageError> {
+    let connection = values
+        .remove("--connection")
+        .ok_or_else(|| UsageError("missing --connection".into()))?;
+    if !valid_cluster_id(&connection) {
+        return Err(UsageError(format!("invalid connection id '{connection}'")));
+    }
+    Ok(connection)
+}
+
+fn cloud_cluster_option(
+    values: &mut std::collections::BTreeMap<&str, String>,
+) -> Result<String, UsageError> {
+    let cluster = values
+        .remove("--cluster")
+        .ok_or_else(|| UsageError("missing --cluster".into()))?;
+    if !valid_cloud_cluster_id(&cluster) {
+        return Err(UsageError(format!("invalid cluster id '{cluster}'")));
+    }
+    Ok(cluster)
+}
+
+fn parse_digitalocean(
+    options: &[String],
+    trailing: Option<&[String]>,
+) -> Result<Request, UsageError> {
+    if trailing.is_some() {
+        return Err(UsageError(
+            "credential digitalocean takes no command".into(),
+        ));
+    }
+    let mut values = parse_options(options, &["--connection", "--cluster"])?;
+    let connection = connection_option(&mut values)?;
+    let cluster = cloud_cluster_option(&mut values)?;
+    Ok(Request::CredentialDigitalocean(DigitaloceanArgs {
+        connection,
+        cluster,
+    }))
+}
+
+fn parse_exoscale(options: &[String], trailing: Option<&[String]>) -> Result<Request, UsageError> {
+    if trailing.is_some() {
+        return Err(UsageError("credential exoscale takes no command".into()));
+    }
+    let mut values = parse_options(options, &["--connection", "--zone", "--cluster"])?;
+    let connection = connection_option(&mut values)?;
+    let zone = values
+        .remove("--zone")
+        .ok_or_else(|| UsageError("missing --zone".into()))?;
+    if !valid_region(&zone) {
+        return Err(UsageError(format!("invalid zone '{zone}'")));
+    }
+    let cluster = cloud_cluster_option(&mut values)?;
+    Ok(Request::CredentialExoscale(ExoscaleArgs {
+        connection,
+        zone,
+        cluster,
+    }))
+}
+
+fn parse_aws_eks(options: &[String], trailing: Option<&[String]>) -> Result<Request, UsageError> {
+    if trailing.is_some() {
+        return Err(UsageError("credential aws-eks takes no command".into()));
+    }
+    let mut values = parse_options(
+        options,
+        &[
+            "--connection",
+            "--account",
+            "--role",
+            "--profile",
+            "--region",
+            "--cluster",
+        ],
+    )?;
     let mut take = |name: &str| values.remove(name);
     let connection =
         take("--connection").ok_or_else(|| UsageError("missing --connection".into()))?;
@@ -283,15 +423,18 @@ where
 fn parse_credential(args: &[String]) -> Result<Request, UsageError> {
     let Some(kind) = args.first() else {
         return Err(UsageError(
-            "missing credential kind (static, wrap-exec, aws-eks)".into(),
+            "missing credential kind (static, wrap-exec, aws-eks, digitalocean, exoscale)".into(),
         ));
     };
     let (options, trailing) = match args[1..].iter().position(|a| a == "--") {
         Some(at) => (&args[1..1 + at], Some(&args[2 + at..])),
         None => (&args[1..], None),
     };
-    if kind == "aws-eks" {
-        return parse_aws_eks(options, trailing);
+    match kind.as_str() {
+        "aws-eks" => return parse_aws_eks(options, trailing),
+        "digitalocean" => return parse_digitalocean(options, trailing),
+        "exoscale" => return parse_exoscale(options, trailing),
+        _ => {}
     }
     let mut id = None;
     let mut i = 0;
@@ -452,6 +595,61 @@ mod tests {
         ] {
             assert!(parse_str(line).is_err(), "{line:?} should fail");
         }
+    }
+
+    #[test]
+    fn parses_digitalocean_and_exoscale() {
+        let digitalocean = DigitaloceanArgs {
+            connection: "conn1".into(),
+            cluster: "bd5f5959-5e1e-4205-a714-a914373942af".into(),
+        };
+        assert_eq!(
+            digitalocean_args(&digitalocean).join(" "),
+            "credential digitalocean --connection conn1 --cluster bd5f5959-5e1e-4205-a714-a914373942af"
+        );
+        assert_eq!(
+            parse(digitalocean_args(&digitalocean)),
+            Ok(Request::CredentialDigitalocean(digitalocean))
+        );
+        let exoscale = ExoscaleArgs {
+            connection: "conn2".into(),
+            zone: "ch-gva-2".into(),
+            cluster: "8a2c1b62-0000-4000-8000-000000000001".into(),
+        };
+        assert_eq!(
+            exoscale_args(&exoscale).join(" "),
+            "credential exoscale --connection conn2 --zone ch-gva-2 --cluster 8a2c1b62-0000-4000-8000-000000000001"
+        );
+        assert_eq!(
+            parse(exoscale_args(&exoscale)),
+            Ok(Request::CredentialExoscale(exoscale))
+        );
+        assert_eq!(
+            parse_str("credential exoscale --connection=c --zone=de-fra-1 --cluster=x1"),
+            Ok(Request::CredentialExoscale(ExoscaleArgs {
+                connection: "c".into(),
+                zone: "de-fra-1".into(),
+                cluster: "x1".into(),
+            }))
+        );
+        for line in [
+            "credential digitalocean --cluster x",
+            "credential digitalocean --connection c",
+            "credential digitalocean --connection c --cluster ../x",
+            "credential digitalocean --connection c --cluster -x",
+            "credential digitalocean --connection c --cluster x --zone z",
+            "credential digitalocean --connection c --cluster x -- cmd",
+            "credential digitalocean --connection C! --cluster x",
+            "credential exoscale --connection c --cluster x",
+            "credential exoscale --connection c --zone ch-gva-2",
+            "credential exoscale --connection c --zone CH/GVA --cluster x",
+            "credential exoscale --connection c --zone z --cluster x --cluster y",
+        ] {
+            assert!(parse_str(line).is_err(), "{line:?} should fail");
+        }
+        assert!(valid_cloud_cluster_id("123456"));
+        assert!(!valid_cloud_cluster_id(&"a".repeat(65)));
+        assert!(!valid_cloud_cluster_id("a b"));
     }
 
     #[test]

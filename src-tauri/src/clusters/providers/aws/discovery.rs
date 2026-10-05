@@ -407,6 +407,10 @@ pub async fn discover(
                 }
             }
         }
+        ConnectionKind::Cli | ConnectionKind::Token | ConnectionKind::ApiKey => {
+            discovery.error = Some("This is not an AWS connection".to_string());
+            return discovery;
+        }
     }
 
     // Regions per scope, then every (scope, region) listing, six at a time.

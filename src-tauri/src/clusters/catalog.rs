@@ -495,6 +495,9 @@ fn plan_entry(
             region: cluster.region.clone(),
             cluster: cluster.name.clone(),
         },
+        ConnectionKind::Cli | ConnectionKind::Token | ConnectionKind::ApiKey => {
+            return Err("This is not an AWS connection.".to_string())
+        }
     };
     // Validated like the helper will parse it.
     jp_auth_core::request::parse(jp_auth_core::request::aws_eks_args(&args)).map_err(|e| e.0)?;
@@ -986,6 +989,9 @@ mod tests {
             region: None,
             regions: vec![],
             targets: vec![],
+            cli_account: None,
+            project_id: None,
+            exoscale: None,
             status: jp_auth_core::connections::ConnectionStatus::SignedIn,
             expires_at: None,
             message: None,

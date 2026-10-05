@@ -298,6 +298,9 @@ pub async fn for_connection(
             profile(ctx, &connection.id, name).await
         }
         ConnectionKind::Keys => keys(ctx, &connection.id).await,
+        ConnectionKind::Cli | ConnectionKind::Token | ConnectionKind::ApiKey => Err(
+            AwsError::Invalid("This is not an AWS connection".to_string()),
+        ),
     }
 }
 

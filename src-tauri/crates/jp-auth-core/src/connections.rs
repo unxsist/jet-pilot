@@ -1,8 +1,9 @@
 //! Cloud connections: `~/.kube/jet-pilot/connections.json` (0600, atomic
 //! writes under `connections.lock`). They hold no secrets: SSO tokens,
-//! client registrations and access keys live in the vault (and the
-//! standard `~/.aws/sso/cache`). The helper reads this file to find the
-//! IAM Identity Center start URL of a connection.
+//! client registrations, access keys and API tokens live in the vault (and
+//! the standard `~/.aws/sso/cache`). The helper reads this file to find the
+//! IAM Identity Center start URL of a connection, and the user and groups
+//! of the Exoscale client certificates it mints.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -30,6 +31,13 @@ pub enum ConnectionKind {
     Profile,
     /// Access keys in the vault.
     Keys,
+    /// The signed-in user of a cloud CLI: `gcloud`, `az` or `doctl`.
+    Cli,
+    /// An API token in the vault (DigitalOcean, Akamai, Civo, Scaleway,
+    /// Vultr).
+    Token,
+    /// An API key and secret in the vault (Exoscale).
+    ApiKey,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -50,7 +58,29 @@ pub struct SsoSettings {
     pub region: String,
 }
 
-/// An account + role pair to scan (SSO connections).
+/// The identity of the client certificates minted for an Exoscale
+/// connection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExoscaleSettings {
+    pub user: String,
+    pub groups: Vec<String>,
+}
+
+pub const EXOSCALE_DEFAULT_USER: &str = "jet-pilot";
+pub const EXOSCALE_DEFAULT_GROUP: &str = "system:masters";
+
+impl Default for ExoscaleSettings {
+    fn default() -> Self {
+        ExoscaleSettings {
+            user: EXOSCALE_DEFAULT_USER.to_string(),
+            groups: vec![EXOSCALE_DEFAULT_GROUP.to_string()],
+        }
+    }
+}
+
+/// An account + role pair to scan (SSO connections); a Google Cloud
+/// project or an Azure subscription (`roleName` empty) for CLI connections.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SsoTarget {
@@ -64,11 +94,13 @@ pub struct SsoTarget {
 #[serde(rename_all = "camelCase")]
 pub struct CloudConnection {
     pub id: String,
-    /// `aws`
+    /// `aws`, `gcp`, `azure`, `digitalocean`, `linode`, `civo`, `scaleway`,
+    /// `vultr`, `exoscale`
     pub provider: String,
     pub kind: ConnectionKind,
     pub label: String,
-    /// The signed-in email, or the ARN `GetCallerIdentity` returned.
+    /// The signed-in email, the ARN `GetCallerIdentity` returned, or the
+    /// account the provider reported for a token.
     #[serde(default)]
     pub identity: Option<String>,
     #[serde(default)]
@@ -80,11 +112,23 @@ pub struct CloudConnection {
     /// Identity Center region.
     #[serde(default)]
     pub region: Option<String>,
-    /// Regions to scan; empty = every region enabled for the account.
+    /// Regions (Exoscale: zones) to scan; empty = every region.
     #[serde(default)]
     pub regions: Vec<String>,
+    /// SSO: account + role pairs. CLI (gcp / azure): projects /
+    /// subscriptions to scan, empty = all of them.
     #[serde(default)]
     pub targets: Vec<SsoTarget>,
+    /// CLI connections: the gcloud account, az user or doctl context
+    /// (None = the CLI's current one).
+    #[serde(default)]
+    pub cli_account: Option<String>,
+    /// Scaleway: the project to scan (None = every project of the key).
+    #[serde(default)]
+    pub project_id: Option<String>,
+    /// Exoscale: who the minted client certificates are for.
+    #[serde(default)]
+    pub exoscale: Option<ExoscaleSettings>,
     /// Stored: the last known state (`error` with `message` after a failed
     /// discovery). Listing recomputes it from the credentials.
     #[serde(default)]
@@ -119,6 +163,11 @@ impl CloudConnection {
             _ => self.id.clone(),
         }
     }
+
+    /// The Exoscale certificate identity (the defaults when unset).
+    pub fn exoscale_settings(&self) -> ExoscaleSettings {
+        self.exoscale.clone().unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -146,10 +195,31 @@ pub fn mfa_session_secret_id(id: &str) -> String {
     format!("conn:{id}:mfa-session")
 }
 
+/// The API token of a token connection.
+pub fn api_token_secret_id(id: &str) -> String {
+    format!("conn:{id}:api-token")
+}
+
+/// The API key + secret of an Exoscale connection.
+pub fn api_key_secret_id(id: &str) -> String {
+    format!("conn:{id}:api-key")
+}
+
+/// The cache prefix of credentials minted for a connection
+/// (`cache:<provider>:<id>:`).
+pub fn cache_prefix(provider: &str, id: &str) -> String {
+    format!("cache:{provider}:{id}:")
+}
+
 /// Every vault id prefix that belongs to a connection (its secrets and
-/// its cached role credentials).
+/// its cached role credentials, tokens and certificates).
 pub fn secret_prefixes(id: &str) -> Vec<String> {
-    vec![format!("conn:{id}:"), format!("cache:aws:{id}:")]
+    vec![
+        format!("conn:{id}:"),
+        cache_prefix("aws", id),
+        cache_prefix("digitalocean", id),
+        cache_prefix("exoscale", id),
+    ]
 }
 
 /// Connection ids are `[a-z0-9-]`, 1-64 characters (like cluster ids).
@@ -232,6 +302,9 @@ mod tests {
                 account_name: Some("acme-prod".into()),
                 role_name: "ReadOnly".into(),
             }],
+            cli_account: None,
+            project_id: None,
+            exoscale: None,
             status: ConnectionStatus::SignedOut,
             expires_at: None,
             message: None,
@@ -254,6 +327,26 @@ mod tests {
         assert!(text.contains("\"accountId\": \"123456789012\""));
         assert!(text.contains("\"status\": \"signedOut\""));
         assert_eq!(load(&path).unwrap(), vec![connection("abc")]);
+        // 1.43 files (without the newer fields) still load.
+        let old = r#"{"version":1,"connections":[{"id":"k1","provider":"aws","kind":"keys","label":"ci","createdAt":0}]}"#;
+        let old_path = dir.path().join("old.json");
+        std::fs::write(&old_path, old).unwrap();
+        let loaded = load(&old_path).unwrap();
+        assert_eq!(loaded[0].kind, ConnectionKind::Keys);
+        assert_eq!(loaded[0].exoscale_settings(), ExoscaleSettings::default());
+        assert_eq!(
+            serde_json::to_value(ConnectionKind::ApiKey).unwrap(),
+            "apiKey"
+        );
+        assert_eq!(
+            secret_prefixes("c1"),
+            [
+                "conn:c1:",
+                "cache:aws:c1:",
+                "cache:digitalocean:c1:",
+                "cache:exoscale:c1:"
+            ]
+        );
         assert_eq!(
             find(&path, "abc").unwrap().unwrap().home_region(),
             "eu-west-1"

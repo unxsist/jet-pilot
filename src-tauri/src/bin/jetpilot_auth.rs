@@ -9,6 +9,11 @@
 //!   connection's AWS credentials (IAM Identity Center session, profile or
 //!   access keys) without the aws CLI. It never signs in: an expired
 //!   session exits 3 ("Sign in to AWS in JET Pilot").
+//! - `credential digitalocean --connection <id> --cluster <id>` mints a
+//!   short-lived DigitalOcean token with the connection's API token;
+//! - `credential exoscale --connection <id> --zone <zone> --cluster <id>`
+//!   mints an Exoscale client certificate with the connection's API key.
+//!   Both are cached in the vault until shortly before they expire.
 //!
 //! stdout carries only the `ExecCredential` (or the wrapped plugin's own
 //! output, untouched); human messages go to stderr through `redact()`. Exit
@@ -20,9 +25,10 @@
 use std::io::Write;
 
 use jp_auth_core::aws::{self, AwsContext, AwsError};
+use jp_auth_core::cloud::{self, CloudContext, CloudError};
 use jp_auth_core::credentials::{env_secret_id, static_secret_id, EnvSecrets, StaticCredential};
 use jp_auth_core::exec_credential::{api_version_from_env, ExecCredential, ExecCredentialStatus};
-use jp_auth_core::request::{self, exit, AwsEksArgs, Request};
+use jp_auth_core::request::{self, exit, AwsEksArgs, DigitaloceanArgs, ExoscaleArgs, Request};
 use jp_auth_core::vault::{self, Backend, KeySpec, Vault, VaultEnv, VaultError};
 use jp_auth_core::zeroize::Zeroizing;
 use jp_auth_core::{paths, redact, PASSPHRASE_ENV};
@@ -75,6 +81,8 @@ fn run(args: Vec<String>) -> i32 {
         Request::CredentialStatic { id } => credential_static(&id),
         Request::CredentialWrapExec { id, command, args } => wrap_exec(&id, &command, &args),
         Request::CredentialAwsEks(args) => aws_eks(&args),
+        Request::CredentialDigitalocean(args) => cloud_credential(Minted::Digitalocean(args)),
+        Request::CredentialExoscale(args) => cloud_credential(Minted::Exoscale(args)),
         Request::Unlock => unlock(),
         Request::Lock => lock(),
         Request::Doctor => doctor(),
@@ -231,6 +239,50 @@ fn aws_eks(args: &AwsEksArgs) -> i32 {
         Err(AwsError::MfaRequired(message)) => fail(exit::NOT_FOUND, &message),
         Err(AwsError::NotFound(message)) => fail(exit::NOT_FOUND, &message),
         Err(AwsError::Vault(error)) => vault_failure(error),
+        Err(other) => fail(exit::OTHER, &other.to_string()),
+    }
+}
+
+/* ---------------------------------------------------------------- clouds */
+
+enum Minted {
+    Digitalocean(DigitaloceanArgs),
+    Exoscale(ExoscaleArgs),
+}
+
+fn cloud_credential(request: Minted) -> i32 {
+    let env = VaultEnv::system();
+    let session = passphrase_session(&env);
+    let ctx = CloudContext::system(vault::Store::new(env, session));
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(e) => return fail(exit::OTHER, &format!("Could not start: {e}")),
+    };
+    let result = runtime.block_on(async {
+        match &request {
+            Minted::Digitalocean(args) => cloud::mint::digitalocean(&ctx, args).await,
+            Minted::Exoscale(args) => cloud::mint::exoscale(&ctx, args).await,
+        }
+    });
+    let provider = match request {
+        Minted::Digitalocean(_) => "DigitalOcean",
+        Minted::Exoscale(_) => "Exoscale",
+    };
+    match result {
+        Ok(credential) => print_credential(&credential.to_exec_credential(&api_version_from_env())),
+        Err(CloudError::Unauthorized(message)) => fail(
+            exit::NOT_FOUND,
+            &format!(
+                "{message}. Update the {provider} credentials of this connection in JET Pilot."
+            ),
+        ),
+        Err(CloudError::MissingCredentials(message)) | Err(CloudError::NotFound(message)) => {
+            fail(exit::NOT_FOUND, &message)
+        }
+        Err(CloudError::Vault(error)) => vault_failure(error),
         Err(other) => fail(exit::OTHER, &other.to_string()),
     }
 }
