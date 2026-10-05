@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { diffHunks, diffLines, diffSummary } from "@/lib/diff";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Equal } from "lucide-vue-next";
+import { Button } from "@/components/ui/button";
+import MonacoView from "@/components/monaco/MonacoView.vue";
+import { useSessionStorage } from "@vueuse/core";
+import { Columns2, Equal, Rows2 } from "lucide-vue-next";
 
 /*
- * Unified line diff of two texts (YAML manifests / values) with hunks,
- * line numbers and a +/- summary. Pure rendering, no editor.
+ * Diff of two texts (YAML manifests / values) with a +/- summary: the Monaco
+ * diff editor (lazy-loaded, side by side or inline, unchanged regions
+ * collapsed unless `full`). When Monaco can't be loaded, a plain unified
+ * line diff with hunks and line numbers is rendered instead.
  */
 const props = withDefaults(
   defineProps<{
@@ -14,29 +19,35 @@ const props = withDefaults(
     oldLabel?: string;
     newLabel?: string;
     context?: number;
-    /* Show the whole file instead of hunks. */
+    /* Show the whole file instead of hunks / collapsed regions. */
     full?: boolean;
     emptyText?: string;
   }>(),
   { context: 4, full: false, emptyText: "No differences" }
 );
 
+/* Shared by every diff of the session. */
+const sideBySide = useSessionStorage("jet:diff-side-by-side", true);
+const monacoFailed = ref(false);
+
 const lines = computed(() => diffLines(props.oldText, props.newText));
 const summary = computed(() => diffSummary(lines.value));
 const hunks = computed(() =>
-  props.full
-    ? lines.value.length
-      ? [
-          {
-            oldStart: 1,
-            oldLines: 0,
-            newStart: 1,
-            newLines: 0,
-            lines: lines.value,
-          },
-        ]
-      : []
-    : diffHunks(lines.value, props.context)
+  !monacoFailed.value
+    ? []
+    : props.full
+      ? lines.value.length
+        ? [
+            {
+              oldStart: 1,
+              oldLines: 0,
+              newStart: 1,
+              newLines: 0,
+              lines: lines.value,
+            },
+          ]
+        : []
+      : diffHunks(lines.value, props.context)
 );
 
 const lineClass = (op: string) =>
@@ -68,12 +79,33 @@ const markerClass = (op: string) =>
         <span class="text-success">+{{ summary.added }}</span>
         <span class="ml-2 text-destructive">−{{ summary.removed }}</span>
       </span>
+      <Button
+        v-if="!monacoFailed"
+        variant="ghost"
+        size="icon-xs"
+        class="-mr-1 shrink-0 text-muted-foreground"
+        :title="sideBySide ? 'Inline diff' : 'Side-by-side diff'"
+        :aria-label="sideBySide ? 'Inline diff' : 'Side-by-side diff'"
+        @click="sideBySide = !sideBySide"
+      >
+        <Rows2 v-if="sideBySide" class="h-3.5 w-3.5" />
+        <Columns2 v-else class="h-3.5 w-3.5" />
+      </Button>
     </div>
     <div
       v-if="summary.added === 0 && summary.removed === 0"
       class="flex flex-1 items-center justify-center"
     >
       <EmptyState :icon="Equal" :title="emptyText" size="sm" />
+    </div>
+    <div v-else-if="!monacoFailed" class="min-h-0 flex-1">
+      <MonacoView
+        :original="oldText"
+        :value="newText"
+        :side-by-side="sideBySide"
+        :hide-unchanged="!full"
+        @error="monacoFailed = true"
+      />
     </div>
     <div
       v-else

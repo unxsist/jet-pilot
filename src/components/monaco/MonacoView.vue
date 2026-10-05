@@ -25,7 +25,11 @@ const props = withDefaults(
   { original: null, language: "yaml", sideBySide: true, hideUnchanged: false }
 );
 
-const emit = defineEmits<{ (e: "ready"): void }>();
+const emit = defineEmits<{
+  (e: "ready"): void;
+  /** Monaco couldn't be loaded (e.g. a failed chunk load). */
+  (e: "error", message: string): void;
+}>();
 
 const element = ref<HTMLElement | null>(null);
 const ready = ref(false);
@@ -56,6 +60,7 @@ onMounted(async () => {
     rt = await loadMonaco();
   } catch (e) {
     loadError.value = `Failed to load the editor: ${e}`;
+    emit("error", loadError.value);
     return;
   }
   if (unmounted || !element.value) return;
