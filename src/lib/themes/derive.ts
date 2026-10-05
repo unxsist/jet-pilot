@@ -173,6 +173,23 @@ export function ensureContrast(
   return rgbToHex(extremeOn(bg));
 }
 
+/**
+ * Like ensureContrast for hairlines: a border darker than its surface
+ * stays darker (Tokyo Night's dark lines don't turn into light ones) when
+ * that direction can reach `min`.
+ */
+export function ensureSeparation(color: string, background: string, min: number): string {
+  const fg = hexRgb(color);
+  const bg = hexRgb(background);
+  if (contrastRgb(fg, bg) >= min) return color;
+  const darker = relativeLuminance(fg) < relativeLuminance(bg);
+  if (darker !== isDarkRgb(bg)) return ensureContrast(color, background, min);
+  const solved = oklchToRgb(
+    solveOklchLightness(rgbToOklch(fg), bg, min, darker ? "darker" : "lighter")
+  );
+  return contrastRgb(solved, bg) >= min ? rgbToHex(solved) : ensureContrast(color, background, min);
+}
+
 /** The first candidate with the best contrast on `background`, at least 4.5:1. */
 export function readableForeground(background: string, candidates: string[]): string {
   const bg = hexRgb(background);
@@ -413,47 +430,117 @@ export function createVividThemeColors(
 /** OKLCH hues of the derived status colours (JET's green / blue). */
 const SUCCESS_HUE = 155;
 const INFO_HUE = 250;
+/** The green of status colours harmonised with a theme's own signal colours. */
+const HARMONISED_SUCCESS_HUE = 145;
+/** OKLCH chroma bounds of harmonised status colours. */
+export const STATUS_CHROMA = { min: 0.035, max: 0.17 } as const;
+/** Contrast bounds of harmonised status colours on the canvas (text-grade, never louder than 7:1). */
+export const STATUS_CONTRAST = { min: 4.6, max: 7 } as const;
 
-/** A text-grade colour of `hue`: readable (4.6:1) on the canvas. */
-export function deriveStatusColor(hue: number, canvas: string): string {
+/** What a theme's own signal colours set for its derived status colours. */
+export interface StatusReference {
+  /** OKLCH chroma. */
+  chroma: number;
+  /** Contrast on the canvas. */
+  contrast: number;
+}
+
+const median = (values: number[]) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
+};
+const clamp = (value: number, { min, max }: { min: number; max: number }) =>
+  Math.min(max, Math.max(min, value));
+
+/**
+ * The reference for harmonised status colours: the median chroma of the
+ * error / warning colours a theme sets (within STATUS_CHROMA) and the mean
+ * contrast of its error / warning text on the canvas (its fills when it
+ * sets no text; within STATUS_CONTRAST). Null when the theme sets none of
+ * them: JET's green / blue then.
+ */
+export function statusReference(
+  colors: Partial<Record<"error" | "errorForeground" | "warning" | "warningForeground", string>>,
+  canvas: string
+): StatusReference | null {
+  const parsed = (roles: readonly (keyof typeof colors)[]) =>
+    roles
+      .map((role) => parseColor(colors[role] ?? ""))
+      .filter((color) => color !== null)
+      .map((color): Rgb => ({ r: color.r, g: color.g, b: color.b }));
+  const signals = parsed(["error", "errorForeground", "warning", "warningForeground"]);
+  if (signals.length === 0) return null;
+  const texts = parsed(["errorForeground", "warningForeground"]);
+  const canvasRgb = hexRgb(canvas);
+  const contrasts = (texts.length > 0 ? texts : signals).map((color) => contrastRgb(color, canvasRgb));
+  return {
+    chroma: clamp(median(signals.map((color) => rgbToOklch(color).C)), STATUS_CHROMA),
+    contrast: clamp(contrasts.reduce((sum, ratio) => sum + ratio, 0) / contrasts.length, STATUS_CONTRAST),
+  };
+}
+
+/**
+ * A text-grade colour of `hue`: readable (4.6:1) on the canvas. With a
+ * reference it takes the chroma of the theme's own signal colours and sits
+ * at their contrast, so a muted palette gets a muted green / blue rather
+ * than JET's saturated ones.
+ */
+export function deriveStatusColor(
+  hue: number,
+  canvas: string,
+  reference?: StatusReference | null
+): string {
   const canvasRgb = hexRgb(canvas);
   const dark = isDarkRgb(canvasRgb);
+  const direction = dark ? "lighter" : "darker";
+  if (reference) {
+    // From the canvas lightness outwards: the first lightness that reaches the reference contrast.
+    const from: Oklch = { L: rgbToOklch(canvasRgb).L, C: reference.chroma, h: hue };
+    return oklchHex(solveOklchLightness(from, canvasRgb, reference.contrast, direction));
+  }
   const base: Oklch = { L: dark ? 0.72 : 0.55, C: 0.15, h: hue };
-  return oklchHex(solveOklchLightness(base, canvasRgb, 4.6, dark ? "lighter" : "darker"));
+  return oklchHex(solveOklchLightness(base, canvasRgb, 4.6, direction));
 }
 
 /* ---- completion + contrast fixes ---- */
 
+type Role = ThemeColorRole | JetColorRole;
+
 /**
- * Foreground / surface pairs and their minimum contrast. JET's status roles
- * are text-grade (readable on the canvas, like the --success token) and
- * their *Foreground is the text on a solid fill of that colour.
+ * Foreground / surface pairs and their minimum contrast: the target for a
+ * derived foreground, and the floor below which a colour the theme sets
+ * itself is corrected (a theme's own colours are kept otherwise). JET's
+ * status roles are text-grade (readable on the canvas, like the --success
+ * token) and their *Foreground is the text on a solid fill of that colour.
+ * Borders only get a visibility floor.
  */
-export const CONTRAST_PAIRS: [ThemeColorRole | JetColorRole, ThemeColorRole | JetColorRole, number][] = [
-  ["text", "canvas", 7],
-  ["textMuted", "canvas", 4.5],
-  ["secondaryLabel", "canvas", 4.5],
-  ["iconMuted", "canvas", 3],
-  ["toolbarForeground", "toolbar", 4.5],
-  ["toolbarControlForeground", "toolbarControl", 4.5],
-  ["accentForeground", "accent", 4.5],
-  ["secondaryForeground", "secondary", 4.5],
-  ["mutedForeground", "muted", 4.5],
-  ["placeholder", "surfaceRaised", 4.5],
-  ["errorForeground", "errorSurface", 4.5],
-  ["warningForeground", "warningSurface", 4.5],
-  ["updateForeground", "updateSurface", 4.5],
-  ["accentSurfaceForeground", "accentSurface", 4.5],
-  ["messageForeground", "messageSurface", 4.5],
-  ["messageActionForeground", "messageAction", 4.5],
-  ["codeForeground", "codeBackground", 4.5],
-  ["sidebarForeground", "sidebar", 4.5],
-  ["sidebarMutedForeground", "sidebar", 4.5],
-  ["terminalForeground", "terminalBackground", 4.5],
-  ["success", "canvas", 4.5],
-  ["info", "canvas", 4.5],
-  ["successForeground", "success", 4.5],
-  ["infoForeground", "info", 4.5],
+export const CONTRAST_PAIRS: [foreground: Role, background: Role, derived: number, explicit: number][] = [
+  ["text", "canvas", 7, 4.5],
+  ["textMuted", "canvas", 4.5, 3],
+  ["secondaryLabel", "canvas", 4.5, 3],
+  ["iconMuted", "canvas", 3, 3],
+  ["border", "canvas", 1.15, 1.15],
+  ["toolbarForeground", "toolbar", 4.5, 4.5],
+  ["toolbarControlForeground", "toolbarControl", 4.5, 4.5],
+  ["accentForeground", "accent", 4.5, 4.5],
+  ["secondaryForeground", "secondary", 4.5, 4.5],
+  ["mutedForeground", "muted", 4.5, 3],
+  ["placeholder", "surfaceRaised", 4.5, 3],
+  ["errorForeground", "errorSurface", 4.5, 4.5],
+  ["warningForeground", "warningSurface", 4.5, 4.5],
+  ["updateForeground", "updateSurface", 4.5, 4.5],
+  ["accentSurfaceForeground", "accentSurface", 4.5, 4.5],
+  ["messageForeground", "messageSurface", 4.5, 4.5],
+  ["messageActionForeground", "messageAction", 4.5, 4.5],
+  ["codeForeground", "codeBackground", 4.5, 4.5],
+  ["sidebarForeground", "sidebar", 4.5, 4.5],
+  ["sidebarMutedForeground", "sidebar", 4.5, 3],
+  ["terminalForeground", "terminalBackground", 4.5, 4.5],
+  ["success", "canvas", 4.5, 4.5],
+  ["info", "canvas", 4.5, 4.5],
+  ["successForeground", "success", 4.5, 4.5],
+  ["infoForeground", "info", 4.5, 4.5],
 ];
 
 export interface RoleInput {
@@ -492,20 +579,27 @@ export function completeRoles(appearance: ThemeAppearance, input: RoleInput): Th
     canvas,
     accent,
   } as ThemeRoles;
-  const explicit = new Set<string>();
-  for (const role of [...THEME_COLOR_ROLES, ...JET_COLOR_ROLES]) {
-    if (role === "canvas" || role === "accent") continue;
-    const value = opaque(colors[role], canvasRgb);
-    if (value) {
-      roles[role] = value;
-      explicit.add(role);
-    }
+  const explicit = explicitRoles(colors);
+  for (const role of explicit) roles[role] = opaque(colors[role], canvasRgb)!;
+
+  // Missing success / info follow the theme's own error / warning colours
+  // when it sets any (a muted palette gets a muted green / blue).
+  const reference = statusReference(
+    Object.fromEntries(
+      (["error", "errorForeground", "warning", "warningForeground"] as const)
+        .filter((role) => explicit.has(role))
+        .map((role) => [role, roles[role]])
+    ),
+    canvas
+  );
+  if (!explicit.has("success")) {
+    roles.success = reference
+      ? deriveStatusColor(HARMONISED_SUCCESS_HUE, canvas, reference)
+      : deriveStatusColor(SUCCESS_HUE, canvas);
   }
+  if (!explicit.has("info")) roles.info = deriveStatusColor(INFO_HUE, canvas, reference);
 
-  if (!explicit.has("success")) roles.success = deriveStatusColor(SUCCESS_HUE, canvas);
-  if (!explicit.has("info")) roles.info = deriveStatusColor(INFO_HUE, canvas);
-
-  for (const [foreground, background, min] of CONTRAST_PAIRS) {
+  for (const [foreground, background, derivedMin, explicitMin] of CONTRAST_PAIRS) {
     if (
       (foreground === "successForeground" || foreground === "infoForeground") &&
       !explicit.has(foreground)
@@ -513,9 +607,22 @@ export function completeRoles(appearance: ThemeAppearance, input: RoleInput): Th
       roles[foreground] = readableForeground(roles[background], [roles.canvas, roles.text]);
       continue;
     }
-    roles[foreground] = ensureContrast(roles[foreground], roles[background], min);
+    const min = explicit.has(foreground) ? explicitMin : derivedMin;
+    roles[foreground] =
+      foreground === "border"
+        ? ensureSeparation(roles.border, roles[background], min)
+        : ensureContrast(roles[foreground], roles[background], min);
   }
   return roles;
+}
+
+/** The roles a theme variant sets itself (the rest is derived). */
+export function explicitRoles(colors: RoleInput["colors"]): Set<Role> {
+  return new Set(
+    [...THEME_COLOR_ROLES, ...JET_COLOR_ROLES].filter(
+      (role) => role !== "canvas" && role !== "accent" && parseColor(colors?.[role] ?? "") !== null
+    )
+  );
 }
 
 /** Relative luminance of a colour string (0 when it can't be parsed). */

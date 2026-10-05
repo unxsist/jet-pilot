@@ -6,9 +6,48 @@
  * itself is text-grade on the canvas, *-foreground is the text on a solid
  * fill of it.
  */
-import { ensureContrast, pickActionColor, readableForeground, type ThemeRoles } from "./derive";
-import { isDark, mix, toHslTriplet, TRIPLET_PATTERN } from "./contrast";
+import {
+  chromaOf,
+  ensureContrast,
+  pickActionColor,
+  readableForeground,
+  type ThemeRoles,
+} from "./derive";
+import { contrastRatio, isDark, mix, toHslTriplet, TRIPLET_PATTERN } from "./contrast";
 import { type ThemeToken, THEME_TOKENS } from "./types";
+
+/** OKLCH chroma below which an accent reads as a neutral (cream, grey, ink). */
+const NEUTRAL_ACCENT_CHROMA = 0.04;
+/** Contrast on the canvas above which a neutral accent is as loud as body text. */
+const LOUD_ACCENT_CONTRAST = 6;
+
+/**
+ * Monochrome themes (NieR-like: the action colour is the text colour) make
+ * every accent usage as loud as body text: the active nav indicator, the
+ * selected graph card, links, focus rings, text selection. A neutral accent
+ * above 6:1 is mixed `amount` toward the canvas, never below `min` (the
+ * floor of what it paints); colourful accents and quieter neutrals are
+ * kept as they are.
+ */
+export function calmAccent(color: string, canvas: string, amount: number, min: number): string {
+  if (chromaOf(color) >= NEUTRAL_ACCENT_CHROMA) return color;
+  if (contrastRatio(color, canvas) <= LOUD_ACCENT_CONTRAST) return color;
+  const mixed = mix(color, canvas, amount);
+  if (contrastRatio(mixed, canvas) >= min) return mixed;
+  // The quietest mix that still reaches `min`.
+  let low = 0;
+  let high = amount;
+  let best = color;
+  for (let step = 0; step < 12; step += 1) {
+    const mid = (low + high) / 2;
+    const candidate = mix(color, canvas, mid);
+    if (contrastRatio(candidate, canvas) >= min) {
+      best = candidate;
+      low = mid;
+    } else high = mid;
+  }
+  return best;
+}
 
 /**
  * The primary fill and its text. The messageAction role when it is a vivid
@@ -17,11 +56,13 @@ import { type ThemeToken, THEME_TOKENS } from "./types";
  * active nav indicator invisible on the selected row).
  */
 function primaryPair(roles: ThemeRoles): [string, string] {
-  const primary = pickActionColor(
+  const picked = pickActionColor(
     [roles.messageAction, roles.accent, roles.focus],
     roles.canvas,
     roles.accentSurface
   );
+  // --primary is also text (text-primary): a calmed one stays ≥ 4.5:1.
+  const primary = calmAccent(picked, roles.canvas, 0.3, 4.5);
   if (primary === roles.messageAction) return [primary, roles.messageActionForeground];
   return [
     primary,
@@ -69,10 +110,11 @@ export function rolesToTokens(
     "border-subtle": mix(roles.border, roles.canvas, 0.35),
     "border-strong": mix(roles.border, roles.text, 0.1),
     input: roles.input,
-    ring: roles.focus,
+    // Focus rings are non-text UI: 3:1.
+    ring: calmAccent(roles.focus, roles.canvas, 0.4, 3),
     primary,
     "primary-foreground": primaryForeground,
-    link: ensureContrast(roles.accent, roles.canvas, 4.5),
+    link: calmAccent(ensureContrast(roles.accent, roles.canvas, 4.5), roles.canvas, 0.3, 4.5),
     success: roles.success,
     "success-foreground": roles.successForeground,
     warning,
@@ -85,7 +127,8 @@ export function rolesToTokens(
     "tooltip-foreground": tooltipForeground,
     // The backdrop behind dialogs (painted at --overlay-alpha).
     overlay: dark ? mix(roles.canvas, "#000000", 0.7) : roles.text,
-    selection: roles.accent,
+    // Painted at 30% behind selected text.
+    selection: calmAccent(roles.accent, roles.canvas, 0.4, 3),
     scrollbar: roles.terminalScrollbar,
     "scrollbar-hover": roles.terminalScrollbarHover,
   };

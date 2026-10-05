@@ -5,9 +5,9 @@ import { JetDark, JetLight } from "@/components/monaco/themes/jet";
 import { BUILTIN_THEMES, DEFAULT_THEME_ID } from "@/lib/themes/builtin";
 import { JET_THEME } from "@/lib/themes/builtin/jet";
 import { contrastRatio } from "@/lib/themes/contrast";
-import { CONTRAST_PAIRS } from "@/lib/themes/derive";
+import { CONTRAST_PAIRS, explicitRoles } from "@/lib/themes/derive";
 import { LEGACY_THEME_IDS, themeAppearances } from "@/lib/themes/runtime";
-import { resolveTheme } from "@/lib/themes/resolve";
+import { pickVariant, resolveTheme } from "@/lib/themes/resolve";
 import { THEME_JSON_SCHEMA } from "@/lib/themes/schema";
 import { JET_XTERM } from "@/lib/themes/xtermTheme";
 import { serializeTheme } from "@/lib/themes/serialize";
@@ -93,8 +93,12 @@ describe("resolution", () => {
 
   it.each(cases)("%s (%s) meets the contrast guarantees", (_name, appearance, file) => {
     const { roles } = resolveTheme(file, appearance);
-    expect(contrastRatio(roles.text, roles.canvas)).toBeGreaterThanOrEqual(7);
-    for (const [foreground, background, min] of CONTRAST_PAIRS) {
+    const { variant } = pickVariant(file, appearance);
+    const explicit = explicitRoles({ ...variant.colors, ...variant.jetPilot?.colors });
+    // Derived text is AAA; text the theme sets itself only has to be readable.
+    expect(contrastRatio(roles.text, roles.canvas)).toBeGreaterThanOrEqual(explicit.has("text") ? 4.5 : 7);
+    for (const [foreground, background, derived, floor] of CONTRAST_PAIRS) {
+      const min = explicit.has(foreground) ? floor : derived;
       expect(contrastRatio(roles[foreground], roles[background]), `${foreground} on ${background}`).toBeGreaterThanOrEqual(min);
     }
   });
