@@ -5,7 +5,8 @@
  * for the base and every variant (flat, T3's variant shape), no jetPilot
  * block, and an id T3 doesn't reserve.
  */
-import { resolveTheme, themeAppearances } from "./resolve";
+import { themeAppearances } from "./runtime";
+import { resolveTheme } from "./resolve";
 import { type ThemeColors, type ThemeFile, THEME_COLOR_ROLES } from "./types";
 import { RESERVED_THEME_IDS, themeIdFromName } from "./validate";
 

@@ -1,7 +1,7 @@
 /*
  * Paints the last used theme before the app bundle runs (classic script:
- * the CSP only allows 'self' scripts). Keys: src/lib/themes/scheme.ts;
- * cache shape (BootCache): src/lib/themes/runtime.ts.
+ * the CSP only allows 'self' scripts). Keys and cache shape (BootCache):
+ * src/lib/themes/scheme.ts.
  */
 (function () {
   var root = document.documentElement;

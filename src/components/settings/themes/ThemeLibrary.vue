@@ -11,6 +11,7 @@
  * - Previews resolve one card per frame (createTaskQueue), skeletons first.
  */
 import { useRouter } from "vue-router";
+import { useEventListener } from "@vueuse/core";
 import { Plus } from "lucide-vue-next";
 import SettingsSection from "@/components/settings/SettingsSection.vue";
 import ThemeCard from "./ThemeCard.vue";
@@ -30,7 +31,8 @@ import { useToast } from "@/components/ui/toast";
 import { useTheme } from "@/providers/ThemeProvider";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
-import { clickMode, duplicateTheme, groupThemes, shownAppearance } from "@/lib/themes/library";
+import { clickMode, duplicateTheme, groupThemes } from "@/lib/themes/library";
+import { paintedAppearance } from "@/lib/themes/runtime";
 
 import type { ThemeAppearance, ThemeEntry, ThemeToken } from "@/lib/themes/types";
 import {
@@ -64,7 +66,7 @@ const previews = shallowReactive(new Map<string, Preview>());
 const queue = createTaskQueue();
 const pending = new Map<string, { entry: ThemeEntry; appearance: ThemeAppearance }>();
 
-const cardAppearance = (entry: ThemeEntry) => shownAppearance(entry.appearances, wanted.value);
+const cardAppearance = (entry: ThemeEntry) => paintedAppearance(entry.appearances, wanted.value);
 
 const refreshPreviews = () => {
   const ids = new Set<string>();
@@ -126,6 +128,9 @@ const onHover = (entry: ThemeEntry, hovering: boolean) => {
   }
 };
 onBeforeUnmount(endPreview);
+// No pointerleave when the window loses focus or is hidden mid-hover.
+useEventListener(window, "blur", endPreview);
+useEventListener(document, "visibilitychange", () => document.hidden && endPreview());
 
 /* --------------------------------------------------------- actions -- */
 

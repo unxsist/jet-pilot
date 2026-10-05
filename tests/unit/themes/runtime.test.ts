@@ -4,11 +4,14 @@ import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import {
   bootCacheEntry,
-  fileAppearances,
+  themeAppearances,
   paintedAppearance,
   parseBootCache,
   pickTheme,
+  planThemeSave,
+  RESERVED_THEME_IDS,
   themeGroup,
+  userFileId,
   themeIdFromFileName,
   uniqueThemeId,
   wantedAppearance,
@@ -39,9 +42,9 @@ describe("appearance", () => {
 
   it("reads the appearances of a file", () => {
     const base = { name: "X", canvas: "#000", accent: "#fff" };
-    expect(fileAppearances({ ...base, appearance: "dark" } as ThemeFile)).toEqual(["dark"]);
+    expect(themeAppearances({ ...base, appearance: "dark" } as ThemeFile)).toEqual(["dark"]);
     expect(
-      fileAppearances({ ...base, appearance: "dark", variants: { light: { canvas: "#fff" } } } as ThemeFile)
+      themeAppearances({ ...base, appearance: "dark", variants: { light: { canvas: "#fff" } } } as ThemeFile)
     ).toEqual(["light", "dark"]);
   });
 });
@@ -89,6 +92,66 @@ describe("theme ids", () => {
   it("takes the id from the file name (T3's rule)", () => {
     expect(themeIdFromFileName("nightfall.json")).toBe("nightfall");
     expect(themeIdFromFileName("My Theme.JSON")).toBe("my-theme");
+  });
+
+  it("gives files with a built-in, reserved or repeated id a distinct one", () => {
+    const builtin = (id: string) => id === "dracula" || id === "jet";
+    const seen = new Set(["my-theme"]);
+    const isSeen = (id: string) => seen.has(id);
+    expect(userFileId("nightfall.json", builtin, isSeen)).toEqual({ id: "nightfall", conflict: null });
+    for (const [fileName, id] of [
+      ["dracula.json", "dracula"],
+      ["jet.json", "jet"],
+      ["light.json", "light"],
+      ["System.json", "system"],
+      ["My Theme.json", "my-theme"],
+    ]) {
+      const result = userFileId(fileName, builtin, isSeen);
+      expect(result.id).toBe(`${id}~${fileName}`);
+      expect(result.conflict).toContain(`"${id}"`);
+      expect(RESERVED_THEME_IDS.has(result.id) || builtin(result.id)).toBe(false);
+    }
+    expect(userFileId("dark.json", builtin, isSeen).conflict).toMatch(/reserved/);
+    expect(userFileId("dracula.json", builtin, isSeen).conflict).toMatch(/built-in/);
+  });
+
+  describe("planThemeSave", () => {
+    it("keeps the file when the JSON has no id (a new name never renames)", () => {
+      expect(planThemeSave({ id: "nightfall", fileName: "Nightfall.json" }, undefined)).toEqual({
+        id: "nightfall",
+        fileName: "Nightfall.json",
+        remove: null,
+      });
+    });
+
+    it("keeps the file when the explicit id is the current one", () => {
+      expect(planThemeSave({ id: "nightfall", fileName: "Nightfall.json" }, "nightfall")).toEqual({
+        id: "nightfall",
+        fileName: "Nightfall.json",
+        remove: null,
+      });
+    });
+
+    it("renames for another explicit id", () => {
+      expect(planThemeSave({ id: "nightfall", fileName: "nightfall.json" }, "dusk")).toEqual({
+        id: "dusk",
+        fileName: "dusk.json",
+        remove: "nightfall.json",
+      });
+      expect(planThemeSave({ id: "my-theme~My Theme.json", fileName: "My Theme.json" }, "mine")).toEqual({
+        id: "mine",
+        fileName: "mine.json",
+        remove: "My Theme.json",
+      });
+    });
+
+    it("never removes a file whose name differs only in case (APFS / NTFS)", () => {
+      expect(planThemeSave({ id: "nightfall~NIGHTFALL.json", fileName: "NIGHTFALL.json" }, "nightfall")).toEqual({
+        id: "nightfall~NIGHTFALL.json",
+        fileName: "NIGHTFALL.json",
+        remove: null,
+      });
+    });
   });
 
   it("groups themes for the palette", () => {

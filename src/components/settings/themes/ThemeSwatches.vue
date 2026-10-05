@@ -4,7 +4,7 @@
  * appearance, its canvas, chrome, text, primary and accent colours.
  */
 import { useTheme } from "@/providers/ThemeProvider";
-import { appearancesOf } from "@/lib/themes/library";
+import { themeAppearances } from "@/lib/themes/runtime";
 import type { ThemeAppearance, ThemeFile } from "@/lib/themes/types";
 
 const props = defineProps<{ file: ThemeFile }>();
@@ -17,7 +17,7 @@ watch(
   async (file) => {
     try {
       strips.value = await Promise.all(
-        appearancesOf(file).map(async (appearance) => {
+        themeAppearances(file).map(async (appearance) => {
           const { roles, vars } = await theme.resolve(file, appearance);
           return {
             appearance,

@@ -5,7 +5,7 @@
  * themes folder (read, watch, write), resolution (culori) and the
  * first-paint cache with it, so none of that is in the startup bundle.
  */
-import { shallowRef, watch, type Ref, type ShallowRef } from "vue";
+import { effectScope, shallowRef, watch, type Ref, type ShallowRef } from "vue";
 import {
   BaseDirectory,
   exists,
@@ -22,20 +22,22 @@ import { error as logError, warn } from "@/lib/logger";
 import { BUILTIN_THEMES, DEFAULT_THEME_ID } from "@/lib/themes/builtin";
 import { resolveTheme } from "@/lib/themes/resolve";
 import { serializeTheme } from "@/lib/themes/serialize";
-import { parseThemeFile, RESERVED_THEME_IDS } from "@/lib/themes/validate";
+import { parseThemeFile } from "@/lib/themes/validate";
 import {
   MAX_THEME_FILE_BYTES,
   MAX_THEME_FILES,
   OPEN_VSX_LABEL,
+  RESERVED_THEME_IDS,
   THEME_CACHE_KEY,
   THEMES_DIR,
   bootCacheEntry,
-  fileAppearances,
   paintedAppearance,
   pickTheme,
-  themeIdFromFileName,
+  planThemeSave,
+  themeAppearances,
   themeIdFromName,
   uniqueThemeId,
+  userFileId,
   type BootCache,
   type ThemeChoice,
 } from "@/lib/themes/runtime";
@@ -88,6 +90,8 @@ interface UserFile {
 
 export function createThemeRuntime(host: ThemeRuntimeHost): ThemeRuntime {
   const settings = host.appearanceSettings;
+  // Owns the runtime's watchers (it is created outside any component).
+  const scope = effectScope(true);
 
   /* ---------------------------------------------------------- themes -- */
 
@@ -137,7 +141,8 @@ export function createThemeRuntime(host: ThemeRuntimeHost): ThemeRuntime {
     fileName: string,
     id: string,
     path: string,
-    previous: UserFile | undefined
+    previous: UserFile | undefined,
+    conflict: string | null
   ): Promise<UserFile> => {
     const broken = (error: string, text: string | null = null): UserFile =>
       previous?.entry.error === error && previous.text === text && previous.entry.path === path
@@ -154,9 +159,7 @@ export function createThemeRuntime(host: ThemeRuntimeHost): ThemeRuntime {
               error,
             },
           };
-    if (builtinIds.has(id)) {
-      return broken(`"${id}" is the id of a built-in theme: rename the file.`);
-    }
+    if (conflict) return broken(conflict);
     let text: string;
     try {
       const info = await stat(themePath(fileName), { baseDir });
@@ -185,7 +188,7 @@ export function createThemeRuntime(host: ThemeRuntimeHost): ThemeRuntime {
         id,
         name: file.name,
         source: file.origin?.label === OPEN_VSX_LABEL ? "openvsx" : "user",
-        appearances: fileAppearances(file),
+        appearances: themeAppearances(file),
         file,
         ...(file.origin ? { origin: file.origin } : {}),
         path,
@@ -207,19 +210,16 @@ export function createThemeRuntime(host: ThemeRuntimeHost): ThemeRuntime {
     const seen = new Set<string>();
     const next: UserFile[] = [];
     for (const fileName of names.slice(0, MAX_THEME_FILES)) {
-      const id = themeIdFromFileName(fileName);
+      // "My Theme.json" and "my-theme.json" both claim "my-theme", "dracula.json"
+      // a built-in's id, "light.json" a reserved one: listed as broken.
+      const { id, conflict } = userFileId(
+        fileName,
+        (candidate) => builtinIds.has(candidate),
+        (candidate) => seen.has(candidate)
+      );
       const path = await join(dir, fileName);
-      let file = await readUserFile(fileName, id, path, previous.get(fileName));
-      if (seen.has(id)) {
-        // "My Theme.json" and "my-theme.json" both claim "my-theme".
-        const error = `Another theme file already uses the id "${id}": rename this one.`;
-        file = {
-          ...file,
-          entry: { id: `${id}~${fileName}`, name: file.entry.name, source: "user", appearances: [], path, error },
-        };
-      }
-      seen.add(id);
-      next.push(file);
+      next.push(await readUserFile(fileName, id, path, previous.get(fileName), conflict));
+      if (!conflict) seen.add(id);
     }
     const changed =
       next.length !== userFiles.value.length ||
@@ -336,7 +336,7 @@ export function createThemeRuntime(host: ThemeRuntimeHost): ThemeRuntime {
         id = DRAFT_ID;
         theme = preview.theme;
         appearance = paintedAppearance(
-          fileAppearances(preview.theme),
+          themeAppearances(preview.theme),
           preview.appearance ?? host.wanted.value
         );
       } else if (preview && typeof preview.theme === "string") {
@@ -369,8 +369,15 @@ export function createThemeRuntime(host: ThemeRuntimeHost): ThemeRuntime {
         draft = null;
         void sync();
       } else {
+        // JET paints, and Monaco / xterm follow it.
         host.paint(host.wanted.value, null, null);
         host.activeId.value = DEFAULT_THEME_ID;
+        try {
+          const jet = await resolve(DEFAULT_THEME_ID, host.wanted.value);
+          if (!stale()) host.active.value = jet;
+        } catch {
+          if (!stale()) host.active.value = null;
+        }
       }
     }
   };
@@ -404,7 +411,7 @@ export function createThemeRuntime(host: ThemeRuntimeHost): ThemeRuntime {
   };
 
   // A changed or removed theme file repaints (hot reload).
-  watch(host.themes, () => void sync());
+  scope.run(() => watch(host.themes, () => void sync()));
 
   /* ------------------------------------------------------------- API -- */
 
@@ -422,9 +429,9 @@ export function createThemeRuntime(host: ThemeRuntimeHost): ThemeRuntime {
 
   const isTaken = (id: string) => RESERVED_THEME_IDS.has(id) || builtinIds.has(id) || !!userFile(id);
 
-  const writeTheme = async (id: string, file: ThemeFile) => {
+  const writeTheme = async (fileName: string, file: ThemeFile) => {
     await ensureFolder();
-    await writeTextFile(themePath(`${id}.json`), serializeTheme(file), { baseDir }).catch((e) => {
+    await writeTextFile(themePath(fileName), serializeTheme(file), { baseDir }).catch((e) => {
       folderReady = null; // the folder may have been deleted meanwhile
       throw e;
     });
@@ -444,8 +451,16 @@ export function createThemeRuntime(host: ThemeRuntimeHost): ThemeRuntime {
     await loaded();
     // Validate everything first: one invalid file installs nothing.
     const parsed = files.map((file) => parseThemeFile(file));
+    const count = userFiles.value.length;
+    if (count + parsed.length > MAX_THEME_FILES) {
+      const adding = parsed.length === 1 ? "this one" : `these ${parsed.length}`;
+      throw new Error(
+        `The themes folder holds at most ${MAX_THEME_FILES} themes and has ${count}: ` +
+          `remove ${count + parsed.length - MAX_THEME_FILES} before adding ${adding}.`
+      );
+    }
     const assigned = new Set<string>();
-    for (const file of parsed) {
+    const planned = parsed.map((file) => {
       const id = uniqueThemeId(
         file.id ?? themeIdFromName(file.name),
         (candidate) => isTaken(candidate) || assigned.has(candidate)
@@ -453,30 +468,50 @@ export function createThemeRuntime(host: ThemeRuntimeHost): ThemeRuntime {
       assigned.add(id);
       let fileOrigin = file.origin ?? origin;
       if (source === "openvsx") fileOrigin = { ...fileOrigin, label: OPEN_VSX_LABEL };
-      await writeTheme(id, { ...file, id, ...(fileOrigin ? { origin: fileOrigin } : {}) });
+      return { id, file: { ...file, id, ...(fileOrigin ? { origin: fileOrigin } : {}) } };
+    });
+    // All or nothing: a failed write removes the files this call wrote.
+    const written: string[] = [];
+    try {
+      for (const { id, file } of planned) {
+        await writeTheme(`${id}.json`, file);
+        written.push(`${id}.json`);
+      }
+    } catch (e) {
+      await Promise.all(
+        written.map((fileName) => removeFile(themePath(fileName), { baseDir }).catch(() => undefined))
+      );
+      if (written.length > 0) await reload();
+      throw e;
     }
     await reload();
-    return [...assigned].map(readBack);
+    return planned.map(({ id }) => readBack(id));
   };
 
   const save = async (id: string, file: ThemeFile): Promise<ThemeEntry> => {
     await loaded();
     const current = userFile(id);
     if (!current) throw new Error(`"${id}" is not one of your themes.`);
+    // Only an explicit id renames (parseThemeFile derives one from the name).
+    const explicit = file.id !== undefined;
     const parsed = parseThemeFile(file);
-    const nextId = parsed.id ?? id;
-    if (nextId !== id && isTaken(nextId)) {
-      throw new Error(`A theme with the id "${nextId}" already exists.`);
+    const plan = planThemeSave({ id, fileName: current.fileName }, explicit ? parsed.id : undefined);
+    if (plan.remove && isTaken(plan.id)) {
+      throw new Error(`A theme with the id "${plan.id}" already exists.`);
     }
-    await writeTheme(nextId, { ...parsed, id: nextId });
-    if (current.fileName !== `${nextId}.json`) {
-      await removeFile(themePath(current.fileName), { baseDir });
+    const content: ThemeFile = { ...parsed };
+    if (!explicit) delete content.id;
+    await writeTheme(plan.fileName, content);
+    if (plan.remove) {
+      // The renamed theme is listed before the settings switch to it (no JET flash).
+      await reload();
       const saved = settings();
-      if (saved.lightTheme === id) saved.lightTheme = nextId;
-      if (saved.darkTheme === id) saved.darkTheme = nextId;
+      if (saved.lightTheme === id) saved.lightTheme = plan.id;
+      if (saved.darkTheme === id) saved.darkTheme = plan.id;
+      await removeFile(themePath(plan.remove), { baseDir });
     }
     await reload();
-    return readBack(nextId);
+    return readBack(plan.id);
   };
 
   const remove = async (id: string): Promise<void> => {
@@ -503,6 +538,7 @@ export function createThemeRuntime(host: ThemeRuntimeHost): ThemeRuntime {
     reload,
     dispose() {
       disposed = true;
+      scope.stop();
       unwatch?.();
     },
   };

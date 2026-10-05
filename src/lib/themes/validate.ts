@@ -11,7 +11,7 @@
  * apps/web/src/themePalette.ts → parseThemeFile).
  */
 import { isColor, TRIPLET_PATTERN } from "./contrast";
-import { THEME_ID_PATTERN, themeIdFromName } from "./runtime";
+import { RESERVED_THEME_IDS, THEME_ID_PATTERN, themeIdFromName } from "./runtime";
 import {
   type JetPilotThemeExtensions,
   type ThemeAppearance,
@@ -25,15 +25,7 @@ import {
   THEME_TOKENS,
 } from "./types";
 
-export { THEME_ID_PATTERN, themeIdFromName };
-
-/** Ids a user theme may not take: the appearance keywords and JET's default. */
-export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
-  "system",
-  "light",
-  "dark",
-  "jet",
-]);
+export { RESERVED_THEME_IDS, THEME_ID_PATTERN, themeIdFromName };
 
 const COLLECTION_ID_PATTERN = /^[a-z0-9][a-z0-9.:-]{0,127}$/i;
 const MAX_NAME_LENGTH = 48;

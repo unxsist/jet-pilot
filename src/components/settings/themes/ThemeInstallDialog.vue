@@ -17,7 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import ThemeSwatches from "./ThemeSwatches.vue";
-import { appearancesOf } from "@/lib/themes/library";
+import { themeAppearances } from "@/lib/themes/runtime";
 import type { ThemeFile } from "@/lib/themes/types";
 import type { ImportReport } from "./shared";
 
@@ -54,7 +54,7 @@ const count = computed(() => themes.value.filter((theme) => selected.value.has(t
 const showWarnings = ref(false);
 
 const appearanceLabel = (file: ThemeFile) => {
-  const appearances = appearancesOf(file);
+  const appearances = themeAppearances(file);
   return appearances.length === 2 ? "Light + dark" : appearances[0] === "light" ? "Light" : "Dark";
 };
 

@@ -317,7 +317,7 @@ export interface OpenVsxInstallResult {
   warnings?: string[];
 }
 
-/* ---- Module API (implemented in src/lib/themes/*, re-exported from ./index) ----
+/* ---- Module API (src/lib/themes/*; import each module directly, there is no barrel) ----
  *
  * import/index.ts  importTheme(text: string, filename?: string, opts?: { resolveInclude?: (path: string) => string | undefined;
  *                                                                     uiTheme?: string }): ImportResult
@@ -331,12 +331,12 @@ export interface OpenVsxInstallResult {
  * resolve.ts       resolveTheme(file: ThemeFile, appearance: ThemeAppearance): ResolvedTheme
  *                  - picks the variant for `appearance` (falls back to the base), derives missing roles
  *                    (T3 createVividThemeColors port, contrast-solved), maps to tokens / Monaco / xterm.
- *                  themeAppearances(file: ThemeFile): ThemeAppearance[]
+ * runtime.ts       themeAppearances(file: ThemeFile): ThemeAppearance[]; paintedAppearance(appearances, wanted)
  * serialize.ts     serializeTheme(file: ThemeFile, opts?: { forT3?: boolean }): string  (2-space JSON;
  *                  forT3 → version 1, all 57 roles resolved as hex, no jetPilot block, variants resolved too)
  * schema.ts        THEME_JSON_SCHEMA: object (JSON Schema draft-07 for ThemeFile), THEME_SCHEMA_URI = "jet-pilot://schemas/theme.json"
  * builtin/index.ts BUILTIN_THEMES: { id: string; name: string; origin?: ThemeOrigin; appearances: ThemeAppearance[];
- *                                    load: () => Promise<ThemeFile> }[]   — "jet" first; JET's file is eager.
+ *                                    load: () => Promise<ThemeFile> }[]   — "jet" first; every file is loaded on demand.
  *                  DEFAULT_THEME_ID = "jet"
  * contrast.ts      contrastRatio(a: string, b: string): number; toHslTriplet(color: string): string; toHex(color: string): string
  */
@@ -388,7 +388,8 @@ export interface ThemeContext {
   install(files: ThemeFile[], source?: ThemeSource, origin?: ThemeOrigin): Promise<ThemeEntry[]>;
   /**
    * Overwrites a user theme (the JSON editor); `id` is the theme's current
-   * id. A changed `file.id` renames the file (and the settings follow).
+   * id. Only an explicit `file.id` other than `id` renames the file (and
+   * the settings follow); without `file.id` the file keeps its name and id.
    * Throws a readable Error for invalid files or taken ids.
    */
   save(id: string, file: ThemeFile): Promise<ThemeEntry>;

@@ -6,6 +6,8 @@
  * import and unit-tested in Node.
  */
 import { themeGroup } from "./runtime";
+
+export { clickMode } from "./runtime";
 import type {
   ImportFormat,
   ThemeAppearance,
@@ -70,26 +72,6 @@ export function themeBadge(entry: Pick<ThemeEntry, "source" | "origin" | "error"
   }
 }
 
-/*
- * runtime.ts has these too, but it lives in the startup bundle: using its
- * copies from the (lazy) settings UI would pull them into it.
- */
-
-/** Appearances a file can render (base + variants), light first. */
-export function appearancesOf(file: Pick<ThemeFile, "appearance" | "variants">): ThemeAppearance[] {
-  return (["light", "dark"] as const).filter(
-    (appearance) => appearance === file.appearance || !!file.variants?.[appearance]
-  );
-}
-
-/** The appearance a theme paints when `wanted` is asked for (its own when it lacks it). */
-export function shownAppearance(
-  appearances: readonly ThemeAppearance[],
-  wanted: ThemeAppearance
-): ThemeAppearance {
-  return appearances.length === 0 || appearances.includes(wanted) ? wanted : appearances[0]!;
-}
-
 /* ------------------------------------------------------------- usage -- */
 
 export type ThemeUsage = ThemeAppearance | "both" | null;
@@ -125,15 +107,6 @@ export function appearanceChips(
       used: usedFor(appearance),
       native: entry.appearances.includes(appearance),
     }));
-}
-
-/**
- * What clicking a card does (the command palette's rule, from T3 Code): a
- * theme with both appearances is used for both; a single-appearance theme
- * claims its own half only (Dracula becomes the dark theme).
- */
-export function clickMode(entry: Pick<ThemeEntry, "appearances">): ThemeAppearance | "both" {
-  return entry.appearances.length === 1 ? entry.appearances[0]! : "both";
 }
 
 export interface UseOption {

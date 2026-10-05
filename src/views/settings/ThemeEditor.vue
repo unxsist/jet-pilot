@@ -60,7 +60,7 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { parseThemeFile } from "@/lib/themes/validate";
 import { serializeTheme } from "@/lib/themes/serialize";
 import { THEME_JSON_SCHEMA, THEME_SCHEMA_URI } from "@/lib/themes/schema";
-import { appearancesOf } from "@/lib/themes/library";
+import { themeAppearances } from "@/lib/themes/runtime";
 import {
   duplicateTheme,
   errorLine,
@@ -191,7 +191,7 @@ watch(
 
 /* ------------------------------------------------------ appearances -- */
 
-const appearances = computed<ThemeAppearance[]>(() => (draft.value ? appearancesOf(draft.value) : []));
+const appearances = computed<ThemeAppearance[]>(() => (draft.value ? themeAppearances(draft.value) : []));
 const previewAppearance = ref<ThemeAppearance>(wanted.value);
 watch(
   appearances,
@@ -383,10 +383,15 @@ const save = async () => {
   saving.value = true;
   try {
     const snapshot = text.value;
+    // Without an "id" in the JSON the theme keeps its file (and id): the
+    // id parseThemeFile derived from the name must not rename it.
+    const explicitId = typeof raw.value === "object" && raw.value !== null && "id" in raw.value;
+    const withoutId: ThemeFile = { ...file };
+    delete withoutId.id;
     const saved =
       kind.value === "new"
         ? (await theme.install([file], "user"))[0]!
-        : await theme.save(currentId.value, file);
+        : await theme.save(currentId.value, explicitId ? file : withoutId);
     savedText.value = snapshot;
     if (saved.id !== currentId.value) {
       currentId.value = saved.id;
@@ -430,8 +435,16 @@ const duplicate = async () => {
   }
 };
 
-/* Ctrl/Cmd+S outside the editor too. */
+/*
+ * Ctrl/Cmd+S outside the editor too, but only for this view: not when
+ * another surface (e.g. a resource editor in the bottom panel, a dialog)
+ * has the focus or handled the key already.
+ */
+const viewElement = ref<HTMLElement | null>(null);
 useEventListener(window, "keydown", (event: KeyboardEvent) => {
+  if (event.defaultPrevented) return;
+  const focused = document.activeElement;
+  if (focused && focused !== document.body && !viewElement.value?.contains(focused)) return;
   if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "s") {
     event.preventDefault();
     void save();
@@ -498,7 +511,7 @@ const badge = computed(() =>
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col bg-background">
+  <div ref="viewElement" class="flex h-full min-h-0 flex-col bg-background">
     <!-- Toolbar -->
     <header class="flex h-11 shrink-0 items-center gap-2 border-b bg-sidebar px-3">
       <Button variant="ghost" size="sm" class="text-muted-foreground" @click="back">

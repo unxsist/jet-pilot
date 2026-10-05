@@ -16,13 +16,6 @@ import type {
 } from "./types";
 import { buildXtermTheme } from "./xtermTheme";
 
-/** Appearances a file can render (base + variants), light first. */
-export function themeAppearances(file: ThemeFile): ThemeAppearance[] {
-  return (["light", "dark"] as const).filter(
-    (appearance) => appearance === file.appearance || !!file.variants?.[appearance]
-  );
-}
-
 /** The base or variant body for `appearance`, and the appearance it really renders. */
 export function pickVariant(
   file: ThemeFile,

@@ -28,7 +28,7 @@ import {
   toHexAlpha,
 } from "../contrast";
 import { createVividThemeColors, DEFAULT_SEEDS, pickActionColor } from "../derive";
-import { themeAppearances } from "../resolve";
+import { themeAppearances } from "../runtime";
 import {
   type AnsiColor,
   type JetPilotThemeExtensions,
