@@ -258,6 +258,16 @@ fn update<T>(change: impl FnOnce(&mut CatalogFile) -> T) -> Result<T, AppError> 
     Ok(result)
 }
 
+/// Context names of every loaded kubeconfig, which new names must not
+/// collide with (tests: only the managed one counts).
+fn known_names() -> HashSet<String> {
+    #[cfg(test)]
+    if lock(&TEST_PATHS).is_some() {
+        return HashSet::new();
+    }
+    super::import::Known::load().names
+}
+
 fn read() -> Result<CatalogFile, AppError> {
     let path = catalog_path()?;
     let _guard = lock(&FILE_LOCK);
@@ -1053,7 +1063,7 @@ pub async fn catalog_add(
             let ctx = providers::aws::context();
             let connections = jp_auth_core::connections::load(&ctx.connections_file)
                 .map_err(|e| AppError::io("The connections can't be read", e))?;
-            let known = super::import::Known::load();
+            let known = known_names();
             let existing = added_contexts(&managed::read(&path)?);
             Ok((file, connections, known, existing))
         })
@@ -1062,7 +1072,7 @@ pub async fn catalog_add(
     let helper = jp_auth_core::paths::helper_path();
     let outcomes = prepare_all(keys, &file, &connections, &existing, &helper).await;
     let store = providers::context().store;
-    let result = super::blocking(move || write(&path, outcomes, &known.names, &store)).await?;
+    let result = super::blocking(move || write(&path, outcomes, &known, &store)).await?;
     super::emit(CHANGED_EVENT);
     info!(
         "Added {} clusters from the catalog ({} failed, {} warnings)",

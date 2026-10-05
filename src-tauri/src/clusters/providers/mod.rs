@@ -338,7 +338,11 @@ pub(crate) fn context() -> CloudContext {
     if let Some(ctx) = crate::util::lock(&TEST_CONTEXT).clone() {
         return ctx;
     }
-    CloudContext::system(crate::secrets::store())
+    CloudContext {
+        // The helper's loopback test endpoint is not for the app.
+        endpoint: None,
+        ..CloudContext::system(crate::secrets::store())
+    }
 }
 
 /* ------------------------------------------------------------ commands */

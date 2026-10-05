@@ -369,6 +369,8 @@ fn args_of(exec: &ExecConfig) -> String {
 async fn api_providers_connect_discover_add_and_mint() {
     let _guard = lock(&TEST_LOCK);
     let _vault = lock(&crate::secrets::TEST_VAULT_LOCK);
+    // The helper path follows JET_PILOT_HOME, which other tests set.
+    let _env = lock(&crate::paths::TEST_ENV_LOCK);
     let server = FakeServer::start(fake_clouds).await;
     let fx = Fixture::new(&server.url);
 
