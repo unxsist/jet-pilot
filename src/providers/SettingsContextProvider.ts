@@ -286,6 +286,18 @@ export default {
         // with defaults. Persist what loading filled in (no-op if unchanged).
         watch(() => state.settings, scheduleSave, { deep: true });
         watch(() => state.settings.diagnostics?.logLevel, syncLogLevel);
+        // The credential broker is on in the backend unless turned off here.
+        watch(
+          () => state.settings.auth?.credentialBroker,
+          (enabled, previous) => {
+            if (enabled === false || previous === false) {
+              invoke("auth_set_broker", { enabled: enabled !== false }).catch((e) =>
+                error(`Failed to switch the credential broker: ${e}`)
+              );
+            }
+          },
+          { immediate: true }
+        );
         flush().then(() => {
           if (settingsFile.canSave) void watchSettingsFile();
         });

@@ -22,7 +22,13 @@ pub mod client {
     use tokio::sync::OnceCell;
     use tracing::{debug, error, info, trace};
 
+    use crate::auth::broker::{self, CredentialKey};
+    use crate::auth::center::{self, AuthErrorInfo, AuthErrorKind, AuthFailure, IssueSource};
+    use crate::auth::classify::command_basename;
+    use crate::auth::layer::{BrokerTokenLayer, ClientTarget, ObserveLayer};
     use crate::util::lock;
+    use k8s_openapi::jiff::{SignedDuration, Timestamp};
+    use kube::client::ClientBuilder;
 
     #[cfg(windows)]
     use std::os::windows::process::CommandExt;
@@ -39,11 +45,26 @@ pub mod client {
         pub(crate) code: Option<u16>,
         pub(crate) reason: Option<String>,
         pub(crate) details: Option<String>,
+        /// Set when the error is a credential problem of a context (sign-in
+        /// needed, expired, rejected, plugin missing / failed / too slow).
+        /// Absent otherwise.
+        /// Boxed: keeps the error (returned by every command) small.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub(crate) auth: Option<Box<AuthErrorInfo>>,
     }
 
     impl From<Error> for SerializableKubeError {
         fn from(error: Error) -> Self {
-            error!("Kubernetes API error occurred: {:?}", error);
+            match &error {
+                // Debug output of exec failures includes the plugin's stdout
+                // (the credential).
+                Error::Auth(auth_error) => error!("Kubernetes auth error occurred: {}", auth_error_message(auth_error)),
+                _ => error!("Kubernetes API error occurred: {:?}", error),
+            }
+
+            if let Some(failure) = AuthFailure::of_kube_error(&error) {
+                return SerializableKubeError::from(failure.clone());
+            }
 
             match error {
                 Error::Api(api_error) => {
@@ -55,6 +76,7 @@ pub mod client {
                         code: Option::from(code),
                         reason: Option::from(reason),
                         details: None,
+                        auth: None,
                     };
                 }
                 // Exec credential plugin errors (kubelogin / oidc-login /
@@ -69,6 +91,7 @@ pub mod client {
                         code: None,
                         reason: Some("ExecAuthFailed".to_string()),
                         details: None,
+                        auth: None,
                     }
                 }
                 _ => {
@@ -77,10 +100,62 @@ pub mod client {
                         code: None,
                         reason: None,
                         details: None,
+                        auth: None,
                     };
                 }
             }
         }
+    }
+
+    /// A credential failure of a client (broker errors).
+    impl From<AuthFailure> for SerializableKubeError {
+        fn from(failure: AuthFailure) -> Self {
+            SerializableKubeError {
+                message: failure.message,
+                code: None,
+                reason: Some(failure.info.kind.reason().to_string()),
+                details: None,
+                auth: Some(Box::new(failure.info)),
+            }
+        }
+    }
+
+    /// Fills in `auth` for errors of `context` that are credential problems
+    /// but don't know their context: 401 responses and kube-rs' own exec
+    /// plugin errors (broker disabled).
+    pub(crate) fn with_auth_context(mut err: SerializableKubeError, kube_config: &str, context: &str) -> SerializableKubeError {
+        if err.auth.is_some() {
+            return err;
+        }
+        let kind = if err.code == Some(401) {
+            AuthErrorKind::Unauthorized
+        } else if err.reason.as_deref() == Some("ExecAuthFailed") {
+            match center::detect_kubectl_auth_failure(&err.message) {
+                Some(AuthErrorKind::ExecFailed) | None => {
+                    if err.message.starts_with("Unable to run the Kubernetes exec credential plugin") {
+                        AuthErrorKind::ExecMissing
+                    } else {
+                        AuthErrorKind::ExecFailed
+                    }
+                }
+                Some(kind) => kind,
+            }
+        } else {
+            return err;
+        };
+        err.auth = Some(Box::new(AuthErrorInfo {
+            kube_config: kube_config.to_string(),
+            context: context.to_string(),
+            kind,
+            command: exec_command_for_context(Some(kube_config), context),
+        }));
+        err
+    }
+
+    /// An API error of `context`: `SerializableKubeError::from` plus the auth
+    /// context of 401s.
+    fn api_error(err: Error, kube_config: Option<&str>, context: &str) -> SerializableKubeError {
+        with_auth_context(SerializableKubeError::from(err), &resolve_kubeconfig_path(kube_config), context)
     }
 
     /// User-facing message for an auth (exec credential plugin) failure.
@@ -163,6 +238,7 @@ pub mod client {
                 code: None,
                 reason: None,
                 details: None,
+                auth: None,
             }
         }
     }
@@ -192,6 +268,7 @@ pub mod client {
             code: None,
             reason: Some("NoKubeconfig".to_string()),
             details: None,
+            auth: None,
         }
     }
 
@@ -230,18 +307,48 @@ pub mod client {
             .max()
     }
 
+    /// A client whose credentials (a client certificate from an exec plugin)
+    /// expire within this is rebuilt.
+    const CLIENT_EXPIRY_MARGIN: SignedDuration = SignedDuration::from_secs(60);
+
+    fn credentials_expiring(client: &Client) -> bool {
+        client
+            .valid_until()
+            .is_some_and(|until| until <= Timestamp::now() + CLIENT_EXPIRY_MARGIN)
+    }
+
     /// Returns the cache slot for `key`, replacing it when the kubeconfig
-    /// changed on disk since the slot was created.
+    /// changed on disk since the slot was created or the client's
+    /// credentials (`Client::valid_until`) are about to expire.
     fn client_slot(key: (String, String), stamp: Option<SystemTime>) -> Arc<OnceCell<Client>> {
         let mut clients = lock(&CLIENTS);
         match clients.get(&key) {
-            Some(cached) if cached.stamp == stamp => cached.cell.clone(),
+            Some(cached) if cached.stamp == stamp && !cached.cell.get().is_some_and(credentials_expiring) => {
+                cached.cell.clone()
+            }
             _ => {
                 let cell = Arc::new(OnceCell::new());
                 clients.insert(key, CachedClient { stamp, cell: cell.clone() });
                 cell
             }
         }
+    }
+
+    /// Drops the cached clients of (resolved kubeconfig path, context) pairs:
+    /// the next call builds new ones (after a sign-in).
+    pub(crate) fn invalidate_clients(targets: &[(String, String)]) {
+        let mut clients = lock(&CLIENTS);
+        for target in targets {
+            clients.remove(target);
+        }
+    }
+
+    /// The kubeconfig paths of the cached clients ("" = default resolution).
+    pub(crate) fn cached_kubeconfig_paths() -> Vec<String> {
+        let mut paths: Vec<String> = lock(&CLIENTS).keys().map(|(path, _)| path.clone()).collect();
+        paths.sort();
+        paths.dedup();
+        paths
     }
 
     #[tauri::command]
@@ -265,6 +372,7 @@ pub mod client {
             code: None,
             reason: Some("NoCurrentContext".to_string()),
             details: None,
+            auth: None,
         })?;
 
         info!("Current context retrieved: {}", context);
@@ -320,6 +428,7 @@ pub mod client {
                 code: None,
                 reason: None,
                 details: None,
+                auth: None,
             })?;
 
         config
@@ -332,6 +441,7 @@ pub mod client {
                 code: None,
                 reason: None,
                 details: None,
+                auth: None,
             })
     }
 
@@ -384,6 +494,49 @@ pub mod client {
         Ok(summarize_auth_info(&auth_info))
     }
 
+    /// The kubeconfig user of `context` ("" when it has none).
+    fn context_user(config: &Kubeconfig, context: &str) -> String {
+        config
+            .contexts
+            .iter()
+            .find(|c| c.name == context)
+            .and_then(|c| c.context.as_ref())
+            .and_then(|c| c.user.clone())
+            .unwrap_or_default()
+    }
+
+    /// A failed `ClientBuilder::try_from`. With the broker disabled kube-rs
+    /// runs exec plugins in there: those failures are auth issues.
+    fn client_build_error(err: Error, target: &ClientTarget) -> SerializableKubeError {
+        let missing = matches!(
+            &err,
+            Error::Auth(kube::client::AuthError::AuthExecStart(io)) if io.kind() == std::io::ErrorKind::NotFound
+        );
+        if !matches!(err, Error::Auth(_)) {
+            error!("Failed to create Kubernetes client: {}", err);
+        }
+        let mut err = with_auth_context(SerializableKubeError::from(err), &target.kube_config, &target.context);
+        if let Some(auth) = err.auth.as_mut() {
+            if missing {
+                auth.kind = AuthErrorKind::ExecMissing;
+            }
+            center::report_failure(
+                &AuthFailure {
+                    info: (**auth).clone(),
+                    message: err.message.clone(),
+                },
+                center::current_source(),
+            );
+        }
+        err
+    }
+
+    /// Builds the client of `context`. Exec credentials come from the
+    /// credential broker (unless disabled): the plugin is taken out of the
+    /// config so kube-rs never runs it, tokens are added per request by
+    /// `BrokerTokenLayer`, client certificates become the TLS identity with
+    /// the client's `valid_until`. Every client reports 401s
+    /// (`ObserveLayer`).
     async fn build_client(context: &str, kubeconfig_path: &str) -> Result<Client, SerializableKubeError> {
         debug!("Creating client for context: {}", context);
         let options = KubeConfigOptions {
@@ -392,28 +545,70 @@ pub mod client {
             user: None,
         };
 
-        let client_config = if !kubeconfig_path.is_empty() {
+        let kubeconfig = if !kubeconfig_path.is_empty() {
             debug!("Using custom kubeconfig path");
-            let kubeconfig = Kubeconfig::read_from(kubeconfig_path).map_err(|err| {
-                error!("Failed to read custom kubeconfig: {}", crate::kubeconfig_discovery::read_error_message(&err));
-                SerializableKubeError::from(err)
-            })?;
-            Config::from_custom_kubeconfig(kubeconfig, &options).await.map_err(|err| {
-                error!("Failed to create config from custom kubeconfig: {}", crate::kubeconfig_discovery::read_error_message(&err));
-                SerializableKubeError::from(err)
-            })?
+            Kubeconfig::read_from(kubeconfig_path)
         } else {
             debug!("Using default kubeconfig path");
-            Config::from_kubeconfig(&options).await.map_err(|err| {
-                error!("Failed to create config from default kubeconfig: {}", crate::kubeconfig_discovery::read_error_message(&err));
-                SerializableKubeError::from(err)
-            })?
-        };
-
-        let client = Client::try_from(client_config).map_err(|err| {
-            error!("Failed to create Kubernetes client: {}", err);
+            Kubeconfig::read()
+        }
+        .map_err(|err| {
+            error!("Failed to read kubeconfig: {}", crate::kubeconfig_discovery::read_error_message(&err));
             SerializableKubeError::from(err)
         })?;
+        let user = context_user(&kubeconfig, context);
+        let mut client_config = Config::from_custom_kubeconfig(kubeconfig, &options).await.map_err(|err| {
+            error!("Failed to create config from kubeconfig: {}", crate::kubeconfig_discovery::read_error_message(&err));
+            SerializableKubeError::from(err)
+        })?;
+
+        let target = ClientTarget {
+            kube_config: kubeconfig_path.to_string(),
+            context: context.to_string(),
+            command: client_config
+                .auth_info
+                .exec
+                .as_ref()
+                .and_then(|exec| exec.command.as_deref())
+                .map(command_basename)
+                .filter(|command| !command.is_empty()),
+        };
+        let exec = if broker::enabled() {
+            broker::take_exec(&mut client_config.auth_info)
+        } else {
+            None
+        };
+
+        let client = match exec {
+            None => ClientBuilder::try_from(client_config)
+                .map_err(|err| client_build_error(err, &target))?
+                .with_layer(&ObserveLayer::new(target.clone(), None))
+                .build(),
+            Some(exec) => {
+                let slot = broker::slot(&CredentialKey::new(kubeconfig_path, &user, &exec));
+                let credential = broker::credential_in(&slot, &exec, broker::BACKGROUND_TIMEOUT)
+                    .await
+                    .map_err(|err| {
+                        let failure = err.to_failure(kubeconfig_path, context);
+                        center::report_failure(&failure, center::current_source());
+                        error!("Credentials for context {} unavailable: {:?}", context, err.kind());
+                        SerializableKubeError::from(failure)
+                    })?;
+                let valid_until = broker::apply_client_certificate(&mut client_config.auth_info, &credential);
+                let builder = ClientBuilder::try_from(client_config)
+                    .map_err(|err| client_build_error(err, &target))?
+                    .with_valid_until(valid_until);
+                let observe = ObserveLayer::new(target.clone(), Some(slot.clone()));
+                if credential.token.is_some() {
+                    builder
+                        .with_layer(&BrokerTokenLayer::new(slot, exec, target.clone()))
+                        .with_layer(&observe)
+                        .build()
+                } else {
+                    builder.with_layer(&observe).build()
+                }
+            }
+        };
 
         info!("Created client for context: {}", context);
         Ok(client)
@@ -466,7 +661,7 @@ pub mod client {
 
         let namespaces = namespace_api.list(&ListParams::default()).await.map_err(|err| {
             error!("Failed to list namespaces: {}", err);
-            SerializableKubeError::from(err)
+            api_error(err, kube_config.as_deref(), context)
         })?;
 
         info!("Found {} namespaces", namespaces.items.len());
@@ -499,7 +694,7 @@ pub mod client {
             }
             Err(err) => {
                 error!("Failed to delete pod {}/{}: {}", namespace, name, err);
-                Err(SerializableKubeError::from(err))
+                Err(api_error(err, kube_config.as_deref(), context))
             }
         }
     }
@@ -518,7 +713,7 @@ pub mod client {
 
         let pod = pod_api.replace(name, &Default::default(), &object).await.map_err(|err| {
             error!("Failed to replace pod {}/{}: {}", namespace, name, err);
-            SerializableKubeError::from(err)
+            api_error(err, kube_config.as_deref(), context)
         })?;
 
         info!("Successfully replaced pod {}/{}", namespace, name);
@@ -531,6 +726,8 @@ pub mod client {
         name: &str,
         operation: &str,
         result: Result<T, Error>,
+        kube_config: Option<&str>,
+        context: &str,
     ) -> Result<T, SerializableKubeError> {
         match result {
             Ok(resource) => {
@@ -539,7 +736,7 @@ pub mod client {
             }
             Err(err) => {
                 error!("Failed to {} {} {}/{}: {}", operation, resource_type, namespace, name, err);
-                Err(SerializableKubeError::from(err))
+                Err(api_error(err, kube_config, context))
             }
         }
     }
@@ -560,7 +757,7 @@ pub mod client {
                 let api: Api<$type> = Api::namespaced(client, namespace);
 
                 let result = api.replace(name, &Default::default(), &object).await;
-                log_resource_operation($resource_name, namespace, name, "replace", result).await
+                log_resource_operation($resource_name, namespace, name, "replace", result, kube_config.as_deref(), context).await
             }
         };
     }
@@ -585,7 +782,7 @@ pub mod client {
 
         let versions = client.list_core_api_versions().await.map_err(|err| {
             error!("Failed to list core API versions: {}", err);
-            SerializableKubeError::from(err)
+            api_error(err, kube_config.as_deref(), context)
         })?;
 
         info!("Found {} core API versions", versions.versions.len());
@@ -604,7 +801,7 @@ pub mod client {
 
         let resources = client.list_core_api_resources(core_api_version).await.map_err(|err| {
             error!("Failed to list core API resources for version {}: {}", core_api_version, err);
-            SerializableKubeError::from(err)
+            api_error(err, kube_config.as_deref(), context)
         })?;
 
         info!("Found {} core API resources for version {}", resources.resources.len(), core_api_version);
@@ -621,7 +818,7 @@ pub mod client {
 
         let groups = client.list_api_groups().await.map_err(|err| {
             error!("Failed to list API groups: {}", err);
-            SerializableKubeError::from(err)
+            api_error(err, kube_config.as_deref(), context)
         })?;
 
         info!("Found {} API groups", groups.groups.len());
@@ -639,7 +836,7 @@ pub mod client {
 
         let resources = client.list_api_group_resources(api_group_version).await.map_err(|err| {
             error!("Failed to list API resources for group version {}: {}", api_group_version, err);
-            SerializableKubeError::from(err)
+            api_error(err, kube_config.as_deref(), context)
         })?;
 
         info!("Found {} API resources for group version {}", resources.resources.len(), api_group_version);
@@ -659,7 +856,7 @@ pub mod client {
         let cronjob_api: Api<CronJob> = Api::namespaced(client.clone(), namespace);
         let selected_cronjob = cronjob_api.get(name).await.map_err(|err| {
             error!("Failed to get cronjob {}/{}: {}", namespace, name, err);
-            SerializableKubeError::from(err)
+            api_error(err, kube_config.as_deref(), context)
         })?;
 
         let Some(cronjob_spec) = selected_cronjob.spec else {
@@ -668,6 +865,7 @@ pub mod client {
                 code: None,
                 reason: Some("InvalidCronjobSpec".to_string()),
                 details: None,
+                auth: None,
             };
             error!("{}", err.message);
             return Err(err);
@@ -695,19 +893,20 @@ pub mod client {
 
         let job = job_api.create(&PostParams::default(), &manual_job).await.map_err(|err| {
             error!("Failed to create manual job {} from cronjob {}: {}", jobname, name, err);
-            SerializableKubeError::from(err)
+            api_error(err, kube_config.as_deref(), context)
         })?;
 
         info!("Successfully created manual job {} from cronjob {}", jobname, name);
         Ok(job)
     }
 
-    /// Clears the cached kube client so the next API call rebuilds it. This is
-    /// needed after an interactive exec-plugin login (kubelogin / oidc-login)
-    /// completes: the cached client still holds the old, expired token.
-    fn clear_cached_client() {
+    /// Clears the cached kube clients so the next API call rebuilds them. This
+    /// is needed after an interactive exec-plugin login (kubelogin /
+    /// oidc-login) completes: the cached clients still hold the old, expired
+    /// token. Also used when the credential broker is switched on or off.
+    pub(crate) fn clear_client_cache() {
         lock(&CLIENTS).clear();
-        info!("Cleared cached kube client after auth re-login");
+        info!("Cleared cached kube clients");
     }
 
     /// Serialized result of running an exec credential plugin (kubelogin,
@@ -746,6 +945,7 @@ pub mod client {
             code: None,
             reason: Some("NoExecPlugin".to_string()),
             details: None,
+            auth: None,
         })?;
 
         let command = exec.command.clone().ok_or_else(|| SerializableKubeError {
@@ -753,6 +953,7 @@ pub mod client {
             code: None,
             reason: Some("NoExecPluginCommand".to_string()),
             details: None,
+            auth: None,
         })?;
 
         let mut cmd = Command::new(&command);
@@ -790,18 +991,21 @@ pub mod client {
                 code: None,
                 reason: Some("ExecAuthTimeout".to_string()),
                 details: None,
+                auth: None,
             })?
             .map_err(|e| SerializableKubeError {
                 message: format!("Unable to run exec credential plugin '{}': {}", command, e),
                 code: None,
                 reason: Some("ExecAuthStart".to_string()),
                 details: None,
+                auth: None,
             })?;
 
         // The plugin may have refreshed/rotated the token on disk, so drop the
-        // cached client - the next API call will rebuild it and pick up the
-        // fresh credentials.
-        clear_cached_client();
+        // cached clients and broker credentials - the next API call will
+        // rebuild them and pick up the fresh credentials.
+        broker::invalidate_all();
+        clear_client_cache();
 
         Ok(ExecAuthOutput {
             command,
@@ -911,9 +1115,30 @@ pub mod client {
             Ok(String::from_utf8_lossy(&output.stdout).into_owned())
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-            error!("kubectl {:?} failed: {}", mode, stderr);
+            error!("kubectl {:?} failed: {}", mode, center::redact(&stderr));
+            center::report_kubectl_failure(&kube_config, context, IssueSource::Kubectl, &stderr);
             Err(stderr)
         }
+    }
+
+    /// The `--kubeconfig` and `--context` of a kubectl argv (`--flag=value`
+    /// or `--flag value`).
+    fn kubectl_target(args: &[String]) -> (Option<String>, Option<String>) {
+        let mut kube_config = None;
+        let mut context = None;
+        let mut iter = args.iter();
+        while let Some(arg) = iter.next() {
+            for (flag, slot) in [("--kubeconfig", &mut kube_config), ("--context", &mut context)] {
+                if arg == flag {
+                    *slot = iter.next().cloned();
+                    break;
+                } else if let Some(value) = arg.strip_prefix(flag).and_then(|rest| rest.strip_prefix('=')) {
+                    *slot = Some(value.to_string());
+                    break;
+                }
+            }
+        }
+        (kube_config, context)
     }
 
     #[tauri::command]
@@ -943,7 +1168,12 @@ pub mod client {
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).into_owned())
         } else {
-            Err(format!("kubectl failed: {}", String::from_utf8_lossy(&output.stderr)))
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if let (kube_config, Some(context)) = kubectl_target(&args) {
+                let kube_config = resolve_kubeconfig_path(kube_config.as_deref());
+                center::report_kubectl_failure(&kube_config, &context, IssueSource::Kubectl, &stderr);
+            }
+            Err(format!("kubectl failed: {}", stderr))
         }
     }
 
@@ -1066,6 +1296,223 @@ users:
 
             let c = client_slot(key, Some(t2));
             assert!(!Arc::ptr_eq(&a, &c));
+        }
+
+        #[test]
+        fn kubectl_targets_are_read_from_args() {
+            let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+            assert_eq!(
+                kubectl_target(&args(&["get", "pods", "--context", "prod", "--kubeconfig=/kc"])),
+                (Some("/kc".to_string()), Some("prod".to_string()))
+            );
+            assert_eq!(
+                kubectl_target(&args(&["--context=dev", "get", "ns"])),
+                (None, Some("dev".to_string()))
+            );
+            assert_eq!(kubectl_target(&args(&["--contexts", "x"])), (None, None));
+        }
+
+        #[test]
+        fn auth_context_is_added_to_401s_only() {
+            let unauthorized = SerializableKubeError {
+                message: "Unauthorized".into(),
+                code: Some(401),
+                reason: Some("Unauthorized".into()),
+                details: None,
+                auth: None,
+            };
+            let err = with_auth_context(unauthorized, "/kc", "ctx");
+            let auth = err.auth.as_ref().unwrap();
+            assert_eq!(auth.kind, AuthErrorKind::Unauthorized);
+            assert_eq!(auth.context, "ctx");
+            let json = serde_json::to_value(&err).unwrap();
+            assert_eq!(json["auth"]["kind"], "unauthorized");
+            assert_eq!(json["auth"]["kubeConfig"], "/kc");
+
+            let not_found = SerializableKubeError {
+                message: "nope".into(),
+                code: Some(404),
+                reason: None,
+                details: None,
+                auth: None,
+            };
+            let err = with_auth_context(not_found, "/kc", "ctx");
+            assert!(err.auth.is_none());
+            // The field is absent (not null) when there is no auth problem.
+            assert!(serde_json::to_value(&err).unwrap().get("auth").is_none());
+        }
+
+        #[cfg(unix)]
+        mod broker_clients {
+            use super::*;
+            use crate::auth::broker::tests::{script, token_credential, TEST_CERT, TEST_KEY};
+            use crate::auth::center::{with_source, EMITTED};
+            use tokio::io::AsyncReadExt;
+            use tokio::net::TcpListener;
+
+            /// An API server answering `/version` for `Bearer good-token`
+            /// and 401 otherwise. Records the Authorization headers.
+            async fn fake_api() -> (String, Arc<Mutex<Vec<String>>>) {
+                let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let url = format!("http://{}", listener.local_addr().unwrap());
+                let seen = Arc::new(Mutex::new(Vec::new()));
+                let headers = seen.clone();
+                tokio::spawn(async move {
+                    loop {
+                        let Ok((mut socket, _)) = listener.accept().await else { return };
+                        let headers = headers.clone();
+                        tokio::spawn(async move {
+                            let mut buffer = Vec::new();
+                            let mut chunk = [0u8; 4096];
+                            loop {
+                                let Some(end) = buffer.windows(4).position(|w| w == b"\r\n\r\n") else {
+                                    match socket.read(&mut chunk).await {
+                                        Ok(0) | Err(_) => return,
+                                        Ok(n) => buffer.extend_from_slice(&chunk[..n]),
+                                    }
+                                    continue;
+                                };
+                                let head = String::from_utf8_lossy(&buffer[..end]).into_owned();
+                                buffer.drain(..end + 4);
+                                let authorization = head
+                                    .lines()
+                                    .find_map(|l| l.strip_prefix("authorization: ").or_else(|| l.strip_prefix("Authorization: ")))
+                                    .unwrap_or("")
+                                    .to_string();
+                                lock(&headers).push(authorization.clone());
+                                let (code, body) = if authorization == "Bearer good-token" {
+                                    (200, r#"{"major":"1","minor":"31","gitVersion":"v1.31.2","gitCommit":"","gitTreeState":"","buildDate":"","goVersion":"","compiler":"","platform":""}"#)
+                                } else {
+                                    (401, r#"{"kind":"Status","apiVersion":"v1","status":"Failure","message":"Unauthorized","reason":"Unauthorized","code":401}"#)
+                                };
+                                let response = format!(
+                                    "HTTP/1.1 {code} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
+                                    body.len()
+                                );
+                                if tokio::io::AsyncWriteExt::write_all(&mut socket, response.as_bytes()).await.is_err() {
+                                    return;
+                                }
+                            }
+                        });
+                    }
+                });
+                (url, seen)
+            }
+
+            fn kubeconfig(dir: &std::path::Path, server: &str, plugin: &std::path::Path) -> String {
+                let path = dir.join("kubeconfig.yaml");
+                std::fs::write(
+                    &path,
+                    format!(
+                        "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster:\n    server: {server}\ncontexts:\n- name: ctx\n  context:\n    cluster: c\n    user: u\nusers:\n- name: u\n  user:\n    exec:\n      apiVersion: client.authentication.k8s.io/v1beta1\n      command: {}\n",
+                        plugin.display()
+                    ),
+                )
+                .unwrap();
+                path.to_string_lossy().into_owned()
+            }
+
+            #[tokio::test]
+            async fn tokens_come_from_the_broker_per_request() {
+                let (server, seen) = fake_api().await;
+                let dir = tempfile::tempdir().unwrap();
+                let counter = dir.path().join("runs");
+                let plugin = script(
+                    dir.path(),
+                    "plugin",
+                    &format!("echo run >> '{}'\necho '{}'\n", counter.display(), token_credential("good-token", Some(3600))),
+                );
+                let path = kubeconfig(dir.path(), &server, &plugin);
+                let client = build_client("ctx", &path).await.unwrap();
+                assert_eq!(client.apiserver_version().await.unwrap().git_version, "v1.31.2");
+                client.apiserver_version().await.unwrap();
+                assert_eq!(lock(&seen).as_slice(), ["Bearer good-token", "Bearer good-token"]);
+                // One plugin run: built once, then cached.
+                assert_eq!(std::fs::read_to_string(&counter).unwrap().lines().count(), 1);
+                assert!(client.valid_until().is_none());
+            }
+
+            #[tokio::test]
+            async fn rejected_tokens_are_reported_with_their_source() {
+                let (server, _) = fake_api().await;
+                let dir = tempfile::tempdir().unwrap();
+                let plugin = script(dir.path(), "plugin", &format!("echo '{}'\n", token_credential("bad-token", Some(3600))));
+                let path = kubeconfig(dir.path(), &server, &plugin);
+                let client = build_client("ctx", &path).await.unwrap();
+                let err = with_source(IssueSource::Metrics, client.apiserver_version()).await.unwrap_err();
+                let err = api_error(err, Some(&path), "ctx");
+                assert_eq!(err.code, Some(401));
+                assert_eq!(err.auth.as_ref().unwrap().kind, AuthErrorKind::Unauthorized);
+                let issue = lock(&EMITTED)
+                    .iter()
+                    .find(|i| i.kube_config == path && i.kind == AuthErrorKind::Unauthorized)
+                    .cloned()
+                    .expect("401 reported");
+                assert_eq!(issue.source, IssueSource::Metrics);
+                assert_eq!(issue.command.as_deref(), Some("plugin"));
+            }
+
+            #[tokio::test]
+            async fn plugins_wanting_a_sign_in_fail_the_build_fast() {
+                let dir = tempfile::tempdir().unwrap();
+                let plugin = script(
+                    dir.path(),
+                    "kubelogin",
+                    "echo 'To sign in, use a web browser to open the page https://microsoft.com/devicelogin and enter the code ABCD12345 to authenticate.' >&2\nsleep 300\n",
+                );
+                let path = kubeconfig(dir.path(), "http://127.0.0.1:9", &plugin);
+                let started = std::time::Instant::now();
+                let Err(err) = build_client("ctx", &path).await else {
+                    panic!("the client must not be built");
+                };
+                assert!(started.elapsed() < Duration::from_secs(5));
+                assert_eq!(err.reason.as_deref(), Some("InteractionRequired"));
+                let auth = err.auth.as_ref().unwrap();
+                assert_eq!(auth.kind, AuthErrorKind::InteractionRequired);
+                assert_eq!(auth.command.as_deref(), Some("kubelogin"));
+                assert!(err.message.contains("executable kubelogin"), "{}", err.message);
+                assert!(lock(&EMITTED)
+                    .iter()
+                    .any(|i| i.kube_config == path && i.kind == AuthErrorKind::InteractionRequired));
+            }
+
+            #[tokio::test]
+            async fn client_certificates_set_valid_until_and_expiring_clients_are_rebuilt() {
+                let dir = tempfile::tempdir().unwrap();
+                let json = dir.path().join("cred.json");
+                std::fs::write(
+                    &json,
+                    serde_json::json!({
+                        "apiVersion": "client.authentication.k8s.io/v1beta1",
+                        "kind": "ExecCredential",
+                        "status": {
+                            "clientCertificateData": TEST_CERT,
+                            "clientKeyData": TEST_KEY,
+                            "expirationTimestamp": "2030-01-01T00:00:00Z"
+                        }
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+                let plugin = script(dir.path(), "certs", &format!("cat '{}'\n", json.display()));
+                let path = kubeconfig(dir.path(), "http://127.0.0.1:9", &plugin);
+                let client = build_client("ctx", &path).await.unwrap();
+                assert_eq!(client.valid_until().map(|t| t.as_second()), Some(1_893_456_000));
+
+                // A cached client whose credentials expire is replaced.
+                let key = (path.clone(), "expiring".to_string());
+                let stamp = Some(SystemTime::UNIX_EPOCH);
+                let first = client_slot(key.clone(), stamp);
+                let expiring = client.clone().with_valid_until(Some(Timestamp::now() + SignedDuration::from_secs(30)));
+                assert!(first.set(expiring).is_ok());
+                let second = client_slot(key.clone(), stamp);
+                assert!(!Arc::ptr_eq(&first, &second));
+                assert!(second.set(client).is_ok());
+                assert!(Arc::ptr_eq(&second, &client_slot(key.clone(), stamp)));
+
+                invalidate_clients(std::slice::from_ref(&key));
+                assert!(!Arc::ptr_eq(&second, &client_slot(key, stamp)));
+            }
         }
     }
 }

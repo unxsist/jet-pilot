@@ -11,6 +11,7 @@ vi.mock("@/lib/logger", () => ({
 import {
   ContextTarget,
   Row,
+  WatchAuth,
   WATCH_UPGRADE_MIN_MS,
   WatchedListController,
   clearWatchedListCache,
@@ -76,7 +77,7 @@ function controller(
   overrides: Partial<{
     fallback: (t: ContextTarget) => Promise<Pod[]>;
     forcePolling: boolean;
-    onAuthError: (t: ContextTarget, m: string) => Promise<boolean>;
+    auth: WatchAuth;
   }> = {}
 ) {
   const updates = { count: 0 };
@@ -87,7 +88,7 @@ function controller(
       fallback: overrides.fallback ?? (async () => []),
       fallbackInterval: 60_000,
       forcePolling: overrides.forcePolling ?? false,
-      onAuthError: overrides.onAuthError,
+      auth: overrides.auth,
       transport,
     },
     () => updates.count++
@@ -210,10 +211,18 @@ describe("WatchedListController", () => {
     expect(list.error()?.fatal).toBe(false);
   });
 
-  test("unauthorized is handed to the re-login flow and retry restarts", async () => {
+  test("unauthorized goes to the auth center, recovery restarts", async () => {
     const { transport, emit, restarted } = fakeTransport();
-    const onAuthError = vi.fn(async () => true);
-    const { list } = controller(transport, { onAuthError });
+    const recovered = new Map<string, () => void>();
+    const auth: WatchAuth = {
+      report: vi.fn(async () => true),
+      onRecovered: (t, callback) => {
+        recovered.set(t.context, callback);
+        return () => recovered.delete(t.context);
+      },
+      healthy: vi.fn(),
+    };
+    const { list } = controller(transport, { auth });
     list.setTargets([target("a")]);
     await flush();
 
@@ -224,14 +233,24 @@ describe("WatchedListController", () => {
       message: "executable aws failed: Error loading SSO Token",
     });
     await flush();
-    expect(onAuthError).toHaveBeenCalledWith(
+    expect(auth.report).toHaveBeenCalledWith(
       target("a"),
-      "executable aws failed: Error loading SSO Token"
+      "executable aws failed: Error loading SSO Token",
+      "watch"
     );
     expect(list.error()).toBeNull();
 
-    list.retry();
+    // Signed in: the watch restarts, rows arriving tell the center.
+    recovered.get("a")!();
     expect(restarted).toEqual(["a"]);
+    emit("a", ready());
+    emit("a", { type: "snapshot", scope: "", items: [pod("1")] });
+    expect(auth.healthy).toHaveBeenCalledWith(target("a"));
+
+    list.retry();
+    expect(restarted).toEqual(["a", "a"]);
+    list.dispose();
+    expect(recovered.size).toBe(0);
   });
 
   test("changing the selection only touches changed contexts", async () => {

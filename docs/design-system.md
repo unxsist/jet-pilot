@@ -240,7 +240,8 @@ canvas with a hairline border, the side panel is `bg-card`. Toolbars are
 fixture data (`dev/harness/`). Query parameters `theme`, `os` and
 `scenario` (`default`, `empty`, `error`, `nocontext`, `whatsnew`, `large`: a 2,000+ object cluster for the resource graph,
 `kubeconfigs`: extra and unreadable kubeconfig files, `tools-missing`: no kubectl, to try downloads,
-`hub`: a full Clusters hub across providers, `fresh`: a first start with the setup guide) switch
+`hub`: a full Clusters hub across providers, `fresh`: a first start with the setup guide, `no-keychain`: adding clusters
+asks for a vault passphrase, `auth-expired`: an expired credential and the in-app sign-in) switch
 variants. The fixture settings are a v1 `settings.json`, so every fresh load also exercises the migration to
 `settings.json` + `state.json`. `node dev/harness/shoot.mjs <prefix> [screen...]` screenshots the
 key screens in dark and light with a local Chromium (needs

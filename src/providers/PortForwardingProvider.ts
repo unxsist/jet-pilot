@@ -13,11 +13,15 @@ import { open } from "@tauri-apps/plugin-shell";
 import { error as logError } from "@/lib/logger";
 import { injectStrict } from "@/lib/utils";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+import { isSameContext } from "@/lib/contextKey";
+import { credentialView, onRecovered, report } from "@/lib/auth/center";
 import {
   createProfile,
   isProfileRunning,
   parseProfiles,
+  profileId,
   profilesToAutoStart,
+  toSpec,
   upsertProfile,
   type PortForwardProfile,
 } from "@/lib/portForwardProfiles";
@@ -152,6 +156,7 @@ export default {
       listen<ActivePortForwarding>("port_forward_error", (event) => {
         upsertForward(event.payload);
         settleForward(event.payload);
+        waitForSignIn(event.payload);
       }),
       listen<{
         id: string;
@@ -237,6 +242,39 @@ export default {
         pendingForwards.set(info.id, { resolve, reject, openInBrowser });
       });
     };
+
+    /*
+     * Forwards that failed because the cluster needs a sign-in (their error
+     * says so, or the backend reported the cluster) start again once it
+     * succeeded: the backend doesn't restart them.
+     */
+    const failedOnAuth = new Map<string, PortForwarding>();
+    const waitForSignIn = (pf: ActivePortForwarding) => {
+      if (!pf.error) return;
+      if (report(pf, pf.error, "portForward") || credentialView(pf).needsSignIn) {
+        failedOnAuth.set(pf.id, { ...toSpec(pf), ttlSeconds: pf.ttlSeconds });
+      }
+    };
+    onRecovered("*", (target) => {
+      for (const [id, spec] of failedOnAuth) {
+        if (!isSameContext(spec, target)) continue;
+        failedOnAuth.delete(id);
+        const errored = state.activePortForwardings.find((pf) => pf.id === id);
+        if (errored) removePortForwarding(errored);
+        // Started again by hand meanwhile.
+        const key = profileId(toSpec(spec));
+        if (
+          state.activePortForwardings.some(
+            (pf) => pf.status !== "error" && profileId(toSpec(pf)) === key
+          )
+        ) {
+          continue;
+        }
+        addPortForwarding(spec, false).catch((e) =>
+          logError(`Failed to restart port forward ${spec.objectName}: ${e}`)
+        );
+      }
+    });
 
     const removePortForwarding = (
       activePortForwarding: ActivePortForwarding

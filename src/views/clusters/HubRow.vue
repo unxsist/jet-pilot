@@ -24,6 +24,7 @@ import {
 import ContextAvatar from "@/components/ContextAvatar.vue";
 import EnvBadge from "@/components/clusters/EnvBadge.vue";
 import ProviderMark from "@/components/clusters/ProviderMark.vue";
+import CredentialBadge from "@/components/auth/CredentialBadge.vue";
 import { cn } from "@/lib/utils";
 import type { HubCluster } from "@/lib/clusters/hubModel";
 import { STATUS_LABELS, STATUS_TONES, relativeTime } from "@/lib/clusters/status";
@@ -47,6 +48,8 @@ const emit = defineEmits<{
   hide: [];
   check: [];
   copy: [];
+  remove: [];
+  export: [];
   select: [on: boolean];
   focus: [];
 }>();
@@ -100,7 +103,7 @@ const problems = computed(() => entry.value.problems.map((p) => p.message).join(
     :tabindex="focused ? 0 : -1"
     :class="
       cn(
-        'group/row grid h-12 cursor-default grid-cols-[1.25rem_2rem_minmax(0,1fr)_minmax(0,11rem)_4.5rem_4rem_minmax(0,10rem)_auto] items-center gap-x-3 px-3 outline-none transition-colors duration-fast',
+        'group/row grid h-12 cursor-default grid-cols-[1.25rem_2rem_minmax(0,1fr)_minmax(0,11rem)_4.5rem_4rem_minmax(0,13rem)_auto] items-center gap-x-3 px-3 outline-none transition-colors duration-fast',
         'hover:bg-accent/50 focus-visible:bg-accent/60 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring',
         selected && 'bg-primary/[0.06] hover:bg-primary/10',
         meta.hidden && 'opacity-60'
@@ -166,7 +169,7 @@ const problems = computed(() => entry.value.problems.map((p) => p.message).join(
     <div class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground" :title="problems || authText">
       <TriangleAlert v-if="problems" class="h-3.5 w-3.5 shrink-0 text-warning" />
       <span class="truncate font-mono text-2xs">{{ authText }}</span>
-      <span v-if="interactive" class="shrink-0 rounded border px-1 text-2xs">sign-in</span>
+      <CredentialBadge :context="entry.context" :kube-config="entry.kubeConfig" size="sm" class="shrink-0" />
     </div>
 
     <div class="flex items-center justify-end gap-1">
@@ -226,6 +229,13 @@ const problems = computed(() => entry.value.problems.map((p) => p.message).join(
             <span v-if="interactive" class="ml-auto pl-3 text-2xs text-muted-foreground">needs sign-in</span>
           </DropdownMenuItem>
           <DropdownMenuItem @select="emit('copy')">Copy context name</DropdownMenuItem>
+          <template v-if="entry.origin === 'managed'">
+            <DropdownMenuSeparator />
+            <DropdownMenuItem @select="emit('export')">Export…</DropdownMenuItem>
+            <DropdownMenuItem class="text-destructive focus:text-destructive" @select="emit('remove')">
+              Remove from JET Pilot…
+            </DropdownMenuItem>
+          </template>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

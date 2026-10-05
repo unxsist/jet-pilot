@@ -22,6 +22,7 @@ import { error as logError, log as logInfo } from "@/lib/logger";
 import { useIsActiveView } from "@/lib/activeView";
 import { markFirstData } from "@/lib/perf";
 import { pollInterval } from "@/lib/settings/runtime";
+import { onRecovered, report, reportHealthy } from "@/lib/auth/center";
 
 /** One activated context and the namespaces selected for it. */
 export interface ContextTarget {
@@ -42,6 +43,34 @@ export type Row = {
 
 export type SourceMode = "watch" | "poll";
 
+/**
+ * How a list deals with authentication failures. The default is the auth
+ * center (@/lib/auth/center): it marks the cluster (notice + toast) and
+ * calls back once a sign-in fixed it.
+ */
+export interface WatchAuth {
+  /**
+   * Records an authentication failure. Resolves true when a sign-in fixes
+   * it, which keeps the failure out of the error banner.
+   */
+  report(
+    target: ContextTarget,
+    message: string,
+    source: "watch" | "kubectl"
+  ): boolean | Promise<boolean>;
+  /** Calls `recovered` when the context's credential works again. */
+  onRecovered(target: ContextTarget, recovered: () => void): () => void;
+  /** Rows arrived again after a reported failure. */
+  healthy?(target: ContextTarget): void;
+}
+
+/** The auth center as a WatchAuth. */
+export const centerWatchAuth: WatchAuth = {
+  report: (target, message, source) => report(target, message, source),
+  onRecovered: (target, recovered) => onRecovered(target, recovered),
+  healthy: (target) => reportHealthy(target),
+};
+
 export interface WatchedListOptions<T> {
   /** kubectl resource name (`pods`, `deployments`, CRD plurals, ...). */
   resource: string;
@@ -51,11 +80,8 @@ export interface WatchedListOptions<T> {
   fallbackInterval: number;
   /** Use kubectl polling for every context (setting / harness flag). */
   forcePolling: boolean;
-  /**
-   * Offer a re-login for an authentication failure. Resolves true when it is
-   * being handled, which keeps the failure out of the error banner.
-   */
-  onAuthError?: (target: ContextTarget, message: string) => Promise<boolean>;
+  /** Authentication failures and recovery (useWatchedList: the auth center). */
+  auth?: WatchAuth;
   transport: WatchTransport;
   /** Called (coalesced) whenever rows or state changed. */
   onChange: () => void;
@@ -148,6 +174,9 @@ export class ContextSource<T extends Row> {
   private subscribeGeneration = 0;
   private pollGeneration = 0;
   private authPending = false;
+  /** An authentication failure was reported (cleared when rows arrive). */
+  private authReported = false;
+  private stopRecovered: (() => void) | null;
 
   constructor(
     readonly key: string,
@@ -155,6 +184,11 @@ export class ContextSource<T extends Row> {
     private readonly options: WatchedListOptions<T>
   ) {
     this.mode = options.forcePolling ? "poll" : "watch";
+    // A sign-in fixed the credential: reconnect right away.
+    this.stopRecovered =
+      options.auth?.onRecovered(target, () => {
+        if (!this.disposed && (this.authHandled || this.failure)) this.retry();
+      }) ?? null;
 
     const cached = rowCache.get(key);
     if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
@@ -201,6 +235,8 @@ export class ContextSource<T extends Row> {
 
   dispose() {
     this.disposed = true;
+    this.stopRecovered?.();
+    this.stopRecovered = null;
     this.subscribeGeneration++;
     this.handle?.unsubscribe();
     this.handle = null;
@@ -253,6 +289,13 @@ export class ContextSource<T extends Row> {
     this.options.onChange();
   }
 
+  /* Rows arrived: a credential reported failing works again. */
+  private authOk() {
+    if (!this.authReported) return;
+    this.authReported = false;
+    this.options.auth?.healthy?.(this.target);
+  }
+
   /* ------------------------------------------------------------ watch -- */
 
   private async subscribe() {
@@ -300,6 +343,7 @@ export class ContextSource<T extends Row> {
 
     switch (message.type) {
       case "snapshot":
+        this.authOk();
         this.applySnapshot(message.scope, message.items);
         this.snapshotScopes.add(message.scope);
         this.reconcileScopes();
@@ -399,10 +443,15 @@ export class ContextSource<T extends Row> {
   }
 
   private async handleAuth(message: string) {
-    if (!this.options.onAuthError || this.authPending) return;
+    if (!this.options.auth || this.authPending) return;
     this.authPending = true;
+    this.authReported = true;
     try {
-      this.authHandled = await this.options.onAuthError(this.target, message);
+      this.authHandled = await this.options.auth.report(
+        this.target,
+        message,
+        this.mode === "watch" ? "watch" : "kubectl"
+      );
     } catch {
       this.authHandled = false;
     } finally {
@@ -539,6 +588,7 @@ export class ContextSource<T extends Row> {
       this.applySnapshot("", rows);
       this.failure = null;
       this.authHandled = false;
+      this.authOk();
       this.loaded = true;
       this.changed();
     } catch (e) {
@@ -752,7 +802,8 @@ export interface UseWatchedListOptions<T> {
   /** kubectl polling interval (fallback path), ms; default: Settings › Tables & Logs. */
   fallbackInterval?: number;
   forcePolling?: () => boolean;
-  onAuthError?: (target: ContextTarget, message: string) => Promise<boolean>;
+  /** Default: the auth center (notice, toast, reconnect after a sign-in). */
+  auth?: WatchAuth;
   transport?: WatchTransport;
 }
 
@@ -818,7 +869,7 @@ export function useWatchedList<T extends Row>(options: UseWatchedListOptions<T>)
         fallback: (target) => options.fallback(resource, target),
         fallbackInterval: options.fallbackInterval ?? pollInterval(),
         forcePolling: options.forcePolling?.() ?? false,
-        onAuthError: options.onAuthError,
+        auth: options.auth ?? centerWatchAuth,
         transport: options.transport ?? tauriWatchTransport,
       },
       update

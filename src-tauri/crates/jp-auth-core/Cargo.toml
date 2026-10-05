@@ -1,0 +1,31 @@
+[package]
+name = "jp-auth-core"
+version = "0.1.0"
+description = "Credential plumbing shared by JET Pilot and its jetpilot-auth kubectl helper"
+authors = ["Jeroen Nijhuis"]
+license = "MIT"
+edition = "2021"
+publish = false
+
+# No tauri (or kube) dependency: the jetpilot-auth helper links this crate
+# and must stay small and quick to start.
+[dependencies]
+serde = { version = "1.0.167", features = ["derive"] }
+serde_json = "1.0.100"
+base64 = "0.22"
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"] }
+getrandom = "0.2"
+zeroize = "1.8"
+sha2 = "0.10"
+keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The kernel keyring caches an unlocked passphrase vault for other terminals.
+linux-keyutils = { version = "0.2", features = ["std"] }
+# Probing for a Secret Service provider without prompting (already linked
+# by the app through tao).
+dbus = "0.9"
+
+[dev-dependencies]
+tempfile = "3"

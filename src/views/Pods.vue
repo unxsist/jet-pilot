@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { injectStrict } from "@/lib/utils";
 import { PodMetric, V1Pod } from "@kubernetes/client-node";
-import { Kubernetes } from "@/services/Kubernetes";
 
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 
@@ -30,12 +29,8 @@ import {
 import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
 import { allowed, rowTargets } from "@/lib/guardrails/guard";
 
-const {
-  namespace,
-  contexts,
-  contextKubeConfigMapping,
-  authenticated: clusterAuthenticated,
-} = injectStrict(KubeContextStateKey);
+const { namespace, contexts, contextKubeConfigMapping } =
+  injectStrict(KubeContextStateKey);
 
 const addTab = injectStrict(PanelProviderAddTabKey);
 const { settings } = injectStrict(SettingsContextStateKey);
@@ -228,93 +223,6 @@ const showDetails = (row: any) => {
 };
 
 /*
- * Offers the interactive login flow (kubelogin / OIDC exec plugins) for a
- * context whose credentials expired. One dialog at a time; contexts whose
- * dialog was closed are not asked again until a login completes. Refreshing
- * keeps running so the other active contexts stay up to date.
- */
-let authDialogOpen = false;
-const dismissedAuthContexts = new Set<string>();
-
-const handleAuthError = async (
-  ctx: string,
-  kubeConfig: string,
-  reason: unknown
-): Promise<boolean> => {
-  if (authDialogOpen || dismissedAuthContexts.has(ctx)) {
-    return true;
-  }
-
-  const authErrorHandler = await Kubernetes.getAuthErrorHandler(
-    ctx,
-    kubeConfig,
-    String(reason)
-  );
-
-  if (!authErrorHandler.canHandle || authDialogOpen) {
-    return authErrorHandler.canHandle;
-  }
-
-  authDialogOpen = true;
-  clusterAuthenticated.value = false;
-
-  const closeAuthDialog = () => {
-    authDialogOpen = false;
-    clusterAuthenticated.value = true;
-  };
-
-  const loginCompleted = () => {
-    closeAuthDialog();
-    dismissedAuthContexts.clear();
-    retry();
-  };
-
-  spawnDialog({
-    title: "Authentication required",
-    message: `Failed to authenticate with ${ctx}. Please log in to continue.`,
-    buttons: [
-      {
-        label: "Close",
-        variant: "ghost",
-        handler: (dialog) => {
-          dismissedAuthContexts.add(ctx);
-          closeAuthDialog();
-          dialog.close();
-        },
-      },
-      {
-        label: "Login",
-        handler: async (dialog) => {
-          dialog.buttons = [];
-          dialog.title = "Awaiting login";
-          dialog.message = "Please wait while we complete the login flow.";
-          authErrorHandler.callback((instructions?: string) => {
-            if (instructions) {
-              dialog.title = "Complete login in your browser";
-              dialog.message = instructions.slice(0, 2000);
-              dialog.buttons = [
-                {
-                  label: "I've completed the login",
-                  handler: (dialog) => {
-                    dialog.close();
-                    loginCompleted();
-                  },
-                },
-              ];
-            } else {
-              dialog.close();
-              loginCompleted();
-            }
-          });
-        },
-      },
-    ],
-  });
-
-  return true;
-};
-
-/*
  * kubectl fallback for one context (watch unavailable, or the
  * `experimental.useKubectlPolling` setting): pods, plus metrics when the
  * metrics service is disabled. Metrics are optional: clusters without
@@ -359,8 +267,9 @@ const targets = () =>
 
 /*
  * Live pods across every activated (context, namespaces) from the backend
- * WatchHub. Authentication failures that open the login dialog are not
- * reported as errors (the other contexts keep updating).
+ * WatchHub. Clusters that need a sign-in are reported to the auth center
+ * (the notice above the view offers it) instead of the error banner, and
+ * reconnect once signed in; the other contexts keep updating.
  */
 const {
   items: watchedPods,
@@ -374,8 +283,6 @@ const {
   targets,
   fallback: (_resource, target) => fetchContext(target),
   forcePolling,
-  onAuthError: (target, message) =>
-    handleAuthError(target.context, target.kubeConfig, message),
 });
 
 const { metrics, history: metricsHistory } = usePodMetrics(

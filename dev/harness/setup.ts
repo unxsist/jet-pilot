@@ -18,6 +18,7 @@
  *                            `jet` is the default)
  *   ?version=<x.y.z>         app version (default: package.json)
  *   ?readonly=1              (hub) the active cluster is read-only
+ *   ?scenario=auth-expired   the first cluster needs a sign-in (auth.ts)
  *
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views; `large-graph` swaps the
@@ -26,7 +27,10 @@
  * unreadable); `tools-missing` has no kubectl (downloads take ~2 s).
  * `hub` fills the Clusters hub (EKS, GKE, AKS, DigitalOcean, Linode,
  * Scaleway, local clusters, with aliases, folders and guardrails; probes
- * stream varied statuses). `fresh` starts without settings (the setup guide). The
+ * stream varied statuses). `fresh` starts without settings (the setup guide).
+ * `no-keychain`: no system keychain (adding a cluster asks for a vault
+ * passphrase). The import dialog's "file" is ~/Downloads/config.yaml with a
+ * token cluster, an EKS cluster and an already-known context. The
  * fixture settings are a v1 settings.json, so every fresh load exercises the
  * migration to settings.json + state.json.
  * `update` offers v9.9.9 on startup and "downloads" it in ~3 s;
@@ -61,6 +65,8 @@ import {
   openVsxThemes,
 } from "./fixtures";
 import { HUB_CLUSTER_RECORDS, HUB_FILES, hubStatus } from "./clusters";
+import { createManagedMocks } from "./managed";
+import { installAuthMocks } from "./auth";
 
 const params = new URLSearchParams(location.search);
 if (params.get("fresh")) {
@@ -1192,6 +1198,10 @@ const installTool = async (id: string, channel: any) => {
 /* ------------------------------------------------------------- dispatch -- */
 
 const ptyChannels = new Map<string, any>();
+/* Clusters added in JET Pilot + the vault (dev/harness/managed.ts). */
+const managed = createManagedMocks(scenario, () =>
+  scenario === "hub" ? Object.values(HUB_FILES).flatMap((f) => f.contexts.map((c) => c.name)) : CONTEXTS.map((c) => c.name)
+);
 let probeBatches = 0;
 
 /* ------------------------------------------------------------------ fs -- */
@@ -1357,6 +1367,7 @@ const openVsxInstall = (namespace: string, name: string) => {
 mockIPC(
   async (cmd: string, payload: any) => {
     const p = payload || {};
+    if (cmd in managed.handlers) return managed.handlers[cmd]!(p);
     switch (cmd) {
       // fs / path / app / os / updater / window / clipboard
       case "plugin:fs|exists":
@@ -1494,6 +1505,7 @@ mockIPC(
       case "get_current_context":
         return scenario === "nocontext" ? "" : CONTEXTS[0].name;
       case "list_contexts":
+        if (managed.contexts(p.kubeConfig)) return managed.contexts(p.kubeConfig);
         if (scenario === "hub" && HUB_FILES[p.kubeConfig]) {
           return HUB_FILES[p.kubeConfig]!.contexts.map((c) => ({ name: c.name, context: { namespace: c.namespace ?? "default" } }));
         }
@@ -1502,10 +1514,10 @@ mockIPC(
         return CONTEXTS.map((c) => ({ name: c.name, context: { namespace: c.namespace } }));
       case "kubeconfig_discover":
         await sleep(120);
-        return discoverKubeconfigs();
+        return [...managed.discovery(), ...discoverKubeconfigs()];
       case "kubeconfig_describe":
         await sleep(150);
-        return describeKubeconfig(p.path);
+        return managed.describe(p.path) ?? describeKubeconfig(p.path);
       case "tools_detect":
         await sleep(p.force ? 600 : 250);
         return [...toolState.keys()].map(toolStatus);
@@ -1759,5 +1771,8 @@ internals.invoke = async (cmd: string, args: any, options: any) => {
   }
   return mockedInvoke(cmd, args, options);
 };
+
+/* Auth center: credential status, sign-ins, auth-expired (auth.ts). */
+installAuthMocks({ scenario, sendToChannel, firstContext: CONTEXTS[0].name, kubeConfig: KUBECONFIG, files: HUB_FILES });
 
 (window as any).__harness = { theme, os, scenario, polling };

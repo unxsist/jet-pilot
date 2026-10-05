@@ -31,6 +31,7 @@ use tokio::process::{Child, Command};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::auth::center::{self, IssueSource};
 use crate::util::lock;
 
 #[cfg(windows)]
@@ -122,6 +123,15 @@ fn is_error_line(line: &str) -> bool {
         || lower.contains("address already in use")
 }
 
+/// The context of a forward, for auth issues: (kubeconfig, context).
+type ForwardTarget = Arc<(String, String)>;
+
+/// Reports kubectl output that shows a credential problem (expired sign-in,
+/// rejected token, a plugin waiting for a device code) to the auth center.
+fn report_auth(target: &ForwardTarget, output: &str) {
+    center::report_kubectl_failure(&target.0, &target.1, IssueSource::PortForward, output);
+}
+
 /// Reads one kubectl output stream line by line and updates the forward's
 /// status. Errors are only fatal while the forward is starting: once ready,
 /// kubectl keeps running and reports per-connection failures ("an error
@@ -131,6 +141,7 @@ async fn read_forward_output<R: AsyncRead + Unpin>(
     id: String,
     info: Arc<Mutex<PortForwardInfo>>,
     last_output: Arc<Mutex<Option<String>>>,
+    target: ForwardTarget,
     stream: R,
 ) {
     let mut reader = BufReader::new(stream);
@@ -146,6 +157,7 @@ async fn read_forward_output<R: AsyncRead + Unpin>(
 
                 if !trimmed.contains("Handling connection for") {
                     *lock(&last_output) = Some(trimmed.to_string());
+                    report_auth(&target, trimmed);
                 }
 
                 let event = {
@@ -339,12 +351,17 @@ pub async fn start_port_forward(
 
     // --- output readers: classify kubectl output into ready / error ---------
     let last_output: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let target: ForwardTarget = Arc::new((
+        crate::kubernetes::client::resolve_kubeconfig_path(Some(&spec.kube_config)),
+        spec.context.clone(),
+    ));
     if let Some(stdout) = stdout {
         tokio::spawn(read_forward_output(
             app.clone(),
             id.clone(),
             info_shared.clone(),
             last_output.clone(),
+            target.clone(),
             stdout,
         ));
     }
@@ -354,6 +371,7 @@ pub async fn start_port_forward(
             id.clone(),
             info_shared.clone(),
             last_output.clone(),
+            target.clone(),
             stderr,
         ));
     }

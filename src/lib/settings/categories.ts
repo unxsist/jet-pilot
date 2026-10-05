@@ -136,6 +136,14 @@ export const CATEGORIES: readonly SettingCategory[] = [
         keywords: ["kubectl", "helm", "aws", "gcloud", "az", "kubelogin", "doctl", "download", "install", "path"],
         component: () => import("@/components/settings/sections/ToolsSection.vue"),
       },
+      {
+        id: "credentials",
+        title: "Cluster credentials",
+        description: "Keychain or passphrase, the credential helper, and using added clusters in your terminal",
+        keywords: ["keychain", "passphrase", "vault", "secret", "credentials", "helper", "jetpilot-auth", "KUBECONFIG", "terminal"],
+        component: () => import("@/components/settings/sections/CredentialsSection.vue"),
+      },
+      { id: "signin", title: "Sign-in", description: "How credentials of your clusters are obtained" },
       { id: "network", title: "Network", description: "Talking to API servers" },
       { id: "debug", title: "Debugging", description: "Debug containers and node shells" },
       {

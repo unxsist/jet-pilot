@@ -376,6 +376,16 @@ export const SETTINGS: readonly SettingDefinition[] = [
     category: "advanced",
     section: "debug",
   }),
+  boolean({
+    key: "auth.credentialBroker",
+    default: true,
+    label: "Run sign-in plugins through JET Pilot",
+    description:
+      "JET Pilot runs exec plugins (aws, kubelogin, gke-gcloud-auth-plugin…) itself, with timeouts, without hidden sign-in prompts and with device codes shown in the app. Turn off only if a plugin misbehaves.",
+    keywords: ["exec", "plugin", "credentials", "sign in", "login", "broker", "kubelogin", "aws"],
+    category: "advanced",
+    section: "signin",
+  }),
   choice({
     key: "diagnostics.logLevel",
     default: "error",

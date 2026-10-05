@@ -12,9 +12,26 @@ import { useRoute, type RouteLocationNormalizedLoaded } from "vue-router";
 /* Every cluster, to pick one, when a view needs a context and none is active. */
 const ClustersHub = defineAsyncComponent(() => import("@/views/clusters/ClustersHub.vue"));
 import { KEEP_ALIVE_MAX, KEEP_ALIVE_ROUTES } from "@/lib/activeView";
+import { credentialView } from "@/lib/auth/center";
 
-const { context } = injectStrict(KubeContextStateKey);
+const { context, contexts, contextKubeConfigMapping } = injectStrict(KubeContextStateKey);
 const route = useRoute();
+
+/* Active clusters that need a sign-in: a notice above every view (lazy). */
+const ActiveClustersAuthNotice = defineAsyncComponent(
+  () => import("@/components/auth/ActiveClustersAuthNotice.vue")
+);
+const authNotice = computed(
+  () =>
+    !!route.meta.requiresContext &&
+    [...contexts.value.keys()].some((name) => {
+      const view = credentialView({
+        context: name,
+        kubeConfig: contextKubeConfigMapping.value.get(name) ?? "",
+      });
+      return view.needsSignIn && view.canSignIn;
+    })
+);
 
 /*
  * Resource lists are kept alive (bounded, keyed by path + query) so going
@@ -32,20 +49,25 @@ const isCached = (r: RouteLocationNormalizedLoaded) =>
     <ResizablePanelGroup direction="vertical">
       <ResizablePanel>
         <ClustersHub v-if="route.meta.requiresContext && context == ''" embedded />
-        <router-view v-else v-slot="{ Component, route: viewRoute }">
-          <keep-alive :max="KEEP_ALIVE_MAX">
-            <KeptAliveView
-              v-if="Component && isCached(viewRoute)"
-              :key="viewRoute.fullPath"
-              :view="Component"
-              :route="viewRoute"
-            />
-          </keep-alive>
-          <component
-            :is="Component"
-            v-if="Component && !isCached(viewRoute)"
-          />
-        </router-view>
+        <div v-else class="flex h-full flex-col">
+          <ActiveClustersAuthNotice v-if="authNotice" />
+          <div class="min-h-0 flex-1">
+            <router-view v-slot="{ Component, route: viewRoute }">
+              <keep-alive :max="KEEP_ALIVE_MAX">
+                <KeptAliveView
+                  v-if="Component && isCached(viewRoute)"
+                  :key="viewRoute.fullPath"
+                  :view="Component"
+                  :route="viewRoute"
+                />
+              </keep-alive>
+              <component
+                :is="Component"
+                v-if="Component && !isCached(viewRoute)"
+              />
+            </router-view>
+          </div>
+        </div>
       </ResizablePanel>
       <ResizableHandle />
       <TabOrchestrator />

@@ -170,7 +170,11 @@ const loadHelmResource = async (): Promise<ResourceListResult<object>> => {
         items.push(...result.value);
       } else {
         const ctx = activeContexts[i][0];
-        failures.push({ context: ctx, reason: result.reason });
+        failures.push({
+          context: ctx,
+          kubeConfig: contextKubeConfigMapping.value.get(ctx) || "",
+          reason: result.reason,
+        });
         error(`Failed to fetch helm releases for context ${ctx}: ${result.reason}`);
       }
     });

@@ -13,6 +13,7 @@ import { ArrowLeft, ArrowRight, Check, FolderOpen, Loader2, Sparkles } from "luc
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import KubeconfigFileRow from "@/components/settings/sections/KubeconfigFileRow.vue";
+import { openAddCluster } from "@/lib/clusters/managed";
 import ToolsSection from "@/components/settings/sections/ToolsSection.vue";
 import ColorSchemeSection from "@/components/settings/sections/ColorSchemeSection.vue";
 import ThemeLibrary from "@/components/settings/themes/ThemeLibrary.vue";
@@ -64,7 +65,7 @@ const finish = (goToHub: boolean) => {
 </script>
 
 <template>
-  <div class="absolute inset-0 z-[60] flex flex-col bg-background" role="dialog" aria-modal="true" aria-label="Set up JET Pilot">
+  <div class="absolute inset-0 z-[45] flex flex-col bg-background" role="dialog" aria-modal="true" aria-label="Set up JET Pilot">
     <header class="flex h-12 shrink-0 items-center gap-4 border-b px-6" data-tauri-drag-region>
       <Sparkles class="h-4 w-4 text-primary" />
       <span class="text-sm font-semibold">Set up JET Pilot</span>
@@ -131,9 +132,12 @@ const finish = (goToHub: boolean) => {
             </div>
             <div class="flex items-center justify-between gap-4 border-t px-5 py-3">
               <p class="text-xs text-muted-foreground">Keep kubeconfigs somewhere else? Add them here; you can manage them later in Settings › Clusters.</p>
-              <Button size="sm" variant="outline" class="shrink-0" @click="addFiles">
-                <FolderOpen class="h-3.5 w-3.5" /> Add files…
-              </Button>
+              <div class="flex shrink-0 gap-2">
+                <Button size="sm" variant="ghost" @click="openAddCluster('choose')">Add a cluster…</Button>
+                <Button size="sm" variant="outline" @click="addFiles">
+                  <FolderOpen class="h-3.5 w-3.5" /> Add files…
+                </Button>
+              </div>
             </div>
           </div>
         </template>

@@ -1,11 +1,13 @@
 //! Finding the user's kubeconfig files and describing what is in them, for
 //! the welcome flow and the clusters hub.
 //!
-//! Discovery looks at `~/.kube/config`, every `$KUBECONFIG` entry, kubeconfig
-//! looking files directly in `~/.kube/` (`*.yaml|*.yml|*.conf|*.kubeconfig`,
-//! non-recursive, at most 5 MiB) and the files in `~/.kube/config.d/`. Files
-//! from the two globs that aren't kubeconfigs are dropped silently; a
-//! default or `$KUBECONFIG` file that can't be read is reported.
+//! Discovery looks at the managed kubeconfig (`~/.kube/jet-pilot/config`,
+//! clusters added in JET Pilot), `~/.kube/config`, every `$KUBECONFIG`
+//! entry, kubeconfig looking files directly in `~/.kube/`
+//! (`*.yaml|*.yml|*.conf|*.kubeconfig`, non-recursive, at most 5 MiB) and
+//! the files in `~/.kube/config.d/`. Files from the two globs that aren't
+//! kubeconfigs are dropped silently; a default or `$KUBECONFIG` file that
+//! can't be read is reported.
 //!
 //! Neither command ever returns a secret: no tokens, keys, passwords or exec
 //! env values (other than `AWS_PROFILE`), and YAML errors are reduced to a
@@ -29,6 +31,8 @@ const KUBECONFIG_EXTENSIONS: &[&str] = &["yaml", "yml", "conf", "kubeconfig"];
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Origin {
+    /// `~/.kube/jet-pilot/config`, clusters added in JET Pilot.
+    Managed,
     /// `~/.kube/config`
     Default,
     /// An entry of `$KUBECONFIG`.
@@ -130,22 +134,39 @@ impl Problem {
 pub async fn kubeconfig_discover() -> Vec<DiscoveredKubeconfig> {
     let kube_dir = paths::kube_dir();
     let env = std::env::var_os("KUBECONFIG");
-    tauri::async_runtime::spawn_blocking(move || discover(kube_dir.as_deref(), env.as_deref()))
-        .await
-        .unwrap_or_else(|e| {
-            warn!("Kubeconfig discovery failed: {}", e);
-            Vec::new()
-        })
+    let managed = jp_auth_core::paths::managed_kubeconfig();
+    tauri::async_runtime::spawn_blocking(move || {
+        discover_with_managed(Some(&managed), kube_dir.as_deref(), env.as_deref())
+    })
+    .await
+    .unwrap_or_else(|e| {
+        warn!("Kubeconfig discovery failed: {}", e);
+        Vec::new()
+    })
 }
 
+#[cfg(test)]
 fn discover(kube_dir: Option<&Path>, kubeconfig_env: Option<&OsStr>) -> Vec<DiscoveredKubeconfig> {
+    discover_with_managed(None, kube_dir, kubeconfig_env)
+}
+
+/// Discovery with the managed kubeconfig listed first (when it exists).
+fn discover_with_managed(
+    managed: Option<&Path>,
+    kube_dir: Option<&Path>,
+    kubeconfig_env: Option<&OsStr>,
+) -> Vec<DiscoveredKubeconfig> {
     let mut seen: Vec<PathBuf> = Vec::new();
     let mut found = Vec::new();
-    for (path, origin) in candidates(kube_dir, kubeconfig_env) {
-        if origin == Origin::Default && !path.exists() {
+    let managed = managed.map(|p| (p.to_path_buf(), Origin::Managed));
+    for (path, origin) in managed
+        .into_iter()
+        .chain(candidates(kube_dir, kubeconfig_env))
+    {
+        if matches!(origin, Origin::Default | Origin::Managed) && !path.exists() {
             continue;
         }
-        // The first origin wins: default > env > directory > config.d.
+        // The first origin wins: managed > default > env > directory > config.d.
         let key = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
         if seen.contains(&key) {
             continue;
@@ -214,6 +235,18 @@ fn list_files(dir: &Path, kubeconfig_extension: bool) -> Vec<PathBuf> {
         .collect();
     files.sort();
     files
+}
+
+/// The readable kubeconfig files on this machine (managed first), for the
+/// importer's duplicate and name-conflict checks.
+pub(crate) fn known_kubeconfig_paths() -> Vec<PathBuf> {
+    let managed = jp_auth_core::paths::managed_kubeconfig();
+    let env = std::env::var_os("KUBECONFIG");
+    discover_with_managed(Some(&managed), paths::kube_dir().as_deref(), env.as_deref())
+        .into_iter()
+        .filter(|found| found.readable)
+        .map(|found| PathBuf::from(found.path))
+        .collect()
 }
 
 /// Any sign of a kubeconfig: unrelated YAML maps parse as an empty one.
@@ -293,6 +326,7 @@ pub async fn kubeconfig_describe(path: String) -> Result<KubeconfigReport, Seria
                 code: None,
                 reason: Some(reason.to_string()),
                 details: None,
+                auth: None,
             }
         })?;
         Ok(describe(&path, &config, &|command| {
@@ -305,11 +339,12 @@ pub async fn kubeconfig_describe(path: String) -> Result<KubeconfigReport, Seria
         code: None,
         reason: None,
         details: None,
+        auth: None,
     })?
 }
 
 /// `command_on_path` resolves a bare exec command (injected for tests).
-fn describe(
+pub(crate) fn describe(
     path: &str,
     config: &Kubeconfig,
     command_on_path: &dyn Fn(&str) -> bool,
@@ -858,6 +893,27 @@ contexts:
         let json = serde_json::to_value(&found[6]).unwrap();
         assert_eq!(json["origin"], "configD");
         assert_eq!(json["contextCount"], 1);
+    }
+
+    #[test]
+    fn managed_kubeconfig_comes_first_when_it_exists() {
+        let home = tempfile::tempdir().unwrap();
+        let kube = home.path().join(".kube");
+        std::fs::create_dir_all(kube.join("jet-pilot")).unwrap();
+        let managed = kube.join("jet-pilot").join("config");
+        assert!(discover_with_managed(Some(&managed), Some(&kube), None).is_empty());
+
+        write(&kube.join("jet-pilot"), "config", TOKEN_CONFIG);
+        write(&kube, "config", TOKEN_CONFIG);
+        // Listed in $KUBECONFIG too: still reported once, as managed.
+        let env = std::env::join_paths([managed.clone()]).unwrap();
+        let found = discover_with_managed(Some(&managed), Some(&kube), Some(&env));
+        let origins: Vec<Origin> = found.iter().map(|f| f.origin).collect();
+        assert_eq!(origins, vec![Origin::Managed, Origin::Default]);
+        assert_eq!(
+            serde_json::to_value(&found[0]).unwrap()["origin"],
+            "managed"
+        );
     }
 
     #[test]

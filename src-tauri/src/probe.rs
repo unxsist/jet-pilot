@@ -497,6 +497,7 @@ async fn client_for(context: String, kube_config: String) -> Result<Client, Seri
         code: None,
         reason: None,
         details: None,
+        auth: None,
     })?
 }
 
@@ -613,6 +614,8 @@ fn duration_label(duration: Duration) -> String {
 fn client_error(err: &SerializableKubeError) -> (Reachability, String) {
     let reachability = match err.reason.as_deref() {
         Some("ExecAuthFailed") => Reachability::Unauthorized,
+        // Credential broker failures (sign-in needed, expired, ...).
+        _ if err.auth.is_some() => Reachability::Unauthorized,
         _ => Reachability::Error,
     };
     (reachability, short_message(&err.message))
@@ -1102,6 +1105,7 @@ mod tests {
             code: None,
             reason: Some("ExecAuthFailed".into()),
             details: None,
+            auth: None,
         });
         assert_eq!(r, Reachability::Unauthorized);
         assert_eq!(m, "The Kubernetes exec credential plugin failed: expired");
@@ -1110,6 +1114,7 @@ mod tests {
             code: None,
             reason: None,
             details: None,
+            auth: None,
         });
         assert_eq!(r, Reachability::Error);
     }

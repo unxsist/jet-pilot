@@ -16,6 +16,7 @@ import type {
 } from "@/lib/watch";
 import type { CliResult } from "@/actions/command";
 import type { GuardedCall } from "@/lib/guardrails/backstop";
+import { classifyAuthError } from "@/lib/auth/classify";
 
 /* The read-only backstop loads with the first change (keeps startup small). */
 const backstop = () => import("@/lib/guardrails/backstop");
@@ -87,6 +88,12 @@ export interface WatchStats {
 const kubeConfigArg = (kubeConfig?: string | null) => kubeConfig || null;
 
 export class Kubernetes {
+  /**
+   * @deprecated Report failures to the auth center (`report()` in
+   * @/lib/auth/center) and offer `requestSignIn()`; it streams the login
+   * (device codes included). Kept until the backend's `login_exec_auth`
+   * shim goes; recognising the error lives in @/lib/auth/classify.
+   */
   static async getAuthErrorHandler(
     context: string,
     kubeConfig: string,
@@ -95,14 +102,10 @@ export class Kubernetes {
     canHandle: boolean;
     callback: (authCompletedCallback?: (instructions?: string) => void) => void;
   }> {
+    const failure = classifyAuthError(errorMessage);
+
     // AWS SSO
-    if (
-      (errorMessage.includes("AWS_PROFILE") ||
-        errorMessage.includes("executable aws failed")) &&
-      (errorMessage.includes("Error loading SSO Token") ||
-        errorMessage.includes("profile has expired") ||
-        errorMessage.includes("Error when retrieving token from sso"))
-    ) {
+    if (failure?.awsSso) {
       const context_auth_info = await invoke<ContextAuthSummary>(
         "get_context_auth_info",
         {
@@ -149,8 +152,7 @@ export class Kubernetes {
     const execCommand = getExecCommand(context_auth_info);
     const isExecPluginAuth =
       execCommand !== null &&
-      (EXEC_AUTH_PLUGINS.includes(execCommand) ||
-        Kubernetes.kubeconfigAuthFlowFailed(errorMessage));
+      (EXEC_AUTH_PLUGINS.includes(execCommand) || !!failure?.execPlugin);
 
     if (isExecPluginAuth) {
       return {
@@ -187,16 +189,6 @@ export class Kubernetes {
         // Do nothing
       },
     };
-  }
-
-  private static kubeconfigAuthFlowFailed(errorMessage: string): boolean {
-    return (
-      errorMessage.toLowerCase().includes("exec credential plugin") ||
-      errorMessage.toLowerCase().includes("exec plugin") ||
-      errorMessage.toLowerCase().includes("kubelogin") ||
-      errorMessage.toLowerCase().includes("oidc") ||
-      errorMessage.toLowerCase().includes("auth exec")
-    );
   }
 
   /**
