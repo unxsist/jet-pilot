@@ -165,6 +165,7 @@ fn main() {
             logs::structured_logging::export_structured_logging_session,
             logs::streaming::start_log_stream,
             logs::streaming::stop_log_stream,
+            logs::streaming::log_stream_reset,
             workloads::run_helm_with_values,
         ])
         .setup(|_app| {

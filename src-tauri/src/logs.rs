@@ -680,6 +680,11 @@ pub mod structured_logging {
         session_id
     }
 
+    /// Ends every session (after a webview reload). Returns how many.
+    pub(crate) fn clear_sessions() -> usize {
+        std::mem::take(&mut *lock(&STRUCTURED_LOGGING_SESSIONS)).len()
+    }
+
     pub(crate) fn insert_session(session_id: String, session: StructuredLoggingSession) {
         lock(&STRUCTURED_LOGGING_SESSIONS).insert(session_id, Arc::new(Mutex::new(session)));
     }

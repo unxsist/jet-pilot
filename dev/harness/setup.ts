@@ -1121,6 +1121,7 @@ mockIPC(
       case "watch_set_paused":
       case "metrics_unsubscribe":
       case "metrics_reset":
+      case "log_stream_reset":
         return null;
       case "watch_get": {
         for (const cluster of Object.values(CLUSTERS)) {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
+import { resetLogStreams } from "@/lib/logStreams";
 import { useThrottleFn, useDebounceFn } from "@vueuse/core";
 import {
   ArrowDown,
@@ -745,6 +746,9 @@ const emptyTitle = computed(() => {
 });
 
 onMounted(async () => {
+  // Never race the boot-time reset of a previous page load's sessions.
+  await resetLogStreams();
+  if (unmounted) return;
   const id = await invoke<string>("start_structured_logging_session", {
     initialData: [],
   });

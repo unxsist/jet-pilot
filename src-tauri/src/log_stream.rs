@@ -17,8 +17,10 @@
 //!   coded source column and the pod / container facets
 //! - memory is bounded: the reader -> batcher queue is bounded (backpressure
 //!   on kubectl), the session keeps at most `MAX_ENTRIES_PER_SESSION` lines
-//! - streams stop when the session ends, a new stream replaces them, or the
-//!   app exits; kubectl processes are killed (kill_on_drop + exit sweep)
+//! - streams stop when the session ends, a new stream replaces them, the
+//!   frontend is gone (channel closed, webview reloaded: `log_stream_reset`)
+//!   or the app exits; kubectl processes are killed through their process
+//!   handles (kill_on_drop + exit sweep of the registered children)
 
 use super::structured_logging::{
     blocking, get_session, normalize_timestamp, parse_line_from, split_prefix, ParsedLine,
@@ -28,11 +30,12 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::ipc::Channel;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
-use tokio::process::Command;
+use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
@@ -169,9 +172,78 @@ struct StreamHandle {
 
 static STREAMS: Lazy<Mutex<HashMap<String, StreamHandle>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
-/// Pids of running `kubectl logs` processes, killed on app exit (the async
-/// tasks owning them may not get to run their destructors then).
-static PIDS: Lazy<Mutex<HashSet<u32>>> = Lazy::new(|| Mutex::new(HashSet::new()));
+type SharedChild = Arc<Mutex<Option<Child>>>;
+
+/// Running `kubectl logs` processes, killed on app exit (the async tasks
+/// owning them may not get to run their destructors then). Entries hold the
+/// process handle, never a bare pid: an entry is removed (by `TrackedChild`'s
+/// drop) before the child is reaped, so a kill never hits a recycled pid.
+static CHILDREN: Lazy<Mutex<HashMap<u64, SharedChild>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static NEXT_CHILD_ID: AtomicU64 = AtomicU64::new(1);
+
+/// How often an exiting kubectl is polled for its exit status.
+const EXIT_POLL: Duration = Duration::from_millis(20);
+
+/// A `kubectl logs` process registered in `CHILDREN` for as long as this
+/// guard lives. Dropping it (the stream finished, or its task was aborted
+/// when the tab closed / the stream was replaced) unregisters the process
+/// and, if it still runs, kills it (kill_on_drop).
+struct TrackedChild {
+    id: u64,
+    child: SharedChild,
+}
+
+impl TrackedChild {
+    fn register(child: Child) -> Self {
+        let id = NEXT_CHILD_ID.fetch_add(1, Ordering::Relaxed);
+        let child = Arc::new(Mutex::new(Some(child)));
+        lock(&CHILDREN).insert(id, child.clone());
+        TrackedChild { id, child }
+    }
+
+    fn start_kill(&self) {
+        if let Some(child) = lock(&self.child).as_mut() {
+            let _ = child.start_kill();
+        }
+    }
+
+    /// Waits for the process to exit. `None` when it was taken by the exit
+    /// sweep or its status could not be read.
+    async fn wait(&self) -> Option<std::process::ExitStatus> {
+        loop {
+            {
+                let mut child = lock(&self.child);
+                match child.as_mut().map(|c| c.try_wait()) {
+                    None | Some(Err(_)) => return None,
+                    Some(Ok(Some(status))) => return Some(status),
+                    Some(Ok(None)) => {}
+                }
+            }
+            tokio::time::sleep(EXIT_POLL).await;
+        }
+    }
+}
+
+impl Drop for TrackedChild {
+    fn drop(&mut self) {
+        lock(&CHILDREN).remove(&self.id);
+        // Kill (kill_on_drop) and hand it to tokio's reaper now, not when
+        // the last Arc goes.
+        drop(lock(&self.child).take());
+    }
+}
+
+/// Kills a registered child through its handle (TerminateProcess on
+/// Windows, SIGKILL on unix).
+fn kill_child(child: &SharedChild) -> bool {
+    match lock(child).take() {
+        Some(mut child) => {
+            let _ = child.start_kill();
+            true
+        }
+        None => false,
+    }
+}
 
 /// One line read from kubectl, parsed by the batcher.
 struct RawLine {
@@ -347,13 +419,9 @@ async fn stream_logs(
             return outcome;
         }
     };
-    let pid = child.id();
-    if let Some(pid) = pid {
-        lock(&PIDS).insert(pid);
-    }
-
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
+    let child = TrackedChild::register(child);
 
     let read_stdout = async {
         let Some(stdout) = stdout else { return };
@@ -412,17 +480,20 @@ async fn stream_logs(
         }
     };
 
-    let ((), stderr_tail) = tokio::join!(read_stdout, read_stderr);
+    let stderr_tail = tokio::select! {
+        ((), stderr_tail) = async { tokio::join!(read_stdout, read_stderr) } => stderr_tail,
+        // The batcher is gone (stream stopped / frontend gone) while kubectl
+        // is idle (e.g. following a quiet pod): don't wait for a next line.
+        () = tx.closed() => String::new(),
+    };
     // Stops kubectl when the reader quit early (stream stopped).
-    let _ = child.start_kill();
+    child.start_kill();
     let status = child.wait().await;
-    if let Some(pid) = pid {
-        lock(&PIDS).remove(&pid);
-    }
+    drop(child);
 
     let failed = match status {
-        Ok(status) => !status.success(),
-        Err(_) => true,
+        Some(status) => !status.success(),
+        None => true,
     };
     // A kill after a complete read is not a failure; only report errors
     // kubectl explained on stderr.
@@ -612,6 +683,11 @@ impl Supervisor {
         let mut last_error: Option<String> = None;
 
         loop {
+            // Nobody reads the lines anymore (the batcher stopped because the
+            // session ended or the frontend is gone): stop discovering.
+            if tx.is_closed() {
+                break;
+            }
             match self.discover(selector).await {
                 Ok(found) => {
                     last_error = None;
@@ -680,7 +756,9 @@ impl Supervisor {
                             format!("Streaming {} pods at most; {} more matching pods are not shown", max_pods, skipped),
                         );
                     }
-                    self.sink.send(Self::sources(&pods));
+                    if !self.sink.send(Self::sources(&pods)) {
+                        break;
+                    }
                 }
                 Err(error) => {
                     if last_error.as_deref() != Some(error.as_str()) {
@@ -703,6 +781,7 @@ impl Supervisor {
             loop {
                 tokio::select! {
                     _ = &mut tick => break,
+                    () = tx.closed() => break,
                     Some(result) = streams.join_next(), if !streams.is_empty() => {
                         if let Ok(outcome) = result {
                             self.finish(&mut pods, outcome);
@@ -713,12 +792,16 @@ impl Supervisor {
             }
         }
 
+        if tx.is_closed() {
+            // Kills their kubectl processes (TrackedChild).
+            streams.abort_all();
+        }
         while let Some(result) = streams.join_next().await {
             if let Ok(outcome) = result {
                 self.finish(&mut pods, outcome);
             }
         }
-        if !pods.is_empty() {
+        if !pods.is_empty() && !tx.is_closed() {
             self.sink.send(Self::sources(&pods));
         }
     }
@@ -828,26 +911,39 @@ pub async fn stop_log_stream(session_id: String) {
     stop_stream(&session_id);
 }
 
-/// Stops every stream and kills their kubectl processes (app exit).
-pub fn kill_all_log_streams() {
+/// Stops every stream (their kubectl processes are killed when the aborted
+/// tasks drop them).
+fn stop_all_streams() -> usize {
     let streams = std::mem::take(&mut *lock(&STREAMS));
+    let count = streams.len();
     for (_, stream) in streams {
         stream.supervisor.abort();
     }
+    count
+}
 
-    let pids = std::mem::take(&mut *lock(&PIDS));
-    #[cfg(unix)]
-    for pid in pids.iter() {
-        if let Ok(pid) = libc::pid_t::try_from(*pid) {
-            unsafe {
-                libc::kill(pid, libc::SIGTERM);
-            }
-        }
+/// Stops the streams a previous load of the webview left behind (their
+/// channels are gone) and ends their log sessions. Called once per page
+/// load, before the frontend starts a log session.
+#[tauri::command]
+pub async fn log_stream_reset() {
+    let stopped = stop_all_streams();
+    let sessions = super::structured_logging::clear_sessions();
+    if stopped > 0 || sessions > 0 {
+        info!("Log stream reset: stopped {} streams, ended {} sessions", stopped, sessions);
     }
-    #[cfg(not(unix))]
-    let _ = pids;
-    if !pids.is_empty() {
-        warn!("Stopped {} kubectl logs processes on exit", pids.len());
+}
+
+/// Stops every stream and kills their kubectl processes (app exit). The
+/// aborted tasks may never run again, so the registered children are
+/// killed here, through their process handles (works on Windows too).
+pub fn kill_all_log_streams() {
+    stop_all_streams();
+
+    let children = std::mem::take(&mut *lock(&CHILDREN));
+    let killed = children.values().filter(|child| kill_child(child)).count();
+    if killed > 0 {
+        warn!("Stopped {} kubectl logs processes on exit", killed);
     }
 }
 
@@ -1064,6 +1160,121 @@ awk -v pod="$last" 'BEGIN {{ for (i = 1; i <= {lines}; i++) printf "[pod/%s/app]
         let session = get_session(&session_id).unwrap();
         assert_eq!(lock(&session).len(), 100);
         assert!(!lock(&STREAMS).contains_key(&session_id));
+    }
+
+    /// A sink whose reader is gone: every Appended fails (the batcher stops).
+    #[derive(Default)]
+    struct DeadReader(Collector);
+
+    impl EventSink for DeadReader {
+        fn send(&self, event: LogStreamEvent) -> bool {
+            let appended = matches!(event, LogStreamEvent::Appended { .. });
+            self.0.send(event);
+            !appended
+        }
+    }
+
+    #[cfg(unix)]
+    fn spawn_sleep() -> Child {
+        command("sleep", &["30".to_string()]).spawn().unwrap()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn tracked_child_unregisters_when_its_task_is_aborted() {
+        let (id_tx, id_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let child = TrackedChild::register(spawn_sleep());
+            let _ = id_tx.send(child.id);
+            child.wait().await
+        });
+        let id = id_rx.await.unwrap();
+        assert!(lock(&CHILDREN).contains_key(&id));
+
+        // Closing / replacing a stream aborts its task.
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(!lock(&CHILDREN).contains_key(&id), "aborted stream left its child registered");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn tracked_child_unregisters_after_exit_and_kills_by_handle() {
+        let child = TrackedChild::register(spawn_sleep());
+        let id = child.id;
+        let shared = lock(&CHILDREN).get(&id).cloned().unwrap();
+
+        // The exit sweep kills through the handle and takes the child.
+        assert!(kill_child(&shared));
+        assert!(!kill_child(&shared), "a child is killed once");
+        assert!(child.wait().await.is_none());
+        drop(child);
+        assert!(!lock(&CHILDREN).contains_key(&id));
+
+        // A normally exiting child reports its status and unregisters.
+        let child = TrackedChild::register(command("true", &[]).spawn().unwrap());
+        let id = child.id;
+        assert!(child.wait().await.is_some_and(|status| status.success()));
+        drop(child);
+        assert!(!lock(&CHILDREN).contains_key(&id));
+    }
+
+    /// The frontend stopped reading (the batcher ended): a following
+    /// selector stream must stop discovering pods and kill its kubectl
+    /// processes instead of polling every 5 s forever.
+    #[cfg(unix)]
+    #[test]
+    fn selector_stream_stops_when_nobody_reads() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("jet-fake-kubectl-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("kubectl");
+        let gets = dir.join("gets");
+        let pids = dir.join("pids");
+        let script = format!(
+            r#"#!/bin/sh
+if [ "$1" = "get" ]; then
+  echo get >> '{gets}'
+  printf 'web-1\tRunning\t\n'
+  exit 0
+fi
+echo $$ >> '{pids}'
+printf '[pod/web-1/app] 2024-01-01T00:00:01.000000000Z hello\n'
+exec sleep 300
+"#,
+            gets = gets.display(),
+            pids = pids.display()
+        );
+        std::fs::write(&path, script).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let session_id = uuid::Uuid::new_v4().to_string();
+        insert_session(session_id.clone(), StructuredLoggingSession::default());
+        let sink = Arc::new(DeadReader::default());
+        let s = spec(LogTarget::Selector { selector: "app=web".into() });
+        assert!(s.follow);
+        let started = std::time::Instant::now();
+        start_stream_with(session_id.clone(), s, sink.clone(), path.to_str().unwrap()).unwrap();
+
+        while !sink.0.ended() {
+            assert!(started.elapsed() < Duration::from_secs(20), "stream did not stop");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // Well before the next discovery round.
+        assert!(started.elapsed() < DISCOVERY_INTERVAL);
+        std::thread::sleep(Duration::from_millis(200));
+        let discoveries = std::fs::read_to_string(&gets).unwrap().lines().count();
+        assert_eq!(discoveries, 1);
+        assert!(!lock(&STREAMS).contains_key(&session_id));
+
+        // The idle `kubectl logs --follow` was killed.
+        #[cfg(target_os = "linux")]
+        for pid in std::fs::read_to_string(&pids).unwrap().lines() {
+            let stat = std::fs::read_to_string(format!("/proc/{}/stat", pid)).unwrap_or_default();
+            let state = stat.rsplit(')').next().unwrap_or("").split_whitespace().next();
+            assert!(matches!(state, None | Some("Z") | Some("X")), "kubectl {} still runs: {}", pid, stat);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// End-to-end throughput: kubectl output -> batches -> parsed session

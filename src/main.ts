@@ -2,12 +2,14 @@ import { createApp } from "vue";
 import App from "./App.vue";
 import router from "./router";
 import { perfMark, markFirstPaint } from "./lib/perf";
+import { resetLogStreams } from "./lib/logStreams";
 
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "./assets/main.postcss";
 
 perfMark("app:boot");
+resetLogStreams();
 
 createApp(App).use(router).mount("#app");
 
