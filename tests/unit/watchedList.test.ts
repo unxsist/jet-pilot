@@ -11,6 +11,7 @@ vi.mock("@/lib/logger", () => ({
 import {
   ContextTarget,
   Row,
+  WATCH_UPGRADE_MIN_MS,
   WatchedListController,
   clearWatchedListCache,
 } from "@/composables/useWatchedList";
@@ -31,7 +32,13 @@ const target = (context: string, namespaces = ["all"]): ContextTarget => ({
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /** In-memory transport: tests push messages through `emit`. */
-function fakeTransport(options: { fail?: (req: WatchRequest) => boolean } = {}) {
+function fakeTransport(
+  options: {
+    fail?: (req: WatchRequest) => boolean;
+    /** Messages a warm backend watcher sends before subscribe resolves. */
+    warm?: (req: WatchRequest) => WatchMessage<Pod>[];
+  } = {}
+) {
   const subscribers = new Map<string, (m: WatchMessage<Pod>) => void>();
   const unsubscribed: string[] = [];
   const restarted: string[] = [];
@@ -44,6 +51,9 @@ function fakeTransport(options: { fail?: (req: WatchRequest) => boolean } = {}) 
         throw new Error("cannot watch");
       }
       subscribers.set(request.context, onMessage as any);
+      for (const message of options.warm?.(request) ?? []) {
+        (onMessage as any)(message);
+      }
       const scopes = request.namespaces.includes("all")
         ? [""]
         : [...request.namespaces].sort();
@@ -360,6 +370,105 @@ describe("WatchedListController fallback recovery", () => {
     expect(list.items().map((p) => p.metadata.uid)).toEqual(["1"]);
     expect(list.items()[0]).toBe(kept);
     list.dispose();
+  });
+
+  test("a warm snapshot that arrives before subscribe resolves still drops stale polled rows", async () => {
+    let fail = true;
+    const { transport } = fakeTransport({
+      fail: () => fail,
+      warm: () => [ready("ns1"), { type: "snapshot", scope: "ns1", items: [pod("1")] }],
+    });
+    const { list } = controller(transport, { fallback: async () => [pod("1"), pod("gone")] });
+    list.setTargets([target("a", ["ns1"])]);
+    await flush();
+    await flush();
+    expect(list.items().map((p) => p.metadata.uid)).toEqual(["1", "gone"]);
+
+    fail = false;
+    list.retry();
+    await flush();
+    expect(list.modes().get("a")).toBe("watch");
+    expect(list.items().map((p) => p.metadata.uid)).toEqual(["1"]);
+    list.dispose();
+  });
+
+  test("rows cached while polling are reconciled by a namespaced watch", async () => {
+    const polling = fakeTransport({ fail: () => true });
+    const first = controller(polling.transport, {
+      fallback: async () => [pod("1"), pod("deleted")],
+    }).list;
+    first.setTargets([target("a", ["ns1"])]);
+    await flush();
+    await flush();
+    expect(first.modes().get("a")).toBe("poll");
+    first.dispose();
+
+    // Back to the list: the watch works now (e.g. after a re-login).
+    const { transport, emit } = fakeTransport();
+    const second = controller(transport).list;
+    second.setTargets([target("a", ["ns1"])]);
+    // cached rows render at once
+    expect(second.items().map((p) => p.metadata.uid)).toEqual(["1", "deleted"]);
+    await flush();
+    emit("a", ready("ns1"));
+    emit("a", { type: "snapshot", scope: "ns1", items: [pod("1")] });
+    expect(second.items().map((p) => p.metadata.uid)).toEqual(["1"]);
+    second.dispose();
+  });
+
+  test("rows cached from a namespaced watch are reconciled by polling", async () => {
+    const { transport, emit } = fakeTransport();
+    const first = controller(transport).list;
+    first.setTargets([target("a", ["ns1"])]);
+    await flush();
+    emit("a", ready("ns1"));
+    emit("a", { type: "snapshot", scope: "ns1", items: [pod("1"), pod("deleted")] });
+    first.dispose();
+
+    const second = controller(fakeTransport().transport, {
+      forcePolling: true,
+      fallback: async () => [pod("1")],
+    }).list;
+    second.setTargets([target("a", ["ns1"])]);
+    await flush();
+    expect(second.items().map((p) => p.metadata.uid)).toEqual(["1"]);
+    second.dispose();
+  });
+
+  test("a fallback to polling tries to watch again periodically, with backoff", async () => {
+    vi.useFakeTimers();
+    try {
+      let fail = true;
+      const { transport, emit } = fakeTransport({ fail: () => fail });
+      const subscribe = vi.spyOn(transport, "subscribe");
+      const { list } = controller(transport, { fallback: async () => [pod("1")] });
+      list.setTargets([target("a")]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(list.modes().get("a")).toBe("poll");
+      expect(subscribe).toHaveBeenCalledTimes(1);
+
+      // Still failing after a minute: back to polling, next try in 2 min.
+      await vi.advanceTimersByTimeAsync(WATCH_UPGRADE_MIN_MS);
+      expect(subscribe).toHaveBeenCalledTimes(2);
+      expect(list.modes().get("a")).toBe("poll");
+      await vi.advanceTimersByTimeAsync(WATCH_UPGRADE_MIN_MS);
+      expect(subscribe).toHaveBeenCalledTimes(2);
+
+      fail = false;
+      await vi.advanceTimersByTimeAsync(WATCH_UPGRADE_MIN_MS);
+      expect(subscribe).toHaveBeenCalledTimes(3);
+      expect(list.modes().get("a")).toBe("watch");
+      emit("a", ready());
+      emit("a", { type: "snapshot", scope: "", items: [pod("1")] });
+      expect(list.items()).toHaveLength(1);
+
+      // Watching: no more attempts.
+      await vi.advanceTimersByTimeAsync(10 * WATCH_UPGRADE_MIN_MS);
+      expect(subscribe).toHaveBeenCalledTimes(3);
+      list.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("forced polling keeps polling on retry", async () => {

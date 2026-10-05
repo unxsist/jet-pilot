@@ -61,6 +61,12 @@ export interface WatchedListOptions<T> {
 }
 
 const CACHE_TTL_MS = 60_000;
+/*
+ * A context that fell back to polling tries to watch again after this long,
+ * doubling up to the maximum while it keeps failing.
+ */
+export const WATCH_UPGRADE_MIN_MS = 60_000;
+export const WATCH_UPGRADE_MAX_MS = 10 * 60_000;
 const MAX_PUBLISH_GAP_MS = 5000;
 const now = () =>
   typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -74,6 +80,8 @@ const TERMINAL: WatchStatusMessage["state"][] = [
 interface CachedRows {
   rows: Map<string, unknown>;
   scopeOf: Map<string, string>;
+  /** How the rows were obtained: polled rows all have scope "". */
+  mode: SourceMode;
   at: number;
 }
 
@@ -152,6 +160,12 @@ export class ContextSource<T extends Row> {
       this.rows = new Map(cached.rows as Map<string, T>);
       this.scopeOf = new Map(cached.scopeOf);
       this.loaded = true;
+      // Polling reconciles scope "" only: let the first poll confirm rows
+      // that a watch cached under namespace scopes. (Watching reconciles
+      // any cached scope, see reconcileScopes.)
+      if (this.mode === "poll" && cached.mode !== "poll") {
+        for (const uid of this.scopeOf.keys()) this.scopeOf.set(uid, "");
+      }
     }
   }
 
@@ -190,11 +204,13 @@ export class ContextSource<T extends Row> {
     this.handle?.unsubscribe();
     this.handle = null;
     this.stopTimer();
+    this.cancelWatchUpgrade();
     if (this.loaded && !this.failure) {
       rowCache.delete(this.key);
       rowCache.set(this.key, {
         rows: this.rows,
         scopeOf: this.scopeOf,
+        mode: this.mode,
         at: Date.now(),
       });
       while (rowCache.size > CACHE_MAX_ENTRIES) {
@@ -212,6 +228,7 @@ export class ContextSource<T extends Row> {
     } else if (!this.options.forcePolling) {
       // Polling only as a fallback (watch couldn't start, forbidden, a
       // failed login): try watching again, e.g. after a re-login.
+      this.watchUpgradeDelay = WATCH_UPGRADE_MIN_MS;
       this.switchToWatch();
     } else {
       this.poll();
@@ -239,6 +256,7 @@ export class ContextSource<T extends Row> {
 
   private async subscribe() {
     const generation = ++this.subscribeGeneration;
+    this.snapshotScopes = new Set();
     const stale = () =>
       this.disposed ||
       this.paused ||
@@ -263,6 +281,8 @@ export class ContextSource<T extends Row> {
       }
       this.handle = handle;
       this.scopes = handle.subscription.scopes;
+      // Warm watchers may have sent their snapshots before this resolved.
+      this.reconcileScopes();
       this.updateWatchState();
       this.options.onChange();
     } catch (e) {
@@ -280,7 +300,9 @@ export class ContextSource<T extends Row> {
     switch (message.type) {
       case "snapshot":
         this.applySnapshot(message.scope, message.items);
-        this.sweepPolledRows(message.scope);
+        this.snapshotScopes.add(message.scope);
+        this.reconcileScopes();
+        this.watchUpgradeDelay = WATCH_UPGRADE_MIN_MS;
         this.scopeStatus.set(message.scope, {
           type: "status",
           scope: message.scope,
@@ -393,11 +415,12 @@ export class ContextSource<T extends Row> {
     this.options.onChange();
   }
 
-  /* Scopes that sent a snapshot since switching back from polling. */
-  private snapshotsAfterPolling: Set<string> | null = null;
+  /* Scopes that sent a snapshot since the current subscribe started. */
+  private snapshotScopes = new Set<string>();
 
   private switchToWatch() {
     this.stopTimer();
+    this.cancelWatchUpgrade();
     this.pollGeneration++;
     this.inFlight = false;
     this.mode = "watch";
@@ -405,31 +428,68 @@ export class ContextSource<T extends Row> {
     this.scopeStatus.clear();
     this.scopes = null;
     // Polled rows (scope "") stay until every watch scope sent its snapshot.
-    this.snapshotsAfterPolling = new Set();
     this.subscribe();
     this.options.onChange();
   }
 
-  /* Drops polled rows no watch snapshot confirmed. */
-  private sweepPolledRows(scope: string) {
-    const seen = this.snapshotsAfterPolling;
-    if (!seen || !this.scopes) return;
-    seen.add(scope);
-    if (!this.scopes.every((s) => seen.has(s))) return;
-    this.snapshotsAfterPolling = null;
-    if (this.scopes.includes("")) return; // reconciled by the "" snapshot
+  /*
+   * Once every scope of the subscription sent its snapshot, rows of any
+   * other scope are stale: polled rows (scope ""), or rows restored from the
+   * cache under a different scope set. Runs on every snapshot and when the
+   * subscription resolves (a warm watcher's snapshot can arrive first).
+   */
+  private reconcileScopes() {
+    const scopes = this.scopes;
+    if (!scopes || !scopes.every((s) => this.snapshotScopes.has(s))) return;
+    const current = new Set(scopes);
     for (const [uid, rowScope] of this.scopeOf) {
-      if (rowScope === "") {
+      if (!current.has(rowScope)) {
         this.rows.delete(uid);
         this.scopeOf.delete(uid);
       }
     }
   }
 
+  /* ------------------------------------------- automatic watch upgrade -- */
+
+  private watchUpgradeTimer: ReturnType<typeof setTimeout> | null = null;
+  private watchUpgradeDelay = WATCH_UPGRADE_MIN_MS;
+
+  /*
+   * Polling as a fallback (the watch couldn't start or was forbidden) tries
+   * to watch again periodically, with backoff while that keeps failing.
+   */
+  private scheduleWatchUpgrade() {
+    this.cancelWatchUpgrade();
+    if (this.options.forcePolling || this.disposed) return;
+    const delay = this.watchUpgradeDelay;
+    this.watchUpgradeDelay = Math.min(delay * 2, WATCH_UPGRADE_MAX_MS);
+    this.watchUpgradeTimer = setTimeout(() => {
+      this.watchUpgradeTimer = null;
+      if (this.disposed || this.mode !== "poll") return;
+      if (this.paused || documentHidden()) {
+        // Try again once it is shown; don't count this as an attempt.
+        this.watchUpgradeDelay = delay;
+        this.scheduleWatchUpgrade();
+        return;
+      }
+      logInfo(
+        `Trying to watch ${this.options.resource} in ${this.target.context} again`
+      );
+      this.switchToWatch();
+    }, delay);
+  }
+
+  private cancelWatchUpgrade() {
+    if (this.watchUpgradeTimer !== null) {
+      clearTimeout(this.watchUpgradeTimer);
+      this.watchUpgradeTimer = null;
+    }
+  }
+
   private switchToPolling() {
     if (this.disposed) return;
     this.subscribeGeneration++;
-    this.snapshotsAfterPolling = null;
     this.handle?.unsubscribe();
     this.handle = null;
     this.mode = "poll";
@@ -439,6 +499,7 @@ export class ContextSource<T extends Row> {
     // The first poll reconciles every row.
     for (const uid of this.scopeOf.keys()) this.scopeOf.set(uid, "");
     this.startPolling();
+    this.scheduleWatchUpgrade();
     this.options.onChange();
   }
 
