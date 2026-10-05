@@ -158,10 +158,21 @@ export default {
      * Writes are serialized: a slow write can never be overtaken by (and
      * overwrite) a newer one. The snapshot is taken when the write is queued.
      */
+    /*
+     * Only once the settings file was read (or did not exist): if reading
+     * failed (permissions, I/O, ...), saving would replace the user's file
+     * with defaults.
+     */
+    let canSave = false;
+
     const flush = (): Promise<void> => {
       if (saveTimer) {
         clearTimeout(saveTimer);
         saveTimer = null;
+      }
+      // The file could not be read: never overwrite it (with defaults).
+      if (!canSave) {
+        return writeQueue;
       }
 
       const contents = JSON.stringify(state.settings);
@@ -196,15 +207,30 @@ export default {
           // Merge initial state with file contents
           state.settings = { ...state.settings, ...JSON.parse(fileContents) };
           lastWritten = fileContents;
+          canSave = true;
         } catch (e) {
-          // Keep the unreadable file around before defaults overwrite it.
+          // Keep the unreadable file around before defaults overwrite it;
+          // without a backup, leave the file alone.
           error(`Failed to parse settings, using defaults: ${e}`);
-          await writeTextFile(`${settingsFile}.corrupt`, fileContents, {
-            baseDir: BaseDirectory.AppConfig,
-          }).catch(() => {});
+          canSave = await writeTextFile(
+            `${settingsFile}.corrupt`,
+            fileContents,
+            { baseDir: BaseDirectory.AppConfig }
+          ).then(
+            () => true,
+            (backupError) => {
+              error(
+                `Failed to back up unreadable settings, not saving settings: ${backupError}`
+              );
+              return false;
+            }
+          );
         }
 
         invoke("update_log_level", { level: state.settings.logLevel });
+      } else {
+        // First start: nothing to lose.
+        canSave = true;
       }
 
       if (state.settings.kubeConfigs.length === 0) {
@@ -219,7 +245,11 @@ export default {
     };
 
     load()
-      .catch((e) => error(`Failed to load settings, using defaults: ${e}`))
+      .catch((e) =>
+        error(
+          `Failed to load settings, using defaults (changes are not saved): ${e}`
+        )
+      )
       .finally(() => {
         // Only start saving now: an earlier save would overwrite the file
         // with defaults. Persist what loading filled in (no-op if unchanged).
