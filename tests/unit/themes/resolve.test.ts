@@ -170,7 +170,7 @@ describe("serialization", () => {
 
   it("writes theme files in a stable key order and re-parses them", () => {
     const nightfall = importFixture("nightfall.json");
-    const text = serializeTheme({ ...nightfall, $schema: "jet-pilot://schemas/theme.json", author: "me" } as ThemeFile);
+    const text = serializeTheme({ ...nightfall, $schema: "https://www.jet-pilot.app/schemas/theme.json", author: "me" } as ThemeFile);
     expect(text.endsWith("}\n")).toBe(true);
     expect(Object.keys(JSON.parse(text))).toEqual(["$schema", "id", "name", "appearance", "canvas", "accent", "colors", "author"]);
     expect(parseThemeFile(JSON.parse(text))).toMatchObject({ id: "nightfall", author: "me" });

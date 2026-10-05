@@ -334,7 +334,7 @@ export interface OpenVsxInstallResult {
  * runtime.ts       themeAppearances(file: ThemeFile): ThemeAppearance[]; paintedAppearance(appearances, wanted)
  * serialize.ts     serializeTheme(file: ThemeFile, opts?: { forT3?: boolean }): string  (2-space JSON;
  *                  forT3 → version 1, all 57 roles resolved as hex, no jetPilot block, variants resolved too)
- * schema.ts        THEME_JSON_SCHEMA: object (JSON Schema draft-07 for ThemeFile), THEME_SCHEMA_URI = "jet-pilot://schemas/theme.json"
+ * schema.ts        THEME_JSON_SCHEMA: object (JSON Schema draft-07 for ThemeFile), THEME_SCHEMA_URI = "https://www.jet-pilot.app/schemas/theme.json"
  * builtin/index.ts BUILTIN_THEMES: { id: string; name: string; origin?: ThemeOrigin; appearances: ThemeAppearance[];
  *                                    load: () => Promise<ThemeFile> }[]   — "jet" first; every file is loaded on demand.
  *                  DEFAULT_THEME_ID = "jet"

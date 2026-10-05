@@ -18,7 +18,8 @@ import {
   THEME_TOKENS,
 } from "./types";
 
-export const THEME_SCHEMA_URI = "jet-pilot://schemas/theme.json";
+/** Also published at this URL by jet-pilot.app, so editors such as VS Code validate theme files. */
+export const THEME_SCHEMA_URI = "https://www.jet-pilot.app/schemas/theme.json";
 
 export const ROLE_DESCRIPTIONS: Record<ThemeColorRole, string> = {
   canvas: "Main background behind content: tables, editor, terminal (--background). Seed of the derived palette.",
