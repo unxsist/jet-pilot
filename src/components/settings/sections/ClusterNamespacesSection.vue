@@ -1,4 +1,9 @@
 <script setup lang="ts">
+/*
+ * Settings › Clusters › Namespaces per cluster: namespaces to offer for a
+ * context where listing namespaces is forbidden (contextSettings, used by
+ * the context switcher).
+ */
 import SettingsSection from "@/components/settings/SettingsSection.vue";
 import { settingsBlock } from "@/components/settings/styles";
 import ContextAvatar from "@/components/ContextAvatar.vue";
@@ -35,6 +40,7 @@ import {
   TagsInputItemText,
 } from "@/components/ui/tags-input";
 import { Kubernetes } from "@/services/Kubernetes";
+import { resolveKubeconfigPaths } from "@/lib/kubeconfigSources";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
 
@@ -75,7 +81,7 @@ const setNamespacesForCluster = (values: unknown[]) => {
 
 const fetchContexts = async () => {
   const byName = new Map<string, string[]>();
-  for (const kubeConfig of settings.value.kubeConfigs) {
+  for (const kubeConfig of await resolveKubeconfigPaths(settings.value)) {
     try {
       for (const ctx of await Kubernetes.getContexts(kubeConfig)) {
         byName.set(ctx.name, [...(byName.get(ctx.name) || []), kubeConfig]);
@@ -99,8 +105,8 @@ onMounted(fetchContexts);
 </script>
 <template>
   <SettingsSection
-    title="Cluster specific settings"
-    description="Settings that can be tuned per cluster"
+    title="Namespaces per cluster"
+    description="Namespaces to offer in the context switcher, for clusters where you can't list them"
   >
     <template #actions>
       <Popover v-model:open="pickerOpen">

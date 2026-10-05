@@ -1,4 +1,5 @@
 import { Kubernetes } from "@/services/Kubernetes";
+import { kubectlRequestTimeoutArg } from "@/lib/settings/runtime";
 
 type ContextTagged<T> = T & {
   metadata: NonNullable<T extends { metadata?: infer M } ? M : never> & {
@@ -37,7 +38,7 @@ export async function kubectlGetForContext<T extends { metadata?: any }>(
         "json",
         "--context",
         context,
-        "--request-timeout=30s",
+        kubectlRequestTimeoutArg(),
       ];
       if (kubeConfig) {
         args.push("--kubeconfig", kubeConfig);
@@ -87,9 +88,8 @@ export function activeTargets(
 
 /**
  * Whether list views should poll with kubectl instead of using live watches
- * (settings.json: `"experimental": { "useKubectlPolling": true }`).
+ * (Settings › Tables & Logs › Live updates).
  */
 export function kubectlPollingForced(settings: unknown): boolean {
-  return !!(settings as { experimental?: { useKubectlPolling?: boolean } })
-    ?.experimental?.useKubectlPolling;
+  return (settings as { tables?: { liveUpdates?: string } })?.tables?.liveUpdates === "poll";
 }

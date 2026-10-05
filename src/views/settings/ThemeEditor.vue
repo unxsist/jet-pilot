@@ -57,6 +57,7 @@ import {
   type MonacoRuntime,
 } from "@/components/monaco";
 import { useTheme } from "@/providers/ThemeProvider";
+import { useEditorPreferences } from "@/components/monaco/preferences";
 import { parseThemeFile } from "@/lib/themes/validate";
 import { serializeTheme } from "@/lib/themes/serialize";
 import { THEME_JSON_SCHEMA, THEME_SCHEMA_URI } from "@/lib/themes/schema";
@@ -79,6 +80,7 @@ const theme = useTheme();
 const wanted = useWantedAppearance();
 const { toast } = useToast();
 const applyMonaco = useMonacoTheme();
+const preferences = useEditorPreferences();
 
 /* ------------------------------------------------------------ source -- */
 
@@ -289,16 +291,16 @@ const initEditor = async () => {
   rt.setJsonSchema(model, THEME_SCHEMA_URI, THEME_JSON_SCHEMA);
   editor = monaco.editor.create(editorElement.value, {
     ...editorOptions,
+    ...preferences.options.value,
     ...(prefersReducedMotion() ? { smoothScrolling: false, cursorBlinking: "solid" as const } : {}),
     model,
     readOnly: readonly.value,
     automaticLayout: true,
-    minimap: { enabled: false },
     fixedOverflowWidgets: true,
-    tabSize: 2,
     colorDecorators: true,
     quickSuggestions: { strings: true, other: true, comments: false },
   });
+  preferences.track(editor);
   disposables.push(
     model.onDidChangeContent(() => (text.value = model!.getValue())),
     monaco.editor.onDidChangeMarkers((uris) => {

@@ -1,8 +1,9 @@
 <script setup lang="ts">
+/*
+ * Settings › Appearance › Mode: System / Light / Dark as cards with a mini
+ * preview of the theme each mode uses (appearance.colorScheme).
+ */
 import SettingsSection from "@/components/settings/SettingsSection.vue";
-import ThemeLibrary from "@/components/settings/themes/ThemeLibrary.vue";
-import AddTheme from "@/components/settings/themes/AddTheme.vue";
-import ThemeGallery from "@/components/settings/themes/ThemeGallery.vue";
 import { Check } from "lucide-vue-next";
 import { useTheme } from "@/providers/ThemeProvider";
 
@@ -111,8 +112,4 @@ const schemes = [
       </button>
     </div>
   </SettingsSection>
-
-  <ThemeLibrary />
-  <AddTheme />
-  <ThemeGallery />
 </template>

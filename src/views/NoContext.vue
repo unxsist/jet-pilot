@@ -37,7 +37,7 @@ const isMac = getOsType() === "macos";
         Switch context
       </Button>
       <Button as-child size="sm" variant="outline">
-        <router-link :to="{ name: 'SettingsGeneral' }">
+        <router-link :to="{ name: 'SettingsCategory', params: { category: 'clusters' } }">
           <Settings2 class="h-3.5 w-3.5" />
           Manage kubeconfigs
         </router-link>

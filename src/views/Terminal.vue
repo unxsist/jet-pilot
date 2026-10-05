@@ -2,6 +2,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { PtyStarter } from "@/lib/pty";
 import PtyTerminal from "@/components/PtyTerminal.vue";
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+import { injectStrict } from "@/lib/utils";
 
 /*
  * Local shell with kubectl preconfigured for a context: the backend points
@@ -15,6 +17,8 @@ const props = defineProps<{
   tabId?: string;
 }>();
 
+const { settings } = injectStrict(SettingsContextStateKey);
+
 const banner = computed(
   () =>
     `kubectl is configured for context ${props.context}` +
@@ -27,6 +31,8 @@ const start: PtyStarter = ({ rows, cols }, onEvent) =>
     kubeConfig: props.kubeConfig,
     context: props.context,
     namespace: props.namespace || null,
+    // Settings › Terminal & Editor: empty means the login shell.
+    shell: settings.value.terminal.localShell.trim() || null,
     rows,
     cols,
     onEvent,

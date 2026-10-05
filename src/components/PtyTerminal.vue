@@ -6,6 +6,9 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { useTheme } from "@/providers/ThemeProvider";
 import { JET_XTERM } from "@/lib/themes/xtermTheme";
 import { TabClosedEvent } from "@/providers/PanelProvider";
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { injectStrict } from "@/lib/utils";
 import { error } from "@/lib/logger";
 import {
   PtyMessage,
@@ -43,16 +46,42 @@ const terminalTheme = () =>
 const FONT_FAMILY =
   '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace';
 
+/* Settings › Terminal & Editor › Terminal; applied live. */
+const { settings } = injectStrict(SettingsContextStateKey);
+const preferences = computed(() => settings.value.terminal);
+const reducedMotion = !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+const fontFamily = () => preferences.value.fontFamily.trim() || FONT_FAMILY;
+
 const terminal = new Terminal({
-  cursorBlink: !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
-  cursorStyle: "bar",
-  fontSize: 13,
-  lineHeight: 1.25,
-  fontFamily: FONT_FAMILY,
+  cursorBlink: preferences.value.cursorBlink && !reducedMotion,
+  cursorStyle: preferences.value.cursorStyle,
+  fontSize: preferences.value.fontSize,
+  lineHeight: preferences.value.lineHeight,
+  fontFamily: fontFamily(),
+  scrollback: preferences.value.scrollback,
   theme: terminalTheme(),
 });
 const fitAddon = new FitAddon();
 terminal.loadAddon(fitAddon);
+
+watch(
+  () => ({ ...preferences.value }),
+  (next, previous) => {
+    terminal.options.cursorBlink = next.cursorBlink && !reducedMotion;
+    terminal.options.cursorStyle = next.cursorStyle;
+    terminal.options.fontSize = next.fontSize;
+    terminal.options.lineHeight = next.lineHeight;
+    terminal.options.fontFamily = fontFamily();
+    if (next.scrollback !== previous.scrollback) terminal.options.scrollback = next.scrollback;
+    fit();
+  }
+);
+
+/* Copy on select (Settings): selections go to the clipboard right away. */
+terminal.onSelectionChange(() => {
+  if (!preferences.value.copyOnSelect || !terminal.hasSelection()) return;
+  writeText(terminal.getSelection()).catch(() => undefined);
+});
 
 watch([theme.active, theme.appearance], () => {
   terminal.options.theme = terminalTheme();
@@ -207,9 +236,9 @@ onMounted(() => {
   fit();
 
   // The bundled mono font may still be loading: re-measure once it is.
-  document.fonts?.load(`13px ${FONT_FAMILY}`).then(() => {
+  document.fonts?.load(`${preferences.value.fontSize}px ${FONT_FAMILY}`).then(() => {
     if (disposed) return;
-    terminal.options.fontFamily = FONT_FAMILY;
+    terminal.options.fontFamily = fontFamily();
     fit();
   });
 

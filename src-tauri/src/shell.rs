@@ -393,12 +393,14 @@ pub mod tty {
 
     /// Open the user's local shell with `KUBECONFIG` pointing to a temporary
     /// copy of `context` (and `namespace`, when set) from `kube_config`. The
-    /// user's own kubeconfig is never modified.
+    /// user's own kubeconfig is never modified. `shell` (a program path or
+    /// name, from the terminal settings) replaces the default shell.
     #[tauri::command]
     pub async fn create_local_terminal_session(
         kube_config: String,
         context: String,
         namespace: Option<String>,
+        shell: Option<String>,
         rows: Option<u16>,
         cols: Option<u16>,
         on_event: Channel<InvokeResponseBody>,
@@ -419,7 +421,8 @@ pub mod tty {
                 temp_kubeconfig.to_string_lossy().into_owned(),
             );
 
-            let argv = local_shell_argv(
+            let argv = terminal_shell_argv(
+                shell.as_deref(),
                 std::env::var_os("SHELL").as_deref(),
                 std::env::var_os("PATH").as_deref(),
             );
@@ -664,6 +667,19 @@ pub mod tty {
             .find(|candidate| candidate.is_file())
     }
 
+    /// The local terminal's shell: `shell` (the user's setting) when set,
+    /// otherwise the default from [`local_shell_argv`].
+    pub(crate) fn terminal_shell_argv(
+        shell: Option<&str>,
+        env_shell: Option<&OsStr>,
+        path: Option<&OsStr>,
+    ) -> Vec<String> {
+        match shell.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(program) => shell_argv(program),
+            None => local_shell_argv(env_shell, path),
+        }
+    }
+
     /// The user's shell: `$SHELL` (fallback `/bin/sh`) on unix, PowerShell 7
     /// (`pwsh.exe`) when installed or Windows PowerShell on Windows.
     #[cfg(not(windows))]
@@ -673,7 +689,7 @@ pub mod tty {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "/bin/sh".to_string());
 
-        vec![shell]
+        shell_argv(&shell)
     }
 
     #[cfg(windows)]
@@ -683,7 +699,28 @@ pub mod tty {
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_else(|| "powershell.exe".to_string());
 
-        vec![shell, "-NoLogo".to_string()]
+        shell_argv(&shell)
+    }
+
+    /// The argv that starts `program` as the terminal's interactive shell:
+    /// the program alone (the pty makes it interactive), plus `-NoLogo` for
+    /// PowerShell on Windows.
+    #[cfg(not(windows))]
+    fn shell_argv(program: &str) -> Vec<String> {
+        vec![program.to_string()]
+    }
+
+    #[cfg(windows)]
+    fn shell_argv(program: &str) -> Vec<String> {
+        let stem = Path::new(program)
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_ascii_lowercase())
+            .unwrap_or_default();
+        let mut argv = vec![program.to_string()];
+        if stem == "pwsh" || stem == "powershell" {
+            argv.push("-NoLogo".to_string());
+        }
+        argv
     }
 
     #[cfg(test)]
@@ -832,6 +869,39 @@ pub mod tty {
                 vec!["/bin/sh"]
             );
             assert_eq!(local_shell_argv(None, None), vec!["/bin/sh"]);
+        }
+
+        #[cfg(not(windows))]
+        #[test]
+        fn configured_shell_overrides_the_default() {
+            let zsh = Some(OsStr::new("/bin/zsh"));
+            assert_eq!(
+                terminal_shell_argv(Some("/usr/bin/fish"), zsh, None),
+                vec!["/usr/bin/fish"]
+            );
+            assert_eq!(terminal_shell_argv(Some(" bash "), zsh, None), vec!["bash"]);
+            // Unset or blank: the default ($SHELL).
+            assert_eq!(terminal_shell_argv(Some("  "), zsh, None), vec!["/bin/zsh"]);
+            assert_eq!(terminal_shell_argv(None, zsh, None), vec!["/bin/zsh"]);
+            assert_eq!(terminal_shell_argv(None, None, None), vec!["/bin/sh"]);
+        }
+
+        #[cfg(windows)]
+        #[test]
+        fn configured_shell_overrides_the_default() {
+            assert_eq!(
+                terminal_shell_argv(Some(r"C:\Program Files\PowerShell\7\pwsh.exe"), None, None),
+                vec![r"C:\Program Files\PowerShell\7\pwsh.exe", "-NoLogo"]
+            );
+            assert_eq!(
+                terminal_shell_argv(Some("powershell.exe"), None, None),
+                vec!["powershell.exe", "-NoLogo"]
+            );
+            assert_eq!(terminal_shell_argv(Some("cmd.exe"), None, None), vec!["cmd.exe"]);
+            assert_eq!(
+                terminal_shell_argv(Some(" "), None, None),
+                vec!["powershell.exe", "-NoLogo"]
+            );
         }
 
         /// A channel collecting raw output and the exit JSON message.

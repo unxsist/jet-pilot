@@ -1,7 +1,7 @@
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict, formatResourceKind } from "@/lib/utils";
 import { type as getOsType } from "@tauri-apps/plugin-os";
-import { RouteLocationRaw, useRouter } from "vue-router";
+import { RouteLocationRaw, useRoute, useRouter } from "vue-router";
 
 /**
  * Kept for compatibility: shortcuts are derived from the pinned resources on
@@ -23,6 +23,7 @@ export function resourceRoute(kind: string): RouteLocationRaw {
 export const PINNED_SHORTCUT_COUNT = 9;
 
 /**
+ * Cmd/Ctrl + , opens the settings (or focuses their search when open).
  * Cmd/Ctrl + 1..9 opens the n-th pinned resource.
  *
  * These are handled in-window: registering them as OS-global shortcuts
@@ -34,7 +35,17 @@ export default {
   setup() {
     const { settings } = injectStrict(SettingsContextStateKey);
     const router = useRouter();
+    const route = useRoute();
     const isMac = getOsType() === "macos";
+
+    const openSettings = () => {
+      const inSettings = route.path.startsWith("/settings") && !route.meta.fullBleed;
+      router.push(
+        inSettings
+          ? { query: { ...route.query, focus: "search" } }
+          : { name: "SettingsCategory", params: { category: "general" } }
+      );
+    };
 
     const onKeydown = (event: KeyboardEvent) => {
       const modifier = isMac ? event.metaKey : event.ctrlKey;
@@ -42,6 +53,12 @@ export default {
         return;
       }
       if (isMac ? event.ctrlKey : event.metaKey) {
+        return;
+      }
+
+      if (event.code === "Comma") {
+        event.preventDefault();
+        openSettings();
         return;
       }
 

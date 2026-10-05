@@ -10,16 +10,22 @@ use std::sync::{Arc, RwLock};
 
 mod announcements;
 mod app_log;
+mod env_import;
+mod kubeconfig_discovery;
 mod kubernetes;
 mod logs;
 mod metrics;
 mod manifest;
+mod net;
 mod openvsx;
+mod paths;
 mod port_forward;
+mod process;
 #[cfg(all(test, feature = "kwok-qa"))]
 mod qa_kwok;
 mod shell;
 mod themes;
+mod tools;
 mod util;
 mod watch;
 mod workloads;
@@ -87,7 +93,10 @@ fn main() {
     // Store the new reload handle
     *util::write(&RELOAD_HANDLE) = reload_handle;
 
-    let _ = fix_path_env::fix();
+    // Login shell environment (PATH, KUBECONFIG, AWS_*, proxies, ...) plus
+    // the managed tools dir on PATH. Calls set_var: must stay before Tauri
+    // starts any threads.
+    env_import::import();
 
     // Temporary terminal kubeconfigs contain flattened credentials: remove
     // the ones a crashed previous run left behind.
@@ -174,6 +183,12 @@ fn main() {
             logs::streaming::stop_log_stream,
             logs::streaming::log_stream_reset,
             workloads::run_helm_with_values,
+            env_import::env_import_report,
+            kubeconfig_discovery::kubeconfig_discover,
+            kubeconfig_discovery::kubeconfig_describe,
+            tools::tools_detect,
+            tools::tools_install,
+            tools::tools_uninstall,
         ])
         .setup(|_app| {
             #[cfg(target_os = "macos")]

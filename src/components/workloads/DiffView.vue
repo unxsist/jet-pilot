@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import MonacoView from "@/components/monaco/MonacoView.vue";
 import { useSessionStorage } from "@vueuse/core";
 import { Columns2, Equal, Rows2 } from "lucide-vue-next";
+import { injectStrict } from "@/lib/utils";
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 
 /*
  * Diff of two texts (YAML manifests / values) with a +/- summary: the Monaco
@@ -26,8 +28,12 @@ const props = withDefaults(
   { context: 4, full: false, emptyText: "No differences" }
 );
 
-/* Shared by every diff of the session. */
-const sideBySide = useSessionStorage("jet:diff-side-by-side", true);
+/* Shared by every diff of the session; starts with the preferred layout. */
+const { settings } = injectStrict(SettingsContextStateKey);
+const sideBySide = useSessionStorage(
+  "jet:diff-side-by-side",
+  settings.value.editor.diffMode === "sideBySide"
+);
 const monacoFailed = ref(false);
 
 const lines = computed(() => diffLines(props.oldText, props.newText));

@@ -1,5 +1,6 @@
 import { Ref, onScopeDispose, ref, shallowRef, watch } from "vue";
 import { log as logInfo } from "@/lib/logger";
+import { kubectlRequestTimeoutArg } from "@/lib/settings/runtime";
 import { DiscoveryService, getDiscoveryService } from "@/lib/discovery";
 import { WatchTransport, tauriWatchTransport } from "@/lib/watch";
 import {
@@ -161,7 +162,7 @@ export function useClusterTopology(
       target.context,
       "-o",
       "json",
-      "--request-timeout=30s",
+      kubectlRequestTimeoutArg(),
     ];
     if (target.kubeConfig) args.push("--kubeconfig", target.kubeConfig);
     if (resource.namespaced !== false) {

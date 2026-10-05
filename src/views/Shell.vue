@@ -27,7 +27,7 @@ const start: PtyStarter = ({ rows, cols }, onEvent) =>
       context: props.context,
       namespace: props.namespace,
       kubeConfig: props.kubeConfig,
-      shell: settings.value.shell.executable,
+      shell: settings.value.terminal.containerShell,
     }),
     rows,
     cols,

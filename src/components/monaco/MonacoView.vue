@@ -12,6 +12,7 @@ import {
   useMonacoTheme,
   type MonacoRuntime,
 } from "@/components/monaco";
+import { useEditorPreferences } from "@/components/monaco/preferences";
 
 const props = withDefaults(
   defineProps<{
@@ -35,6 +36,7 @@ const element = ref<HTMLElement | null>(null);
 const ready = ref(false);
 const loadError = ref("");
 const applyTheme = useMonacoTheme();
+const preferences = useEditorPreferences();
 
 let rt: MonacoRuntime | null = null;
 let editor: Monaco.editor.IStandaloneCodeEditor | null = null;
@@ -45,13 +47,13 @@ let unmounted = false;
 
 const baseOptions = () => ({
   ...editorOptions,
+  ...preferences.options.value,
   ...(prefersReducedMotion()
     ? { smoothScrolling: false, cursorBlinking: "solid" as const }
     : {}),
   readOnly: true,
   domReadOnly: true,
   automaticLayout: true,
-  minimap: { enabled: false },
   fixedOverflowWidgets: true,
 });
 
@@ -85,6 +87,7 @@ onMounted(async () => {
       },
     });
     diff.setModel({ original: originalModel, modified: model });
+    preferences.track(diff);
     // Unchanged regions only collapse when the cursor isn't inside them.
     const once = diff.onDidUpdateDiff(() => {
       const [first] = diff?.getLineChanges() || [];
@@ -96,6 +99,7 @@ onMounted(async () => {
     });
   } else {
     editor = monaco.editor.create(element.value, { ...baseOptions(), model });
+    preferences.track(editor);
   }
   ready.value = true;
   emit("ready");

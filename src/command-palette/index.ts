@@ -22,6 +22,8 @@ type BaseCommand = {
   onHighlight?: () => void;
   /** Commands with options: called when the options close (chosen, Esc or the palette closing). */
   onLeave?: () => void;
+  /** Only listed while searching (e.g. one item per setting), under "Settings". */
+  searchOnly?: boolean;
 };
 
 type ExecutableCommand = {

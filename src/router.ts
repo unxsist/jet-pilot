@@ -10,18 +10,15 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: "/settings",
     name: "Settings",
-    redirect: "/settings/general",
+    redirect: { name: "SettingsCategory", params: { category: "general" } },
     component: () => import("./views/Settings.vue"),
     children: [
       {
-        path: "general",
-        name: "SettingsGeneral",
-        component: () => import("./views/settings/General.vue"),
-      },
-      {
-        path: "appearance",
-        name: "SettingsAppearance",
-        component: () => import("./views/settings/Appearance.vue"),
+        // settings.json in the JSON editor.
+        path: "json",
+        name: "SettingsJson",
+        component: () => import("./views/settings/SettingsJson.vue"),
+        meta: { fullBleed: true },
       },
       {
         // The JSON theme editor; no id: a new theme.
@@ -30,15 +27,15 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import("./views/settings/ThemeEditorRoute.vue"),
         meta: { fullBleed: true },
       },
-      {
-        path: "clusters",
-        name: "SettingsClusters",
-        component: () => import("./views/settings/Clusters.vue"),
-      },
+      // Pages of earlier releases.
       {
         path: "logs",
-        name: "SettingsLogs",
-        component: () => import("./views/settings/Logs.vue"),
+        redirect: { name: "SettingsCategory", params: { category: "advanced" }, query: { section: "app-log" } },
+      },
+      {
+        path: ":category",
+        name: "SettingsCategory",
+        component: () => import("./views/settings/SettingsCategory.vue"),
       },
     ],
   },

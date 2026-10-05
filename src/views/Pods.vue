@@ -369,7 +369,6 @@ const {
   kind: () => "Pod",
   targets,
   fallback: (_resource, target) => fetchContext(target),
-  fallbackInterval: 5000,
   forcePolling,
   onAuthError: (target, message) =>
     handleAuthError(target.context, target.kubeConfig, message),

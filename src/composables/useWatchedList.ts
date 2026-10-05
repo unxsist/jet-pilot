@@ -21,6 +21,7 @@ import {
 import { error as logError, log as logInfo } from "@/lib/logger";
 import { useIsActiveView } from "@/lib/activeView";
 import { markFirstData } from "@/lib/perf";
+import { pollInterval } from "@/lib/settings/runtime";
 
 /** One activated context and the namespaces selected for it. */
 export interface ContextTarget {
@@ -748,7 +749,7 @@ export interface UseWatchedListOptions<T> {
   kind?: () => string | undefined;
   targets: () => ContextTarget[];
   fallback: (resource: string, target: ContextTarget) => Promise<T[]>;
-  /** kubectl polling interval (fallback path), ms. */
+  /** kubectl polling interval (fallback path), ms; default: Settings › Tables & Logs. */
   fallbackInterval?: number;
   forcePolling?: () => boolean;
   onAuthError?: (target: ContextTarget, message: string) => Promise<boolean>;
@@ -815,7 +816,7 @@ export function useWatchedList<T extends Row>(options: UseWatchedListOptions<T>)
         resource,
         kind,
         fallback: (target) => options.fallback(resource, target),
-        fallbackInterval: options.fallbackInterval ?? 5000,
+        fallbackInterval: options.fallbackInterval ?? pollInterval(),
         forcePolling: options.forcePolling?.() ?? false,
         onAuthError: options.onAuthError,
         transport: options.transport ?? tauriWatchTransport,
