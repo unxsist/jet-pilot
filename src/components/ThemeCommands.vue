@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { useEventListener } from "@vueuse/core";
+import { computed, reactive } from "vue";
+import { useEventListener, usePreferredDark } from "@vueuse/core";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import type { Command } from "@/command-palette";
 import { injectStrict } from "@/lib/utils";
@@ -10,8 +11,8 @@ import {
 } from "@/providers/CommandPaletteProvider";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { useTheme } from "@/providers/ThemeProvider";
-import { themeGroup, type ThemeGroup } from "@/lib/themes/runtime";
-import type { ColorScheme, ThemeAppearance, ThemeEntry } from "@/lib/themes/types";
+import { clickMode, themeGroup, wantedAppearance, type ThemeGroup } from "@/lib/themes/runtime";
+import type { ColorScheme, ThemeEntry } from "@/lib/themes/types";
 
 /*
  * Command palette entries for the app theme, with T3 Code's shortcuts:
@@ -23,6 +24,11 @@ const registerCommand = injectStrict(RegisterCommandStateKey);
 const showSingleCommand = injectStrict(ShowSingleCommandKey);
 const { settings } = injectStrict(SettingsContextStateKey);
 const theme = useTheme();
+const systemDark = usePreferredDark();
+/* The appearance the colour scheme asks for (not the one painted). */
+const wanted = computed(() =>
+  wantedAppearance(settings.value.appearance.colorScheme, systemDark.value)
+);
 const { toast } = useToast();
 const isMac = getOsType() === "macos";
 const mod = isMac ? "⌘" : "Ctrl";
@@ -31,18 +37,24 @@ const alt = isMac ? "⌥" : "Alt";
 const GROUP_ORDER: ThemeGroup[] = ["Built-in", "T3 Code", "Yours", "Open VSX"];
 const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
-/* A circle per appearance: canvas with an accent wedge. */
-const swatches = async (entry: ThemeEntry) => {
-  try {
-    const resolved = await Promise.all(
-      entry.appearances.map((appearance) => theme.resolve(entry.id, appearance))
-    );
-    return resolved.map(
-      ({ roles }) => `linear-gradient(135deg, ${roles.canvas} 55%, ${roles.accent} 55%)`
-    );
-  } catch {
-    return [];
-  }
+/*
+ * A circle per appearance: canvas with an accent wedge. Resolved one theme
+ * per frame after the list is shown (the first open resolves every theme),
+ * so the palette stays responsive while the swatches fill in.
+ */
+let swatchQueue: Promise<unknown> = Promise.resolve();
+const fillSwatches = (command: Command, entry: ThemeEntry) => {
+  swatchQueue = swatchQueue
+    .then(() => new Promise((resolve) => requestAnimationFrame(resolve)))
+    .then(() =>
+      Promise.all(entry.appearances.map((appearance) => theme.resolve(entry.id, appearance)))
+    )
+    .then((resolved) => {
+      command.swatches = resolved.map(
+        ({ roles }) => `linear-gradient(135deg, ${roles.canvas} 55%, ${roles.accent} 55%)`
+      );
+    })
+    .catch(() => undefined);
 };
 
 /* Which halves a theme is saved for. */
@@ -55,26 +67,19 @@ const badge = (id: string) => {
 };
 
 /*
- * T3's rule: a theme with both appearances is used for both; a theme with
- * one claims that half only (Dracula becomes the dark theme and shows when
- * the appearance is dark).
+ * T3's rule (clickMode): a theme with both appearances is used for both; a
+ * theme with one claims that half only (Dracula becomes the dark theme and
+ * shows when the appearance is dark).
  */
 const apply = (entry: ThemeEntry) => {
-  const [only] = entry.appearances.length === 1 ? entry.appearances : [];
-  theme.setTheme(entry.id, only ?? "both");
-  if (only && only !== currentWanted()) {
+  const mode = clickMode(entry);
+  theme.setTheme(entry.id, mode);
+  if (mode !== "both" && mode !== wanted.value) {
     toast({
-      title: `${entry.name} is your ${only} theme`,
-      description: `It shows when the appearance is ${only}.`,
+      title: `${entry.name} is your ${mode} theme`,
+      description: `It shows when the appearance is ${mode}.`,
     });
   }
-};
-
-/* The appearance the colour scheme asks for (not the one painted). */
-const currentWanted = (): ThemeAppearance => {
-  const scheme = settings.value.appearance.colorScheme;
-  if (scheme !== "auto") return scheme;
-  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 };
 
 /* Previews only while the list is open (a late, debounced highlight is ignored). */
@@ -86,12 +91,13 @@ let listOpen = false;
  * loses the highlight (and Enter) when its option objects are replaced.
  */
 const options = new Map<string, Command>();
-const option = async (entry: ThemeEntry, group: ThemeGroup): Promise<Command> => {
+const option = (entry: ThemeEntry, group: ThemeGroup): Command => {
   const current = badge(entry.id);
   const key = `${entry.id}|${group}|${current}`;
   const cached = options.get(key);
   if (cached && cached.name === entry.name) return cached;
-  const command: Command = {
+  // Reactive: the swatches are filled in while the list is shown.
+  const command = reactive<Command>({
     id: `theme:${entry.id}`,
     name: entry.name,
     description:
@@ -99,13 +105,14 @@ const option = async (entry: ThemeEntry, group: ThemeGroup): Promise<Command> =>
     keywords: [entry.id, group],
     group,
     badge: current,
-    swatches: await swatches(entry),
+    swatches: [],
     onHighlight: () => {
       if (listOpen) void theme.preview(entry.id);
     },
     execute: () => apply(entry),
-  };
+  }) as Command;
   options.set(key, command);
+  fillSwatches(command, entry);
   return command;
 };
 
@@ -129,7 +136,7 @@ registerCommand({
       .filter((entry) => !entry.error)
       .map((entry) => ({ entry, group: themeGroup(entry) }))
       .sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group));
-    return Promise.all(entries.map(({ entry, group }) => option(entry, group)));
+    return entries.map(({ entry, group }) => option(entry, group));
   },
   onLeave: () => {
     listOpen = false;
@@ -178,6 +185,8 @@ const cycleAppearance = () => {
  * types "å" on macOS.
  */
 useEventListener(window, "keydown", (event: KeyboardEvent) => {
+  // AltGr is reported as Ctrl+Alt on Windows: AltGr+A types a character.
+  if (event.getModifierState?.("AltGraph")) return;
   const modifier = isMac ? event.metaKey : event.ctrlKey;
   if (!modifier || !event.altKey || event.code !== "KeyA" || event.repeat) return;
   if (isMac ? event.ctrlKey : event.metaKey) return;
