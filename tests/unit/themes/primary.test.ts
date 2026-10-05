@@ -5,6 +5,8 @@ import { resolveTheme } from "@/lib/themes/resolve";
 import { builtinFiles, FIXTURES, importFixture } from "./helpers";
 
 const APPEARANCES = ["light", "dark"] as const;
+/** The built-in palettes (complete theme files, not VS Code imports). */
+const PALETTES = ["blossom", "grove", "ocean", "ember", "iris"];
 
 describe("primary action colour", () => {
   const cases = [
@@ -39,7 +41,7 @@ describe("primary action colour", () => {
 
   it("imported VS Code themes keep hairline borders and quiet hover surfaces", () => {
     const vscode = [
-      ...builtinFiles().filter((file) => file.id !== "jet" && !file.id!.startsWith("t3-")),
+      ...builtinFiles().filter((file) => file.id !== "jet" && !PALETTES.includes(file.id!)),
       importFixture("dracula-color-theme.json"),
       importFixture("harbor-light-color-theme.jsonc"),
     ];

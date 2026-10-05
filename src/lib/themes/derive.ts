@@ -4,9 +4,9 @@
  * the surface it sits on.
  *
  * The vivid generator (createVividThemeColors), the OKLCH maths and the
- * contrast solver are ported from T3 Code (MIT, github.com/pingdotgg/t3code,
- * apps/web/src/themePalette.ts); the output is hex instead of oklch() so
- * the contrast guarantees hold for the exact pixels painted. JET Pilot's
+ * contrast solver are derived from MIT-licensed code (see
+ * THIRD_PARTY_THEMES.md); the output is hex instead of oklch() so the
+ * contrast guarantees hold for the exact pixels painted. JET Pilot's
  * own roles (success / info) are derived the same way: a fixed hue solved
  * for text contrast on the canvas.
  */
@@ -41,7 +41,7 @@ export const DEFAULT_SEEDS: Record<
   dark: { canvas: "#101011", accent: "#7b75f2" },
 };
 
-/* ---- OKLCH (T3 Code) ---- */
+/* ---- OKLCH ---- */
 
 const srgbToLinear = (channel: number) => {
   const c = channel / 255;
@@ -188,7 +188,7 @@ export function readableForeground(background: string, candidates: string[]): st
   return bestRatio >= 4.5 ? best : rgbToHex(extremeOn(bg));
 }
 
-/* ---- the vivid generator (T3 Code) ---- */
+/* ---- the vivid generator ---- */
 
 function readableThemeForeground(background: Rgb): Rgb {
   const light = contrastRgb(background, LIGHT_FOREGROUND);
@@ -220,8 +220,8 @@ function readableThemeText(
   return readable;
 }
 
-// The measured contrast of the stock muted text in T3 Code (zinc-500 on the
-// light canvas, #818181 on the dark one), so derived muted text feels the same.
+// The contrast of a calm stock muted text (zinc-500 on a white canvas,
+// #818181 on a near-black one), so derived muted text feels the same.
 const STANDARD_LIGHT_MUTED_CONTRAST = 4.705;
 const STANDARD_DARK_MUTED_CONTRAST = 5.082;
 
@@ -459,12 +459,12 @@ export const CONTRAST_PAIRS: [ThemeColorRole | JetColorRole, ThemeColorRole | Je
 export interface RoleInput {
   canvas?: string;
   accent?: string;
-  /** Explicit T3 + JET roles (any CSS colour; alpha is flattened over the canvas). */
+  /** Explicit standard + JET roles (any CSS colour; alpha is flattened over the canvas). */
   colors?: Partial<Record<ThemeColorRole | JetColorRole, string>>;
 }
 
 /**
- * Every T3 + JET role as #rrggbb: the vivid palette derived from the seeds,
+ * Every standard + JET role as #rrggbb: the vivid palette derived from the seeds,
  * the explicit roles on top, then the contrast fixes of CONTRAST_PAIRS.
  */
 export function completeRoles(appearance: ThemeAppearance, input: RoleInput): ThemeRoles {
@@ -475,7 +475,7 @@ export function completeRoles(appearance: ThemeAppearance, input: RoleInput): Th
     return parsed ? rgbToHex(flattenOver(parsed, base)) : undefined;
   };
 
-  // `colors` is layered over the seeds (T3), so an explicit canvas role wins.
+  // `colors` is layered over the seeds, so an explicit canvas role wins.
   const canvas =
     opaque(colors.canvas, backdrop) ??
     opaque(input.canvas, backdrop) ??

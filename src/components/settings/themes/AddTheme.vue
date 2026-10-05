@@ -232,7 +232,7 @@ defineExpose({ showReport });
 <template>
   <SettingsSection
     title="Add a theme"
-    description="VS Code, Sublime Text, TextMate and T3 Code themes all work."
+    description="VS Code, Sublime Text and TextMate themes and JET Pilot theme files all work."
   >
     <div class="space-y-3 px-5 py-4">
       <div
@@ -286,7 +286,7 @@ defineExpose({ showReport });
           <DialogTitle>Paste a theme</DialogTitle>
           <DialogDescription>
             A VS Code colour theme, a Sublime colour scheme, a TextMate theme or a
-            T3 Code / JET Pilot theme file.
+            JET Pilot theme file.
           </DialogDescription>
         </DialogHeader>
         <Textarea

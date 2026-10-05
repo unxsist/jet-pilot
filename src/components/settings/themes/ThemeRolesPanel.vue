@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /*
- * The theme editor's role list: every T3 + JET role with the colour it
+ * The theme editor's role list: every standard + JET role with the colour it
  * resolves to in the draft (set in the file, or derived), and where JET
  * Pilot paints it. Clicking a role jumps to its key, or adds it with the
  * resolved colour.
@@ -29,7 +29,7 @@ const shown = computed(() => {
   const list = q
     ? ALL.filter(({ role, description }) => `${role} ${description}`.toLowerCase().includes(q))
     : ALL;
-  // The roles the file sets first, then the rest in T3's order.
+  // The roles the file sets first, then the rest in the canonical order.
   return [...list].sort(
     (a, b) => Number(props.explicit.has(b.role)) - Number(props.explicit.has(a.role))
   );

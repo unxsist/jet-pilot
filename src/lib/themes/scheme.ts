@@ -17,6 +17,38 @@ export function wantedAppearance(scheme: ColorScheme, systemDark: boolean): Them
   return systemDark ? "dark" : "light";
 }
 
+/**
+ * Former ids of renamed built-in themes → their current id (1.38.0 shipped
+ * the palettes under other ids). Saved settings are migrated when they are
+ * read (migrateThemeSettings); the ids stay taken, so no user theme can
+ * claim one.
+ */
+export const LEGACY_THEME_IDS: Readonly<Record<string, string>> = Object.freeze({
+  "t3-chat": "blossom",
+  "t3-grove": "grove",
+  "t3-ocean": "ocean",
+  "t3-ember": "ember",
+  "t3-iris": "iris",
+});
+
+/** The current id of a theme: `id` itself unless it is a former built-in id. */
+export function canonicalThemeId(id: string): string {
+  return Object.prototype.hasOwnProperty.call(LEGACY_THEME_IDS, id) ? LEGACY_THEME_IDS[id]! : id;
+}
+
+/**
+ * Rewrites former built-in ids in the appearance settings to the current
+ * ones (in place). True when something changed.
+ */
+export function migrateThemeSettings(appearance: { lightTheme: string; darkTheme: string }): boolean {
+  const lightTheme = canonicalThemeId(appearance.lightTheme);
+  const darkTheme = canonicalThemeId(appearance.darkTheme);
+  const changed = lightTheme !== appearance.lightTheme || darkTheme !== appearance.darkTheme;
+  if (lightTheme !== appearance.lightTheme) appearance.lightTheme = lightTheme;
+  if (darkTheme !== appearance.darkTheme) appearance.darkTheme = darkTheme;
+  return changed;
+}
+
 export interface ThemeChoice {
   id: string;
   /** The appearance painted (see paintedAppearance). */

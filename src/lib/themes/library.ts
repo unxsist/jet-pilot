@@ -18,7 +18,7 @@ import type {
 
 /* ------------------------------------------------------------ groups -- */
 
-export type LibraryGroupId = "builtin" | "t3" | "yours";
+export type LibraryGroupId = "builtin" | "yours";
 
 export interface LibraryGroup {
   id: LibraryGroupId;
@@ -28,22 +28,20 @@ export interface LibraryGroup {
 
 const GROUP_LABELS: Record<LibraryGroupId, string> = {
   builtin: "Built-in",
-  t3: "T3 Code",
   yours: "Your themes",
 };
 
 /**
- * Theme cards in three groups: Built-in (JET + curated), T3 Code's
- * palettes, and Your themes (files of the themes folder, Open VSX installs
- * included; broken files too, so they can be fixed). Built-ins keep the
+ * Theme cards in two groups: Built-in (JET, the curated themes and the
+ * built-in palettes) and Your themes (files of the themes folder, Open VSX
+ * installs included; broken files too, so they can be fixed). Built-ins keep the
  * manifest order; your themes are sorted by name. The Your themes group is
  * always present (it carries the empty state).
  */
 export function groupThemes(entries: readonly ThemeEntry[]): LibraryGroup[] {
-  const groups: Record<LibraryGroupId, ThemeEntry[]> = { builtin: [], t3: [], yours: [] };
+  const groups: Record<LibraryGroupId, ThemeEntry[]> = { builtin: [], yours: [] };
   for (const entry of entries) {
     if (entry.source !== "builtin") groups.yours.push(entry);
-    else if (themeGroup(entry) === "T3 Code") groups.t3.push(entry);
     else groups.builtin.push(entry);
   }
   groups.yours.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
@@ -55,7 +53,7 @@ export function groupThemes(entries: readonly ThemeEntry[]): LibraryGroup[] {
 export type BadgeTone = "muted" | "accent" | "info" | "outline" | "destructive";
 
 /** The origin badge of a theme card. */
-export function themeBadge(entry: Pick<ThemeEntry, "source" | "origin" | "error">): {
+export function themeBadge(entry: Pick<ThemeEntry, "source" | "error">): {
   label: string;
   tone: BadgeTone;
 } {
@@ -65,8 +63,6 @@ export function themeBadge(entry: Pick<ThemeEntry, "source" | "origin" | "error"
       return { label: "Open VSX", tone: "info" };
     case "Yours":
       return { label: "Yours", tone: "accent" };
-    case "T3 Code":
-      return { label: "T3 Code", tone: "outline" };
     default:
       return { label: "Built-in", tone: "muted" };
   }
@@ -172,8 +168,6 @@ export function originLabel(format: ImportFormat): string | null {
       return "Sublime Text";
     case "tmtheme":
       return "TextMate";
-    case "t3":
-      return "T3 Code";
     default:
       return null;
   }
@@ -181,7 +175,9 @@ export function originLabel(format: ImportFormat): string | null {
 
 /** Human name of an import format. */
 export function formatLabel(format: ImportFormat): string {
-  return format === "jet" ? "JET Pilot" : originLabel(format)!;
+  if (format === "jet") return "JET Pilot";
+  if (format === "portable") return "JSON theme";
+  return originLabel(format)!;
 }
 
 /* ----------------------------------------------------------- Open VSX -- */
@@ -256,7 +252,7 @@ const STRUCTURED_KEYS: ReadonlySet<string> = new Set(["canvas", "accent", "color
 
 /**
  * JSON paths where a role of `appearance` lives in a raw theme file, best
- * first: the variant body for the non-base appearance (T3's flat variant
+ * first: the variant body for the non-base appearance (the flat variant
  * form included), the base otherwise; JET roles under jetPilot.colors;
  * canvas / accent also as seeds. The first path is where a new value goes.
  */

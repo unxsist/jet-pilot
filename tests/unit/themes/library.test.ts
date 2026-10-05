@@ -7,6 +7,7 @@ import {
   errorLine,
   fileNameOf,
   formatCount,
+  formatLabel,
   groupThemes,
   isExtensionInstalled,
   jsonErrorLocation,
@@ -31,25 +32,23 @@ const entry = (overrides: Partial<ThemeEntry> & { id: string }): ThemeEntry => (
   ...overrides,
 });
 
-const T3 = { label: "T3 Code" };
-
 describe("groupThemes", () => {
   const entries = [
     entry({ id: "jet", name: "JET" }),
-    entry({ id: "t3-chat", name: "T3 Chat", origin: T3 }),
+    entry({ id: "blossom", name: "Blossom", origin: { label: "JET Pilot", license: "MIT" } }),
     entry({ id: "dracula", name: "Dracula", appearances: ["dark"] }),
     entry({ id: "zeta", name: "Zeta", source: "user" }),
     entry({ id: "pastel", name: "Pastel", source: "openvsx", origin: { label: "Open VSX" } }),
     entry({ id: "broken", name: "broken", source: "user", appearances: [], error: "Not JSON" }),
   ];
 
-  it("groups built-ins, T3 palettes and your themes (Open VSX and broken files included)", () => {
+  it("groups built-ins and your themes (Open VSX and broken files included)", () => {
     const groups = groupThemes(entries);
-    expect(groups.map((group) => group.label)).toEqual(["Built-in", "T3 Code", "Your themes"]);
-    expect(groups[0]!.entries.map((e) => e.id)).toEqual(["jet", "dracula"]);
-    expect(groups[1]!.entries.map((e) => e.id)).toEqual(["t3-chat"]);
+    expect(groups.map((group) => group.label)).toEqual(["Built-in", "Your themes"]);
+    // Built-ins keep the manifest order.
+    expect(groups[0]!.entries.map((e) => e.id)).toEqual(["jet", "blossom", "dracula"]);
     // Sorted by name.
-    expect(groups[2]!.entries.map((e) => e.id)).toEqual(["broken", "pastel", "zeta"]);
+    expect(groups[1]!.entries.map((e) => e.id)).toEqual(["broken", "pastel", "zeta"]);
   });
 
   it("always has a Your themes group, and drops empty built-in groups", () => {
@@ -60,7 +59,7 @@ describe("groupThemes", () => {
 
   it("labels the origin of each card", () => {
     expect(themeBadge(entries[0]!)).toEqual({ label: "Built-in", tone: "muted" });
-    expect(themeBadge(entries[1]!).label).toBe("T3 Code");
+    expect(themeBadge(entries[1]!)).toEqual({ label: "Built-in", tone: "muted" });
     expect(themeBadge(entries[3]!).label).toBe("Yours");
     expect(themeBadge(entries[4]!).label).toBe("Open VSX");
     expect(themeBadge(entries[5]!)).toEqual({ label: "Broken", tone: "destructive" });
@@ -145,8 +144,11 @@ describe("import files", () => {
     expect(originLabel("vscode")).toBe("VS Code");
     expect(originLabel("sublime")).toBe("Sublime Text");
     expect(originLabel("tmtheme")).toBe("TextMate");
-    expect(originLabel("t3")).toBe("T3 Code");
+    expect(originLabel("portable")).toBeNull();
     expect(originLabel("jet")).toBeNull();
+    expect(formatLabel("portable")).toBe("JSON theme");
+    expect(formatLabel("jet")).toBe("JET Pilot");
+    expect(formatLabel("vscode")).toBe("VS Code");
   });
 });
 
@@ -246,7 +248,7 @@ describe("theme editor helpers", () => {
       ["variants", "dark", "canvas"],
     ]);
     expect(rolePaths(file, "success", "light")).toEqual([["jetPilot", "colors", "success"]]);
-    // T3's flat variant form.
+    // The flat variant form.
     const flat = { name: "Y", appearance: "dark", variants: { light: { canvas: "#fff", text: "#000" } } };
     expect(rolePaths(flat, "text", "light")).toEqual([["variants", "light", "text"]]);
     // No variant for that appearance: the base.

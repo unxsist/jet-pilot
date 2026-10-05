@@ -4,6 +4,10 @@ import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import {
   bootCacheEntry,
+  canonicalThemeId,
+  isBuiltinThemeId,
+  LEGACY_THEME_IDS,
+  migrateThemeSettings,
   themeAppearances,
   paintedAppearance,
   parseBootCache,
@@ -34,7 +38,7 @@ describe("appearance", () => {
     expect(wantedAppearance("auto", false)).toBe("light");
   });
 
-  it("paints a theme's own appearance when it lacks the wanted one (T3)", () => {
+  it("paints a theme's own appearance when it lacks the wanted one", () => {
     expect(paintedAppearance(["dark"], "light")).toBe("dark");
     expect(paintedAppearance(["light", "dark"], "light")).toBe("light");
     expect(paintedAppearance([], "dark")).toBe("dark");
@@ -72,6 +76,49 @@ describe("pickTheme", () => {
       });
     }
   });
+
+  it("follows a renamed built-in by its former id", () => {
+    const withGrove = (id: string) => (id === "grove" ? (["light", "dark"] as ThemeAppearance[]) : lookup(id));
+    expect(pickTheme({ lightTheme: "t3-grove", darkTheme: "jet" }, "light", withGrove, "jet")).toEqual({
+      id: "grove",
+      appearance: "light",
+    });
+  });
+});
+
+describe("renamed built-in themes", () => {
+  it("maps the former palette ids to the new ones", () => {
+    expect(LEGACY_THEME_IDS).toEqual({
+      "t3-chat": "blossom",
+      "t3-grove": "grove",
+      "t3-ocean": "ocean",
+      "t3-ember": "ember",
+      "t3-iris": "iris",
+    });
+    expect(canonicalThemeId("t3-iris")).toBe("iris");
+    expect(canonicalThemeId("dracula")).toBe("dracula");
+    expect(canonicalThemeId("toString")).toBe("toString");
+  });
+
+  it("migrates saved settings in place, and only when needed", () => {
+    const appearance = { colorScheme: "auto", lightTheme: "t3-chat", darkTheme: "t3-ember" };
+    expect(migrateThemeSettings(appearance)).toBe(true);
+    expect(appearance).toEqual({ colorScheme: "auto", lightTheme: "blossom", darkTheme: "ember" });
+    expect(migrateThemeSettings(appearance)).toBe(false);
+    const mixed = { lightTheme: "jet", darkTheme: "t3-ocean" };
+    expect(migrateThemeSettings(mixed)).toBe(true);
+    expect(mixed).toEqual({ lightTheme: "jet", darkTheme: "ocean" });
+  });
+
+  it("keeps the former ids away from user themes", () => {
+    const builtinIds = new Set(["jet", "grove"]);
+    expect(isBuiltinThemeId(builtinIds, "grove")).toBe(true);
+    expect(isBuiltinThemeId(builtinIds, "t3-grove")).toBe(true);
+    expect(isBuiltinThemeId(builtinIds, "nightfall")).toBe(false);
+    const result = userFileId("t3-grove.json", (id) => isBuiltinThemeId(builtinIds, id), () => false);
+    expect(result).toMatchObject({ id: "t3-grove~t3-grove.json" });
+    expect(result.conflict).toMatch(/built-in/);
+  });
 });
 
 describe("theme ids", () => {
@@ -89,7 +136,7 @@ describe("theme ids", () => {
     expect(uniqueThemeId(`${"a".repeat(45)}-bc`, (c) => c.endsWith("-bc"))).toBe(`${"a".repeat(45)}-2`);
   });
 
-  it("takes the id from the file name (T3's rule)", () => {
+  it("takes the id from the file name", () => {
     expect(themeIdFromFileName("nightfall.json")).toBe("nightfall");
     expect(themeIdFromFileName("My Theme.JSON")).toBe("my-theme");
   });
@@ -155,8 +202,7 @@ describe("theme ids", () => {
   });
 
   it("groups themes for the palette", () => {
-    expect(themeGroup({ source: "builtin", origin: { label: "JET Pilot" } })).toBe("Built-in");
-    expect(themeGroup({ source: "builtin", origin: { label: "T3 Code" } })).toBe("T3 Code");
+    expect(themeGroup({ source: "builtin" })).toBe("Built-in");
     expect(themeGroup({ source: "user" })).toBe("Yours");
     expect(themeGroup({ source: "openvsx", origin: { label: "Open VSX" } })).toBe("Open VSX");
   });

@@ -15,7 +15,7 @@ import { clickMode, themeGroup, wantedAppearance, type ThemeGroup } from "@/lib/
 import type { ColorScheme, ThemeEntry } from "@/lib/themes/types";
 
 /*
- * Command palette entries for the app theme, with T3 Code's shortcuts:
+ * Command palette entries for the app theme:
  * "Change theme…" (Mod+Alt+A) lists the themes; moving the highlight
  * previews them live, Enter applies, Esc / closing reverts. "Change
  * appearance" picks System / Light / Dark; Mod+Alt+Shift+A cycles them.
@@ -34,7 +34,7 @@ const isMac = getOsType() === "macos";
 const mod = isMac ? "⌘" : "Ctrl";
 const alt = isMac ? "⌥" : "Alt";
 
-const GROUP_ORDER: ThemeGroup[] = ["Built-in", "T3 Code", "Yours", "Open VSX"];
+const GROUP_ORDER: ThemeGroup[] = ["Built-in", "Yours", "Open VSX"];
 const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
 /*
@@ -67,7 +67,7 @@ const badge = (id: string) => {
 };
 
 /*
- * T3's rule (clickMode): a theme with both appearances is used for both; a
+ * The click rule (clickMode): a theme with both appearances is used for both; a
  * theme with one claims that half only (Dracula becomes the dark theme and
  * shows when the appearance is dark).
  */

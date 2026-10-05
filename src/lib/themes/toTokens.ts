@@ -1,6 +1,6 @@
 /*
  * Theme roles → JET Pilot's CSS tokens (src/assets/main.postcss) as bare
- * HSL triplets. The tokens JET has and T3 doesn't (border-subtle/-strong,
+ * HSL triplets. The tokens without a standard role (border-subtle/-strong,
  * tooltip, overlay, status fills) are mixed from the canvas and text so
  * they follow the theme. Status tokens keep JET's semantics: the colour
  * itself is text-grade on the canvas, *-foreground is the text on a solid
@@ -11,7 +11,7 @@ import { isDark, mix, toHslTriplet, TRIPLET_PATTERN } from "./contrast";
 import { type ThemeToken, THEME_TOKENS } from "./types";
 
 /**
- * The primary fill and its text. T3's messageAction when it is a vivid
+ * The primary fill and its text. The messageAction role when it is a vivid
  * action colour; otherwise the theme's accent / focus colour (VS Code
  * themes often give their buttons the selection grey, which made the
  * active nav indicator invisible on the selected row).

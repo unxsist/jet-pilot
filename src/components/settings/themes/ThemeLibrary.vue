@@ -162,10 +162,10 @@ const duplicate = async (entry: ThemeEntry) => {
   }
 };
 
-const exportTheme = async (entry: ThemeEntry, forT3: boolean) => {
+const exportTheme = async (entry: ThemeEntry, portable: boolean) => {
   try {
     const file = await theme.loadFile(entry.id);
-    const path = await exportThemeFile(file, entry, forT3);
+    const path = await exportThemeFile(file, entry, portable);
     if (path) toast({ title: `Exported ${entry.name}`, description: path, variant: "success" });
   } catch (e) {
     toast({ title: `Couldn't export ${entry.name}`, description: errorMessage(e), variant: "destructive" });
@@ -252,8 +252,8 @@ defineExpose({ openEditor });
         >
           <p class="text-sm font-medium text-foreground">No themes of your own yet</p>
           <p class="max-w-sm text-xs text-muted-foreground">
-            Import a VS Code, Sublime Text, TextMate or T3 Code theme below, install one
-            from Open VSX, or start from scratch.
+            Import a VS Code, Sublime Text or TextMate theme, or a JET Pilot theme file
+            below, install one from Open VSX, or start from scratch.
           </p>
           <Button variant="link" size="sm" class="mt-1 h-6 px-0" @click="openEditor()">
             Create a theme

@@ -2,13 +2,14 @@
  * Theme contract shared by the importers, the resolver, the runtime
  * (ThemeProvider), the settings UI and the Open VSX commands.
  *
- * The file format is a superset of T3 Code's theme file (version 1, MIT,
- * github.com/pingdotgg/t3code): T3 ignores unknown top-level keys, so a JET
- * Pilot theme with a `jetPilot` block still imports into T3 Code, and every
- * T3 theme (full or seeded "canvas + accent" form) imports here.
+ * The file format is a portable JSON theme file (version 1: a name, an
+ * appearance and colour roles, in a full or a seeded "canvas + accent"
+ * form) plus an optional `jetPilot` block for what only JET Pilot paints.
+ * Readers of the portable format ignore unknown top-level keys, so a JET
+ * Pilot theme stays a valid portable theme file.
  */
 
-/** T3 Code's colour roles, verbatim and in T3's order. */
+/** The standard colour roles of the portable format, in their canonical order. */
 export const THEME_COLOR_ROLES = [
   "canvas",
   "chrome",
@@ -70,7 +71,7 @@ export const THEME_COLOR_ROLES = [
 ] as const;
 export type ThemeColorRole = (typeof THEME_COLOR_ROLES)[number];
 
-/** Roles JET Pilot has that T3 Code doesn't (kept under `jetPilot.colors`). */
+/** Roles beyond the standard set (kept under `jetPilot.colors`). */
 export const JET_COLOR_ROLES = [
   "success",
   "successForeground",
@@ -184,7 +185,7 @@ export interface JetPilotThemeExtensions {
 
 /** One appearance's colours (the base theme or a variant). */
 export interface ThemeVariant {
-  /** T3 seeded form: the rest of the palette is derived from these two. */
+  /** Seeded form: the rest of the palette is derived from these two. */
   canvas?: CssColor;
   accent?: CssColor;
   colors?: ThemeColors;
@@ -194,7 +195,7 @@ export interface ThemeVariant {
 /** A theme file as written on disk ($APPCONFIG/themes/<id>.json). */
 export interface ThemeFile extends ThemeVariant {
   $schema?: string;
-  /** T3: must be 1 for the full form; optional for the seeded form. */
+  /** Must be 1 for the full form; optional for the seeded form. */
   version?: 1;
   /** /^[a-z0-9](?:[a-z0-9-]{0,47})$/; derived from the name when missing. */
   id?: string;
@@ -206,7 +207,7 @@ export interface ThemeFile extends ThemeVariant {
   collection?: { id: string; label: string };
   managed?: boolean;
   /**
-   * Where the theme came from (JET Pilot extension; T3 ignores it). Written
+   * Where the theme came from (JET Pilot extension; other readers ignore it). Written
    * by install(); `label: "Open VSX"` marks Open VSX installs.
    */
   origin?: ThemeOrigin;
@@ -215,7 +216,7 @@ export interface ThemeFile extends ThemeVariant {
 export type ThemeSource = "builtin" | "user" | "openvsx";
 
 export interface ThemeOrigin {
-  /** "T3 Code", "Open VSX", "VS Code", "Sublime Text", "TextMate"... */
+  /** "Open VSX", "VS Code", "Sublime Text", "TextMate"... */
   label: string;
   url?: string;
   author?: string;
@@ -224,7 +225,7 @@ export interface ThemeOrigin {
 
 /** A theme known to the app (built-in or loaded from the themes folder). */
 export interface ThemeEntry {
-  /** User themes: the file name without ".json" (T3's rule). */
+  /** User themes: the file name without ".json". */
   id: string;
   name: string;
   source: ThemeSource;
@@ -265,7 +266,7 @@ export interface ResolvedTheme {
   id: string;
   name: string;
   appearance: ThemeAppearance;
-  /** Every T3 + JET role as #rrggbb (after derivation and contrast fixes). */
+  /** Every standard + JET role as #rrggbb (after derivation and contrast fixes). */
   roles: Record<ThemeColorRole | JetColorRole, string>;
   /** CSS custom properties without the leading "--", as HSL triplets. */
   vars: Record<ThemeToken, string>;
@@ -273,7 +274,8 @@ export interface ResolvedTheme {
   xterm: XtermTheme;
 }
 
-export type ImportFormat = "jet" | "t3" | "vscode" | "sublime" | "tmtheme";
+/** "portable": a theme file without a `jetPilot` block; "jet": one with it. */
+export type ImportFormat = "jet" | "portable" | "vscode" | "sublime" | "tmtheme";
 
 export type ImportResult =
   | { ok: true; format: ImportFormat; themes: ThemeFile[]; warnings: string[] }
@@ -324,16 +326,16 @@ export interface OpenVsxInstallResult {
  *                  - uiTheme: the Open VSX `contributes.themes[].uiTheme`, used when a VS Code file has no `type`.
  *                  - sniffs the format: plist XML → tmtheme; `globals`/`rules` → sublime;
  *                    VS Code detection (dotted `colors` keys or `tokenColors` array, version !== 1) → vscode;
- *                    otherwise jet/t3 (jet when a `jetPilot` block is present).
+ *                    otherwise jet/portable (jet when a `jetPilot` block is present).
  * import/vscode.ts pairVariants(files: ThemeFile[]): ThemeFile[]  — merges "X Light" + "X Dark" into one file with `variants`.
- * validate.ts      parseThemeFile(value: unknown): ThemeFile  (throws Error with a readable message; T3 rules)
+ * validate.ts      parseThemeFile(value: unknown): ThemeFile  (throws Error with a readable message)
  *                  themeIdFromName(name: string): string
  * resolve.ts       resolveTheme(file: ThemeFile, appearance: ThemeAppearance): ResolvedTheme
  *                  - picks the variant for `appearance` (falls back to the base), derives missing roles
- *                    (T3 createVividThemeColors port, contrast-solved), maps to tokens / Monaco / xterm.
+ *                    (createVividThemeColors, contrast-solved), maps to tokens / Monaco / xterm.
  * runtime.ts       themeAppearances(file: ThemeFile): ThemeAppearance[]; paintedAppearance(appearances, wanted)
- * serialize.ts     serializeTheme(file: ThemeFile, opts?: { forT3?: boolean }): string  (2-space JSON;
- *                  forT3 → version 1, all 57 roles resolved as hex, no jetPilot block, variants resolved too)
+ * serialize.ts     serializeTheme(file: ThemeFile, opts?: { portable?: boolean }): string  (2-space JSON;
+ *                  portable → version 1, all 57 roles resolved as hex, no jetPilot block, variants resolved too)
  * schema.ts        THEME_JSON_SCHEMA: object (JSON Schema draft-07 for ThemeFile), THEME_SCHEMA_URI = "https://www.jet-pilot.app/schemas/theme.json"
  * builtin/index.ts BUILTIN_THEMES: { id: string; name: string; origin?: ThemeOrigin; appearances: ThemeAppearance[];
  *                                    load: () => Promise<ThemeFile> }[]   — "jet" first; every file is loaded on demand.

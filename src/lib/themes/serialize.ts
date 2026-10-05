@@ -1,31 +1,24 @@
 /*
  * Theme files → text. The default keeps the file as authored (seeds,
- * overrides, jetPilot block) in a stable key order. `forT3` writes what
- * T3 Code's strict importer wants: version 1, all 57 roles resolved as hex
- * for the base and every variant (flat, T3's variant shape), no jetPilot
- * block, and an id T3 doesn't reserve.
+ * overrides, jetPilot block) in a stable key order. `portable` writes a
+ * standard theme file any strict reader of the format accepts: version 1,
+ * all 57 roles resolved as hex for the base and every variant (flat
+ * variant shape), no jetPilot block, and an id that is neither reserved
+ * nor a built-in theme's.
  */
-import { themeAppearances } from "./runtime";
+import builtinManifest from "./builtin/manifest.json";
+import { canonicalThemeId, themeAppearances } from "./runtime";
 import { resolveTheme } from "./resolve";
 import { type ThemeColors, type ThemeFile, THEME_COLOR_ROLES } from "./types";
 import { RESERVED_THEME_IDS, themeIdFromName } from "./validate";
 
-/** Ids T3 Code refuses for imported themes (its built-ins and aliases). */
-export const T3_RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
-  "system",
-  "light",
-  "dark",
-  "t3-chat",
-  "grove",
-  "ocean",
-  "ember",
-  "iris",
-  "t3-chat-dark",
-  "t3-grove",
-  "t3-ocean",
-  "t3-ember",
-  "t3-iris",
+/** Built-in ids (current and former): a portable export doesn't take them. */
+const BUILTIN_IDS: ReadonlySet<string> = new Set([
+  "jet",
+  ...builtinManifest.map((theme) => theme.id),
 ]);
+const isTakenId = (id: string) =>
+  RESERVED_THEME_IDS.has(id) || BUILTIN_IDS.has(id) || canonicalThemeId(id) !== id;
 
 const KEY_ORDER = [
   "$schema",
@@ -53,25 +46,25 @@ function ordered(file: ThemeFile): Record<string, unknown> {
   return result;
 }
 
-function t3Roles(file: ThemeFile, appearance: ThemeFile["appearance"]): ThemeColors {
+function resolvedRoles(file: ThemeFile, appearance: ThemeFile["appearance"]): ThemeColors {
   const { roles } = resolveTheme(file, appearance);
   return Object.fromEntries(THEME_COLOR_ROLES.map((role) => [role, roles[role]]));
 }
 
-function t3File(file: ThemeFile): Record<string, unknown> {
+function portableFile(file: ThemeFile): Record<string, unknown> {
   let id = file.id ?? themeIdFromName(file.name);
-  if (T3_RESERVED_THEME_IDS.has(id) || RESERVED_THEME_IDS.has(id)) id = `${id}-theme`;
+  if (isTakenId(id)) id = `${id}-theme`;
   const variants = Object.fromEntries(
     themeAppearances(file)
       .filter((appearance) => appearance !== file.appearance)
-      .map((appearance) => [appearance, t3Roles(file, appearance)])
+      .map((appearance) => [appearance, resolvedRoles(file, appearance)])
   );
   return {
     version: 1,
     id,
     name: file.name.trim().slice(0, 48),
     appearance: file.appearance,
-    colors: t3Roles(file, file.appearance),
+    colors: resolvedRoles(file, file.appearance),
     ...(Object.keys(variants).length > 0 ? { variants } : {}),
     ...(file.collection ? { collection: file.collection } : {}),
     ...(file.managed ? { managed: true } : {}),
@@ -79,7 +72,7 @@ function t3File(file: ThemeFile): Record<string, unknown> {
 }
 
 /** 2-space JSON with a trailing newline. */
-export function serializeTheme(file: ThemeFile, opts: { forT3?: boolean } = {}): string {
-  const value = opts.forT3 ? t3File(file) : ordered(file);
+export function serializeTheme(file: ThemeFile, opts: { portable?: boolean } = {}): string {
+  const value = opts.portable ? portableFile(file) : ordered(file);
   return `${JSON.stringify(value, null, 2)}\n`;
 }

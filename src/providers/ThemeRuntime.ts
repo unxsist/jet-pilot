@@ -31,6 +31,8 @@ import {
   THEME_CACHE_KEY,
   THEMES_DIR,
   bootCacheEntry,
+  canonicalThemeId,
+  isBuiltinThemeId,
   paintedAppearance,
   pickTheme,
   planThemeSave,
@@ -214,7 +216,7 @@ export function createThemeRuntime(host: ThemeRuntimeHost): ThemeRuntime {
       // a built-in's id, "light.json" a reserved one: listed as broken.
       const { id, conflict } = userFileId(
         fileName,
-        (candidate) => builtinIds.has(candidate),
+        (candidate) => isBuiltinThemeId(builtinIds, candidate),
         (candidate) => seen.has(candidate)
       );
       const path = await join(dir, fileName);
@@ -315,7 +317,7 @@ export function createThemeRuntime(host: ThemeRuntimeHost): ThemeRuntime {
   /** The saved choice for `appearance`; null while its user theme is still being read. */
   const savedChoice = (appearance: ThemeAppearance): ThemeChoice | null => {
     const saved = settings();
-    const id = appearance === "light" ? saved.lightTheme : saved.darkTheme;
+    const id = canonicalThemeId(appearance === "light" ? saved.lightTheme : saved.darkTheme);
     if (!userLoaded && !builtinIds.has(id)) return null;
     return pickTheme(saved, appearance, lookup, DEFAULT_THEME_ID);
   };
@@ -427,7 +429,8 @@ export function createThemeRuntime(host: ThemeRuntimeHost): ThemeRuntime {
     await sync();
   };
 
-  const isTaken = (id: string) => RESERVED_THEME_IDS.has(id) || builtinIds.has(id) || !!userFile(id);
+  const isTaken = (id: string) =>
+    RESERVED_THEME_IDS.has(id) || isBuiltinThemeId(builtinIds, id) || !!userFile(id);
 
   const writeTheme = async (fileName: string, file: ThemeFile) => {
     await ensureFolder();

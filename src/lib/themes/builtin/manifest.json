@@ -1,70 +1,5 @@
 [
   {
-    "id": "t3-chat",
-    "name": "T3 Chat",
-    "origin": {
-      "label": "T3 Code",
-      "url": "https://github.com/pingdotgg/t3code",
-      "license": "MIT"
-    },
-    "appearances": [
-      "light",
-      "dark"
-    ]
-  },
-  {
-    "id": "t3-grove",
-    "name": "Grove",
-    "origin": {
-      "label": "T3 Code",
-      "url": "https://github.com/pingdotgg/t3code",
-      "license": "MIT"
-    },
-    "appearances": [
-      "light",
-      "dark"
-    ]
-  },
-  {
-    "id": "t3-ocean",
-    "name": "Ocean",
-    "origin": {
-      "label": "T3 Code",
-      "url": "https://github.com/pingdotgg/t3code",
-      "license": "MIT"
-    },
-    "appearances": [
-      "light",
-      "dark"
-    ]
-  },
-  {
-    "id": "t3-ember",
-    "name": "Ember",
-    "origin": {
-      "label": "T3 Code",
-      "url": "https://github.com/pingdotgg/t3code",
-      "license": "MIT"
-    },
-    "appearances": [
-      "light",
-      "dark"
-    ]
-  },
-  {
-    "id": "t3-iris",
-    "name": "Iris",
-    "origin": {
-      "label": "T3 Code",
-      "url": "https://github.com/pingdotgg/t3code",
-      "license": "MIT"
-    },
-    "appearances": [
-      "light",
-      "dark"
-    ]
-  },
-  {
     "id": "catppuccin",
     "name": "Catppuccin",
     "origin": {
@@ -158,6 +93,66 @@
     "origin": {
       "label": "VS Code",
       "url": "https://github.com/jdinhify/vscode-theme-gruvbox",
+      "license": "MIT"
+    },
+    "appearances": [
+      "light",
+      "dark"
+    ]
+  },
+  {
+    "id": "blossom",
+    "name": "Blossom",
+    "origin": {
+      "label": "JET Pilot",
+      "license": "MIT"
+    },
+    "appearances": [
+      "light",
+      "dark"
+    ]
+  },
+  {
+    "id": "grove",
+    "name": "Grove",
+    "origin": {
+      "label": "JET Pilot",
+      "license": "MIT"
+    },
+    "appearances": [
+      "light",
+      "dark"
+    ]
+  },
+  {
+    "id": "ocean",
+    "name": "Ocean",
+    "origin": {
+      "label": "JET Pilot",
+      "license": "MIT"
+    },
+    "appearances": [
+      "light",
+      "dark"
+    ]
+  },
+  {
+    "id": "ember",
+    "name": "Ember",
+    "origin": {
+      "label": "JET Pilot",
+      "license": "MIT"
+    },
+    "appearances": [
+      "light",
+      "dark"
+    ]
+  },
+  {
+    "id": "iris",
+    "name": "Iris",
+    "origin": {
+      "label": "JET Pilot",
       "license": "MIT"
     },
     "appearances": [
