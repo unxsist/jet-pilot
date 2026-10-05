@@ -59,3 +59,6 @@ default = ["custom-protocol"]
 # this feature is used used for production builds where `devPath` points to the filesystem
 # DO NOT remove this
 custom-protocol = ["tauri/custom-protocol"]
+# Integration tests against a real API server (a local kwok cluster, see
+# src/qa_kwok.rs). Never enabled in CI.
+kwok-qa = []

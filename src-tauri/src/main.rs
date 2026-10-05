@@ -14,6 +14,8 @@ mod logs;
 mod metrics;
 mod manifest;
 mod port_forward;
+#[cfg(all(test, feature = "kwok-qa"))]
+mod qa_kwok;
 mod shell;
 mod util;
 mod watch;
