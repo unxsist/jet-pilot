@@ -3,7 +3,8 @@ import { Terminal } from "xterm";
 import "xterm/css/xterm.css";
 import { FitAddon } from "xterm-addon-fit";
 import { Channel, invoke } from "@tauri-apps/api/core";
-import { useColorMode } from "@vueuse/core";
+import { useTheme } from "@/providers/ThemeProvider";
+import { JET_XTERM } from "@/lib/themes/xtermTheme";
 import { TabClosedEvent } from "@/providers/PanelProvider";
 import { error } from "@/lib/logger";
 import {
@@ -30,62 +31,14 @@ const props = defineProps<{
   tabId?: string;
 }>();
 
-const colorMode = useColorMode();
-
 /*
- * ANSI palettes tuned to the design tokens: the canvas matches
- * --background, the accent cursor / selection match --primary and the
- * normal colours reuse the status hues.
+ * Colours follow the app theme (src/lib/themes/xtermTheme.ts builds them);
+ * until the theme engine has loaded, JET's palette for the painted
+ * appearance.
  */
-const DARK_THEME = {
-  background: "#101011",
-  foreground: "#e4e4e8",
-  cursor: "#a5a8fb",
-  cursorAccent: "#101011",
-  selectionBackground: "rgba(97, 90, 237, 0.35)",
-  black: "#27272a",
-  red: "#f26464",
-  green: "#36c984",
-  yellow: "#f6ae31",
-  blue: "#54a0f8",
-  magenta: "#c084fc",
-  cyan: "#3cc8de",
-  white: "#d4d4d8",
-  brightBlack: "#5c5c66",
-  brightRed: "#f88a8a",
-  brightGreen: "#5edc9e",
-  brightYellow: "#f9c45e",
-  brightBlue: "#7fb8fb",
-  brightMagenta: "#d4a5fd",
-  brightCyan: "#6fdcec",
-  brightWhite: "#fafafa",
-};
-
-const LIGHT_THEME = {
-  background: "#ffffff",
-  foreground: "#17171c",
-  cursor: "#5048e5",
-  cursorAccent: "#ffffff",
-  selectionBackground: "rgba(80, 72, 229, 0.2)",
-  black: "#18181b",
-  red: "#ca2121",
-  green: "#117948",
-  yellow: "#aa5409",
-  blue: "#1160d0",
-  magenta: "#8b3fd9",
-  cyan: "#0e7490",
-  white: "#a1a1aa",
-  brightBlack: "#71717a",
-  brightRed: "#dc2626",
-  brightGreen: "#15803d",
-  brightYellow: "#b45309",
-  brightBlue: "#2563eb",
-  brightMagenta: "#a855f7",
-  brightCyan: "#0891b2",
-  brightWhite: "#d4d4d8",
-};
-
-const theme = (mode: string) => (mode === "dark" ? DARK_THEME : LIGHT_THEME);
+const theme = useTheme();
+const terminalTheme = () =>
+  theme.active.value?.xterm ?? JET_XTERM[theme.appearance.value];
 
 const FONT_FAMILY =
   '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace';
@@ -96,14 +49,18 @@ const terminal = new Terminal({
   fontSize: 13,
   lineHeight: 1.25,
   fontFamily: FONT_FAMILY,
-  theme: theme(colorMode.value),
+  theme: terminalTheme(),
 });
 const fitAddon = new FitAddon();
 terminal.loadAddon(fitAddon);
 
-watch(colorMode, (value) => {
-  terminal.options.theme = theme(value);
+watch([theme.active, theme.appearance], () => {
+  terminal.options.theme = terminalTheme();
 });
+theme.resolved().then(
+  () => (terminal.options.theme = terminalTheme()),
+  () => undefined
+);
 
 const terminalElement = ref<HTMLDivElement | null>(null);
 

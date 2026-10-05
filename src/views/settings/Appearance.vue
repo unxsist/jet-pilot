@@ -1,32 +1,51 @@
 <script setup lang="ts">
 import SettingsSection from "@/components/settings/SettingsSection.vue";
+import ThemeLibrary from "@/components/settings/themes/ThemeLibrary.vue";
+import AddTheme from "@/components/settings/themes/AddTheme.vue";
+import ThemeGallery from "@/components/settings/themes/ThemeGallery.vue";
 import { Check } from "lucide-vue-next";
-import { useColorMode } from "@vueuse/core";
+import { useTheme } from "@/providers/ThemeProvider";
 
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
+import { varsStyle } from "@/components/settings/themes/shared";
+import type { ThemeAppearance } from "@/lib/themes/types";
 
 const { settings } = injectStrict(SettingsContextStateKey);
-const colorMode = useColorMode();
+const theme = useTheme();
+const { setColorScheme } = theme;
+
+/* The mode cards show the theme each mode uses. */
+const modeVars = shallowReactive<Partial<Record<ThemeAppearance, Record<string, string>>>>({});
+watch(
+  () => [settings.value.appearance.lightTheme, settings.value.appearance.darkTheme, theme.themes.value] as const,
+  ([lightTheme, darkTheme]) => {
+    for (const [appearance, id] of [["light", lightTheme], ["dark", darkTheme]] as const) {
+      theme
+        .resolve(id, appearance)
+        .then((resolved) => (modeVars[appearance] = resolved.vars))
+        .catch(() => delete modeVars[appearance]);
+    }
+  },
+  { immediate: true }
+);
+/* A single-appearance theme paints its own appearance in the other mode. */
+const modeClass = (appearance: ThemeAppearance) => {
+  const id = appearance === "light" ? settings.value.appearance.lightTheme : settings.value.appearance.darkTheme;
+  const entry = theme.themes.value.find((item) => item.id === id);
+  return entry && entry.appearances.length === 1 ? entry.appearances[0]! : appearance;
+};
 
 const schemes = [
   { value: "auto", label: "System" },
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
 ] as const;
-
-watch(
-  settings.value,
-  (value) => {
-    colorMode.value = value.appearance.colorScheme;
-  },
-  { deep: true }
-);
 </script>
 <template>
   <SettingsSection
-    title="Theme"
-    description="Either light or dark, depending on your preference"
+    title="Mode"
+    description="Light, dark, or follow your system. Each mode has its own theme."
   >
     <div
       class="grid grid-cols-3 gap-3 px-5 py-4"
@@ -45,7 +64,7 @@ watch(
             ? 'border-primary ring-2 ring-primary/20'
             : ''
         "
-        @click="settings.appearance.colorScheme = scheme.value"
+        @click="setColorScheme(scheme.value)"
       >
         <!-- Mini app previews rendered with the real theme tokens -->
         <div
@@ -54,14 +73,15 @@ watch(
         >
           <div
             v-for="(mode, index) in scheme.value === 'auto'
-              ? ['light', 'dark']
-              : [scheme.value]"
+              ? (['light', 'dark'] as const)
+              : ([scheme.value] as const)"
             :key="mode"
-            :class="[mode, index === 1 ? 'border-l' : '']"
+            :class="[modeClass(mode), index === 1 ? 'border-l' : '']"
+            :style="varsStyle(modeVars[mode])"
             class="flex flex-1 bg-sidebar"
           >
             <div class="w-1/4 space-y-1 p-1.5">
-              <div class="h-1.5 w-full rounded-sm bg-primary/70"></div>
+              <div class="h-1.5 w-full rounded-sm bg-primary"></div>
               <div class="h-1 w-3/4 rounded-sm bg-muted-foreground/30"></div>
               <div class="h-1 w-2/3 rounded-sm bg-muted-foreground/30"></div>
             </div>
@@ -91,4 +111,8 @@ watch(
       </button>
     </div>
   </SettingsSection>
+
+  <ThemeLibrary />
+  <AddTheme />
+  <ThemeGallery />
 </template>

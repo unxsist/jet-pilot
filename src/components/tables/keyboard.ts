@@ -293,6 +293,7 @@ export interface ShortcutGroup {
 /** The cheat sheet. `keys` lists alternatives, each a key combination. */
 export function tableShortcuts(isMac: boolean): ShortcutGroup[] {
   const mod = isMac ? "⌘" : "Ctrl";
+  const alt = isMac ? "⌥" : "Alt";
   return [
     {
       title: "Filter",
@@ -343,6 +344,17 @@ export function tableShortcuts(isMac: boolean): ShortcutGroup[] {
           ],
           label: "Extend selection",
         },
+      ],
+    },
+    {
+      title: "Anywhere",
+      items: [
+        { keys: [[mod, "K"]], label: "Command palette" },
+        { keys: [[mod, "1–9"]], label: "Pinned resource" },
+        { keys: [[mod, alt, "1–9"]], label: "Switch workspace" },
+        { keys: [["Ctrl", "`"]], label: "Terminal" },
+        { keys: [[mod, alt, "A"]], label: "Change theme" },
+        { keys: [[mod, alt, "⇧", "A"]], label: "Change appearance" },
       ],
     },
   ];

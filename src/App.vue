@@ -7,7 +7,7 @@ import Toaster from "@/components/ui/toast/Toaster.vue";
 import CommandPalette from "./components/CommandPalette.vue";
 import SettingsContextProvider from "./providers/SettingsContextProvider";
 import GlobalShortcutProvider from "./providers/GlobalShortcutProvider";
-import ColorSchemeProvider from "./providers/ColorSchemeProvider";
+import ThemeProvider from "./providers/ThemeProvider";
 import KubeContextProvider from "./providers/KubeContextProvider";
 import PortForwardingProvider from "./providers/PortForwardingProvider";
 import CommandPaletteProvider from "./providers/CommandPaletteProvider";
@@ -37,6 +37,10 @@ const UpdateHandler = defineAsyncComponent(
 const WhatsNew = defineAsyncComponent(
   () => import("./components/WhatsNew.vue")
 );
+/* Theme palette commands + shortcuts (they come with the theme runtime). */
+const ThemeCommands = defineAsyncComponent(
+  () => import("./components/ThemeCommands.vue")
+);
 const idle = ref(false);
 onMounted(() => whenIdle(() => (idle.value = true), 2000));
 </script>
@@ -51,7 +55,7 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
         <AppSkeleton />
       </template>
       <GlobalShortcutProvider>
-        <ColorSchemeProvider>
+        <ThemeProvider>
           <DialogProvider>
             <KubeContextProvider>
               <PortForwardingProvider>
@@ -84,6 +88,7 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
                       <template v-if="idle">
                         <UpdateHandler />
                         <WhatsNew />
+                        <ThemeCommands />
                       </template>
                       <TerminalLauncher />
                     </WorkspaceProvider>
@@ -92,7 +97,7 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
               </PortForwardingProvider>
             </KubeContextProvider>
           </DialogProvider>
-        </ColorSchemeProvider>
+        </ThemeProvider>
       </GlobalShortcutProvider>
     </SettingsContextProvider>
   </AppLayout>

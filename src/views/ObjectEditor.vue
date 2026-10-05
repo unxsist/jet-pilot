@@ -8,6 +8,7 @@ import {
   editorOptions,
   loadMonaco,
   prefersReducedMotion,
+  useMonacoTheme,
   type MonacoRuntime,
 } from "@/components/monaco";
 import { kindSchema, errorMessage } from "@/components/monaco/schemas";
@@ -67,7 +68,6 @@ import {
 import { Kubernetes } from "@/services/Kubernetes";
 import yaml from "js-yaml";
 import { useToast } from "@/components/ui/toast";
-import { useColorMode } from "@vueuse/core";
 import { error, trace } from "@/lib/logger";
 import { injectStrict } from "@/lib/utils";
 import {
@@ -109,8 +109,7 @@ let baseModel: TextModel | null = null;
 const disposables: Monaco.IDisposable[] = [];
 let unmounted = false;
 
-const colorMode = useColorMode();
-watch(colorMode, (value) => rt?.setColorMode(value));
+const applyTheme = useMonacoTheme();
 
 const editorElement = ref<HTMLElement | null>(null);
 const diffElement = ref<HTMLElement | null>(null);
@@ -254,9 +253,10 @@ const initializeEditor = async () => {
   const runtime = await loadMonaco();
   // The tab may have been closed while Monaco was loading.
   if (unmounted || !editorElement.value) return;
+  await applyTheme(runtime);
+  if (unmounted || !editorElement.value) return;
   rt = runtime;
   const { monaco } = runtime;
-  runtime.setColorMode(colorMode.value);
 
   editorModel = monaco.editor.createModel(
     editContents.value,

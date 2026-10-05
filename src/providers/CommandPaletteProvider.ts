@@ -75,10 +75,13 @@ export default {
         state.callStack.size - 1
       ];
       state.callStack.delete(lastCommand);
+      lastCommand?.onLeave?.();
     };
 
     const clearStack = () => {
+      const left = Array.from(state.callStack.keys()).reverse();
       state.callStack.clear();
+      for (const command of left) command.onLeave?.();
     };
 
     const showSingleCommand = (id: string) => {
@@ -111,9 +114,13 @@ export default {
       );
     };
 
-    const executeCommand = (command: Command) => {
+    /* The command whose options are being fetched last (see the retry below). */
+    let requested: Command | null = null;
+
+    const executeCommand = (command: Command, attempt = 0) => {
       if (command.commands) {
         state.loading = true;
+        requested = command;
 
         // Show the cached options while refreshing, unless they were cached
         // for different app state (their closures would act on stale state).
@@ -129,8 +136,13 @@ export default {
           .commands()
           .then((commands: Command[]) => {
             // The state changed while fetching: these options are stale.
+            // Fetch them again when they are still wanted (e.g. a list
+            // that grew while its first fetch loaded it).
             if ((command.cacheKey?.() ?? "") !== cacheKey) {
               state.loading = false;
+              if (state.open && requested === command && attempt < 2) {
+                executeCommand(command, attempt + 1);
+              }
               return;
             }
 
@@ -153,6 +165,7 @@ export default {
             }, 2500);
           });
       } else {
+        requested = null;
         command.execute();
         clearStack();
         close();
@@ -174,7 +187,7 @@ export default {
 
     provide(OpenCommandPaletteKey, open);
     provide(CloseCommandPaletteKey, close);
-    provide(ExecuteCommandKey, executeCommand);
+    provide(ExecuteCommandKey, (command: Command) => executeCommand(command));
     provide(RerunLastCommandKey, rerunLastCommand);
     provide(ClearCommandCallStackKey, clearStack);
     provide(ShowSingleCommandKey, showSingleCommand);

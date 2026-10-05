@@ -6,6 +6,9 @@
  * Needs playwright-core (resolved from PLAYWRIGHT_CORE or NODE_PATH, it is
  * not a project dependency) and a Chromium (CHROMIUM, default
  * /usr/bin/chromium). Output: $OUT_DIR (default /tmp/jet-ui-shots)/<prefix>-<screen>-<theme>.png
+ *
+ * THEMES=dracula,catppuccin shoots every screen per app theme (?themeId=)
+ * and appearance: <prefix>-<screen>-<appearance>-<themeId>.png.
  */
 import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
@@ -539,6 +542,8 @@ const browser = await chromium.launch({
 });
 
 const results = [];
+const themeIds = (process.env.THEMES || "").split(",").filter(Boolean);
+for (const themeId of themeIds.length ? themeIds : [null])
 for (const theme of ["dark", "light"]) {
   for (const [name, screen] of Object.entries(screens)) {
     if (only.length && !only.includes(name)) continue;
@@ -550,17 +555,21 @@ for (const theme of ["dark", "light"]) {
     });
     const page = await context.newPage();
     page.on("pageerror", (e) => console.error(`[${name}/${theme}] pageerror`, e.message));
+    page.on("console", (m) => {
+      if (m.type() === "error") console.error(`[${name}/${theme}] console`, m.text());
+    });
     const scenario = new URL(BASE + screen.url).searchParams.get("scenario") || "default";
     const sep = screen.url.includes("?") ? "&" : "?";
     try {
       const os = new URL(BASE + screen.url).searchParams.get("os") || "linux";
-      await page.goto(`${BASE}${screen.url}${sep}theme=${theme}&scenario=${scenario}&os=${os}`);
+      const themeParam = themeId ? `&themeId=${themeId}` : "";
+      await page.goto(`${BASE}${screen.url}${sep}theme=${theme}&scenario=${scenario}&os=${os}${themeParam}`);
       await page.waitForSelector(screen.ready, { timeout: 15000 }).catch(() => {
         console.error(`[${name}/${theme}] ready selector timed out: ${screen.ready}`);
       });
       await wait(screen.settle ?? 900);
       if (screen.run) await screen.run(page);
-      const file = `${OUT}/${prefix}-${name}-${theme}.png`;
+      const file = `${OUT}/${prefix}-${name}-${theme}${themeId ? `-${themeId}` : ""}.png`;
       await page.screenshot({ path: file });
       results.push(file);
     } catch (e) {

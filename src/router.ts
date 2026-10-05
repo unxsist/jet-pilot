@@ -24,6 +24,13 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import("./views/settings/Appearance.vue"),
       },
       {
+        // The JSON theme editor; no id: a new theme.
+        path: "appearance/theme/:id?",
+        name: "SettingsThemeEditor",
+        component: () => import("./views/settings/ThemeEditorRoute.vue"),
+        meta: { fullBleed: true },
+      },
+      {
         path: "clusters",
         name: "SettingsClusters",
         component: () => import("./views/settings/Clusters.vue"),

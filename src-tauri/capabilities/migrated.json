@@ -11,11 +11,18 @@
     "fs:allow-app-write",
     "fs:allow-mkdir",
     "fs:allow-exists",
+    "fs:allow-read-dir",
+    "fs:allow-remove",
+    "fs:allow-stat",
+    "fs:allow-watch",
+    "fs:allow-unwatch",
     {
       "identifier": "fs:scope",
       "allow": [
         "$APPCONFIG/",
-        "$APPCONFIG/*"
+        "$APPCONFIG/*",
+        "$APPCONFIG/themes",
+        "$APPCONFIG/themes/*"
       ]
     },
     "core:window:allow-create",

@@ -40,7 +40,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits);
     <SwitchThumb
       :class="
         cn(
-          'pointer-events-none block h-3.5 w-3.5 rounded-full bg-white shadow-sm ring-0',
+          'pointer-events-none block h-3.5 w-3.5 rounded-full bg-white shadow-sm ring-0 data-[state=checked]:bg-primary-foreground',
           'transition-transform duration-base ease-out',
           'data-[state=checked]:translate-x-[14px] data-[state=unchecked]:translate-x-px'
         )

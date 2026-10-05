@@ -6,103 +6,78 @@ import {
   CarouselNext,
   CarouselPrevious,
 } from "@/components/ui/carousel";
-import {
-  FlaskConical,
-  FolderKanban,
-  Gauge,
-  Keyboard,
-  Plug,
-  WifiOff,
-} from "lucide-vue-next";
+import { Beer, FileJson, FolderSync, Scale, SquareTerminal, SunMoon } from "lucide-vue-next";
 
-import liveDark from "@/assets/whats-new/live-dark.webp";
-import liveLight from "@/assets/whats-new/live-light.webp";
-import graphDark from "@/assets/whats-new/graph-dark.webp";
-import graphLight from "@/assets/whats-new/graph-light.webp";
-import logsDark from "@/assets/whats-new/logs-dark.webp";
-import logsLight from "@/assets/whats-new/logs-light.webp";
-import editorDark from "@/assets/whats-new/editor-dark.webp";
-import editorLight from "@/assets/whats-new/editor-light.webp";
-import rolloutsDark from "@/assets/whats-new/rollouts-dark.webp";
-import rolloutsLight from "@/assets/whats-new/rollouts-light.webp";
-import workspacesDark from "@/assets/whats-new/workspaces-dark.webp";
-import workspacesLight from "@/assets/whats-new/workspaces-light.webp";
+import themesDark from "@/assets/whats-new/themes-dark.webp";
+import themesLight from "@/assets/whats-new/themes-light.webp";
+import galleryDark from "@/assets/whats-new/gallery-dark.webp";
+import galleryLight from "@/assets/whats-new/gallery-light.webp";
+import editorDark from "@/assets/whats-new/theme-editor-dark.webp";
+import editorLight from "@/assets/whats-new/theme-editor-light.webp";
+import paletteDark from "@/assets/whats-new/palette-dark.webp";
+import paletteLight from "@/assets/whats-new/palette-light.webp";
 
 const slides = [
   {
-    title: "Live, and much faster",
+    title: "Make JET Pilot yours",
     description:
-      "Lists now stream changes straight from the Kubernetes API instead of polling kubectl: updates show up in a fraction of a second, revisiting a view is instant, and pod tables show CPU and memory sparklines.",
-    dark: liveDark,
-    light: liveLight,
+      "Themes are here. Pick from JET, T3 Code's palettes and favourites like Catppuccin, Tokyo Night, Dracula, Nord, GitHub, One Dark Pro, Rosé Pine and Gruvbox — hover a card to preview it on the whole app. Find them in Settings › Appearance.",
+    dark: themesDark,
+    light: themesLight,
   },
   {
-    title: "The resource graph, reimagined",
+    title: "Bring the theme you already love",
     description:
-      "Every app in its own lane, from Ingress to Service to Pods, with config, storage and scaling attached. Health rolls up, missing references stand out, Problems mode zooms to what's broken and clicking a node highlights its whole path.",
-    dark: graphDark,
-    light: graphLight,
+      "Drop in a VS Code, Sublime Text, TextMate or T3 Code theme, or install one from the Open VSX gallery without leaving the app. Light and dark variants are paired automatically, and the editor and terminal pick up the theme's own syntax and ANSI colours.",
+    dark: galleryDark,
+    light: galleryLight,
   },
   {
-    title: "Logs across every pod",
+    title: "Write your own in JSON",
     description:
-      "Open logs on a Deployment, StatefulSet, Job or Service to follow all of its pods at once, colour-coded per pod. Search, filter by pod or container, view previous containers and export — smooth even at thousands of lines per second.",
-    dark: logsDark,
-    light: logsLight,
-  },
-  {
-    title: "A smarter YAML editor",
-    description:
-      "Autocompletion, docs and validation from your cluster's own schemas (CRDs included). Saving shows a diff and runs a server-side dry run before anything is applied, and you can compare an object across contexts.",
+      "Two colours are enough: set a canvas and an accent and the rest is derived, with readable contrast guaranteed. The theme editor completes every colour role, shows swatches and previews your changes live.",
     dark: editorDark,
     light: editorLight,
   },
   {
-    title: "Rollouts, Helm and debugging",
+    title: "Switch in a keystroke",
     description:
-      "Browse rollout history, diff revisions and roll back safely. Upgrade Helm releases with a values diff, debug pods with an ephemeral container, open a node shell or copy files to and from containers.",
-    dark: rolloutsDark,
-    light: rolloutsLight,
-  },
-  {
-    title: "Workspaces, split view and more",
-    description:
-      "Save sets of contexts, namespaces, tabs and port forwards as workspaces, put two tabs side by side, and pick up where you left off — open tabs are restored on start.",
-    dark: workspacesDark,
-    light: workspacesLight,
+      "Press Mod+Alt+A for the theme picker: arrow through the list to preview each theme, Enter to keep it, Esc to go back. Mod+Alt+Shift+A cycles between system, light and dark.",
+    dark: paletteDark,
+    light: paletteLight,
   },
 ];
 
 const underTheHood = [
   {
-    icon: Gauge,
-    title: "Instant startup",
-    text: "The app appears immediately and caches cluster discovery, so navigation is ready right away.",
+    icon: SunMoon,
+    title: "Light and dark, separately",
+    text: "Choose one theme for light mode and another for dark — JET Pilot follows your system.",
   },
   {
-    icon: Keyboard,
-    title: "Keyboard power",
-    text: "Navigate tables with the arrow keys, then l for logs, s for shell, e to edit — press ? for all shortcuts.",
+    icon: SquareTerminal,
+    title: "Editor and terminal follow",
+    text: "Syntax colours in the YAML editor and the terminal's 16 colours come from your theme.",
   },
   {
-    icon: FolderKanban,
-    title: "Better tables",
-    text: "Reorder, resize and group columns, see CPU and memory history per pod, and filter instantly even at 20,000 rows.",
+    icon: FolderSync,
+    title: "Live theme files",
+    text: "Themes are plain JSON files in the themes folder; edit one in any editor and the app updates instantly.",
   },
   {
-    icon: Plug,
-    title: "Port-forward profiles",
-    text: "Save port forwards and start them automatically when JET Pilot launches.",
+    icon: FileJson,
+    title: "T3 Code compatible",
+    text: "T3 Code themes import as they are, and any theme can be exported for T3 Code.",
   },
   {
-    icon: WifiOff,
-    title: "Works offline",
-    text: "The editor no longer loads from a CDN, and secret values never reach the resource graph.",
+    icon: Scale,
+    title: "MIT, all the way",
+    text: "Every built-in theme is MIT-licensed, and the gallery only installs MIT-licensed themes.",
   },
   {
-    icon: FlaskConical,
-    title: "Battle-tested",
-    text: "Tested against a real Kubernetes API server with thousands of pods, outages and restricted accounts.",
+    icon: Beer,
+    title: "Homebrew tap",
+    text: "On macOS: brew install --cask unxsist/tap/jet-pilot — it opens right away, no quarantine step.",
   },
 ];
 </script>
@@ -131,7 +106,7 @@ const underTheHood = [
         <div>
           <h3 class="text-base font-semibold">And under the hood</h3>
           <p class="mt-1 text-sm text-muted-foreground">
-            Dozens of fixes and improvements across the whole app.
+            The details that make every theme feel at home.
           </p>
           <div class="mt-4 grid grid-cols-2 gap-3 pr-4">
             <div

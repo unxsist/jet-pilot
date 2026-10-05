@@ -4,12 +4,12 @@
  * `original` is given. Monaco is loaded lazily on mount.
  */
 import type * as Monaco from "monaco-editor";
-import { useColorMode } from "@vueuse/core";
 import Loading from "@/components/Loading.vue";
 import {
   editorOptions,
   loadMonaco,
   prefersReducedMotion,
+  useMonacoTheme,
   type MonacoRuntime,
 } from "@/components/monaco";
 
@@ -34,7 +34,7 @@ const emit = defineEmits<{
 const element = ref<HTMLElement | null>(null);
 const ready = ref(false);
 const loadError = ref("");
-const colorMode = useColorMode();
+const applyTheme = useMonacoTheme();
 
 let rt: MonacoRuntime | null = null;
 let editor: Monaco.editor.IStandaloneCodeEditor | null = null;
@@ -64,8 +64,9 @@ onMounted(async () => {
     return;
   }
   if (unmounted || !element.value) return;
+  await applyTheme(rt);
+  if (unmounted || !element.value) return;
   const { monaco } = rt;
-  rt.setColorMode(colorMode.value);
   model = monaco.editor.createModel(props.value, props.language);
 
   if (props.original !== null) {
@@ -100,7 +101,6 @@ onMounted(async () => {
   emit("ready");
 });
 
-watch(colorMode, (mode) => rt?.setColorMode(mode));
 watch(
   () => props.value,
   (value) => model && model.getValue() !== value && model.setValue(value)

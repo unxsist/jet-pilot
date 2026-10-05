@@ -1,0 +1,135 @@
+/*
+ * JET's editor colours and the syntax rules every Monaco theme uses. No
+ * colour maths (culori): the Monaco chunk paints JET with these while the
+ * theme runtime loads (src/components/monaco/themes/jet.ts), and
+ * ./monacoTheme.ts builds every other theme on top of them.
+ */
+import type { MonacoThemeData, SyntaxSlot, ThemeAppearance } from "./types";
+
+type ThemeRule = MonacoThemeData["rules"][number];
+/** Syntax colours as Monaco wants them: hex without the leading "#". */
+export type SyntaxPalette = Record<SyntaxSlot, string>;
+
+export const rules = (palette: SyntaxPalette): ThemeRule[] => [
+  { token: "", foreground: palette.text },
+  { token: "type", foreground: palette.key },
+  { token: "type.yaml", foreground: palette.key },
+  { token: "key", foreground: palette.key },
+  { token: "attribute.name", foreground: palette.key },
+  { token: "string", foreground: palette.string },
+  { token: "string.yaml", foreground: palette.string },
+  { token: "string.value.json", foreground: palette.string },
+  { token: "string.key.json", foreground: palette.key },
+  { token: "number", foreground: palette.number },
+  { token: "number.yaml", foreground: palette.number },
+  { token: "keyword", foreground: palette.constant },
+  { token: "constant", foreground: palette.constant },
+  { token: "tag", foreground: palette.constant },
+  { token: "comment", foreground: palette.comment, fontStyle: "italic" },
+  { token: "operators", foreground: palette.punctuation },
+  { token: "delimiter", foreground: palette.punctuation },
+];
+
+/** JET's syntax palettes (also the built-in JET theme's `jetPilot.syntax`). */
+export const JET_SYNTAX: Record<ThemeAppearance, SyntaxPalette> = {
+  dark: {
+    key: "a5a8fb",
+    string: "7fd8ad",
+    number: "f3b65a",
+    constant: "6cb0fb",
+    comment: "6e6e78",
+    punctuation: "8b8b94",
+    text: "e4e4e8",
+  },
+  light: {
+    key: "3f37c9",
+    string: "117948",
+    number: "aa5409",
+    constant: "1160d0",
+    comment: "8a8a93",
+    punctuation: "71717a",
+    text: "17171c",
+  },
+};
+
+/** JET's editor colours (also the built-in JET theme's `jetPilot.editor`). */
+export const JET_EDITOR_COLORS: Record<ThemeAppearance, Record<string, string>> = {
+  dark: {
+    "editor.background": "#101011",
+    "editor.foreground": "#e4e4e8",
+    "editorLineNumber.foreground": "#4a4a52",
+    "editorLineNumber.activeForeground": "#a1a1aa",
+    "editorCursor.foreground": "#a5a8fb",
+    "editor.lineHighlightBackground": "#18181b",
+    "editor.lineHighlightBorder": "#00000000",
+    "editor.selectionBackground": "#615aed4d",
+    "editor.inactiveSelectionBackground": "#615aed26",
+    "editor.selectionHighlightBackground": "#615aed1f",
+    "editor.wordHighlightBackground": "#615aed1f",
+    "editor.findMatchBackground": "#f6ae3155",
+    "editor.findMatchHighlightBackground": "#f6ae3126",
+    "editorIndentGuide.background1": "#1f1f23",
+    "editorIndentGuide.activeBackground1": "#34343a",
+    "editorWhitespace.foreground": "#2a2a30",
+    "editorBracketMatch.background": "#615aed26",
+    "editorBracketMatch.border": "#615aed80",
+    "editorGutter.background": "#101011",
+    "editorWidget.background": "#1c1c1f",
+    "editorWidget.border": "#2b2b30",
+    "editorSuggestWidget.background": "#1c1c1f",
+    "editorSuggestWidget.border": "#2b2b30",
+    "editorSuggestWidget.selectedBackground": "#252528",
+    "editorSuggestWidget.foreground": "#e4e4e8",
+    "editorSuggestWidget.selectedForeground": "#e4e4e8",
+    "editorSuggestWidget.selectedIconForeground": "#e4e4e8",
+    "editorHoverWidget.background": "#1c1c1f",
+    "editorHoverWidget.border": "#2b2b30",
+    "input.background": "#151517",
+    "input.border": "#2b2b30",
+    focusBorder: "#7b75f2",
+    "scrollbar.shadow": "#00000000",
+    "scrollbarSlider.background": "#3a3a4066",
+    "scrollbarSlider.hoverBackground": "#52525a88",
+    "scrollbarSlider.activeBackground": "#615aed88",
+    "editorOverviewRuler.border": "#00000000",
+  },
+  light: {
+    "editor.background": "#ffffff",
+    "editor.foreground": "#17171c",
+    "editorLineNumber.foreground": "#b4b4bb",
+    "editorLineNumber.activeForeground": "#52525b",
+    "editorCursor.foreground": "#5048e5",
+    "editor.lineHighlightBackground": "#f6f6f7",
+    "editor.lineHighlightBorder": "#00000000",
+    "editor.selectionBackground": "#5048e533",
+    "editor.inactiveSelectionBackground": "#5048e51a",
+    "editor.selectionHighlightBackground": "#5048e514",
+    "editor.wordHighlightBackground": "#5048e514",
+    "editor.findMatchBackground": "#f6ae3166",
+    "editor.findMatchHighlightBackground": "#f6ae3133",
+    "editorIndentGuide.background1": "#eeeef0",
+    "editorIndentGuide.activeBackground1": "#d4d4d8",
+    "editorWhitespace.foreground": "#e4e4e7",
+    "editorBracketMatch.background": "#5048e51a",
+    "editorBracketMatch.border": "#5048e566",
+    "editorGutter.background": "#ffffff",
+    "editorWidget.background": "#ffffff",
+    "editorWidget.border": "#e4e4e7",
+    "editorSuggestWidget.background": "#ffffff",
+    "editorSuggestWidget.border": "#e4e4e7",
+    "editorSuggestWidget.selectedBackground": "#efeff1",
+    "editorSuggestWidget.foreground": "#17171c",
+    "editorSuggestWidget.selectedForeground": "#17171c",
+    "editorSuggestWidget.selectedIconForeground": "#17171c",
+    "editorHoverWidget.background": "#ffffff",
+    "editorHoverWidget.border": "#e4e4e7",
+    "input.background": "#ffffff",
+    "input.border": "#dcdce0",
+    focusBorder: "#5048e5",
+    "scrollbar.shadow": "#00000000",
+    "scrollbarSlider.background": "#c8c8cf66",
+    "scrollbarSlider.hoverBackground": "#a1a1aa88",
+    "scrollbarSlider.activeBackground": "#5048e566",
+    "editorOverviewRuler.border": "#00000000",
+  },
+};
