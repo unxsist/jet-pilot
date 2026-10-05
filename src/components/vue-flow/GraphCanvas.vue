@@ -31,6 +31,8 @@ let context: CanvasRenderingContext2D | null = null;
 const draw = () => {
   const element = canvas.value;
   if (!element || !palette) return;
+  // Moved to a screen with another pixel ratio.
+  if ((window.devicePixelRatio || 1) !== size.value.dpr) resize();
   context ??= element.getContext("2d");
   if (!context) return;
   const started = performance.now();
@@ -45,7 +47,8 @@ const draw = () => {
     { lod: props.lod, mounted: props.mounted }
   );
   // For the performance harness.
-  (window as any).__graphCanvasMs = performance.now() - started;
+  (window as { __graphCanvasMs?: number }).__graphCanvasMs =
+    performance.now() - started;
 };
 
 watch(

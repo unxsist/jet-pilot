@@ -142,7 +142,8 @@ export function parseSecretMetadata(
         name,
         namespace: namespace || undefined,
         resourceVersion: resourceVersion || undefined,
-        creationTimestamp: (created || undefined) as any,
+        // kubectl prints the RFC 3339 string (the model types it as Date).
+        creationTimestamp: (created || undefined) as unknown as Date,
         labels: parseLabelOutput(labels),
         ...(annotations ? { annotations } : {}),
         context: tag.context,

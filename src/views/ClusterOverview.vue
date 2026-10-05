@@ -1243,6 +1243,7 @@ watch(
     history.value = new Set();
     namespaceFilter.value = [];
     layoutCache.clear();
+    placementLayoutCache.clear();
     flags.clear();
     leaving.value = [];
   }
