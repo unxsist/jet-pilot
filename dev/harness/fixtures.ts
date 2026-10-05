@@ -1021,3 +1021,148 @@ export function describe(kind: string, obj: any): string {
   ];
   return lines.join("\n") + "\n";
 }
+
+/* ---------------------------------------------------------- Open VSX -- */
+
+/** `openvsx_search` results (OpenVsxExtension, src/lib/themes/types.ts). */
+export const OPENVSX_EXTENSIONS = [
+  {
+    namespace: "harness",
+    name: "pastel-theme",
+    displayName: "Pastel Cappuccino",
+    description: "Soothing pastel theme in a latte and a mocha flavour (harness fixture).",
+    version: "3.17.0",
+    downloadCount: 1_284_301,
+    averageRating: 4.9,
+  },
+  {
+    namespace: "harness",
+    name: "midnight-ink",
+    displayName: "Midnight Ink",
+    description: "A deep blue dark theme with vivid accents.",
+    version: "1.4.2",
+    downloadCount: 412_877,
+    averageRating: 4.6,
+  },
+  {
+    namespace: "harness",
+    name: "paper-light",
+    displayName: "Paper Light",
+    description: "Low-contrast light theme for long reading sessions.",
+    version: "0.9.0",
+    downloadCount: 98_120,
+  },
+  {
+    namespace: "harness",
+    name: "gpl-theme",
+    displayName: "Copyleft Colours",
+    description: "Installing this fails the licence check (GPL-3.0).",
+    version: "2.0.0",
+    downloadCount: 5_402,
+    averageRating: 3.8,
+  },
+];
+
+const ANSI_NAMES = [
+  "Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White",
+  "BrightBlack", "BrightRed", "BrightGreen", "BrightYellow",
+  "BrightBlue", "BrightMagenta", "BrightCyan", "BrightWhite",
+];
+const ansi = (colors: string[]) =>
+  Object.fromEntries(ANSI_NAMES.map((name, i) => [`terminal.ansi${name}`, colors[i]]));
+
+const tokenColors = (c: Record<string, string>) => [
+  { scope: ["comment", "punctuation.definition.comment"], settings: { foreground: c.comment, fontStyle: "italic" } },
+  { scope: ["string", "string.quoted"], settings: { foreground: c.string } },
+  { scope: ["constant.numeric"], settings: { foreground: c.number } },
+  { scope: ["constant.language", "constant.language.boolean"], settings: { foreground: c.constant } },
+  { scope: ["entity.name.tag", "support.type.property-name", "meta.object-literal.key"], settings: { foreground: c.key } },
+  { scope: ["punctuation", "meta.brace"], settings: { foreground: c.punctuation } },
+];
+
+/**
+ * `openvsx_install` themes (OpenVsxTheme[]): two small but complete VS Code
+ * colour themes, a light/dark pair.
+ */
+export function openVsxThemes() {
+  const latte = {
+    name: "Pastel Latte",
+    type: "light",
+    colors: {
+      "editor.background": "#eff1f5",
+      "editor.foreground": "#4c4f69",
+      "editor.selectionBackground": "#acb0be80",
+      "editor.lineHighlightBackground": "#e6e9ef",
+      "editorCursor.foreground": "#dc8a78",
+      "sideBar.background": "#e6e9ef",
+      "sideBar.foreground": "#5c5f77",
+      "activityBar.background": "#dce0e8",
+      "focusBorder": "#8839ef",
+      "button.background": "#8839ef",
+      "button.foreground": "#eff1f5",
+      "input.background": "#e6e9ef",
+      "input.border": "#ccd0da",
+      "panel.border": "#ccd0da",
+      "errorForeground": "#d20f39",
+      "editorWarning.foreground": "#df8e1d",
+      "textLink.foreground": "#1e66f5",
+      "terminal.background": "#eff1f5",
+      "terminal.foreground": "#4c4f69",
+      "terminalCursor.foreground": "#dc8a78",
+      ...ansi([
+        "#5c5f77", "#d20f39", "#40a02b", "#df8e1d", "#1e66f5", "#ea76cb", "#179299", "#acb0be",
+        "#6c6f85", "#d20f39", "#40a02b", "#df8e1d", "#1e66f5", "#ea76cb", "#179299", "#bcc0cc",
+      ]),
+    },
+    tokenColors: tokenColors({
+      comment: "#9ca0b0",
+      string: "#40a02b",
+      number: "#fe640b",
+      constant: "#fe640b",
+      key: "#1e66f5",
+      punctuation: "#7c7f93",
+    }),
+  };
+  const mocha = {
+    name: "Pastel Mocha",
+    type: "dark",
+    colors: {
+      "editor.background": "#1e1e2e",
+      "editor.foreground": "#cdd6f4",
+      "editor.selectionBackground": "#585b7066",
+      "editor.lineHighlightBackground": "#2a2b3c",
+      "editorCursor.foreground": "#f5e0dc",
+      "sideBar.background": "#181825",
+      "sideBar.foreground": "#bac2de",
+      "activityBar.background": "#11111b",
+      "focusBorder": "#cba6f7",
+      "button.background": "#cba6f7",
+      "button.foreground": "#11111b",
+      "input.background": "#313244",
+      "input.border": "#45475a",
+      "panel.border": "#313244",
+      "errorForeground": "#f38ba8",
+      "editorWarning.foreground": "#f9e2af",
+      "textLink.foreground": "#89b4fa",
+      "terminal.background": "#1e1e2e",
+      "terminal.foreground": "#cdd6f4",
+      "terminalCursor.foreground": "#f5e0dc",
+      ...ansi([
+        "#45475a", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#bac2de",
+        "#585b70", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#a6adc8",
+      ]),
+    },
+    tokenColors: tokenColors({
+      comment: "#6c7086",
+      string: "#a6e3a1",
+      number: "#fab387",
+      constant: "#fab387",
+      key: "#89b4fa",
+      punctuation: "#9399b2",
+    }),
+  };
+  return [
+    { label: "Pastel Latte", uiTheme: "vs", path: "themes/latte.json", text: JSON.stringify(latte, null, 2) },
+    { label: "Pastel Mocha", uiTheme: "vs-dark", path: "themes/mocha.json", text: JSON.stringify(mocha, null, 2) },
+  ];
+}

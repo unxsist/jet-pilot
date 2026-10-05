@@ -12,6 +12,9 @@
  *   ?polling=0|1             kubectl polling instead of live watches
  *                            (settings.experimental.useKubectlPolling)
  *   ?delay=<ms>              slow down settings + discovery (skeletons)
+ *   ?themeId=<id>            app theme for both appearances
+ *                            (settings.appearance.lightTheme/darkTheme;
+ *                            `jet` is the default)
  *
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views; `large-graph` swaps the
@@ -19,9 +22,12 @@
  * Editor scenarios: `conflict` bumps an object's resourceVersion after its
  * first fetch (stale-edit flow); `compare` activates a second context.
  *
- * Files the app writes (settings.json, discovery cache, ...) live in
- * sessionStorage, so a reload sees them (restored tabs, workspaces).
- * `?fresh=1` clears them.
+ * Files the app writes (settings.json, discovery cache, user themes in
+ * themes/, ...) live in sessionStorage, so a reload sees them (restored
+ * tabs, workspaces). `?fresh=1` clears them. fs watchers get events for
+ * writes and removals under the watched path. Open VSX (openvsx_search /
+ * openvsx_install) answers from fixtures; installing `harness.gpl-theme`
+ * fails the licence check.
  */
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import yaml from "js-yaml";
@@ -34,8 +40,10 @@ import {
   HOME,
   KUBECONFIG,
   NAMESPACES,
+  OPENVSX_EXTENSIONS,
   describe,
   logLines,
+  openVsxThemes,
 } from "./fixtures";
 
 const params = new URLSearchParams(location.search);
@@ -43,13 +51,17 @@ if (params.get("fresh")) {
   for (const key of Object.keys(sessionStorage)) {
     if (key.startsWith("harness-fs:")) sessionStorage.removeItem(key);
   }
+  // The theme runtime's first-paint cache would repaint a removed theme.
+  localStorage.removeItem("jet-theme-cache");
 }
 const delay = Number(params.get("delay") || 0);
-for (const key of ["theme", "os", "scenario", "polling"]) {
+for (const key of ["theme", "os", "scenario", "polling", "themeId"]) {
   const value = params.get(key);
   if (value) localStorage.setItem(`harness-${key}`, value);
 }
 const theme = localStorage.getItem("harness-theme") || "dark";
+/* ?themeId=<id>: null when the knob was never used (settings decide). */
+const themeId = localStorage.getItem("harness-themeId");
 const os = localStorage.getItem("harness-os") || "linux";
 const scenario = localStorage.getItem("harness-scenario") || "default";
 const polling = localStorage.getItem("harness-polling") === "1";
@@ -107,7 +119,7 @@ const settings = {
     { name: "deployments", kind: "Deployment" },
     { name: "services", kind: "Service" },
   ],
-  appearance: { colorScheme: theme },
+  appearance: { colorScheme: theme, lightTheme: themeId || "jet", darkTheme: themeId || "jet" },
   updates: { checkOnStartup: false, whatsNew: scenario === "whatsnew" ? "1.0.0" : "1.35.0" },
   logLevel: "error",
   ...(polling ? { experimental: { useKubectlPolling: true } } : {}),
@@ -1007,9 +1019,122 @@ const readFile = (path: string): string | null => {
   const stored = sessionStorage.getItem(fsKey(path));
   if (path !== "settings.json") return stored;
   if (!stored) return JSON.stringify(settings);
-  // The ?theme knob wins over a colour scheme saved earlier.
+  // The ?theme / ?themeId knobs win over choices saved earlier.
   const saved = JSON.parse(stored);
-  return JSON.stringify({ ...saved, appearance: { ...saved.appearance, colorScheme: theme } });
+  const appearance = { ...saved.appearance, colorScheme: theme };
+  if (themeId) Object.assign(appearance, { lightTheme: themeId, darkTheme: themeId });
+  return JSON.stringify({ ...saved, appearance });
+};
+
+/* Directories are implicit: a path is a directory when files live below it. */
+const fsDirPrefix = (dir: string) => {
+  const trimmed = String(dir).replace(/\/+$/, "");
+  return fsKey(trimmed ? `${trimmed}/` : "");
+};
+const fsBelow = (dir: string) => {
+  const prefix = fsDirPrefix(dir);
+  return Object.keys(sessionStorage).filter((key) => key.startsWith(prefix));
+};
+const isFsDir = (path: string) => path === "" || fsBelow(path).length > 0;
+
+/** `readDir` entries: direct children (files, and directories implied by deeper files). */
+const readDir = (dir: string) => {
+  if (!isFsDir(dir)) throw new Error(`No such directory: ${dir}`);
+  const prefix = fsDirPrefix(dir);
+  const entries = new Map<string, boolean>();
+  for (const key of fsBelow(dir)) {
+    const rest = key.slice(prefix.length);
+    const slash = rest.indexOf("/");
+    entries.set(slash < 0 ? rest : rest.slice(0, slash), slash >= 0);
+  }
+  return [...entries].map(([name, isDirectory]) => ({
+    name,
+    isDirectory,
+    isFile: !isDirectory,
+    isSymlink: false,
+  }));
+};
+
+const fsStat = (path: string) => {
+  const contents = sessionStorage.getItem(fsKey(path));
+  const isDirectory = contents === null && isFsDir(path);
+  if (contents === null && !isDirectory) throw new Error(`No such file or directory: ${path}`);
+  const now = Date.now();
+  return {
+    isFile: !isDirectory,
+    isDirectory,
+    isSymlink: false,
+    size: contents === null ? 0 : encoder.encode(contents).length,
+    mtime: now,
+    atime: now,
+    birthtime: now,
+    readonly: false,
+    fileAttributes: null,
+    dev: null,
+    ino: null,
+    mode: null,
+    nlink: null,
+    uid: null,
+    gid: null,
+    rdev: null,
+    blksize: null,
+    blocks: null,
+  };
+};
+
+/* fs watchers (plugin-fs `watch`): get a WatchEvent for every change below their paths. */
+const fsWatchers = new Map<number, { paths: string[]; channel: any }>();
+let fsWatchIds = 1000;
+const notifyFsWatchers = (path: string, kind: "create" | "modify" | "remove") => {
+  const type =
+    kind === "modify"
+      ? { modify: { kind: "data", mode: "any" } }
+      : { [kind]: { kind: "file" } };
+  for (const { paths, channel } of fsWatchers.values()) {
+    const watched = paths.some((dir) => {
+      const trimmed = String(dir).replace(/\/+$/, "");
+      return path === trimmed || path.startsWith(`${trimmed}/`);
+    });
+    if (watched) sendToChannel(channel, { type, paths: [path], attrs: {} });
+  }
+};
+const fsRemove = (path: string, recursive: boolean) => {
+  if (sessionStorage.getItem(fsKey(path)) !== null) {
+    sessionStorage.removeItem(fsKey(path));
+    notifyFsWatchers(path, "remove");
+    return;
+  }
+  const below = fsBelow(path);
+  if (below.length === 0) throw new Error(`No such file or directory: ${path}`);
+  if (!recursive) throw new Error(`Directory not empty: ${path}`);
+  for (const key of below) {
+    sessionStorage.removeItem(key);
+    notifyFsWatchers(key.slice(fsKey("").length), "remove");
+  }
+};
+
+/*
+ * Open VSX fixtures. Search filters by query; install returns the same light
+ * and dark theme for every extension (gpl-theme fails the licence check).
+ */
+const openVsxSearch = (query = "", offset = 0, size = 24) => {
+  const q = query.trim().toLowerCase();
+  const hits = OPENVSX_EXTENSIONS.filter(
+    (e) => !q || `${e.displayName} ${e.name} ${e.namespace} ${e.description}`.toLowerCase().includes(q)
+  );
+  const extensions = hits.slice(offset, offset + Math.min(size, 50)).map((e) => ({
+    ...e,
+    iconUrl: undefined,
+  }));
+  return { offset, totalSize: hits.length, extensions };
+};
+const openVsxInstall = (namespace: string, name: string) => {
+  const extension = OPENVSX_EXTENSIONS.find((e) => e.namespace === namespace && e.name === name);
+  if (!extension) throw `Open VSX extension details could not be found on Open VSX.`;
+  if (extension.name === "gpl-theme") {
+    throw `"${extension.displayName}" is licensed under GPL-3.0, which is not on the allowlist. Only permissively licensed themes (MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0, Unlicense, CC0-1.0, 0BSD, Zlib) can be installed.`;
+  }
+  return { extension: { ...extension, license: "MIT" }, themes: openVsxThemes() };
 };
 
 mockIPC(
@@ -1018,7 +1143,27 @@ mockIPC(
     switch (cmd) {
       // fs / path / app / os / updater / window / clipboard
       case "plugin:fs|exists":
-        return p.path === "" || readFile(p.path) !== null;
+        return isFsDir(p.path) || readFile(p.path) !== null;
+      case "plugin:fs|read_dir":
+        return readDir(p.path);
+      case "plugin:fs|stat":
+      case "plugin:fs|lstat":
+        return fsStat(p.path);
+      case "plugin:fs|remove":
+        fsRemove(p.path, !!p.options?.recursive);
+        return null;
+      case "plugin:fs|watch": {
+        const id = ++fsWatchIds;
+        fsWatchers.set(id, { paths: p.paths || [], channel: p.onEvent });
+        return id;
+      }
+      case "plugin:fs|unwatch":
+        fsWatchers.delete(p.rid);
+        return null;
+      case "plugin:resources|close":
+        // plugin-fs closes watchers as resources (Watcher.close()).
+        fsWatchers.delete(p.rid);
+        return null;
       case "plugin:fs|read_text_file": {
         if (delay && p.path === "settings.json") await sleep(delay);
         const contents = readFile(p.path);
@@ -1136,6 +1281,16 @@ mockIPC(
         return { watchers: watchSubscriptions.size, subscriptions: watchSubscriptions.size, objects: 0, idle: 0, paused: false };
       case "metrics_subscribe":
         return metricsSubscribe(p.request, p.onEvent);
+
+      // themes (openvsx.rs, themes.rs)
+      case "openvsx_search":
+        await sleep(250);
+        return openVsxSearch(p.query, p.offset ?? 0, p.size ?? 24);
+      case "openvsx_install":
+        await sleep(600);
+        return openVsxInstall(p.namespace, p.name);
+      case "open_themes_folder":
+        return `${HOME}/.config/jet-pilot/themes`;
 
       // shell plugin
       case "plugin:shell|execute":
@@ -1276,7 +1431,9 @@ const mockedInvoke = internals.invoke;
 internals.invoke = async (cmd: string, args: any, options: any) => {
   if (cmd === "plugin:fs|write_text_file" && options?.headers?.path) {
     const path = decodeURIComponent(options.headers.path);
+    const existed = sessionStorage.getItem(fsKey(path)) !== null;
     sessionStorage.setItem(fsKey(path), new TextDecoder().decode(args));
+    notifyFsWatchers(path, existed ? "modify" : "create");
     return null;
   }
   return mockedInvoke(cmd, args, options);
