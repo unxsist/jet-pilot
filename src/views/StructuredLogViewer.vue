@@ -105,7 +105,7 @@ interface FilteredLogResult {
   latest_seq: number;
 }
 
-type SourceState = "streaming" | "waiting" | "ended" | "failed";
+type SourceState = "streaming" | "waiting" | "skipped" | "ended" | "failed";
 
 interface PodSource {
   name: string;
@@ -514,6 +514,7 @@ const podRows = computed(() => {
 const sourceTone: Record<SourceState, StatusTone> = {
   streaming: "success",
   waiting: "warning",
+  skipped: "muted",
   ended: "muted",
   failed: "destructive",
 };
@@ -521,6 +522,7 @@ const sourceTone: Record<SourceState, StatusTone> = {
 const sourceStateLabel: Record<SourceState, string> = {
   streaming: "Streaming",
   waiting: "Waiting for the pod to start",
+  skipped: "Not streamed (pod limit reached)",
   ended: "Stream ended",
   failed: "Failed to stream",
 };

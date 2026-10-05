@@ -108,6 +108,9 @@ pub enum SourceState {
     Streaming,
     /// Matched, but not streamable yet (pending) or waiting for a retry.
     Waiting,
+    /// Matched and running, but over the pod limit of the stream (picked up
+    /// when a streamed pod goes away).
+    Skipped,
     Ended,
     Failed,
 }
@@ -637,6 +640,7 @@ impl Supervisor {
                             continue;
                         }
                         if active >= max_pods {
+                            track.state = Some(SourceState::Skipped);
                             skipped += 1;
                             continue;
                         }
