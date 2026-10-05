@@ -168,8 +168,18 @@ export interface JetPilotThemeExtensions {
   colors?: Partial<Record<JetColorRole, CssColor>>;
   terminal?: Partial<Record<AnsiColor, CssColor>>;
   syntax?: Partial<Record<SyntaxSlot, CssColor>>;
-  /** Raw Monaco / VS Code workbench colour keys, e.g. "editor.lineHighlightBackground". */
+  /**
+   * Raw Monaco / VS Code workbench colour keys, e.g. "editor.lineHighlightBackground".
+   * The VS Code terminal keys (terminal.selectionBackground, terminalCursor.*)
+   * go to xterm instead of Monaco.
+   */
   editor?: Record<string, CssColor>;
+  /**
+   * Exact token values as bare HSL triplets ("240 5% 6.5%"); they win over the
+   * role mapping. An escape hatch for pixel-exact themes (the built-in JET
+   * theme reproduces main.postcss with it).
+   */
+  tokens?: Partial<Record<ThemeToken, string>>;
 }
 
 /** One appearance's colours (the base theme or a variant). */
@@ -296,7 +306,9 @@ export interface OpenVsxInstallResult {
 
 /* ---- Module API (implemented in src/lib/themes/*, re-exported from ./index) ----
  *
- * import/index.ts  importTheme(text: string, filename?: string, opts?: { resolveInclude?: (path: string) => string | undefined }): ImportResult
+ * import/index.ts  importTheme(text: string, filename?: string, opts?: { resolveInclude?: (path: string) => string | undefined;
+ *                                                                     uiTheme?: string }): ImportResult
+ *                  - uiTheme: the Open VSX `contributes.themes[].uiTheme`, used when a VS Code file has no `type`.
  *                  - sniffs the format: plist XML → tmtheme; `globals`/`rules` → sublime;
  *                    VS Code detection (dotted `colors` keys or `tokenColors` array, version !== 1) → vscode;
  *                    otherwise jet/t3 (jet when a `jetPilot` block is present).
