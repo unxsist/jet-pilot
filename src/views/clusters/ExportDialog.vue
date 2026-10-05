@@ -5,16 +5,15 @@
  * the credentials either fetched through JET Pilot's helper or included.
  */
 import { save } from "@tauri-apps/plugin-dialog";
-import { AlertTriangle, Loader2 } from "lucide-vue-next";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { RadioGroupRoot } from "radix-vue";
+import { AlertTriangle, CircleAlert, FileOutput, Loader2 } from "lucide-vue-next";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ChoiceRow from "@/components/wizard/ChoiceRow.vue";
+import WizardHeader from "@/components/wizard/WizardHeader.vue";
+import WizardFooter from "@/components/wizard/WizardFooter.vue";
+import { WIZARD_BODY, WIZARD_DIALOG, WIZARD_ERROR, WIZARD_LIST } from "@/components/wizard/wizard";
 import { useToast } from "@/components/ui/toast";
 import { errorMessage, exportManaged, exportToKubeConfig, withVault } from "@/lib/clusters/managed";
 
@@ -68,51 +67,52 @@ const run = async () => {
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="max-w-md">
-      <DialogHeader>
-        <DialogTitle>Export {{ contexts.length === 1 ? contexts[0] : `${contexts.length} clusters` }}</DialogTitle>
-        <DialogDescription>Use clusters you added in JET Pilot with other tools.</DialogDescription>
-      </DialogHeader>
-      <div class="space-y-2">
-        <label class="flex items-start gap-2 rounded-lg border p-3 text-sm" :class="target === 'kubeconfig' ? 'border-primary/50 bg-primary/5' : ''">
-          <input v-model="target" type="radio" value="kubeconfig" class="mt-1 accent-[hsl(var(--primary))]" />
-          <span>
-            <span class="block font-medium">Add to ~/.kube/config</span>
-            <span class="block text-xs text-muted-foreground">
-              kubectl, k9s and other tools see them right away. Credentials stay in your keychain; a backup of the
-              file is made first.
-            </span>
-          </span>
-        </label>
-        <label class="flex items-start gap-2 rounded-lg border p-3 text-sm" :class="target === 'file' ? 'border-primary/50 bg-primary/5' : ''">
-          <input v-model="target" type="radio" value="file" class="mt-1 accent-[hsl(var(--primary))]" />
-          <span class="space-y-2">
-            <span class="block font-medium">Save as a kubeconfig file</span>
-            <span v-if="target === 'file'" class="block space-y-1.5">
-              <label class="flex items-center gap-2 text-xs">
-                <input v-model="mode" type="radio" value="helper" class="accent-[hsl(var(--primary))]" />
-                Credentials through JET Pilot (works on this computer)
-              </label>
-              <label class="flex items-center gap-2 text-xs">
-                <input v-model="mode" type="radio" value="inline" class="accent-[hsl(var(--primary))]" />
-                Include the credentials (works anywhere)
-              </label>
-              <span v-if="mode === 'inline'" class="flex items-start gap-1.5 text-xs text-warning">
-                <AlertTriangle class="mt-px h-3.5 w-3.5 shrink-0" />
-                Anyone with the file can use these clusters. Keep it somewhere safe.
-              </span>
-            </span>
-          </span>
-        </label>
+    <DialogContent :class="[WIZARD_DIALOG, 'max-w-[30rem]']">
+      <WizardHeader
+        :title="`Export ${contexts.length === 1 ? contexts[0] : `${contexts.length} clusters`}`"
+        description="Use clusters you added in JET Pilot with other tools."
+      >
+        <template #icon><FileOutput class="h-[18px] w-[18px]" /></template>
+      </WizardHeader>
+
+      <div :class="WIZARD_BODY">
+        <RadioGroupRoot v-model="target" :class="[WIZARD_LIST, 'space-y-px']" aria-label="Export to">
+          <ChoiceRow
+            value="kubeconfig"
+            title="Add to ~/.kube/config"
+            description="kubectl, k9s and other tools see them right away. The file is backed up first."
+          />
+          <ChoiceRow value="file" title="Save as a kubeconfig file" description="A separate file to keep or share." />
+        </RadioGroupRoot>
+
+        <div v-if="target === 'file'" class="mt-4 space-y-2 pl-7">
+          <Tabs v-model="mode">
+            <TabsList aria-label="Credentials" class="w-full">
+              <TabsTrigger value="helper" class="flex-1">Through JET Pilot</TabsTrigger>
+              <TabsTrigger value="inline" class="flex-1">Include credentials</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <p v-if="mode === 'helper'" class="text-xs text-muted-foreground">
+            Credentials stay in your keychain; the file works on this computer.
+          </p>
+          <p v-else class="flex items-start gap-1.5 text-xs text-warning">
+            <AlertTriangle class="mt-px h-3.5 w-3.5 shrink-0" />
+            Works anywhere, and anyone with the file can use these clusters. Keep it somewhere safe.
+          </p>
+        </div>
+
+        <p v-if="error" :class="[WIZARD_ERROR, 'mt-4']" role="alert">
+          <CircleAlert class="mt-px h-3.5 w-3.5 shrink-0" /> {{ error }}
+        </p>
       </div>
-      <p v-if="error" class="text-xs text-destructive" role="alert">{{ error }}</p>
-      <DialogFooter>
+
+      <WizardFooter>
         <Button variant="ghost" @click="open = false">Cancel</Button>
         <Button :disabled="busy" @click="run">
           <Loader2 v-if="busy" class="h-3.5 w-3.5 animate-spin" />
           {{ target === "kubeconfig" ? "Add to ~/.kube/config" : "Save…" }}
         </Button>
-      </DialogFooter>
+      </WizardFooter>
     </DialogContent>
   </Dialog>
 </template>

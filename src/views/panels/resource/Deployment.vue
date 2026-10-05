@@ -44,7 +44,7 @@ const readyPercent = computed(() =>
           >
             {{ stat.value }}
           </div>
-          <div class="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+          <div class="text-xs font-medium text-muted-foreground">
             {{ stat.label }}
           </div>
         </div>

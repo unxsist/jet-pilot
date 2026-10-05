@@ -527,11 +527,12 @@ describe("useWatchedList in a kept-alive view", () => {
         })
       )
     )!;
+    // Subscribing goes through a few async steps: wait for it, not a tick.
+    await vi.waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1));
     await flush();
     emit("a", ready());
     emit("a", { type: "snapshot", scope: "", items: [pod("1")] });
-    await flush();
-    expect(list.items.value).toHaveLength(1);
+    await vi.waitFor(() => expect(list.items.value).toHaveLength(1));
 
     active.value = false;
     await nextTick();
@@ -542,7 +543,7 @@ describe("useWatchedList in a kept-alive view", () => {
 
     active.value = true;
     await nextTick();
-    await flush();
+    await vi.waitFor(() => expect(subscribe).toHaveBeenCalledTimes(3));
     expect(list.items.value).toHaveLength(1);
     expect(subscribe.mock.calls.map(([request]) => request.context)).toEqual([
       "a",

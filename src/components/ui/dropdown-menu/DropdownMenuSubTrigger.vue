@@ -22,6 +22,9 @@ const props = defineProps<DropdownMenuSubTriggerProps & { class?: string }>()
     ]"
   >
     <slot />
-    <ChevronRightIcon class="ml-auto h-3.5 w-3.5 text-muted-foreground" />
+    <!-- Shown on the highlighted / open row only: no column of chevrons -->
+    <ChevronRightIcon
+      class="ml-auto h-3.5 w-3.5 text-muted-foreground opacity-0 [[data-highlighted]_&]:opacity-100 [[data-state=open]>&]:opacity-100"
+    />
   </DropdownMenuSubTrigger>
 </template>

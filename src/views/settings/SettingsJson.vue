@@ -8,7 +8,7 @@
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 import { findNodeAtLocation, parseTree, modify, applyEdits } from "jsonc-parser";
 import type * as Monaco from "monaco-editor";
-import { AlertCircle, ArrowLeft, CheckCircle2, Loader2, RotateCcw } from "lucide-vue-next";
+import { ArrowLeft, Loader2, RotateCcw } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -183,13 +183,15 @@ onBeforeRouteLeave(() => {
 
 <template>
   <div class="flex h-full flex-col">
-    <header class="flex h-12 shrink-0 items-center gap-3 border-b px-3">
-      <Button variant="ghost" size="icon-sm" aria-label="Back to settings" @click="goBack">
-        <ArrowLeft class="h-4 w-4" />
+    <header class="flex h-11 shrink-0 items-center gap-2 border-b bg-sidebar px-3">
+      <Button variant="ghost" size="sm" class="text-muted-foreground" aria-label="Back to settings" @click="goBack">
+        <ArrowLeft class="h-3.5 w-3.5" />
+        Settings
       </Button>
-      <div class="min-w-0 flex-1">
-        <h1 class="truncate text-sm font-semibold">settings.json</h1>
-        <p class="truncate text-2xs text-muted-foreground">
+      <span class="h-4 w-px bg-border" aria-hidden="true"></span>
+      <div class="flex min-w-0 flex-1 items-baseline gap-3">
+        <h1 class="shrink-0 font-mono text-sm font-medium text-foreground">settings.json</h1>
+        <p class="truncate text-xs text-muted-foreground">
           Only values that differ from the default are stored. Remove a line to reset it.
         </p>
       </div>
@@ -198,14 +200,14 @@ onBeforeRouteLeave(() => {
         class="flex items-center gap-1.5 text-xs text-destructive"
         :title="markers.map((m) => `Line ${m.line}: ${m.message}`).join('\n')"
       >
-        <AlertCircle class="h-3.5 w-3.5" />
+        <span class="h-1.5 w-1.5 rounded-full bg-current" />
         {{ markers.length }} {{ markers.length === 1 ? "problem" : "problems" }}
       </span>
-      <span v-else-if="ready" class="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <CheckCircle2 class="h-3.5 w-3.5 text-success" />
-        Valid
+      <span v-else-if="dirty" class="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span class="h-1.5 w-1.5 rounded-full bg-warning" />
+        Unsaved
       </span>
-      <Button variant="ghost" size="sm" :disabled="!dirty" @click="revert">
+      <Button variant="ghost" size="sm" class="text-muted-foreground" :disabled="!dirty" @click="revert">
         <RotateCcw class="h-3.5 w-3.5" />
         Revert
       </Button>

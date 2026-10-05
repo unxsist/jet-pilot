@@ -104,7 +104,7 @@ onUnmounted(() => clearTimeout(savedTimer));
       >
         <DropdownMenuLabel class="flex items-center justify-between">
           <span>Workspaces</span>
-          <span class="font-normal tabular-nums text-muted-foreground/70">{{
+          <span v-if="workspaces.length" class="font-normal tabular-nums">{{
             workspaces.length
           }}</span>
         </DropdownMenuLabel>
@@ -130,31 +130,28 @@ onUnmounted(() => clearTimeout(savedTimer));
             shortcut(index)
           }}</DropdownMenuShortcut>
         </DropdownMenuItem>
-        <div
+        <p
           v-if="workspaces.length === 0"
-          class="px-2 py-2 text-xs text-muted-foreground"
+          class="px-2 pb-2 text-xs text-muted-foreground"
         >
-          Save the active contexts, namespaces, open tabs and port forwards
-          as a workspace and switch between them in one keystroke.
-        </div>
+          Save your clusters, namespaces, tabs and port forwards, and come
+          back to them in one keystroke.
+        </p>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           :disabled="workspaces.length >= MAX_WORKSPACES"
           @select="saveAs()"
         >
-          <Plus class="h-3.5 w-3.5" /> Save current as new workspace
+          <Plus class="h-3.5 w-3.5 text-muted-foreground" /> Save current as new workspace
         </DropdownMenuItem>
         <template v-if="active">
           <DropdownMenuItem @select="updateActive">
-            <RefreshCw class="h-3.5 w-3.5" /> Update “{{ active.name }}”
+            <RefreshCw class="h-3.5 w-3.5 text-muted-foreground" /> Update “{{ active.name }}”
           </DropdownMenuItem>
           <DropdownMenuItem @select="startRename">
-            <Pencil class="h-3.5 w-3.5" /> Rename…
+            <Pencil class="h-3.5 w-3.5 text-muted-foreground" /> Rename…
           </DropdownMenuItem>
-          <DropdownMenuItem
-            class="text-destructive focus:text-destructive"
-            @select="remove(active.id)"
-          >
+          <DropdownMenuItem variant="destructive" @select="remove(active.id)">
             <Trash2 class="h-3.5 w-3.5" /> Delete “{{ active.name }}”
           </DropdownMenuItem>
         </template>

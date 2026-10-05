@@ -7,29 +7,20 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
-import {
-  AlertCircle,
-  Check,
-  Download,
-  Loader2,
-  Palette,
-  RotateCw,
-  Search,
-  Star,
-} from "lucide-vue-next";
+import { AlertCircle, Check, ChevronDown, Download, Loader2, Palette, RotateCw, Search, Star } from "lucide-vue-next";
 import SettingsSection from "@/components/settings/SettingsSection.vue";
 import ThemeInstallDialog from "./ThemeInstallDialog.vue";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/toast";
 import { useTheme } from "@/providers/ThemeProvider";
 import { formatCount, isExtensionInstalled, openVsxUrl } from "@/lib/themes/library";
@@ -190,40 +181,44 @@ const install = async (files: ThemeFile[]) => {
 <template>
   <SettingsSection
     title="Open VSX gallery"
-    description="Colour themes from the open VS Code extension registry."
+    description="Colour themes from the open extension registry. Only MIT-licensed themes can be installed."
   >
-    <div class="space-y-4 px-5 py-4">
+    <div class="space-y-4 pt-4">
       <div class="flex items-center gap-2">
         <div class="relative min-w-0 flex-1">
-          <Search
-            class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
+          <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
             v-model="query"
-            class="pl-8"
+            type="search"
+            spellcheck="false"
             placeholder="Search themes on Open VSX"
             aria-label="Search Open VSX themes"
-            type="search"
+            class="h-9 w-full rounded-lg border border-transparent bg-muted/60 pl-9 pr-3 text-sm transition-colors duration-fast placeholder:text-muted-foreground hover:bg-muted focus:border-input focus:bg-background focus:outline-none focus:ring-[3px] focus:ring-ring/15 [&::-webkit-search-cancel-button]:hidden"
           />
         </div>
-        <Select v-model="sort">
-          <SelectTrigger class="w-36" aria-label="Sort by">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem v-for="option in SORTS" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <Button variant="ghost" class="h-9 text-muted-foreground" aria-label="Sort by">
+              {{ SORTS.find((option) => option.value === sort)?.label }}
+              <ChevronDown class="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" class="w-44">
+            <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+            <DropdownMenuRadioGroup :model-value="sort" @update:model-value="(value) => (sort = value as OpenVsxSort)">
+              <DropdownMenuRadioItem v-for="option in SORTS" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      <div v-if="loading" class="grid grid-cols-1 gap-3 lg:grid-cols-2" aria-busy="true">
-        <div v-for="index in 4" :key="index" class="flex h-[92px] gap-3 rounded-lg border bg-card p-3">
-          <Skeleton class="h-10 w-10 shrink-0 rounded-md" />
+      <div v-if="loading" class="-mx-3 grid grid-cols-1 gap-x-4 gap-y-1 lg:grid-cols-2" aria-busy="true">
+        <div v-for="index in 6" :key="index" class="flex h-[4.5rem] gap-3 px-3 py-3">
+          <Skeleton class="h-10 w-10 shrink-0 rounded-lg" />
           <div class="flex-1 space-y-2 pt-0.5">
             <Skeleton class="h-3 w-1/2" />
-            <Skeleton class="h-2.5 w-1/3" />
             <Skeleton class="h-2.5 w-5/6" />
           </div>
         </div>
@@ -254,25 +249,25 @@ const install = async (files: ThemeFile[]) => {
       />
 
       <template v-else>
-        <ul class="grid grid-cols-1 gap-3 lg:grid-cols-2" aria-label="Open VSX themes">
+        <ul class="-mx-3 grid grid-cols-1 gap-x-4 gap-y-1 lg:grid-cols-2" aria-label="Open VSX themes">
           <li
             v-for="extension in results"
             :key="keyOf(extension)"
-            class="flex min-h-[92px] gap-3 rounded-lg border bg-card p-3 shadow-xs"
+            class="flex gap-3 rounded-lg px-3 py-3"
             :data-extension="keyOf(extension)"
           >
             <img
               v-if="iconOf(extension)"
               :src="iconOf(extension)!"
               alt=""
-              class="h-10 w-10 shrink-0 rounded-md object-contain"
+              class="h-10 w-10 shrink-0 rounded-lg object-contain"
               loading="lazy"
               referrerpolicy="no-referrer"
               @error="iconFailed(extension)"
             />
             <div
               v-else
-              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground"
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-surface-1 text-muted-foreground"
             >
               <Palette class="h-4 w-4" />
             </div>
@@ -282,9 +277,9 @@ const install = async (files: ThemeFile[]) => {
                   <a
                     :href="openVsxUrl(extension.namespace, extension.name)"
                     rel="noreferrer"
-                    @click.prevent="openExternal(openVsxUrl(extension.namespace, extension.name))"
-                    class="block truncate text-sm font-medium text-foreground hover:underline focus-ring rounded-sm"
+                    class="block truncate rounded-sm text-sm font-medium text-foreground hover:underline focus-ring"
                     :title="extension.displayName"
+                    @click.prevent="openExternal(openVsxUrl(extension.namespace, extension.name))"
                   >
                     {{ extension.displayName }}
                   </a>
@@ -304,16 +299,16 @@ const install = async (files: ThemeFile[]) => {
                 </div>
                 <span
                   v-if="installed(extension)"
-                  class="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-success"
+                  class="inline-flex h-7 shrink-0 items-center gap-1 px-1 text-xs text-muted-foreground"
                 >
-                  <Check class="h-3.5 w-3.5" />
+                  <Check class="h-3.5 w-3.5 text-success" />
                   Installed
                 </span>
                 <Button
                   v-else
                   variant="outline"
                   size="sm"
-                  class="shrink-0"
+                  class="h-7 shrink-0"
                   :disabled="fetching !== null"
                   :aria-label="`Install ${extension.displayName}`"
                   @click="fetchThemes(extension)"
@@ -327,16 +322,14 @@ const install = async (files: ThemeFile[]) => {
               </p>
               <div
                 v-if="installErrors.get(keyOf(extension))"
-                class="mt-2 flex items-start gap-1.5 rounded-md border border-destructive/25 bg-destructive/5 px-2 py-1.5"
+                class="mt-2 flex items-start gap-1.5 text-xs text-destructive"
                 role="alert"
               >
-                <AlertCircle class="mt-px h-3.5 w-3.5 shrink-0 text-destructive" />
-                <p class="min-w-0 flex-1 break-words text-xs text-foreground">
-                  {{ installErrors.get(keyOf(extension)) }}
-                </p>
+                <span class="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+                <p class="min-w-0 flex-1 break-words">{{ installErrors.get(keyOf(extension)) }}</p>
                 <button
                   type="button"
-                  class="shrink-0 rounded-sm text-xs font-medium text-link hover:underline focus-ring"
+                  class="shrink-0 rounded-sm font-medium text-link hover:underline focus-ring"
                   @click="fetchThemes(extension)"
                 >
                   Retry
@@ -346,12 +339,11 @@ const install = async (files: ThemeFile[]) => {
           </li>
         </ul>
 
-        <div class="flex items-center justify-between gap-3">
+        <div v-if="results.length < total" class="flex items-center justify-between gap-3">
           <p class="text-xs tabular-nums text-muted-foreground">
             {{ results.length.toLocaleString() }} of {{ total.toLocaleString() }}
           </p>
           <Button
-            v-if="results.length < total"
             variant="outline"
             size="sm"
             :disabled="loadingMore"
@@ -362,10 +354,6 @@ const install = async (files: ThemeFile[]) => {
           </Button>
         </div>
       </template>
-
-      <p class="text-xs text-muted-foreground">
-        Only MIT-licensed themes can be installed, so JET Pilot stays MIT.
-      </p>
     </div>
 
     <ThemeInstallDialog

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 /*
- * Settings › Appearance › Themes: every theme as a card, in three groups.
+ * Settings › Appearance › Themes: every theme as a card, built-in ones and
+ * your own. The `add` slot ends the grid of your themes (the add-a-theme
+ * tile); `actions` goes next to "New theme".
  *
  * - Clicking a card applies it like the command palette does: a theme with
  *   both appearances is used for both, a single-appearance theme claims its
@@ -200,36 +202,39 @@ defineExpose({ openEditor });
     description="Click a theme to use it. Hover to preview it on the whole app."
   >
     <template #actions>
+      <slot name="actions" />
       <Button variant="outline" size="sm" @click="openEditor()">
         <Plus class="h-3.5 w-3.5" />
         New theme
       </Button>
     </template>
 
-    <div v-if="loading" class="space-y-3 px-5 py-4" aria-busy="true">
+    <div v-if="loading" class="space-y-3 pt-5" aria-busy="true">
       <Skeleton class="h-3 w-20" />
-      <div class="grid grid-cols-2 gap-3 lg:grid-cols-3">
-        <div v-for="index in 6" :key="index" class="rounded-lg border bg-card p-1.5">
+      <div class="grid grid-cols-2 gap-4 lg:grid-cols-3">
+        <div v-for="index in 6" :key="index" class="rounded-xl border bg-card p-1.5">
           <Skeleton class="h-28 rounded-md" />
-          <Skeleton class="mx-1 mt-3 h-3 w-2/3" />
-          <Skeleton class="mx-1 mb-1 mt-2.5 h-4 w-20" />
+          <Skeleton class="mx-1.5 mt-3 h-3 w-2/3" />
+          <Skeleton class="mx-1.5 mb-1.5 mt-2.5 h-3 w-1/3" />
         </div>
       </div>
     </div>
 
-    <template v-else>
+    <div v-else class="space-y-8 pt-5">
       <div
         v-for="group in groups"
         :key="group.id"
-        class="space-y-3 px-5 py-4"
+        class="space-y-2.5"
         role="group"
         :aria-label="`${group.label} themes`"
       >
-        <h3 class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          {{ group.label }}
-          <span class="tabular-nums text-muted-foreground/70">{{ group.entries.length }}</span>
+        <h3 class="text-xs font-medium text-muted-foreground">
+          {{ group.label }}<span v-if="group.entries.length" class="ml-1.5 font-normal tabular-nums">{{ group.entries.length }}</span>
         </h3>
-        <div v-if="group.entries.length" class="grid grid-cols-2 gap-3 lg:grid-cols-3">
+        <div
+          v-if="group.entries.length || (group.id === 'yours' && $slots.add)"
+          class="grid grid-cols-2 gap-4 lg:grid-cols-3"
+        >
           <ThemeCard
             v-for="entry in group.entries"
             :key="entry.id"
@@ -245,22 +250,22 @@ defineExpose({ openEditor });
             @export="exportTheme(entry, $event)"
             @delete="askDelete(entry)"
           />
+          <slot v-if="group.id === 'yours'" name="add" />
         </div>
         <div
           v-else
-          class="flex flex-col items-center gap-1 rounded-lg border border-dashed px-6 py-6 text-center"
+          class="flex flex-col items-center gap-1 rounded-xl border border-dashed px-6 py-6 text-center"
         >
           <p class="text-sm font-medium text-foreground">No themes of your own yet</p>
           <p class="max-w-sm text-xs text-muted-foreground">
-            Import a VS Code, Sublime Text or TextMate theme, or a JET Pilot theme file
-            below, install one from Open VSX, or start from scratch.
+            Import a theme file in Settings › Appearance, install one from Open VSX, or start from scratch.
           </p>
           <Button variant="link" size="sm" class="mt-1 h-6 px-0" @click="openEditor()">
             Create a theme
           </Button>
         </div>
       </div>
-    </template>
+    </div>
 
     <AlertDialog v-model:open="deleteOpen">
       <AlertDialogContent>

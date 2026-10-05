@@ -35,7 +35,7 @@ const data = computed(() => {
     <span
       v-for="(value, key) in data"
       :key="key"
-      class="inline-flex h-6 max-w-full items-center overflow-hidden rounded-md border bg-surface-1 px-2 font-mono text-xs select-text"
+      class="inline-flex h-6 max-w-full items-center overflow-hidden rounded-md bg-muted px-2 font-mono text-xs select-text"
       :title="`${key}=${value}`"
     >
       <span class="truncate text-muted-foreground">{{ key }}</span>

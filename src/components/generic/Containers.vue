@@ -61,7 +61,7 @@ const resourcePair = (
         <span class="truncate text-sm font-medium">{{ container.name }}</span>
         <span
           v-if="init"
-          class="rounded border px-1 text-2xs font-medium uppercase tracking-wide text-muted-foreground"
+          class="rounded border px-1 text-2xs text-muted-foreground"
           >init</span
         >
         <span class="ml-auto flex shrink-0 items-center gap-2">

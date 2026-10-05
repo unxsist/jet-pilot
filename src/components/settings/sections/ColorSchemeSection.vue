@@ -49,7 +49,7 @@ const schemes = [
     description="Light, dark, or follow your system. Each mode has its own theme."
   >
     <div
-      class="grid grid-cols-3 gap-3 px-5 py-4"
+      class="grid grid-cols-3 gap-4 pt-4"
       role="radiogroup"
       aria-label="Color scheme"
     >
@@ -59,7 +59,7 @@ const schemes = [
         type="button"
         role="radio"
         :aria-checked="settings.appearance.colorScheme === scheme.value"
-        class="group rounded-lg border p-1.5 text-left transition-[border-color,box-shadow] duration-fast hover:border-border-strong focus-ring focus-visible:ring-offset-card"
+        class="group rounded-xl border bg-card p-1.5 text-left shadow-xs transition-[border-color,box-shadow] duration-fast hover:border-border-strong focus-ring"
         :class="
           settings.appearance.colorScheme === scheme.value
             ? 'border-primary ring-2 ring-primary/20'

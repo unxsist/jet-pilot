@@ -278,7 +278,7 @@ onMounted(() => {
               context.context,
               context.kubeConfig
             );
-          } catch (e: any) {
+          } catch (e: unknown) {
             const target = {
               context: context.context,
               kubeConfig: context.kubeConfig,
@@ -471,14 +471,15 @@ const fetchNamespaces = async (entry: ContextEntry) => {
   try {
     ctx.namespaces = await listNamespaces(ctx.context, ctx.kubeConfig);
     ctx.canConnect = true;
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Needs a sign-in: the auth center marks it, the menu offers it.
     if (report({ context: ctx.context, kubeConfig: ctx.kubeConfig }, err, "api")) {
       ctx.canConnect = false;
       return;
     }
 
-    if (err.code === 401 || err.code === 403) {
+    const code = (err as { code?: number } | null)?.code;
+    if (code === 401 || code === 403) {
       // No permission to list namespaces; fall back to the context's default
       // namespace so the context can still be used.
       ctx.canConnect = true;
@@ -526,20 +527,20 @@ onUnmounted(stopRecovered);
           ?
         </span>
         <span class="flex min-w-0 flex-1 flex-col">
-          <span class="flex min-w-0 items-center gap-1.5">
-            <span
-              class="truncate text-sm font-medium leading-5 text-foreground"
-              :title="primaryContext"
-            >
-              {{ primaryCluster?.displayName || "No context" }}
-            </span>
+          <span
+            class="truncate text-sm font-medium leading-5 text-foreground"
+            :title="primaryContext"
+          >
+            {{ primaryCluster?.displayName || "No context" }}
+          </span>
+          <!-- The environment goes on the second line: the name keeps the width. -->
+          <span class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             <EnvBadge
               v-if="primaryCluster?.env && !primaryCluster.envInferred"
               :env="primaryCluster.env"
+              quiet
             />
-          </span>
-          <span class="truncate text-xs text-muted-foreground">
-            {{ selectionSummary }}
+            <span class="truncate">{{ selectionSummary }}</span>
           </span>
         </span>
         <ChevronsUpDown
@@ -559,24 +560,22 @@ onUnmounted(stopRecovered);
             ref="searchInput"
             v-model="contextFilter"
             type="text"
-            placeholder="Search contexts…"
-            aria-label="Search contexts"
+            placeholder="Search clusters…"
+            aria-label="Search clusters"
             class="h-9 w-full bg-transparent text-sm placeholder:text-muted-foreground/80 focus:outline-none"
             @keydown="onSearchKeydown"
           />
         </div>
         <DropdownMenuLabel class="flex items-center justify-between">
-          <span>Contexts</span>
-          <span class="font-normal tabular-nums text-muted-foreground/70"
-            >{{ activeContexts.size }} of {{ contexts.length }} active</span
-          >
+          <span>Clusters</span>
+          <span class="font-normal tabular-nums">{{ activeContexts.size }} active</span>
         </DropdownMenuLabel>
         <DropdownMenuSub
           v-for="context in filteredContexts"
           :key="contextKey(context.context, context.kubeConfig)"
         >
           <DropdownMenuSubTrigger
-            class="gap-2.5 py-1.5"
+            class="gap-2.5 py-2"
             @mouseenter="fetchNamespaces(context)"
             @focus="fetchNamespaces(context)"
           >
@@ -592,30 +591,24 @@ onUnmounted(stopRecovered);
                   : null
               "
             />
-            <div class="flex min-w-0 flex-1 flex-col">
-              <span class="flex min-w-0 items-center gap-1.5">
-                <span
-                  class="truncate"
-                  :class="{
-                    'font-medium': isContextActive(
-                      context.context,
-                      context.kubeConfig
-                    ),
-                  }"
-                  :title="context.context"
-                  >{{ metaOf(context).displayName }}</span
-                >
-                <EnvBadge
-                  v-if="metaOf(context).env && !metaOf(context).envInferred"
-                  :env="metaOf(context).env"
-                />
-              </span>
+            <div class="min-w-0 flex-1">
+              <span
+                class="block truncate"
+                :class="{
+                  'font-medium': isContextActive(
+                    context.context,
+                    context.kubeConfig
+                  ),
+                }"
+                :title="context.context"
+                >{{ metaOf(context).displayName }}</span
+              >
               <span
                 v-if="
                   duplicateContextNames.has(context.context) ||
                   isContextActive(context.context, context.kubeConfig)
                 "
-                class="truncate text-xs text-muted-foreground"
+                class="block truncate text-xs text-muted-foreground"
                 :title="context.kubeConfig"
               >
                 {{
@@ -630,6 +623,11 @@ onUnmounted(stopRecovered);
                 }}
               </span>
             </div>
+            <EnvBadge
+              v-if="metaOf(context).env && !metaOf(context).envInferred"
+              :env="metaOf(context).env"
+              quiet
+            />
           </DropdownMenuSubTrigger>
           <DropdownMenuPortal>
             <DropdownMenuSubContent
@@ -760,13 +758,9 @@ onUnmounted(stopRecovered);
           v-if="filteredContexts.length === 0"
           class="py-4 text-center font-normal"
         >
-          {{ contexts.length === 0 ? "No contexts found" : "No matching contexts" }}
+          {{ contexts.length === 0 ? "No clusters found" : "No matching clusters" }}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem class="text-muted-foreground" @select="openHub">
-          <LayoutGrid class="h-3.5 w-3.5" />
-          Manage clusters…
-        </DropdownMenuItem>
         <DropdownMenuItem
           v-if="activeContexts.size > 0"
           class="text-muted-foreground"
@@ -774,6 +768,10 @@ onUnmounted(stopRecovered);
         >
           <X class="h-3.5 w-3.5" />
           Clear selection
+        </DropdownMenuItem>
+        <DropdownMenuItem @select="openHub">
+          <LayoutGrid class="h-3.5 w-3.5 text-muted-foreground" />
+          Manage clusters…
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

@@ -1,12 +1,14 @@
 <script setup lang="ts">
 /*
- * One settings category: its sections in order. A section is a card with
- * the rows of its preferences, and/or a bespoke component (theme library,
- * kubeconfig files...) that renders its own card. `?setting=<key>` scrolls
- * to a preference and highlights it, `?section=<id>` to a section.
+ * One settings category: a page title, then its sections in order. A
+ * section shows the rows of its preferences under a quiet heading, and/or a
+ * bespoke component (theme library, kubeconfig files...) that renders its
+ * own section. `?setting=<key>` scrolls to a preference and highlights it,
+ * `?section=<id>` to a section.
  */
 import { useRoute, useRouter } from "vue-router";
 import { type as getOsType } from "@tauri-apps/plugin-os";
+import PageHeader from "@/components/page/PageHeader.vue";
 import SettingsSection from "@/components/settings/SettingsSection.vue";
 import SettingRow from "@/components/settings/SettingRow.vue";
 import {
@@ -46,42 +48,61 @@ const sectionComponent = (section: SettingSection) => {
   return component;
 };
 
-/* Deep links: highlight the setting for a moment, after the page rendered. */
+/*
+ * Deep links: scroll once the bespoke sections rendered (they load
+ * asynchronously and push what follows down), settle again when they grew
+ * with their data, and highlight the setting for a moment.
+ */
 const highlighted = ref<string | null>(null);
 let highlightTimer: ReturnType<typeof setTimeout> | null = null;
+let settleTimer: ReturnType<typeof setTimeout> | null = null;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/* Scrolls the settings page only (scrollIntoView would also scroll clipped ancestors near the end). */
+const scrollToElement = (element: HTMLElement, block: "center" | "start") => {
+  const scroller = element.closest<HTMLElement>("[data-settings-scroll]");
+  if (!scroller) return element.scrollIntoView({ block });
+  const top = element.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+  const offset = block === "start" ? 40 : Math.max(40, (scroller.clientHeight - element.offsetHeight) / 2);
+  scroller.scrollTo({ top: Math.max(0, top - offset) });
+};
+const bespokeRendered = () =>
+  Array.from(document.querySelectorAll<HTMLElement>("[data-bespoke-section]")).every((element) => element.offsetHeight > 0);
 const reveal = async () => {
   const setting = typeof route.query.setting === "string" ? route.query.setting : null;
   const section = typeof route.query.section === "string" ? route.query.section : null;
   if (!setting && !section) return;
   await nextTick();
-  // Bespoke sections load asynchronously: give them a moment.
-  for (let attempt = 0; attempt < 20; attempt++) {
+  for (let attempt = 0; attempt < 40; attempt++) {
     const element = document.getElementById(setting ? settingAnchor(setting) : sectionAnchor(section!));
-    if (element) {
-      element.scrollIntoView({ block: "center", behavior: "smooth" });
+    if (element && (bespokeRendered() || attempt >= 20)) {
+      const block = setting ? "center" : "start";
+      scrollToElement(element, block);
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => scrollToElement(element, block), 350);
       highlighted.value = setting;
       if (highlightTimer) clearTimeout(highlightTimer);
       highlightTimer = setTimeout(() => (highlighted.value = null), 1600);
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await sleep(50);
   }
 };
 watch(() => [route.query.setting, route.query.section, route.params.category], reveal, { immediate: true });
-onBeforeUnmount(() => highlightTimer && clearTimeout(highlightTimer));
+onBeforeUnmount(() => {
+  if (highlightTimer) clearTimeout(highlightTimer);
+  if (settleTimer) clearTimeout(settleTimer);
+});
 </script>
 
 <template>
-  <div v-if="category" class="space-y-6">
-    <header class="space-y-1">
-      <h2 class="text-lg font-semibold tracking-tight">{{ category.title }}</h2>
-      <p class="text-sm text-muted-foreground">{{ category.description }}</p>
-    </header>
+  <div v-if="category" class="space-y-10">
+    <PageHeader :title="category.title" :description="category.description" />
     <div
       v-for="section in category.sections"
       :id="sectionAnchor(section.id)"
       :key="section.id"
-      class="scroll-mt-24 space-y-6"
+      class="space-y-10"
+      :data-bespoke-section="section.component ? '' : undefined"
     >
       <SettingsSection
         v-if="rows(section).length > 0"

@@ -1,24 +1,12 @@
 <script setup lang="ts">
 /*
  * One theme of the library: a live miniature of the app in the theme, the
- * name, its origin badge, the appearances it has (and which halves use it)
- * and a menu. The whole card is one button (a stretched overlay); the menu
+ * name and a menu, and one quiet line: the appearances it has, where it
+ * came from (Open VSX) and, when it is used, for which mode. The whole card is one button (a stretched overlay); the menu
  * trigger sits above it. Broken user files show their error and a way to
  * fix them instead of a preview.
  */
-import {
-  AlertTriangle,
-  Check,
-  Copy,
-  Download,
-  Moon,
-  MoreHorizontal,
-  Pencil,
-  Sun,
-  SunMoon,
-  Trash2,
-} from "lucide-vue-next";
-import { Badge } from "@/components/ui/badge";
+import { AlertTriangle, Check, Copy, Download, Moon, MoreHorizontal, Pencil, Sun, SunMoon, Trash2 } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -59,22 +47,28 @@ const emit = defineEmits<{
 
 const badge = computed(() => themeBadge(props.entry));
 const chips = computed(() => appearanceChips(props.entry, props.settings));
-const used = computed(() => chips.value.some((chip) => chip.used));
+const usedHalves = computed(() => chips.value.filter((chip) => chip.used));
+const used = computed(() => usedHalves.value.length > 0);
 const options = computed(() => useOptions(props.entry));
 const editable = computed(() => props.entry.source !== "builtin");
 const usedLabel = computed(() => {
-  const halves = chips.value.filter((chip) => chip.used).map((chip) => chip.appearance);
+  const halves = usedHalves.value.map((chip) => chip.appearance);
   if (halves.length === 2) return "in use for light and dark mode";
   return halves.length ? `in use for ${halves[0]} mode` : "";
 });
 
-const BADGE_VARIANT = {
-  muted: "muted",
-  accent: "accent",
-  info: "info",
-  outline: "outline",
-  destructive: "destructive",
-} as const;
+const appearancesText = computed(() =>
+  props.entry.appearances.length === 2 ? "Light and dark" : props.entry.appearances[0] === "light" ? "Light" : "Dark"
+);
+/* Which modes use it: "In use" (both), else the mode. */
+const usedText = computed(() =>
+  usedHalves.value.length === 2 ? "In use" : usedHalves.value[0]?.appearance === "light" ? "Light mode" : "Dark mode"
+);
+const usedTitle = computed(() =>
+  usedHalves.value
+    .map((chip) => `Used in ${chip.appearance} mode${chip.native ? "" : " (paints its own appearance)"}`)
+    .join("\n")
+);
 
 const optionIcon = (mode: ThemeAppearance | "both") =>
   mode === "both" ? SunMoon : mode === "light" ? Sun : Moon;
@@ -84,8 +78,8 @@ const menuOpen = ref(false);
 
 <template>
   <div
-    class="group relative rounded-lg border bg-card p-1.5 shadow-xs transition-[border-color,box-shadow] duration-fast focus-within:border-border-strong hover:border-border-strong"
-    :class="used ? 'border-primary ring-2 ring-primary/20 hover:border-primary focus-within:border-primary' : ''"
+    class="group relative rounded-xl border bg-card p-1.5 shadow-xs transition-[border-color,box-shadow] duration-fast focus-within:border-border-strong hover:border-border-strong"
+    :class="used ? 'border-primary ring-2 ring-primary/15 hover:border-primary focus-within:border-primary' : ''"
     :data-theme-card="entry.id"
     @pointerenter="emit('hover', true)"
     @pointerleave="emit('hover', false)"
@@ -94,7 +88,7 @@ const menuOpen = ref(false);
     <button
       v-if="!entry.error"
       type="button"
-      class="absolute inset-0 z-0 rounded-lg focus-ring focus-visible:ring-offset-card"
+      class="absolute inset-0 z-0 rounded-xl focus-ring"
       :aria-label="`${entry.name}${usedLabel ? `, ${usedLabel}` : ''}. Use this theme`"
       :aria-pressed="used"
       @click="emit('apply')"
@@ -116,17 +110,14 @@ const menuOpen = ref(false);
       </div>
     </div>
 
-    <div class="pointer-events-none relative flex items-center gap-1.5 px-1 pt-2">
+    <div class="pointer-events-none relative flex items-center gap-1.5 pl-1.5 pt-2">
       <span class="truncate text-sm font-medium text-foreground" :title="entry.name">{{ entry.name }}</span>
-      <Badge size="sm" :variant="BADGE_VARIANT[badge.tone]">
-        {{ badge.label }}
-      </Badge>
       <DropdownMenu v-model:open="menuOpen">
         <DropdownMenuTrigger as-child>
           <Button
             variant="ghost"
             size="icon-xs"
-            class="pointer-events-auto z-10 ml-auto text-muted-foreground opacity-70 hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+            class="pointer-events-auto z-10 ml-auto shrink-0 text-muted-foreground opacity-0 transition-opacity duration-fast hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
             :aria-label="`${entry.name} theme actions`"
           >
             <MoreHorizontal class="h-3.5 w-3.5" />
@@ -173,32 +164,18 @@ const menuOpen = ref(false);
       </DropdownMenu>
     </div>
 
-    <div class="pointer-events-none relative flex h-6 items-center gap-1 px-1 pt-1">
+    <div class="pointer-events-none relative flex h-6 items-center gap-2 pb-0.5 pl-1.5 pr-1 text-xs">
       <template v-if="!entry.error">
-        <span
-          v-for="chip in chips"
-          :key="chip.appearance"
-          class="pointer-events-none inline-flex h-5 items-center gap-1 rounded-[5px] border px-1.5 text-xs"
-          :class="
-            chip.used
-              ? 'border-primary/30 bg-primary/10 font-medium text-link'
-              : 'border-border-subtle text-muted-foreground'
-          "
-          :title="
-            chip.used
-              ? `Used in ${chip.appearance} mode${chip.native ? '' : ' (paints its own appearance)'}`
-              : `Has a ${chip.appearance} appearance`
-          "
-        >
-          <Check v-if="chip.used" class="h-3 w-3" />
-          <component :is="chip.appearance === 'light' ? Sun : Moon" v-else class="h-3 w-3" />
-          {{ chip.appearance === "light" ? "Light" : "Dark" }}
+        <span class="truncate text-muted-foreground">
+          {{ appearancesText }}<template v-if="badge.label === 'Open VSX'"> · Open VSX</template>
         </span>
         <span
-          v-if="chips.length === 2 && chips.every((chip) => chip.used)"
-          class="pointer-events-none ml-auto text-xs text-muted-foreground"
+          v-if="used"
+          class="ml-auto flex shrink-0 items-center gap-1 font-medium text-link"
+          :title="usedTitle"
         >
-          Both modes
+          <Check class="h-3 w-3" />
+          {{ usedText }}
         </span>
       </template>
       <Button

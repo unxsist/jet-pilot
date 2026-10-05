@@ -215,6 +215,7 @@ onMounted(async () => {
       <span class="inline-flex" :title="createBlocked || undefined">
         <Button
           size="sm"
+          variant="outline"
           :title="createBlocked ? undefined : `Create ${route.query.kind || 'resource'}`"
           :disabled="!!createBlocked"
           @click="create"

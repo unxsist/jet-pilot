@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /*
- * Settings › Appearance › Add a theme: drop files, pick files, paste JSON,
- * start a new theme or open the themes folder. Every path runs through the
- * importer and shows what it found (ThemeInstallDialog) before installing.
+ * Settings › Appearance › the add-a-theme tile that ends your themes: drop
+ * files, pick files or paste JSON. Every path runs through the importer and
+ * shows what it found (ThemeInstallDialog) before installing.
  *
  * Dropping files: Tauri handles OS file drops itself (dragDropEnabled is on
  * by default), so the webview gets paths through onDragDropEvent; the fs
@@ -10,12 +10,10 @@
  * Plain HTML5 drops (the browser harness) read the File objects instead.
  * Either way the whole page accepts the drop while it is open.
  */
-import { useRouter } from "vue-router";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { ClipboardPaste, FileUp, FolderOpen, Loader2, Plus, Upload } from "lucide-vue-next";
-import SettingsSection from "@/components/settings/SettingsSection.vue";
+import { ClipboardPaste, FileUp, Loader2, Upload } from "lucide-vue-next";
 import ThemeInstallDialog from "./ThemeInstallDialog.vue";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -41,7 +39,6 @@ import {
 } from "./shared";
 
 const theme = useTheme();
-const router = useRouter();
 const { toast } = useToast();
 
 /* ------------------------------------------------------ import flow -- */
@@ -215,69 +212,39 @@ onBeforeUnmount(() => {
   window.removeEventListener("drop", onDrop);
 });
 
-/* ------------------------------------------------------------ other -- */
-
-const newTheme = () => router.push({ name: "SettingsThemeEditor", params: { id: "" } });
-const openFolder = async () => {
-  try {
-    await theme.openFolder();
-  } catch (e) {
-    toast({ title: "Couldn't open the themes folder", description: errorMessage(e), variant: "destructive" });
-  }
-};
+const formats = `${THEME_FILE_EXTENSIONS.map((ext) => `.${ext}`).join(", ")} · light and dark files are paired`;
 
 defineExpose({ showReport });
 </script>
 
 <template>
-  <SettingsSection
-    title="Add a theme"
-    description="VS Code, Sublime Text and TextMate themes and JET Pilot theme files all work."
+  <div
+    class="flex min-h-[11.5rem] flex-col items-center justify-center gap-3 rounded-xl border border-dashed px-4 py-5 text-center transition-[border-color,background-color] duration-fast"
+    :class="dragging ? 'border-primary bg-primary/5' : 'hover:border-border-strong'"
+    data-testid="theme-drop-zone"
   >
-    <div class="space-y-3 px-5 py-4">
-      <div
-        class="relative flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-6 py-7 text-center transition-[border-color,background-color] duration-fast"
-        :class="dragging ? 'border-primary bg-primary/5' : 'border-border bg-background/40'"
-        data-testid="theme-drop-zone"
-      >
-        <div
-          class="flex h-9 w-9 items-center justify-center rounded-lg border bg-surface-2 shadow-xs transition-colors duration-fast"
-          :class="dragging ? 'border-primary/40 text-link' : 'text-muted-foreground'"
-        >
-          <Loader2 v-if="reading" class="h-4 w-4 animate-spin" />
-          <Upload v-else class="h-4 w-4" />
-        </div>
-        <div class="space-y-0.5">
-          <p class="text-sm font-medium text-foreground">
-            {{ dragging ? "Drop to import" : "Drop theme files here" }}
-          </p>
-          <p class="text-xs text-muted-foreground">
-            <span class="font-mono">.json</span>,
-            <span class="font-mono">.jsonc</span>,
-            <span class="font-mono">.sublime-color-scheme</span> or
-            <span class="font-mono">.tmTheme</span> · light and dark files are paired
-          </p>
-        </div>
-      </div>
-
-      <div class="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" :disabled="reading" @click="importFiles">
-          <FileUp class="h-3.5 w-3.5" />
-          Import file…
-        </Button>
-        <Button variant="outline" size="sm" @click="pasteOpen = true">
-          <ClipboardPaste class="h-3.5 w-3.5" />
-          Paste JSON
-        </Button>
-        <Button variant="outline" size="sm" @click="newTheme">
-          <Plus class="h-3.5 w-3.5" />
-          New theme
-        </Button>
-        <Button variant="ghost" size="sm" class="ml-auto text-muted-foreground" @click="openFolder">
-          <FolderOpen class="h-3.5 w-3.5" />
-          Open themes folder
-        </Button>
-      </div>
+    <span
+      class="flex h-8 w-8 items-center justify-center rounded-lg transition-colors duration-fast"
+      :class="dragging ? 'text-link' : 'text-muted-foreground'"
+    >
+      <Loader2 v-if="reading" class="h-4 w-4 animate-spin" />
+      <Upload v-else class="h-4 w-4" />
+    </span>
+    <div class="space-y-0.5">
+      <p class="text-sm font-medium text-foreground">{{ dragging ? "Drop to import" : "Add a theme" }}</p>
+      <p class="text-xs text-muted-foreground" :title="formats">
+        or drop theme files here
+      </p>
+    </div>
+    <div class="flex items-center gap-1.5">
+      <Button variant="outline" size="xs" :disabled="reading" @click="importFiles">
+        <FileUp class="h-3 w-3" />
+        Import…
+      </Button>
+      <Button variant="ghost" size="xs" class="text-muted-foreground hover:text-foreground" @click="pasteOpen = true">
+        <ClipboardPaste class="h-3 w-3" />
+        Paste
+      </Button>
     </div>
 
     <Dialog v-model:open="pasteOpen">
@@ -315,5 +282,5 @@ defineExpose({ showReport });
       :busy="installing"
       @install="install"
     />
-  </SettingsSection>
+  </div>
 </template>

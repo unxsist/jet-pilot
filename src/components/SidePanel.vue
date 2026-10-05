@@ -231,37 +231,31 @@ const showLogs = () => {
         </Button>
       </div>
       <template v-if="target">
-        <dl class="flex flex-wrap gap-1.5 text-xs">
-          <div
-            v-if="target.namespace"
-            class="inline-flex h-6 min-w-0 items-center gap-1.5 rounded-md border bg-surface-1 px-2"
-          >
+        <!-- Quiet facts: namespace, cluster, age -->
+        <dl
+          class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground"
+        >
+          <div v-if="target.namespace" class="flex min-w-0 items-center gap-1.5">
             <dt class="sr-only">Namespace</dt>
-            <FolderTree class="h-3 w-3 shrink-0 text-muted-foreground" />
-            <dd class="truncate text-foreground">{{ target.namespace }}</dd>
+            <FolderTree class="h-3 w-3 shrink-0" />
+            <dd class="truncate">{{ target.namespace }}</dd>
           </div>
-          <div
-            v-if="target.context"
-            class="inline-flex h-6 min-w-0 items-center gap-1.5 rounded-md border bg-surface-1 pl-1 pr-2 [--avatar-ring:var(--surface-1)]"
-          >
+          <div v-if="target.context" class="flex min-w-0 items-center gap-1.5">
             <dt class="sr-only">Context</dt>
             <ContextAvatar
               :name="target.context"
               size="sm"
               class="h-4 w-4 text-[9px]"
             />
-            <dd class="truncate text-foreground" :title="target.kubeConfig">
+            <dd class="truncate" :title="target.kubeConfig">
               {{ target.context }}
             </dd>
           </div>
-          <div
-            v-if="age"
-            class="inline-flex h-6 items-center gap-1.5 rounded-md border bg-surface-1 px-2"
-          >
+          <div v-if="age" class="flex items-center gap-1.5">
             <dt class="sr-only">Age</dt>
-            <Clock class="h-3 w-3 shrink-0 text-muted-foreground" />
+            <Clock class="h-3 w-3 shrink-0" />
             <dd
-              class="tabular-nums text-foreground"
+              class="tabular-nums"
               :title="resource?.metadata?.creationTimestamp?.toString()"
             >
               {{ age }}

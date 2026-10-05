@@ -9,12 +9,13 @@ import {
   useEmitAsProps,
 } from "radix-vue";
 import { Cross2Icon } from "@radix-icons/vue";
+import type { HTMLAttributes } from "vue";
 import { cn } from "@/lib/utils";
 
 const props = withDefaults(
   defineProps<
     DialogContentProps & {
-      class?: string;
+      class?: HTMLAttributes["class"];
       closeable?: boolean;
       overlayClass?: string;
       /** `center` (default) or `top` (command-palette style, 14vh from the top) */

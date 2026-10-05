@@ -20,7 +20,7 @@ const props = withDefaults(
     status?: StatusTone | null;
     class?: HTMLAttributes["class"];
   }>(),
-  { size: "default", status: null, kubeConfig: undefined }
+  { size: "default", status: null, kubeConfig: undefined, class: undefined }
 );
 
 const state = inject(SettingsContextStateKey, null);

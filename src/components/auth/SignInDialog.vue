@@ -6,15 +6,15 @@
  * reconnect, and the dialog closes by itself.
  */
 import { invoke } from "@tauri-apps/api/core";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import ClusterLabel from "@/components/clusters/ClusterLabel.vue";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import ContextAvatar from "@/components/ContextAvatar.vue";
 import LoginSessionPanel from "./LoginSessionPanel.vue";
+import WizardHeader from "@/components/wizard/WizardHeader.vue";
+import WizardFooter from "@/components/wizard/WizardFooter.vue";
+import { WIZARD_BODY, WIZARD_DIALOG } from "@/components/wizard/wizard";
+import { resolveCluster } from "@/lib/clusters/meta";
+import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import {
   credentialView,
   keyOf,
@@ -30,21 +30,27 @@ const emit = defineEmits<{ (e: "close", signedIn: boolean): void }>();
 
 const target = props.request.target;
 const view = computed(() => credentialView(target));
+const settingsState = inject(SettingsContextStateKey, null);
+const name = computed(
+  () => resolveCluster(settingsState?.settings.value.clusters, target.context, target.kubeConfig).displayName
+);
 
 const basename = (command: string) => command.split(/[\\/]/).pop() || command;
 
 const methodLine = computed(() => {
   const status = view.value.status;
   if (status?.signInLabel) return status.signInLabel;
-  if (status?.command) return `Signs in with ${basename(status.command)}.`;
-  return "Signs in with the method set in its kubeconfig.";
+  if (status?.command) return `With ${basename(status.command)}`;
+  return "With the method set in its kubeconfig";
 });
 
+/* Why it's asking, before how it signs in: "Expired · Microsoft Entra ID…". */
 const STATE_TEXT: Partial<Record<string, string>> = {
   expired: "Expired",
   needsLogin: "Sign-in needed",
   expiringSoon: "Expires soon",
 };
+const finished = computed(() => state.value.phase === "failed" || state.value.phase === "cancelled");
 
 /* Clusters the sign-in reconnected (the backend's fan-out). */
 const reconnecting = ref<number | null>(null);
@@ -112,36 +118,33 @@ onUnmounted(() => {
 
 <template>
   <Dialog :open="true" @update:open="(open: boolean) => !open && dismiss()">
-    <DialogContent class="max-w-md">
-      <DialogHeader>
-        <DialogTitle>Sign in</DialogTitle>
-        <DialogDescription>{{ methodLine }}</DialogDescription>
-      </DialogHeader>
+    <DialogContent :class="[WIZARD_DIALOG, 'max-w-[30rem]']">
+      <WizardHeader :title="`Sign in to ${name}`" tone="bare">
+        <template #icon>
+          <ContextAvatar :name="target.context" :kube-config="target.kubeConfig" size="lg" />
+        </template>
+        <template #description>
+          <span
+            v-if="state.phase !== 'succeeded' && STATE_TEXT[view.state]"
+            :class="view.state === 'expired' ? 'text-destructive' : 'text-warning'"
+            >{{ STATE_TEXT[view.state] }} ·
+          </span>
+          {{ methodLine }}
+        </template>
+      </WizardHeader>
 
-      <div class="flex min-w-0 items-center gap-3 rounded-lg border bg-card px-3 py-2">
-        <ClusterLabel
-          :context="target.context"
-          :kube-config="target.kubeConfig"
-          size="default"
-          class="font-medium"
-        />
-        <span
-          v-if="state.phase !== 'succeeded' && STATE_TEXT[view.state]"
-          class="ml-auto shrink-0 text-xs font-medium"
-          :class="view.state === 'expired' ? 'text-destructive' : 'text-warning'"
-        >
-          {{ STATE_TEXT[view.state] }}
-        </span>
+      <div :class="WIZARD_BODY">
+        <LoginSessionPanel :state="state" :success-detail="successDetail" @open-url="openBrowser" />
       </div>
 
-      <LoginSessionPanel
-        :state="state"
-        :success-detail="successDetail"
-        @open-url="openBrowser"
-        @cancel="cancelAndClose"
-        @retry="start"
-        @close="emit('close', false)"
-      />
+      <WizardFooter>
+        <template v-if="finished">
+          <Button variant="ghost" @click="emit('close', false)">Close</Button>
+          <Button @click="start">Retry</Button>
+        </template>
+        <Button v-else-if="state.phase === 'succeeded'" variant="outline" @click="emit('close', true)">Done</Button>
+        <Button v-else variant="ghost" @click="cancelAndClose">Cancel</Button>
+      </WizardFooter>
     </DialogContent>
   </Dialog>
 </template>

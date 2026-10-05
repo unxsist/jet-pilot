@@ -7,10 +7,8 @@
  * values are never shown.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { CircleAlert } from "lucide-vue-next";
-import { Badge } from "@/components/ui/badge";
 import SettingsSection from "@/components/settings/SettingsSection.vue";
-import { settingsBlock } from "@/components/settings/styles";
+import { settingsHint, settingsLabel, settingsRow } from "@/components/settings/styles";
 
 interface EnvImportReport {
   shell?: string | null;
@@ -33,36 +31,46 @@ onMounted(() => {
 <template>
   <SettingsSection
     title="Environment"
-    description="Variables JET Pilot took over from your login shell at startup, so kubectl and sign-in plugins find what your terminal finds."
+    description="Variables taken over from your login shell, so tools find what your terminal finds"
   >
-    <div :class="settingsBlock">
-      <p v-if="failed" class="text-xs text-destructive">{{ failed }}</p>
-      <template v-else-if="report">
-        <dl class="grid grid-cols-[8rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
-          <dt class="text-muted-foreground">Shell</dt>
-          <dd class="font-mono">
-            {{ report.shell || "Not used on this platform" }}
-            <span v-if="report.shell" class="text-muted-foreground">· {{ report.durationMs }} ms</span>
-          </dd>
-          <dt class="text-muted-foreground">Variables</dt>
-          <dd class="flex flex-wrap gap-1">
-            <Badge v-for="name in report.imported" :key="name" variant="muted" size="sm" class="font-mono">
-              {{ name }}
-            </Badge>
-            <span v-if="report.imported.length === 0" class="text-muted-foreground">None</span>
-          </dd>
-          <dt class="text-muted-foreground">Downloaded tools</dt>
-          <dd class="truncate font-mono" :title="report.managedBinDir">
-            {{ report.managedBinDir }}
-            <span class="font-sans text-muted-foreground">(searched after your PATH)</span>
-          </dd>
-        </dl>
-        <p v-if="report.error" class="flex items-start gap-1.5 text-xs text-warning">
-          <CircleAlert class="mt-px h-3.5 w-3.5 shrink-0" />
-          Reading your login shell failed: {{ report.error }}. Tools may not be found when JET Pilot is started from the Dock or a launcher.
+    <p v-if="failed" class="py-4 text-xs text-destructive">{{ failed }}</p>
+    <template v-else-if="report">
+      <div :class="settingsRow">
+        <div class="min-w-0">
+          <p :class="settingsLabel">Login shell</p>
+          <p :class="[settingsHint, 'mt-0.5']">
+            {{ report.shell ? `Read at startup in ${report.durationMs} ms` : "Not used on this platform" }}
+          </p>
+        </div>
+        <p v-if="report.shell" class="truncate font-mono text-xs text-muted-foreground sm:text-right">{{ report.shell }}</p>
+      </div>
+      <div :class="settingsRow">
+        <div class="min-w-0">
+          <p :class="settingsLabel">Variables</p>
+          <p :class="[settingsHint, 'mt-0.5']">Names only; values are never shown.</p>
+        </div>
+        <p class="font-mono text-xs leading-5 text-muted-foreground sm:max-w-[22rem] sm:text-right">
+          <template v-if="report.imported.length">{{ report.imported.join("  ") }}</template>
+          <span v-else class="font-sans">None</span>
         </p>
-      </template>
-      <p v-else class="text-xs text-muted-foreground">Loading…</p>
-    </div>
+      </div>
+      <div :class="settingsRow">
+        <div class="min-w-0">
+          <p :class="settingsLabel">Downloaded tools</p>
+          <p :class="[settingsHint, 'mt-0.5']">Searched after your PATH.</p>
+        </div>
+        <p class="truncate font-mono text-xs text-muted-foreground sm:max-w-[22rem] sm:text-right" :title="report.managedBinDir">
+          {{ report.managedBinDir }}
+        </p>
+      </div>
+      <p v-if="report.error" class="flex items-start gap-1.5 py-3 text-xs text-warning">
+        <span class="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+        <span>
+          Reading your login shell failed: {{ report.error }}. Tools may not be found when JET Pilot is started from the
+          Dock or a launcher.
+        </span>
+      </p>
+    </template>
+    <p v-else class="py-4 text-xs text-muted-foreground">Loading…</p>
   </SettingsSection>
 </template>

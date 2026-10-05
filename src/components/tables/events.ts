@@ -27,8 +27,9 @@ export const columns: ColumnDef<CoreV1Event>[] = [
       return h(
         RouterLink,
         {
+          // Quiet until hovered: a whole column of accent text is noise.
           class:
-            "text-link underline-offset-2 hover:underline focus-visible:underline",
+            "underline-offset-2 hover:text-link hover:underline focus-visible:underline",
           onClick: (event: MouseEvent) => event.stopPropagation(),
           to: {
             path: `/${formatResourceKind(

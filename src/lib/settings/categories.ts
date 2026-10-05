@@ -1,6 +1,6 @@
 /*
  * Layout of the settings page: categories (the sidebar) and their sections
- * (cards). A section shows the rows of the preferences defined for it
+ * (a heading and its rows). A section shows the rows of the preferences defined for it
  * (./registry.ts) and/or a bespoke component that renders its own card
  * (theme library, kubeconfig files, tools, ...). Bespoke sections are found
  * by search through their title, description and keywords.
@@ -97,7 +97,7 @@ export const CATEGORIES: readonly SettingCategory[] = [
     description: "How lists stay up to date and how logs open",
     icon: Table2,
     sections: [
-      { id: "live", title: "Live updates", description: "Keeping resource lists current" },
+      { id: "live", title: "Tables", description: "Keeping resource lists current" },
       { id: "logs", title: "Logs", description: "Defaults for the log viewer" },
     ],
   },
@@ -126,7 +126,7 @@ export const CATEGORIES: readonly SettingCategory[] = [
   {
     id: "advanced",
     title: "Advanced",
-    description: "Tools, network, debugging and diagnostics",
+    description: "Tools, credentials, cluster access and diagnostics",
     icon: Wrench,
     sections: [
       {
@@ -143,9 +143,7 @@ export const CATEGORIES: readonly SettingCategory[] = [
         keywords: ["keychain", "passphrase", "vault", "secret", "credentials", "helper", "jetpilot-auth", "KUBECONFIG", "terminal"],
         component: () => import("@/components/settings/sections/CredentialsSection.vue"),
       },
-      { id: "signin", title: "Sign-in", description: "How credentials of your clusters are obtained" },
-      { id: "network", title: "Network", description: "Talking to API servers" },
-      { id: "debug", title: "Debugging", description: "Debug containers and node shells" },
+      { id: "access", title: "Cluster access", description: "Sign-in plugins, timeouts and debug containers" },
       {
         id: "environment",
         title: "Environment",
@@ -153,11 +151,10 @@ export const CATEGORIES: readonly SettingCategory[] = [
         keywords: ["PATH", "env", "environment variables", "shell", "proxy", "KUBECONFIG", "AWS_PROFILE"],
         component: () => import("@/components/settings/sections/EnvironmentSection.vue"),
       },
-      { id: "diagnostics", title: "Diagnostics", description: "JET Pilot's own application log" },
       {
         id: "app-log",
-        title: "Application log",
-        description: "Live output of the JET Pilot backend",
+        title: "Diagnostics",
+        description: "JET Pilot's own log, for troubleshooting",
         keywords: ["logs", "export logs", "troubleshoot", "bug report"],
         component: () => import("@/components/settings/sections/AppLogSection.vue"),
       },

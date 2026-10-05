@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/*
+ * What's New: shown once after updating to a new minor version (unless
+ * turned off in Settings › General), never on a fresh install.
+ */
 import {
   Dialog,
   DialogContent,
@@ -14,7 +18,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { Sparkles } from "lucide-vue-next";
 
 // The slides (carousel + images) only load when the dialog is shown.
-const Updates = defineAsyncComponent(() => import("./whats-new/Updates.vue"));
+const WhatsNewSlides = defineAsyncComponent(() => import("./whats-new/WhatsNewSlides.vue"));
 
 const { settings } = injectStrict(SettingsContextStateKey);
 const firstRun = injectStrict(SettingsFirstRunKey);
@@ -46,19 +50,15 @@ const storeLatestWhatsNew = (open: boolean) => {
 </script>
 <template>
   <Dialog :open="shouldShowWhatsNew" @update:open="storeLatestWhatsNew">
-    <DialogContent class="min-w-[700px] gap-5" @open-auto-focus.prevent>
-      <DialogHeader>
+    <DialogContent class="max-w-2xl gap-0 p-0" @open-auto-focus.prevent>
+      <DialogHeader class="px-6 pb-4 pt-5">
         <DialogTitle class="flex items-center gap-2">
           <Sparkles class="h-4 w-4 text-primary" />
           What's new in JET Pilot
-          <span
-            v-if="currentVersion"
-            class="rounded-full border px-2 py-0.5 font-mono text-xs font-medium text-muted-foreground"
-            >v{{ currentVersion }}</span
-          >
+          <span v-if="currentVersion" class="font-normal text-muted-foreground">{{ currentVersion }}</span>
         </DialogTitle>
       </DialogHeader>
-      <Updates />
+      <WhatsNewSlides @done="storeLatestWhatsNew(false)" />
     </DialogContent>
   </Dialog>
 </template>

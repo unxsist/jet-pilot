@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * A cluster as people know it: avatar, alias (or name), and its environment
- * badge when one is set. Used in table Context columns, tabs and headers.
+ * badge when one is set (quiet in muted table cells, where every row has
+ * one). Used in table Context columns, tabs and headers.
  */
 import { inject } from "vue";
 import ContextAvatar from "@/components/ContextAvatar.vue";
@@ -35,6 +36,6 @@ const cluster = computed(() =>
       class="[--avatar-ring:var(--background)]"
     />
     <span class="truncate" :class="muted ? 'text-muted-foreground' : ''">{{ cluster.displayName }}</span>
-    <EnvBadge v-if="cluster.env && !cluster.envInferred" :env="cluster.env" />
+    <EnvBadge v-if="cluster.env && !cluster.envInferred" :env="cluster.env" :quiet="muted" />
   </span>
 </template>

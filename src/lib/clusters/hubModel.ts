@@ -189,3 +189,56 @@ export function buildSections(
 export function folderNames(clusters: { meta: ResolvedCluster }[]): string[] {
   return [...new Set(clusters.map((c) => c.meta.folder).filter((f): f is string => !!f))].sort(collator.compare);
 }
+
+/*
+ * What a hub row says under the name: where the cluster runs, in one quiet
+ * line ("Amazon EKS · eu-west-1 · acme-production", "Local · kind",
+ * "k8s.example.com").
+ */
+export function clusterSubtitle(
+  cluster: Pick<HubCluster, "entry">,
+  cloud?: { region: string; accountName?: string | null; accountId: string } | null
+): string {
+  const { provider, server } = cluster.entry;
+  if (cloud) return [PROVIDER_LABELS[provider.id], cloud.region, cloud.accountName ?? cloud.accountId].join(" · ");
+  if (provider.id === "other") {
+    try {
+      return server ? new URL(server).host : "Other";
+    } catch {
+      return server || "Other";
+    }
+  }
+  return [PROVIDER_LABELS[provider.id], provider.region, provider.account].filter(Boolean).join(" · ");
+}
+
+export interface RowAttention {
+  tone: "warning" | "destructive";
+  text: string;
+  title?: string;
+}
+
+/**
+ * The one problem a hub row mentions, if any (credentials are separate):
+ * a cluster deleted in its cloud, an unreachable server, refused access,
+ * or a broken kubeconfig entry.
+ */
+export function rowAttention(cluster: HubCluster, goneFromCloud = false): RowAttention | null {
+  if (goneFromCloud) {
+    return { tone: "warning", text: "Deleted in the cloud", title: "It isn't in its cloud account any more. Remove it if it was deleted." };
+  }
+  const status = cluster.status;
+  if (status) {
+    const title = status.message ?? undefined;
+    if (status.reachability === "unreachable") return { tone: "destructive", text: "Unreachable", title };
+    if (status.reachability === "unauthorized") return { tone: "warning", text: "Not signed in", title };
+    if (status.reachability === "forbidden") return { tone: "warning", text: "No access", title };
+    if (status.reachability === "error") return { tone: "destructive", text: "Can't connect", title };
+  }
+  if (cluster.entry.problems.length) {
+    return { tone: "warning", text: "Kubeconfig problem", title: cluster.entry.problems.map((p) => p.message).join("\n") };
+  }
+  return null;
+}
+
+/** "v1.31.4-eks-2d5f260" → "v1.31". */
+export const minorVersion = (version?: string | null) => /^v?(\d+\.\d+)/.exec(version ?? "")?.[1] ?? null;

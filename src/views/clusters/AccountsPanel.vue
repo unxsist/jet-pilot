@@ -28,7 +28,6 @@ import {
 import { useToast } from "@/components/ui/toast";
 import ProviderMark from "@/components/clusters/ProviderMark.vue";
 import ConnectionSignInDialog from "./ConnectionSignInDialog.vue";
-import { cn } from "@/lib/utils";
 import { errorMessage, openAddCluster } from "@/lib/clusters/managed";
 import { discoverKubeconfigs } from "@/lib/kubeconfigSources";
 import { relativeTime } from "@/lib/clusters/status";
@@ -52,11 +51,11 @@ const counts = (connection: CloudConnection) => {
   };
 };
 
-const TONE_CLASSES = {
-  success: "bg-success/10 text-success",
-  warning: "bg-warning/10 text-warning",
-  destructive: "bg-destructive/10 text-destructive",
-  muted: "bg-muted text-muted-foreground",
+const DOT_CLASSES = {
+  success: "bg-success",
+  warning: "bg-warning",
+  destructive: "bg-destructive",
+  muted: "bg-muted-foreground/50",
 } as const;
 
 const canSignIn = (connection: CloudConnection) =>
@@ -100,7 +99,7 @@ watch(removing, () => (removeClusters.value = true));
 </script>
 
 <template>
-  <div class="space-y-3">
+  <div class="space-y-4">
     <div v-if="connections === null" class="flex items-center justify-center gap-2 py-24 text-sm text-muted-foreground">
       <Loader2 class="h-4 w-4 animate-spin" /> Loading your accounts…
     </div>
@@ -112,101 +111,102 @@ watch(removing, () => (removeClusters.value = true));
       description="Connect an AWS account and JET Pilot finds its EKS clusters in every region, keeps the list current and signs in for you."
     >
       <template #action>
-        <Button size="sm" @click="openAddCluster('aws')"><Plus class="h-3.5 w-3.5" /> Connect AWS</Button>
+        <Button @click="openAddCluster('aws')"><Plus class="h-4 w-4" /> Connect AWS</Button>
       </template>
     </EmptyState>
 
     <template v-else>
-      <div class="overflow-hidden rounded-lg border bg-card shadow-xs" role="list" aria-label="Cloud accounts">
-        <div
+      <div class="grid gap-4 md:grid-cols-2" role="list" aria-label="Cloud accounts">
+        <article
           v-for="connection in connections"
           :key="connection.id"
           role="listitem"
-          class="grid grid-cols-[2rem_minmax(0,1fr)_minmax(0,11rem)_minmax(0,10rem)_17rem] items-center gap-x-4 border-b border-border-subtle px-4 py-3 last:border-b-0"
+          class="flex flex-col rounded-xl border bg-card shadow-xs"
         >
-          <span class="flex h-8 w-8 items-center justify-center rounded-md bg-surface-1">
-            <ProviderMark provider="aws" :size="20" />
-          </span>
-          <div class="min-w-0">
-            <p class="flex items-center gap-2 text-sm font-medium">
-              <span class="truncate">{{ connection.label }}</span>
-              <span class="shrink-0 text-xs font-normal text-muted-foreground">{{ CONNECTION_KIND_LABELS[connection.kind] }}</span>
-            </p>
-            <p class="truncate font-mono text-2xs text-muted-foreground" :title="connection.identity ?? undefined">
-              {{ connection.identity ?? connection.sso?.startUrl ?? connection.profile }}
-            </p>
-          </div>
-          <div class="min-w-0 text-xs text-muted-foreground">
-            <p class="truncate text-foreground">{{ connectionScope(connection) }}</p>
-            <p class="truncate">{{ regionsSummary(connection.regions) }}</p>
-          </div>
-          <div class="min-w-0 text-xs text-muted-foreground">
-            <p class="truncate">
-              <span class="text-foreground">{{ counts(connection).added }} added</span>
-              <template v-if="counts(connection).available"> · {{ counts(connection).available }} available</template>
-            </p>
-            <p v-if="counts(connection).removed" class="truncate text-warning">
-              {{ counts(connection).removed }} no longer in AWS
-            </p>
-            <p v-else-if="catalogRefreshedAt" class="truncate">Checked {{ relativeTime(catalogRefreshedAt) }}</p>
-          </div>
-          <div class="flex items-center justify-end gap-2">
-            <span
-              :class="cn('inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium', TONE_CLASSES[CONNECTION_STATUS[connection.status].tone])"
-              :title="connection.message ?? undefined"
-            >
-              {{ CONNECTION_STATUS[connection.status].label }}
-              <template v-if="connection.status === 'signedIn' && expiryText(connection.expiresAt)">
-                · {{ expiryText(connection.expiresAt) }}
-              </template>
+          <div class="flex items-start gap-3 p-5 pb-4">
+            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-1">
+              <ProviderMark :provider="connection.provider" :size="22" />
             </span>
-            <Button
-              v-if="canSignIn(connection) && connection.status !== 'signedIn'"
-              size="sm"
-              class="h-7"
-              @click="signingIn = connection"
-            >
-              <LogIn class="h-3.5 w-3.5" /> Sign in
-            </Button>
-            <Button
-              v-else
-              size="sm"
-              variant="ghost"
-              class="h-7 text-muted-foreground"
-              :disabled="refreshing"
-              :aria-label="`Look for new clusters in ${connection.label}`"
-              title="Look for new clusters"
-              @click="refresh(connection)"
-            >
-              <RefreshCw class="h-3.5 w-3.5" :class="refreshing ? 'animate-spin' : ''" />
-            </Button>
+            <div class="min-w-0 flex-1">
+              <h3 class="truncate text-base font-semibold">{{ connection.label }}</h3>
+              <p class="truncate text-xs text-muted-foreground">{{ CONNECTION_KIND_LABELS[connection.kind] }}</p>
+            </div>
             <DropdownMenu>
               <DropdownMenuTrigger as-child>
-                <Button variant="ghost" size="icon-sm" class="text-muted-foreground" :aria-label="`Actions for ${connection.label}`">
+                <Button variant="ghost" size="icon-sm" class="-mr-2 text-muted-foreground" :aria-label="`Actions for ${connection.label}`">
                   <MoreHorizontal class="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" class="w-60">
-                <DropdownMenuItem :disabled="refreshing" @select="refresh(connection)">Look for new clusters</DropdownMenuItem>
+                <DropdownMenuItem :disabled="refreshing || connection.status !== 'signedIn'" @select="refresh(connection)">
+                  Look for new clusters
+                </DropdownMenuItem>
                 <DropdownMenuItem v-if="canSignIn(connection)" @select="signingIn = connection">Sign in again</DropdownMenuItem>
                 <DropdownMenuItem @select="openAddCluster('aws', { connectionId: connection.id })">
                   {{ connection.kind === "sso" ? "Accounts and regions…" : "Regions…" }}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem class="text-destructive focus:text-destructive" @select="removing = connection">
-                  Remove…
-                </DropdownMenuItem>
+                <DropdownMenuItem variant="destructive" @select="removing = connection">Remove…</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-        </div>
+
+          <div class="flex-1 space-y-3 px-5 pb-5">
+            <div class="flex items-center justify-between gap-3">
+              <span class="flex min-w-0 items-center gap-2 text-sm" :title="connection.message ?? undefined">
+                <span class="h-2 w-2 shrink-0 rounded-full" :class="DOT_CLASSES[CONNECTION_STATUS[connection.status].tone]" />
+                <span class="truncate">
+                  {{ CONNECTION_STATUS[connection.status].label }}
+                  <span v-if="connection.status === 'signedIn' && expiryText(connection.expiresAt)" class="text-muted-foreground">
+                    · {{ expiryText(connection.expiresAt) }}
+                  </span>
+                </span>
+              </span>
+              <Button v-if="canSignIn(connection) && connection.status !== 'signedIn'" size="sm" @click="signingIn = connection">
+                <LogIn class="h-3.5 w-3.5" /> Sign in
+              </Button>
+            </div>
+            <p class="text-sm text-muted-foreground">
+              <span class="text-foreground">{{ connectionScope(connection) }}</span> · {{ regionsSummary(connection.regions) }}
+            </p>
+            <p class="text-sm text-muted-foreground">
+              <span class="text-foreground">{{ counts(connection).added }} {{ counts(connection).added === 1 ? "cluster" : "clusters" }}</span>
+              <template v-if="counts(connection).available"> · {{ counts(connection).available }} new</template>
+              <span v-if="counts(connection).removed" class="text-warning"> · {{ counts(connection).removed }} deleted in AWS</span>
+            </p>
+          </div>
+
+          <div class="flex items-center justify-between gap-3 border-t px-5 py-2.5 text-xs text-muted-foreground">
+            <span class="truncate font-mono" :title="connection.identity ?? undefined">
+              {{ connection.identity ?? connection.sso?.startUrl ?? connection.profile }}
+            </span>
+            <button
+              type="button"
+              class="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors duration-fast hover:bg-accent hover:text-foreground focus-ring disabled:opacity-50"
+              :disabled="refreshing || connection.status !== 'signedIn'"
+              :aria-label="`Look for new clusters in ${connection.label}`"
+              @click="refresh(connection)"
+            >
+              <RefreshCw class="h-3 w-3" :class="refreshing ? 'animate-spin' : ''" />
+              <template v-if="catalogRefreshedAt">Checked {{ relativeTime(catalogRefreshedAt) }}</template>
+              <template v-else>Look for clusters</template>
+            </button>
+          </div>
+        </article>
+
+        <button
+          type="button"
+          class="flex min-h-[12rem] flex-col items-center justify-center gap-2 rounded-xl border border-dashed text-sm text-muted-foreground transition-colors duration-fast hover:border-border-strong hover:bg-accent/30 hover:text-foreground focus-ring"
+          @click="openAddCluster('aws')"
+        >
+          <Plus class="h-5 w-5" />
+          Connect an account
+        </button>
       </div>
-      <div class="flex items-center justify-between gap-4">
-        <p class="text-xs text-muted-foreground">
-          JET Pilot looks for new clusters when you open the hub, at most every 30 minutes, and never signs in by itself.
-        </p>
-        <Button size="sm" variant="outline" @click="openAddCluster('aws')"><Plus class="h-3.5 w-3.5" /> Connect an account</Button>
-      </div>
+
+      <p class="text-xs text-muted-foreground">
+        JET Pilot looks for new clusters when you open the hub, at most every 30 minutes. It never signs in by itself.
+      </p>
     </template>
 
     <ConnectionSignInDialog v-if="signingIn" :connection="signingIn" @close="signingIn = null" />
@@ -219,9 +219,12 @@ watch(removing, () => (removeClusters.value = true));
             JET Pilot forgets this account and its stored sign-in. Nothing changes in AWS.
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <label v-if="removing && counts(removing).added" class="flex items-center gap-2 text-sm">
-          <Checkbox v-model:checked="removeClusters" />
-          Also remove its {{ counts(removing).added }} {{ counts(removing).added === 1 ? "cluster" : "clusters" }} from JET Pilot (they can't sign in without it)
+        <label v-if="removing && counts(removing).added" class="flex items-start gap-2.5 text-sm">
+          <Checkbox v-model:checked="removeClusters" class="mt-0.5" />
+          <span>
+            Also remove its {{ counts(removing).added }} {{ counts(removing).added === 1 ? "cluster" : "clusters" }} from JET Pilot
+            <span class="block text-xs text-muted-foreground">They can't sign in without the account.</span>
+          </span>
         </label>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>

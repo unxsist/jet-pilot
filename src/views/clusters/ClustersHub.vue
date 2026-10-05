@@ -4,12 +4,14 @@
  * status (probes never trigger a sign-in), metadata (alias, colour,
  * environment, guardrails, folders, tags) and keyboard-first actions.
  *
- * Clusters in your cloud accounts that aren't added yet are listed as
- * Available (add, bulk add, ignore); the Accounts tab manages the accounts.
+ * Calm by design: a row says what a cluster is called, where it runs and
+ * only what needs you; clicking it opens its details next to the list.
+ * Clusters in your cloud accounts that aren't added yet are offered in one
+ * prompt ("Review"); the Cloud accounts tab manages the accounts.
  *
  * Shown as the /clusters page and, `embedded`, in place of a view that
  * needs a context while none is active. `?edit=<context key>` opens the
- * details of a cluster, `?tab=accounts` the accounts.
+ * details editor of a cluster, `?tab=accounts` the accounts.
  */
 import { useRoute, useRouter } from "vue-router";
 import { useEventListener, useLocalStorage } from "@vueuse/core";
@@ -19,29 +21,32 @@ import {
   ChevronRight,
   CircleAlert,
   Cloud,
-  EyeOff,
-  FolderInput,
   Loader2,
   Plus,
-  RefreshCw,
   Search,
   ServerOff,
-  Star,
+  SlidersHorizontal,
   X,
 } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/toast";
+import PageHeader from "@/components/page/PageHeader.vue";
+import PageTabs from "@/components/page/PageTabs.vue";
+import ProviderMark from "@/components/clusters/ProviderMark.vue";
 import HubRow from "@/views/clusters/HubRow.vue";
-import AvailableRow from "@/views/clusters/AvailableRow.vue";
+import ClusterDetailPanel from "@/views/clusters/ClusterDetailPanel.vue";
 import ClusterEditDialog from "@/views/clusters/ClusterEditDialog.vue";
 import { injectStrict } from "@/lib/utils";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
@@ -63,6 +68,7 @@ import {
   type GroupBy,
   type HubCluster,
 } from "@/lib/clusters/hubModel";
+import type { ProviderId } from "@/lib/clusters/provider";
 import { cachedStatuses, cancelProbe, probeClusters, type ClusterStatus } from "@/lib/clusters/status";
 import { errorMessage, openAddCluster, removeManaged, withVault } from "@/lib/clusters/managed";
 import { catalogAdd, catalogSetState, type CatalogCluster } from "@/lib/clusters/cloud";
@@ -76,7 +82,6 @@ import {
   refreshCloud,
   watchCloud,
 } from "@/lib/clusters/catalogStore";
-import ExportDialog from "@/views/clusters/ExportDialog.vue";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -89,6 +94,8 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const AccountsPanel = defineAsyncComponent(() => import("@/views/clusters/AccountsPanel.vue"));
+const AvailableDialog = defineAsyncComponent(() => import("@/views/clusters/AvailableDialog.vue"));
+const ExportDialog = defineAsyncComponent(() => import("@/views/clusters/ExportDialog.vue"));
 
 const props = defineProps<{ embedded?: boolean }>();
 
@@ -199,7 +206,6 @@ const collapsed = reactive(new Set<string>());
 
 const sections = computed(() => buildSections(hubClusters.value, groupBy.value, filter.value, showHidden.value));
 const hiddenCount = computed(() => hubClusters.value.filter((c) => c.meta.hidden).length);
-const fileCount = computed(() => new Set((inventory.value ?? []).map((e) => e.kubeConfig)).size);
 
 /* Rows in display order (keyboard navigation). */
 const visibleRows = computed<HubCluster[]>(() => [
@@ -225,6 +231,18 @@ const focusRow = (key: string | undefined) => {
       ?.querySelector<HTMLElement>(`[data-cluster-key="${CSS.escape(encodeURIComponent(key))}"]`)
       ?.focus()
   );
+};
+
+/* The cluster whose details are open (click a row). */
+const detailKey = ref<string | null>(null);
+const detail = computed(() => hubClusters.value.find((c) => c.entry.key === detailKey.value) ?? null);
+const onRowClick = (cluster: HubCluster, event: MouseEvent) => {
+  focusedKey.value = cluster.entry.key;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || selection.size) {
+    toggleSelect(cluster, !selection.has(cluster.entry.key));
+    return;
+  }
+  detailKey.value = detailKey.value === cluster.entry.key ? null : cluster.entry.key;
 };
 
 /* --------------------------------------------------------- actions -- */
@@ -333,11 +351,10 @@ const cloudByContext = computed(() => {
   return map;
 });
 
-const available = computed(() => availableInHub(catalog.value ?? [], filter.value, showHidden.value));
-const availableRows = computed(() => [...available.value.available, ...available.value.ignored]);
-const pickedAvailable = reactive(new Set<string>());
-const pickedAvailableRows = computed(() => availableRows.value.filter((c) => pickedAvailable.has(c.key)));
-const addingKeys = reactive(new Set<string>());
+/* Clusters in the accounts that aren't added yet: one prompt, reviewed in a dialog. */
+const available = computed(() => availableInHub(catalog.value ?? [], parseHubFilter(""), true));
+const reviewOpen = ref(false);
+const adding = ref(false);
 
 /* New clusters join the folder their account's clusters are in. */
 const accountFolder = (connectionId: string) => {
@@ -351,13 +368,12 @@ const accountFolder = (connectionId: string) => {
 
 const addAvailable = async (targets: CatalogCluster[]) => {
   if (!targets.length) return;
-  targets.forEach((c) => addingKeys.add(c.key));
+  adding.value = true;
   const accounts = new Set(targets.map((c) => c.connectionId));
   const folder = accounts.size === 1 ? accountFolder(targets[0]!.connectionId) : null;
   try {
     const result = await withVault(() => catalogAdd(targets.map((c) => c.key), folder));
     if (folder) clusters.updateMany(result.added, { folder });
-    targets.forEach((c) => pickedAvailable.delete(c.key));
     if (result.added.length) {
       toast({ title: result.added.length === 1 ? `Added ${result.added[0]!.context}` : `Added ${result.added.length} clusters` });
     }
@@ -369,24 +385,18 @@ const addAvailable = async (targets: CatalogCluster[]) => {
       });
     }
     await Promise.all([discoverKubeconfigs(true), loadCloud()]);
+    if (!available.value.available.length) reviewOpen.value = false;
   } catch (e) {
-    toast({ title: "Couldn't add the cluster", description: errorMessage(e), variant: "destructive" });
+    toast({ title: "Couldn't add the clusters", description: errorMessage(e), variant: "destructive" });
   } finally {
-    targets.forEach((c) => addingKeys.delete(c.key));
+    adding.value = false;
   }
 };
 
 const setAvailableState = async (targets: CatalogCluster[], state: "available" | "ignored") => {
   try {
     await catalogSetState(targets.map((c) => c.key), state);
-    targets.forEach((c) => pickedAvailable.delete(c.key));
     await loadCloud();
-    if (state === "ignored") {
-      toast({
-        title: targets.length === 1 ? `Ignored ${targets[0]!.name}` : `Ignored ${targets.length} clusters`,
-        description: "Turn on Show hidden to bring them back.",
-      });
-    }
   } catch (e) {
     toast({ title: "Couldn't update the list", description: errorMessage(e), variant: "destructive" });
   }
@@ -394,7 +404,6 @@ const setAvailableState = async (targets: CatalogCluster[], state: "available" |
 
 const refreshAvailable = () =>
   refreshCloud().catch((e) => toast({ title: "Couldn't look for clusters", description: errorMessage(e), variant: "destructive" }));
-const ignoredCount = computed(() => (catalog.value ?? []).filter((c) => c.state === "ignored").length);
 const discoveryText = computed(() => {
   const state = discovery.value;
   if (!state) return null;
@@ -402,6 +411,11 @@ const discoveryText = computed(() => {
   const latest = running[running.length - 1];
   return latest ? `Checking ${latest.scope}…` : "Looking for clusters…";
 });
+const newNames = computed(() => {
+  const names = available.value.available.map((c) => c.name);
+  return names.length <= 3 ? names.join(", ") : `${names.slice(0, 3).join(", ")} and ${names.length - 3} more`;
+});
+const availableProviders = computed(() => [...new Set(available.value.available.map((c) => c.provider))]);
 
 /* ------------------------------------------------------- keyboard -- */
 
@@ -416,12 +430,14 @@ const onListKeydown = (event: KeyboardEvent) => {
     case "j":
       event.preventDefault();
       focusRow(rows[Math.min(rows.length - 1, index + 1)]?.entry.key);
+      if (detailKey.value) detailKey.value = focusedKey.value;
       return;
     case "ArrowUp":
     case "k":
       event.preventDefault();
       if (index <= 0) filterInput.value?.focus();
       else focusRow(rows[index - 1]?.entry.key);
+      if (detailKey.value) detailKey.value = focusedKey.value;
       return;
     case "Enter":
       if (!current) return;
@@ -433,6 +449,21 @@ const onListKeydown = (event: KeyboardEvent) => {
       if (!current) return;
       event.preventDefault();
       toggleSelect(current, !selection.has(current.entry.key));
+      return;
+    case "ArrowRight":
+    case "i":
+      if (!current) return;
+      event.preventDefault();
+      detailKey.value = current.entry.key;
+      return;
+    case "Escape":
+      if (detailKey.value) {
+        event.stopPropagation();
+        detailKey.value = null;
+      } else if (selection.size) {
+        event.stopPropagation();
+        selection.clear();
+      }
       return;
   }
   if (!current || mod || event.altKey) return;
@@ -462,315 +493,238 @@ useEventListener(window, "keydown", (event: KeyboardEvent) => {
   event.preventDefault();
   filterInput.value?.focus();
 });
-onMounted(() => {
-  if (!props.embedded) nextTick(() => filterInput.value?.focus());
-});
 
+/* Sections in display order; the heading of a provider group shows its mark. */
 const sectionList = computed(() => [
   ...(sections.value.favorites.length
     ? [{ id: "favorites", title: "Favourites", detail: undefined as string | undefined, clusters: sections.value.favorites }]
     : []),
   ...sections.value.groups,
-]);
-const hiddenSections = computed(() =>
-  sections.value.hidden.length
+  ...(sections.value.hidden.length
     ? [{ id: "hidden", title: "Hidden", detail: undefined as string | undefined, clusters: sections.value.hidden }]
-    : []
-);
+    : []),
+]);
+const providerOf = (sectionId: string) =>
+  groupBy.value === "provider" && sectionId.startsWith("provider:") ? (sectionId.split(":")[1] as ProviderId) : null;
+const singleSection = computed(() => sectionList.value.length === 1 && groupBy.value === "none");
+
+const subtitle = computed(() => {
+  if (!inventory.value) return "Reading your kubeconfig files…";
+  const parts = [`${hubClusters.value.length} ${hubClusters.value.length === 1 ? "cluster" : "clusters"}`];
+  if (activeContexts.value.size) parts.push(`${activeContexts.value.size} connected`);
+  if (discoveryText.value) parts.push("looking for new clusters…");
+  return parts.join(" · ");
+});
 </script>
-
 <template>
-  <div class="h-full overflow-auto" :class="embedded ? 'bg-background' : ''">
-    <div class="mx-auto max-w-6xl space-y-5 px-8 py-7">
-      <header class="flex flex-wrap items-end justify-between gap-4">
-        <div class="space-y-1">
-          <h1 class="text-xl font-semibold tracking-tight">
-            {{ embedded ? "Pick a cluster to get started" : "Clusters" }}
-          </h1>
-          <p class="text-sm text-muted-foreground">
-            <template v-if="inventory">
-              {{ hubClusters.length }} {{ hubClusters.length === 1 ? "cluster" : "clusters" }} from
-              {{ fileCount }} kubeconfig {{ fileCount === 1 ? "file" : "files" }}
-              <template v-if="activeContexts.size"> · {{ activeContexts.size }} connected</template>
-              <template v-if="available.available.length"> · {{ available.available.length }} available to add</template>
-            </template>
-            <template v-else>Reading your kubeconfig files…</template>
-          </p>
-        </div>
-        <div v-if="tab === 'accounts'" class="flex items-center gap-2">
-          <Button variant="ghost" size="sm" :disabled="!!discovery || !connections?.length" @click="refreshAvailable">
-            <RefreshCw class="h-3.5 w-3.5" :class="discovery ? 'animate-spin' : ''" />
-            {{ discovery ? "Looking…" : "Look for new clusters" }}
+  <div class="h-full overflow-auto bg-background">
+    <div class="mx-auto space-y-6 px-10 pb-16 pt-10" :class="detail ? 'max-w-6xl' : 'max-w-5xl'">
+      <PageHeader :title="embedded ? 'Pick a cluster to get started' : 'Clusters'" :description="subtitle">
+        <template #actions>
+          <Button v-if="tab === 'clusters'" @click="openAddCluster()">
+            <Plus class="h-4 w-4" /> Add cluster
           </Button>
-          <Button size="sm" @click="openAddCluster('aws')">
-            <Plus class="h-3.5 w-3.5" />
-            Connect an account
+          <Button v-else @click="openAddCluster('aws')">
+            <Plus class="h-4 w-4" /> Connect an account
           </Button>
-        </div>
-        <div v-else class="flex items-center gap-2">
-          <Button variant="ghost" size="sm" :disabled="checking || !inventory" @click="check()">
-            <RefreshCw class="h-3.5 w-3.5" :class="checking ? 'animate-spin' : ''" />
-            {{ checking ? "Checking…" : "Check status" }}
-          </Button>
-          <Button size="sm" @click="openAddCluster()">
-            <Plus class="h-3.5 w-3.5" />
-            Add cluster
-          </Button>
-        </div>
-      </header>
-
-      <div v-if="!embedded" class="flex items-center gap-1 border-b" role="tablist" aria-label="Clusters hub">
-        <button
-          v-for="item in [
-            { id: 'clusters', label: 'Clusters', count: hubClusters.length },
-            { id: 'accounts', label: 'Cloud accounts', count: connections?.length ?? 0 },
-          ] as const"
-          :key="item.id"
-          type="button"
-          role="tab"
-          :aria-selected="tab === item.id"
-          class="-mb-px flex h-9 items-center gap-2 border-b-2 px-3 text-sm transition-colors duration-fast focus-ring"
-          :class="tab === item.id ? 'border-primary font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
-          @click="tab = item.id"
-        >
-          {{ item.label }}
-          <span class="rounded-full bg-muted px-1.5 text-2xs tabular-nums text-muted-foreground">{{ item.count }}</span>
-        </button>
-      </div>
+        </template>
+        <template v-if="!embedded" #tabs>
+          <PageTabs
+            v-model="tab"
+            label="Clusters hub"
+            :tabs="[
+              { id: 'clusters', label: 'Clusters' },
+              { id: 'accounts', label: 'Cloud accounts', count: connections?.length || null },
+            ]"
+          />
+        </template>
+      </PageHeader>
 
       <AccountsPanel v-if="tab === 'accounts'" />
 
       <template v-else>
-      <div class="flex flex-wrap items-center gap-3">
-        <div class="relative min-w-[16rem] flex-1">
-          <Search class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
-            ref="filterInput"
-            v-model="query"
-            type="text"
-            spellcheck="false"
-            placeholder="Filter clusters…  env:prod  provider:aws  tag:payments  is:favorite"
-            aria-label="Filter clusters"
-            class="h-8 w-full rounded-md border bg-background pl-8 pr-8 text-sm placeholder:text-muted-foreground focus-ring"
-            @keydown="onFilterKeydown"
-          />
-          <button
-            v-if="query"
-            type="button"
-            class="absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-            aria-label="Clear filter"
-            @click="query = ''"
-          >
-            <X class="h-3 w-3" />
-          </button>
-        </div>
-        <Select :model-value="storedGroupBy === 'auto' ? groupBy : storedGroupBy" @update:model-value="(v) => (storedGroupBy = v as GroupBy)">
-          <SelectTrigger class="h-8 w-48" aria-label="Group by">
-            <span class="text-muted-foreground">Group:</span>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem v-for="option in GROUP_BY_OPTIONS" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-        <label v-if="hiddenCount + ignoredCount" class="flex items-center gap-2 text-sm text-muted-foreground">
-          <Switch v-model:checked="showHidden" />
-          Show hidden ({{ hiddenCount + ignoredCount }})
-        </label>
-      </div>
-
-      <div
-        v-for="error in inventoryErrors"
-        :key="error.path"
-        class="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
-        role="alert"
-      >
-        <CircleAlert class="mt-px h-3.5 w-3.5 shrink-0" />
-        <span><span class="font-mono">{{ error.path }}</span>: {{ error.message }}</span>
-      </div>
-
-      <div v-if="!inventory" class="flex items-center justify-center gap-2 py-24 text-sm text-muted-foreground">
-        <Loader2 class="h-4 w-4 animate-spin" /> Reading your kubeconfig files…
-      </div>
-
-      <EmptyState
-        v-else-if="hubClusters.length === 0 && !availableRows.length"
-        :icon="ServerOff"
-        title="No clusters yet"
-        description="JET Pilot didn't find any contexts in ~/.kube/config, $KUBECONFIG or ~/.kube/*.yaml. Add a cluster to get going: connect AWS, paste a kubeconfig, import a file or enter one by hand."
-      >
-        <template #action>
-          <div class="flex gap-2">
-            <Button size="sm" @click="openAddCluster()"><Plus class="h-3.5 w-3.5" /> Add cluster</Button>
-            <Button size="sm" variant="outline" @click="router.push({ name: 'SettingsCategory', params: { category: 'clusters' } })">
-              Kubeconfig settings
-            </Button>
-          </div>
-        </template>
-      </EmptyState>
-
-      <EmptyState
-        v-else-if="sections.total === 0 && !availableRows.length"
-        :icon="Search"
-        size="sm"
-        title="No matching clusters"
-        :description="hiddenCount && !showHidden ? 'Some clusters are hidden; turn on Show hidden to include them.' : 'Try another word or token.'"
-      />
-
-      <div
-        v-else
-        ref="listElement"
-        role="grid"
-        aria-label="Clusters"
-        class="overflow-hidden rounded-lg border bg-card shadow-xs"
-        @keydown="onListKeydown"
-      >
-        <template v-for="section in sectionList" :key="section.id">
-          <button
-            type="button"
-            class="flex h-9 w-full items-center gap-2 border-b border-border-subtle bg-surface-1/60 px-3 text-left text-xs font-medium text-muted-foreground hover:text-foreground"
-            :aria-expanded="!collapsed.has(section.id)"
-            @click="collapsed.has(section.id) ? collapsed.delete(section.id) : collapsed.add(section.id)"
-          >
-            <ChevronRight class="h-3.5 w-3.5 transition-transform duration-fast" :class="collapsed.has(section.id) ? '' : 'rotate-90'" />
-            <Star v-if="section.id === 'favorites'" class="h-3.5 w-3.5 fill-current text-warning" />
-            <EyeOff v-else-if="section.id === 'hidden'" class="h-3.5 w-3.5" />
-            <FolderInput v-else-if="groupBy === 'folder' && section.id.startsWith('folder:')" class="h-3.5 w-3.5" />
-            <span class="text-foreground">{{ section.title }}</span>
-            <span v-if="section.detail" class="truncate font-mono text-2xs">{{ section.detail }}</span>
-            <span class="ml-auto tabular-nums">{{ section.clusters.length }}</span>
-          </button>
-          <div v-if="!collapsed.has(section.id)" class="divide-y divide-border-subtle border-b border-border-subtle last:border-b-0">
-            <HubRow
-              v-for="cluster in section.clusters"
-              :key="cluster.entry.key"
-              :cluster="cluster"
-              :selected="selection.has(cluster.entry.key)"
-              :selecting="selection.size > 0"
-              :focused="focusedKey ? focusedKey === cluster.entry.key : cluster === visibleRows[0]"
-              :mod-key="modKey"
-              :cloud="cloudByContext.get(cluster.entry.key)"
-              @focus="focusedKey = cluster.entry.key"
-              @connect="connect(cluster)"
-              @add-to-active="addToActive(cluster)"
-              @disconnect="disconnect(cluster)"
-              @edit="edit([cluster])"
-              @favorite="toggleFavorite(cluster)"
-              @hide="toggleHidden(cluster)"
-              @check="check([cluster], true)"
-              @copy="copyName(cluster)"
-              @export="exportTargets = [cluster.entry.context]; exportOpen = true"
-              @remove="removing = cluster"
-              @select="(on) => toggleSelect(cluster, on)"
+        <div class="flex items-center gap-2">
+          <div class="relative flex-1">
+            <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              ref="filterInput"
+              v-model="query"
+              type="text"
+              spellcheck="false"
+              placeholder="Search clusters"
+              aria-label="Search clusters"
+              title="Also: env:prod  provider:aws  tag:payments  folder:team  is:favorite  is:unreachable"
+              class="h-9 w-full rounded-lg border border-transparent bg-muted/60 pl-9 pr-9 text-sm transition-colors duration-fast placeholder:text-muted-foreground hover:bg-muted focus:border-input focus:bg-background focus:outline-none focus:ring-[3px] focus:ring-ring/15"
+              @keydown="onFilterKeydown"
             />
-          </div>
-        </template>
-        <template v-if="availableRows.length">
-          <div class="flex h-9 items-center gap-2 border-b border-border-subtle bg-surface-1/60 px-3 text-xs font-medium text-muted-foreground">
             <button
+              v-if="query"
               type="button"
-              class="flex min-w-0 flex-1 items-center gap-2 text-left hover:text-foreground"
-              :aria-expanded="!collapsed.has('available')"
-              @click="collapsed.has('available') ? collapsed.delete('available') : collapsed.add('available')"
+              class="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+              aria-label="Clear search"
+              @click="query = ''"
             >
-              <ChevronRight class="h-3.5 w-3.5 transition-transform duration-fast" :class="collapsed.has('available') ? '' : 'rotate-90'" />
-              <Cloud class="h-3.5 w-3.5" />
-              <span class="text-foreground">Available to add</span>
-              <span class="truncate">{{ discoveryText ?? "in your cloud accounts" }}</span>
+              <X class="h-3 w-3" />
             </button>
-            <template v-if="pickedAvailable.size">
-              <Button size="sm" variant="ghost" class="h-6 px-2 text-xs" @click="setAvailableState(pickedAvailableRows, 'ignored')">
-                Ignore {{ pickedAvailable.size }}
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger as-child>
+              <Button variant="ghost" class="h-9 text-muted-foreground" aria-label="View options">
+                <SlidersHorizontal class="h-4 w-4" /> View
               </Button>
-              <Button size="sm" variant="outline" class="h-6 px-2 text-xs" @click="addAvailable(pickedAvailableRows)">
-                Add {{ pickedAvailable.size }}
-              </Button>
-            </template>
-            <Button
-              v-else-if="available.available.length > 1"
-              size="sm"
-              variant="ghost"
-              class="h-6 px-2 text-xs"
-              @click="addAvailable(available.available)"
-            >
-              Add all {{ available.available.length }}
-            </Button>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              class="h-6 w-6 text-muted-foreground"
-              :disabled="!!discovery"
-              aria-label="Look for new clusters"
-              title="Look for new clusters"
-              @click="refreshAvailable"
-            >
-              <RefreshCw class="h-3 w-3" :class="discovery ? 'animate-spin' : ''" />
-            </Button>
-            <span class="tabular-nums">{{ availableRows.length }}</span>
-          </div>
-          <div v-if="!collapsed.has('available')" class="divide-y divide-border-subtle border-b border-border-subtle last:border-b-0">
-            <AvailableRow
-              v-for="cluster in availableRows"
-              :key="cluster.key"
-              :cluster="cluster"
-              :selected="pickedAvailable.has(cluster.key)"
-              :selecting="pickedAvailable.size > 0"
-              :adding="addingKeys.has(cluster.key)"
-              @add="addAvailable([cluster])"
-              @ignore="setAvailableState([cluster], 'ignored')"
-              @restore="setAvailableState([cluster], 'available')"
-              @select="(on) => (on ? pickedAvailable.add(cluster.key) : pickedAvailable.delete(cluster.key))"
-            />
-          </div>
-        </template>
-        <template v-for="section in hiddenSections" :key="section.id">
-          <button
-            type="button"
-            class="flex h-9 w-full items-center gap-2 border-b border-border-subtle bg-surface-1/60 px-3 text-left text-xs font-medium text-muted-foreground hover:text-foreground"
-            :aria-expanded="!collapsed.has(section.id)"
-            @click="collapsed.has(section.id) ? collapsed.delete(section.id) : collapsed.add(section.id)"
-          >
-            <ChevronRight class="h-3.5 w-3.5 transition-transform duration-fast" :class="collapsed.has(section.id) ? '' : 'rotate-90'" />
-            <Star v-if="section.id === 'favorites'" class="h-3.5 w-3.5 fill-current text-warning" />
-            <EyeOff v-else-if="section.id === 'hidden'" class="h-3.5 w-3.5" />
-            <FolderInput v-else-if="groupBy === 'folder' && section.id.startsWith('folder:')" class="h-3.5 w-3.5" />
-            <span class="text-foreground">{{ section.title }}</span>
-            <span v-if="section.detail" class="truncate font-mono text-2xs">{{ section.detail }}</span>
-            <span class="ml-auto tabular-nums">{{ section.clusters.length }}</span>
-          </button>
-          <div v-if="!collapsed.has(section.id)" class="divide-y divide-border-subtle border-b border-border-subtle last:border-b-0">
-            <HubRow
-              v-for="cluster in section.clusters"
-              :key="cluster.entry.key"
-              :cluster="cluster"
-              :selected="selection.has(cluster.entry.key)"
-              :selecting="selection.size > 0"
-              :focused="focusedKey ? focusedKey === cluster.entry.key : cluster === visibleRows[0]"
-              :mod-key="modKey"
-              :cloud="cloudByContext.get(cluster.entry.key)"
-              @focus="focusedKey = cluster.entry.key"
-              @connect="connect(cluster)"
-              @add-to-active="addToActive(cluster)"
-              @disconnect="disconnect(cluster)"
-              @edit="edit([cluster])"
-              @favorite="toggleFavorite(cluster)"
-              @hide="toggleHidden(cluster)"
-              @check="check([cluster], true)"
-              @copy="copyName(cluster)"
-              @export="exportTargets = [cluster.entry.context]; exportOpen = true"
-              @remove="removing = cluster"
-              @select="(on) => toggleSelect(cluster, on)"
-            />
-          </div>
-        </template>
-      </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" class="w-56">
+              <DropdownMenuLabel>Group by</DropdownMenuLabel>
+              <DropdownMenuRadioGroup :model-value="groupBy" @update:model-value="(v) => (storedGroupBy = v as GroupBy)">
+                <DropdownMenuRadioItem v-for="option in GROUP_BY_OPTIONS" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuCheckboxItem v-model:checked="showHidden">
+                Show hidden<span v-if="hiddenCount" class="ml-auto pl-3 text-xs tabular-nums text-muted-foreground">{{ hiddenCount }}</span>
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem :disabled="checking || !inventory" @select="check()">
+                {{ checking ? "Checking status…" : "Check status now" }}
+              </DropdownMenuItem>
+              <DropdownMenuItem @select="router.push({ name: 'SettingsCategory', params: { category: 'clusters' } })">
+                Kubeconfig files…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
 
-      <p v-if="inventory && hubClusters.length" class="text-xs text-muted-foreground">
-        <kbd class="font-sans">↑</kbd>/<kbd class="font-sans">↓</kbd> move · Enter connects · {{ modKey }}Enter adds to the active clusters ·
-        Space selects · E edits · F favourites · H hides · / filters. Clusters that need you to sign in aren't checked automatically.
-      </p>
+        <!-- New clusters in the cloud accounts -->
+        <button
+          v-if="available.available.length"
+          type="button"
+          class="flex w-full items-center gap-3.5 rounded-xl border bg-card px-4 py-3 text-left shadow-xs transition-colors duration-fast hover:border-border-strong focus-ring"
+          @click="reviewOpen = true"
+        >
+          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-1">
+            <ProviderMark v-if="availableProviders.length === 1" :provider="availableProviders[0]!" :size="20" />
+            <Cloud v-else class="h-4 w-4 text-muted-foreground" />
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm font-medium">
+              {{ available.available.length }} new {{ available.available.length === 1 ? "cluster" : "clusters" }} in your cloud accounts
+            </span>
+            <span class="block truncate text-xs text-muted-foreground">{{ newNames }}</span>
+          </span>
+          <span class="flex items-center gap-1 text-sm font-medium text-link">Review <ChevronRight class="h-4 w-4" /></span>
+        </button>
+
+        <div
+          v-for="error in inventoryErrors"
+          :key="error.path"
+          class="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+          role="alert"
+        >
+          <CircleAlert class="mt-px h-3.5 w-3.5 shrink-0" />
+          <span><span class="font-mono">{{ error.path }}</span>: {{ error.message }}</span>
+        </div>
+
+        <div v-if="!inventory" class="flex items-center justify-center gap-2 py-24 text-sm text-muted-foreground">
+          <Loader2 class="h-4 w-4 animate-spin" /> Reading your kubeconfig files…
+        </div>
+
+        <EmptyState
+          v-else-if="hubClusters.length === 0"
+          :icon="ServerOff"
+          title="No clusters yet"
+          description="JET Pilot didn't find any contexts in ~/.kube/config, $KUBECONFIG or ~/.kube/*.yaml. Connect a cloud account, paste a kubeconfig, import a file or enter a cluster by hand."
+        >
+          <template #action>
+            <Button @click="openAddCluster()"><Plus class="h-4 w-4" /> Add cluster</Button>
+          </template>
+        </EmptyState>
+
+        <EmptyState
+          v-else-if="sections.total === 0"
+          :icon="Search"
+          size="sm"
+          title="No matching clusters"
+          :description="hiddenCount && !showHidden ? 'Some clusters are hidden; View › Show hidden includes them.' : 'Try another word.'"
+        />
+
+        <div v-else class="flex items-start gap-6">
+          <div ref="listElement" role="grid" aria-label="Clusters" class="min-w-0 flex-1 space-y-6" @keydown="onListKeydown">
+            <section v-for="section in sectionList" :key="section.id" :aria-label="section.title">
+              <button
+                v-if="!singleSection"
+                type="button"
+                class="group/heading mb-1 flex h-7 w-full items-center gap-2 px-3 text-left text-xs font-medium text-muted-foreground hover:text-foreground"
+                :aria-expanded="!collapsed.has(section.id)"
+                @click="collapsed.has(section.id) ? collapsed.delete(section.id) : collapsed.add(section.id)"
+              >
+                <ProviderMark v-if="providerOf(section.id)" :provider="providerOf(section.id)!" :size="14" />
+                <span class="text-foreground/80">{{ section.title }}</span>
+                <span v-if="section.detail" class="truncate font-normal">{{ section.detail }}</span>
+                <span class="font-normal tabular-nums">{{ section.clusters.length }}</span>
+                <ChevronRight
+                  class="h-3.5 w-3.5 opacity-0 transition-[transform,opacity] duration-fast group-hover/heading:opacity-100"
+                  :class="collapsed.has(section.id) ? 'opacity-100' : 'rotate-90'"
+                />
+              </button>
+              <div v-if="!collapsed.has(section.id)" class="space-y-px">
+                <HubRow
+                  v-for="cluster in section.clusters"
+                  :key="cluster.entry.key"
+                  :cluster="cluster"
+                  :selected="selection.has(cluster.entry.key)"
+                  :selecting="selection.size > 0"
+                  :focused="focusedKey ? focusedKey === cluster.entry.key : cluster === visibleRows[0]"
+                  :open="detailKey === cluster.entry.key"
+                  :mod-key="modKey"
+                  :cloud="cloudByContext.get(cluster.entry.key)"
+                  @open="(event) => onRowClick(cluster, event)"
+                  @focus="focusedKey = cluster.entry.key"
+                  @connect="connect(cluster)"
+                  @add-to-active="addToActive(cluster)"
+                  @disconnect="disconnect(cluster)"
+                  @edit="edit([cluster])"
+                  @favorite="toggleFavorite(cluster)"
+                  @hide="toggleHidden(cluster)"
+                  @check="check([cluster], true)"
+                  @copy="copyName(cluster)"
+                  @export="exportTargets = [cluster.entry.context]; exportOpen = true"
+                  @remove="removing = cluster"
+                  @select="(on) => toggleSelect(cluster, on)"
+                />
+              </div>
+            </section>
+          </div>
+
+          <Transition
+            enter-from-class="translate-x-2 opacity-0"
+            leave-to-class="translate-x-2 opacity-0"
+            enter-active-class="transition duration-base ease-out"
+            leave-active-class="transition duration-fast ease-in"
+          >
+            <ClusterDetailPanel
+              v-if="detail"
+              :key="detail.entry.key"
+              class="sticky top-0 w-[22rem] shrink-0"
+              :cluster="detail"
+              :cloud="cloudByContext.get(detail.entry.key)"
+              @close="detailKey = null"
+              @connect="connect(detail)"
+              @add-to-active="addToActive(detail)"
+              @disconnect="disconnect(detail)"
+              @edit="edit([detail])"
+              @favorite="toggleFavorite(detail)"
+              @hide="toggleHidden(detail)"
+              @check="check([detail], true)"
+              @export="exportTargets = [detail.entry.context]; exportOpen = true"
+              @remove="removing = detail"
+            />
+          </Transition>
+        </div>
+
+        <p v-if="inventory && hubClusters.length && !embedded" class="px-3 text-xs text-muted-foreground/80">
+          Click a cluster for its details · double-click or ↵ to connect · {{ modKey }}click to select several
+        </p>
       </template>
     </div>
 
@@ -782,23 +736,35 @@ const hiddenSections = computed(() =>
     >
       <div
         v-if="selection.size"
-        class="sticky bottom-4 mx-auto flex w-fit items-center gap-1 rounded-lg border bg-popover p-1.5 shadow-lg"
+        class="sticky bottom-6 mx-auto flex w-fit items-center gap-1 rounded-xl border bg-popover p-1.5 shadow-lg"
         role="toolbar"
         aria-label="Selected clusters"
       >
-        <span class="px-2 text-sm tabular-nums">{{ selection.size }} selected</span>
+        <span class="px-2.5 text-sm tabular-nums">{{ selection.size }} selected</span>
         <Button size="sm" variant="ghost" @click="edit(selected)">Edit…</Button>
         <Button size="sm" variant="ghost" @click="bulk({ favorite: true })">Favourite</Button>
         <Button size="sm" variant="ghost" @click="bulk({ hidden: true })">Hide</Button>
         <Button size="sm" variant="ghost" @click="check(selected, true)">Check status</Button>
-        <Button size="sm" variant="ghost" class="text-muted-foreground" @click="selection.clear()">
-          <X class="h-3.5 w-3.5" /> Clear
+        <Button size="sm" variant="ghost" class="text-muted-foreground" aria-label="Clear selection" @click="selection.clear()">
+          <X class="h-3.5 w-3.5" />
         </Button>
       </div>
     </Transition>
 
     <ClusterEditDialog v-model:open="editOpen" :clusters="editing" :folders="folders" />
     <ExportDialog v-if="exportOpen" v-model:open="exportOpen" :contexts="exportTargets" />
+    <AvailableDialog
+      v-if="reviewOpen"
+      v-model:open="reviewOpen"
+      :available="available.available"
+      :ignored="available.ignored"
+      :discovering="discoveryText"
+      :busy="adding"
+      @add="addAvailable"
+      @ignore="(list) => setAvailableState(list, 'ignored')"
+      @restore="(list) => setAvailableState(list, 'available')"
+      @refresh="refreshAvailable"
+    />
     <AlertDialog :open="!!removing" @update:open="(value) => !value && (removing = null)">
       <AlertDialogContent>
         <AlertDialogHeader>

@@ -6,10 +6,15 @@
  * reconnect by themselves.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { CircleAlert } from "lucide-vue-next";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { CircleAlert, Loader2 } from "lucide-vue-next";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import ProviderMark from "@/components/clusters/ProviderMark.vue";
 import LoginSessionPanel from "@/components/auth/LoginSessionPanel.vue";
 import MfaCode from "@/views/clusters/add/MfaCode.vue";
+import WizardHeader from "@/components/wizard/WizardHeader.vue";
+import WizardFooter from "@/components/wizard/WizardFooter.vue";
+import { WIZARD_BODY, WIZARD_DIALOG, WIZARD_ERROR } from "@/components/wizard/wizard";
 import { useLoginSession } from "@/lib/auth/useLoginSession";
 import { errorMessage, withVault } from "@/lib/clusters/managed";
 import { awsMfaSignIn, awsProfiles, awsSsoSignIn, type CloudConnection } from "@/lib/clusters/cloud";
@@ -47,6 +52,7 @@ onMounted(async () => {
   begin();
 });
 
+const code = ref("");
 const busy = ref(false);
 const error = ref<string | null>(null);
 const enterMfa = async (code: string) => {
@@ -63,6 +69,9 @@ const enterMfa = async (code: string) => {
   }
 };
 
+const finished = computed(() => state.value.phase === "failed" || state.value.phase === "cancelled");
+const where = computed(() => props.connection.sso?.startUrl?.replace(/^https?:\/\//, "") ?? props.connection.profile ?? "");
+
 const close = () => {
   if (mode.value === "device") void cancel();
   emit("close");
@@ -71,30 +80,41 @@ const close = () => {
 
 <template>
   <Dialog :open="true" @update:open="(value: boolean) => !value && close()">
-    <DialogContent class="max-w-md">
-      <DialogHeader>
-        <DialogTitle>Sign in to {{ connection.label }}</DialogTitle>
-        <DialogDescription>
-          <span class="font-mono">{{ connection.sso?.startUrl ?? connection.profile }}</span>
-        </DialogDescription>
-      </DialogHeader>
-      <MfaCode v-if="mode === 'mfa'" :profile="connection.profile ?? ''" :busy="busy" @submit="enterMfa" />
-      <LoginSessionPanel
-        v-else-if="mode === 'device'"
-        :state="state"
-        success-detail="clusters reconnect by themselves"
-        @open-url="openUrl"
-        @cancel="cancel"
-        @retry="begin"
-        @close="close"
-      />
-      <p
-        v-if="error"
-        class="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
-        role="alert"
-      >
-        <CircleAlert class="mt-px h-3.5 w-3.5 shrink-0" /> {{ error }}
-      </p>
+    <DialogContent :class="[WIZARD_DIALOG, 'max-w-[30rem]']">
+      <WizardHeader :title="`Sign in to ${connection.label}`">
+        <template #icon><ProviderMark :provider="connection.provider" :size="22" /></template>
+        <template #description>
+          <span class="font-mono text-xs">{{ where }}</span>
+        </template>
+      </WizardHeader>
+
+      <div :class="WIZARD_BODY">
+        <MfaCode v-if="mode === 'mfa'" v-model="code" :profile="connection.profile ?? ''" @submit="enterMfa" />
+        <LoginSessionPanel
+          v-else-if="mode === 'device'"
+          :state="state"
+          success-detail="Clusters reconnect by themselves."
+          @open-url="openUrl"
+        />
+        <p v-if="error" :class="[WIZARD_ERROR, 'mt-4']" role="alert">
+          <CircleAlert class="mt-px h-3.5 w-3.5 shrink-0" /> {{ error }}
+        </p>
+      </div>
+
+      <WizardFooter>
+        <template v-if="mode === 'mfa'">
+          <Button variant="ghost" @click="close">Cancel</Button>
+          <Button :disabled="code.length !== 6 || busy" @click="enterMfa(code)">
+            <Loader2 v-if="busy" class="h-3.5 w-3.5 animate-spin" /> Continue
+          </Button>
+        </template>
+        <template v-else-if="finished">
+          <Button variant="ghost" @click="close">Close</Button>
+          <Button @click="begin">Retry</Button>
+        </template>
+        <Button v-else-if="state.phase === 'succeeded'" variant="outline" @click="emit('close')">Done</Button>
+        <Button v-else variant="ghost" @click="close">Cancel</Button>
+      </WizardFooter>
     </DialogContent>
   </Dialog>
 </template>

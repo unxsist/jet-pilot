@@ -370,7 +370,7 @@ onMounted(load);
         @submit.prevent="confirmUpgrade"
       >
         <section class="space-y-3">
-          <h3 class="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+          <h3 class="text-xs font-medium text-muted-foreground">
             Chart
           </h3>
           <div class="grid gap-1.5">
@@ -456,7 +456,7 @@ onMounted(load);
         </section>
 
         <section class="space-y-3">
-          <h3 class="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+          <h3 class="text-xs font-medium text-muted-foreground">
             Options
           </h3>
           <label class="flex cursor-pointer items-start gap-2 text-sm">

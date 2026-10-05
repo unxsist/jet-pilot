@@ -17,7 +17,7 @@ import type * as Monaco from "monaco-editor";
 import {
   AlertCircle,
   ArrowLeft,
-  CheckCircle2,
+  Check,
   Copy,
   Download,
   Info,
@@ -557,18 +557,18 @@ const badge = computed(() =>
         </div>
         <button
           type="button"
-          class="inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs font-medium focus-ring"
+          class="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs focus-ring"
           :class="
             valid
-              ? 'border-success/25 bg-success/10 text-success'
-              : 'border-destructive/25 bg-destructive/10 text-destructive'
+              ? 'text-muted-foreground'
+              : 'border border-destructive/25 bg-destructive/10 font-medium text-destructive hover:bg-destructive/15'
           "
           :aria-expanded="showProblems"
           :disabled="valid"
           data-testid="theme-validation"
           @click="showProblems = !showProblems"
         >
-          <CheckCircle2 v-if="valid" class="h-3.5 w-3.5" />
+          <Check v-if="valid" class="h-3.5 w-3.5" />
           <AlertCircle v-else class="h-3.5 w-3.5" />
           {{
             valid ? "Valid" : problems.length === 1 ? "1 problem" : `${problems.length} problems`

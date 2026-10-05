@@ -4,7 +4,8 @@
  * kubeconfig, import a kubeconfig file, or enter a cluster by hand. Added
  * clusters go into JET Pilot's own kubeconfig (~/.kube/jet-pilot/config)
  * with their credentials in the system keychain; a file can also be used
- * where it is.
+ * where it is. One wizard: a header with the step's context, a calm body,
+ * Back on the left and one primary on the right.
  */
 import { useRouter } from "vue-router";
 import { homeDir, join } from "@tauri-apps/api/path";
@@ -13,28 +14,26 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
   ArrowLeft,
-  CheckCircle2,
+  Check,
+  ChevronRight,
+  CircleAlert,
   ClipboardPaste,
   FileUp,
-  KeyRound,
   Loader2,
   PencilLine,
-  ServerCog,
+  Terminal,
 } from "lucide-vue-next";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ClusterLabel from "@/components/clusters/ClusterLabel.vue";
 import ProviderMark from "@/components/clusters/ProviderMark.vue";
 import ImportPreview from "./ImportPreview.vue";
 import ManualEntry from "./ManualEntry.vue";
+import WizardHeader from "@/components/wizard/WizardHeader.vue";
+import WizardFooter from "@/components/wizard/WizardFooter.vue";
+import { WIZARD_BODY, WIZARD_DIALOG, WIZARD_ERROR, WIZARD_GROUP_LABEL, WIZARD_LIST } from "@/components/wizard/wizard";
 import { emptyManualForm, toSpec, type ImportRow, type ManualForm } from "./forms";
 import { injectStrict } from "@/lib/utils";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
@@ -124,10 +123,14 @@ const pickFile = async () => {
 
 const included = computed(() => rows.value.filter((row) => row.include));
 const needsTrust = computed(() => included.value.some((row) => row.context.execCommand));
+const referencing = computed(() => source.value?.kind === "path" && fileMode.value === "reference");
 const canImport = computed(
   () =>
-    (fileMode.value === "reference" && source.value?.kind === "path") ||
+    referencing.value ||
     (included.value.length > 0 && included.value.every((row) => row.name.trim()) && (!needsTrust.value || trusted.value))
+);
+const sourcePath = computed(() =>
+  source.value?.kind === "path" ? source.value.path.replace(/^\/(home|Users)\/[^/]+/, "~") : null
 );
 
 const added = ref<ContextRef[]>([]);
@@ -187,7 +190,7 @@ const runManual = async () => {
 
 /* -------------------------------------------------------------- cloud -- */
 
-const cloudTitle = ref("Connect AWS");
+const cloudHeading = ref<{ title: string; description: string }>({ title: "Connect AWS", description: "" });
 const folders = computed(() =>
   [...new Set((settings.value.clusters ?? []).map((record) => record.folder).filter((f): f is string => !!f))].sort()
 );
@@ -260,165 +263,215 @@ const title = computed(
       file: "Import a kubeconfig file",
       preview: "Choose the clusters to add",
       manual: "Enter a cluster",
-      aws: cloudTitle.value,
+      aws: cloudHeading.value.title,
       done: added.value.length === 1 ? "Cluster added" : `${added.value.length} clusters added`,
     })[step.value]
 );
+const STEP_ICONS = { paste: ClipboardPaste, file: FileUp, manual: PencilLine } as const;
+const stepIcon = computed(() =>
+  step.value === "preview" ? (source.value?.kind === "path" ? FileUp : ClipboardPaste) : STEP_ICONS[step.value as keyof typeof STEP_ICONS]
+);
+
+const OPTIONS = [
+  { step: "paste", icon: ClipboardPaste, title: "Paste a kubeconfig", text: "From a colleague, a dashboard or a cloud console" },
+  { step: "file", icon: FileUp, title: "Import a kubeconfig file", text: "Copy its clusters in, or use the file where it is" },
+  { step: "manual", icon: PencilLine, title: "Enter a cluster", text: "An API server with a token or a client certificate" },
+] as const;
 </script>
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="max-h-[90vh] max-w-2xl overflow-y-auto" @drop.prevent="onHtmlDrop" @dragover.prevent>
-      <DialogHeader>
-        <DialogTitle>{{ title }}</DialogTitle>
-        <DialogDescription v-if="step === 'choose'">
-          JET Pilot keeps clusters you add in its own kubeconfig (~/.kube/jet-pilot/config) and their credentials in
-          your system keychain. Your own kubeconfig isn't changed.
-        </DialogDescription>
-        <DialogDescription v-else-if="step === 'preview'">
-          {{ rows.length }} {{ rows.length === 1 ? "context" : "contexts" }} found. Rename any to avoid clashes.
-        </DialogDescription>
-      </DialogHeader>
+    <DialogContent
+      :class="WIZARD_DIALOG"
+      @open-auto-focus="(event: Event) => step === 'choose' && event.preventDefault()"
+      @drop.prevent="onHtmlDrop"
+      @dragover.prevent
+    >
+      <WizardHeader :title="title" :tone="step === 'done' ? 'success' : 'default'">
+        <template v-if="step !== 'choose'" #icon>
+          <ProviderMark v-if="step === 'aws'" provider="aws" :size="22" />
+          <Check v-else-if="step === 'done'" class="h-5 w-5" :stroke-width="2.25" />
+          <component :is="stepIcon" v-else class="h-[18px] w-[18px]" />
+        </template>
+        <template #description>
+          <template v-if="step === 'choose'">
+            <span title="~/.kube/jet-pilot/config">Kept in JET Pilot's own kubeconfig, with credentials in your keychain.</span>
+          </template>
+          <template v-else-if="step === 'paste'">From a colleague, a dashboard or a cloud console.</template>
+          <template v-else-if="step === 'preview'">
+            {{ rows.length }} {{ rows.length === 1 ? "context" : "contexts" }}
+            <template v-if="sourcePath">
+              in <span class="font-mono text-xs text-foreground/80" :title="source?.kind === 'path' ? source.path : undefined">{{ sourcePath }}</span>
+            </template>
+            <template v-else>in the pasted kubeconfig</template>
+          </template>
+          <template v-else-if="step === 'manual'">An API server with a token or a client certificate.</template>
+          <template v-else-if="step === 'aws'">{{ cloudHeading.description }}</template>
+          <template v-else-if="step === 'done'">Ready in JET Pilot and in your terminal.</template>
+        </template>
+      </WizardHeader>
 
-      <!-- Choose -->
-      <div v-if="step === 'choose'" class="grid gap-2">
-        <p class="text-xs font-medium text-muted-foreground">From a cloud account</p>
-        <button
-          type="button"
-          class="flex items-start gap-3 rounded-lg border bg-card p-3.5 text-left transition-colors duration-fast hover:border-border-strong hover:bg-accent/40 focus-ring"
-          @click="go('aws')"
-        >
-          <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-1">
-            <ProviderMark provider="aws" :size="20" />
-          </span>
-          <span class="space-y-0.5">
-            <span class="block text-sm font-medium">Amazon EKS</span>
-            <span class="block text-xs text-muted-foreground">
-              Sign in with IAM Identity Center, an AWS profile or access keys, and pick clusters from every account and
-              region.
-            </span>
-          </span>
-        </button>
-        <p class="pt-2 text-xs font-medium text-muted-foreground">From a kubeconfig, or by hand</p>
-        <button
-          v-for="option in [
-            { step: 'paste', icon: ClipboardPaste, title: 'Paste a kubeconfig', text: 'From a colleague, a dashboard or a cloud console. You can also drop a file here.' },
-            { step: 'file', icon: FileUp, title: 'Import a kubeconfig file', text: 'Copy its clusters into JET Pilot, or keep using the file where it is.' },
-            { step: 'manual', icon: PencilLine, title: 'Enter a cluster', text: 'An API server address with a token or a client certificate.' },
-          ]"
-          :key="option.step"
-          type="button"
-          class="flex items-start gap-3 rounded-lg border bg-card p-3.5 text-left transition-colors duration-fast hover:border-border-strong hover:bg-accent/40 focus-ring"
-          @click="option.step === 'file' ? pickFile() : go(option.step as Step)"
-        >
-          <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-            <component :is="option.icon" class="h-4 w-4" />
-          </span>
-          <span class="space-y-0.5">
-            <span class="block text-sm font-medium">{{ option.title }}</span>
-            <span class="block text-xs text-muted-foreground">{{ option.text }}</span>
-          </span>
-        </button>
-        <p class="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
-          <KeyRound class="h-3.5 w-3.5" /> Clusters you add work in your own terminal too, through JET Pilot's credential helper.
-        </p>
-      </div>
-
-      <!-- Paste -->
-      <div v-else-if="step === 'paste'" class="space-y-2">
-        <Textarea
-          v-model="pasted"
-          rows="12"
-          class="font-mono text-2xs"
-          placeholder="apiVersion: v1&#10;kind: Config&#10;clusters:&#10;- name: …"
-          spellcheck="false"
-          aria-label="Kubeconfig"
-        />
-        <p class="text-xs text-muted-foreground">Or drop a kubeconfig file onto this window.</p>
-      </div>
-
-      <!-- Preview -->
-      <div v-else-if="step === 'preview'" class="space-y-3">
-        <div v-if="source?.kind === 'path'" class="space-y-2 rounded-lg border p-3">
-          <p class="truncate font-mono text-2xs text-muted-foreground" :title="source.path">{{ source.path }}</p>
-          <label class="flex items-start gap-2 text-sm">
-            <input v-model="fileMode" type="radio" value="copy" class="mt-1 accent-[hsl(var(--primary))]" />
-            <span>
-              <span class="block font-medium">Copy into JET Pilot</span>
-              <span class="block text-xs text-muted-foreground">Credentials move to your keychain; the file can go.</span>
-            </span>
-          </label>
-          <label class="flex items-start gap-2 text-sm">
-            <input v-model="fileMode" type="radio" value="reference" class="mt-1 accent-[hsl(var(--primary))]" />
-            <span>
-              <span class="block font-medium">Keep using the file where it is</span>
-              <span class="block text-xs text-muted-foreground">JET Pilot reads it and picks up changes; nothing is copied.</span>
-            </span>
-          </label>
-        </div>
-        <ImportPreview v-if="!(source?.kind === 'path' && fileMode === 'reference')" v-model:trusted="trusted" :rows="rows" />
-      </div>
-
-      <!-- Cloud -->
+      <!-- Cloud: its own body and footer -->
       <AwsConnect
-        v-else-if="step === 'aws'"
+        v-if="step === 'aws'"
         :connection-id="connectionId"
         :folders="folders"
         @back="back"
         @done="cloudDone"
-        @title="(text: string) => (cloudTitle = text)"
+        @heading="(heading) => (cloudHeading = heading)"
       />
 
-      <!-- Manual -->
-      <ManualEntry v-else-if="step === 'manual'" v-model="manual" @valid="(ok) => (manualValid = ok)" />
+      <template v-else>
+        <div :class="WIZARD_BODY">
+          <!-- Choose -->
+          <div v-if="step === 'choose'" class="space-y-6">
+            <section class="space-y-2.5">
+              <h3 :class="WIZARD_GROUP_LABEL">From a cloud account</h3>
+              <button
+                type="button"
+                class="group flex w-full items-center gap-4 rounded-xl border bg-card p-4 text-left shadow-xs transition-[border-color,box-shadow,background-color] duration-fast hover:border-border-strong hover:shadow-sm focus-ring"
+                @click="go('aws')"
+              >
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] bg-surface-1 ring-1 ring-inset ring-border/60">
+                  <ProviderMark provider="aws" :size="24" />
+                </span>
+                <span class="min-w-0 flex-1 space-y-0.5">
+                  <span class="block text-sm font-semibold text-foreground">Amazon EKS</span>
+                  <span class="block text-xs text-muted-foreground">
+                    Sign in once and pick clusters from every account and region
+                  </span>
+                </span>
+                <ChevronRight
+                  class="h-4 w-4 shrink-0 text-muted-foreground transition-[transform,color] duration-fast group-hover:translate-x-0.5 group-hover:text-foreground"
+                />
+              </button>
+            </section>
 
-      <!-- Done -->
-      <div v-else-if="step === 'done'" class="space-y-3">
-        <p class="flex items-center gap-2 text-sm text-success">
-          <CheckCircle2 class="h-4 w-4" /> Ready to use in JET Pilot and in your terminal.
-        </p>
-        <ul class="divide-y divide-border-subtle rounded-lg border">
-          <li v-for="target in added" :key="target.kubeConfig + target.context" class="flex items-center gap-3 px-3 py-2">
-            <ClusterLabel :context="target.context" :kube-config="target.kubeConfig" />
-            <Button size="sm" variant="outline" class="ml-auto" @click="connect(target)">Connect</Button>
-          </li>
-        </ul>
-      </div>
+            <section class="space-y-1.5">
+              <h3 :class="WIZARD_GROUP_LABEL">From a kubeconfig or by hand</h3>
+              <div :class="WIZARD_LIST">
+                <button
+                  v-for="option in OPTIONS"
+                  :key="option.step"
+                  type="button"
+                  class="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-fast hover:bg-accent/50 focus-ring"
+                  @click="option.step === 'file' ? pickFile() : go(option.step)"
+                >
+                  <span
+                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors duration-fast group-hover:text-foreground"
+                  >
+                    <component :is="option.icon" class="h-4 w-4" />
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <span class="block text-sm font-medium text-foreground">{{ option.title }}</span>
+                    <span class="block truncate text-xs text-muted-foreground">{{ option.text }}</span>
+                  </span>
+                  <ChevronRight
+                    class="h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition-opacity duration-fast group-hover:opacity-100"
+                  />
+                </button>
+              </div>
+            </section>
+          </div>
 
-      <p v-if="error && step !== 'aws'" class="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive" role="alert">
-        {{ error }}
-      </p>
+          <!-- Paste -->
+          <div v-else-if="step === 'paste'" class="space-y-2">
+            <Textarea
+              v-model="pasted"
+              rows="13"
+              class="resize-none bg-muted/40 font-mono text-2xs leading-4"
+              placeholder="apiVersion: v1&#10;kind: Config&#10;clusters:&#10;- name: …"
+              spellcheck="false"
+              aria-label="Kubeconfig"
+            />
+            <p class="text-xs text-muted-foreground">You can also drop a kubeconfig file onto this window.</p>
+          </div>
 
-      <DialogFooter v-if="step !== 'aws'" class="items-center">
-        <Button v-if="step !== 'choose' && step !== 'done'" variant="ghost" class="mr-auto" @click="back">
-          <ArrowLeft class="h-3.5 w-3.5" /> Back
-        </Button>
-        <template v-if="step === 'paste'">
-          <Button :disabled="!pasted.trim() || busy" @click="loadPreview({ kind: 'text', text: pasted })">
+          <!-- Preview -->
+          <div v-else-if="step === 'preview'" class="space-y-5">
+            <div v-if="source?.kind === 'path'" class="space-y-2">
+              <Tabs v-model="fileMode">
+                <TabsList aria-label="How to add the file" class="w-full">
+                  <TabsTrigger value="copy" class="flex-1">Copy into JET Pilot</TabsTrigger>
+                  <TabsTrigger value="reference" class="flex-1">Use the file where it is</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <p class="text-xs text-muted-foreground">
+                {{
+                  fileMode === "copy"
+                    ? "Credentials move to your keychain; you can delete the file afterwards."
+                    : "JET Pilot reads it in place and picks up its changes. Nothing is copied."
+                }}
+              </p>
+            </div>
+            <ImportPreview v-if="!referencing" v-model:trusted="trusted" :rows="rows" />
+            <div v-else :class="WIZARD_LIST">
+              <div v-for="row in rows" :key="row.context.name" class="flex h-10 items-center gap-3 rounded-lg px-3">
+                <span class="min-w-0 flex-1 truncate text-sm">{{ row.context.name }}</span>
+                <span v-if="row.context.duplicateOf" class="text-xs text-muted-foreground">Already added</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Manual -->
+          <ManualEntry v-else-if="step === 'manual'" v-model="manual" @valid="(ok) => (manualValid = ok)" />
+
+          <!-- Done -->
+          <div v-else-if="step === 'done'" :class="WIZARD_LIST">
+            <div
+              v-for="target in added"
+              :key="target.kubeConfig + target.context"
+              class="group/row flex h-12 items-center gap-3 rounded-lg px-3 transition-colors duration-fast hover:bg-accent/50"
+            >
+              <ClusterLabel :context="target.context" :kube-config="target.kubeConfig" size="default" class="text-sm font-medium" />
+              <Button
+                v-if="added.length > 1"
+                size="sm"
+                variant="outline"
+                class="ml-auto h-7 opacity-0 transition-opacity duration-fast focus-visible:opacity-100 group-hover/row:opacity-100"
+                @click="connect(target)"
+              >
+                Connect
+              </Button>
+            </div>
+          </div>
+
+          <p v-if="error" :class="[WIZARD_ERROR, 'mt-4']" role="alert">
+            <CircleAlert class="mt-px h-3.5 w-3.5 shrink-0" /> {{ error }}
+          </p>
+        </div>
+
+        <WizardFooter>
+          <template #start>
+            <Button v-if="step !== 'choose' && step !== 'done'" variant="ghost" class="-ml-2.5" @click="back">
+              <ArrowLeft class="h-3.5 w-3.5" /> Back
+            </Button>
+            <p v-else-if="step === 'choose'" class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+              <Terminal class="h-3.5 w-3.5 shrink-0" />
+              <span class="truncate">Clusters you add work in your terminal too.</span>
+            </p>
+            <Button v-else variant="ghost" class="-ml-2.5 text-muted-foreground" @click="openHub">Open the Clusters hub</Button>
+          </template>
+
+          <Button v-if="step === 'paste'" :disabled="!pasted.trim() || busy" @click="loadPreview({ kind: 'text', text: pasted })">
             <Loader2 v-if="busy" class="h-3.5 w-3.5 animate-spin" /> Continue
           </Button>
-        </template>
-        <template v-else-if="step === 'preview'">
-          <Button :disabled="!canImport || busy" @click="runImport">
+          <Button v-else-if="step === 'preview'" :disabled="!canImport || busy" @click="runImport">
             <Loader2 v-if="busy" class="h-3.5 w-3.5 animate-spin" />
-            {{
-              source?.kind === "path" && fileMode === "reference"
-                ? "Use this file"
-                : `Add ${included.length} ${included.length === 1 ? "cluster" : "clusters"}`
-            }}
+            {{ referencing ? "Use this file" : `Add ${included.length} ${included.length === 1 ? "cluster" : "clusters"}` }}
           </Button>
-        </template>
-        <template v-else-if="step === 'manual'">
-          <Button :disabled="!manualValid || busy" @click="runManual">
+          <Button v-else-if="step === 'manual'" :disabled="!manualValid || busy" @click="runManual">
             <Loader2 v-if="busy" class="h-3.5 w-3.5 animate-spin" /> Add cluster
           </Button>
-        </template>
-        <template v-else-if="step === 'done'">
-          <Button variant="outline" @click="openHub"><ServerCog class="h-3.5 w-3.5" /> Open the Clusters hub</Button>
-          <Button @click="open = false">Done</Button>
-        </template>
-        <Button v-else variant="ghost" @click="open = false">Cancel</Button>
-      </DialogFooter>
+          <template v-else-if="step === 'done'">
+            <template v-if="added.length === 1">
+              <Button variant="outline" @click="open = false">Done</Button>
+              <Button @click="connect(added[0]!)">Connect</Button>
+            </template>
+            <Button v-else @click="open = false">Done</Button>
+          </template>
+        </WizardFooter>
+      </template>
     </DialogContent>
   </Dialog>
 </template>

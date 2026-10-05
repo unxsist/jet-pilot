@@ -31,6 +31,10 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -48,13 +52,13 @@ import {
   Columns3,
   Copy,
   Keyboard,
-  Layers,
   Loader2,
   MoreHorizontal,
   RefreshCw,
   RotateCcw,
   Search,
   SearchX,
+  SlidersHorizontal,
   TriangleAlert,
   X,
 } from "lucide-vue-next";
@@ -203,8 +207,9 @@ const updatePrefs = (patch: Partial<TablePrefs>) => {
 /* ---------------------------------------------------------- columns -- */
 
 /*
- * Row checkboxes stay out of the way until the row is hovered / focused, or
- * while any row is selected (see the table container class).
+ * Row (and select-all) checkboxes stay out of the way until the row is
+ * hovered / focused, or while any row is selected (see the table container
+ * class).
  */
 const checkboxClass =
   "row-checkbox opacity-0 transition-opacity duration-fast group-hover/row:opacity-100 focus-visible:opacity-100 data-[state=checked]:opacity-100";
@@ -264,6 +269,7 @@ const selectColumn: ColumnDef<TData, any> = {
   // Only (de)selects the rows that pass the current filter.
   header: () =>
     h(Checkbox, {
+      class: checkboxClass,
       "aria-label": "Select all",
       checked: allFilteredSelected.value
         ? true
@@ -1463,7 +1469,7 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
           :placeholder="searchPlaceholder"
           :aria-label="`Filter ${emptyResourceName}`"
           :aria-keyshortcuts="isMac ? 'Meta+F /' : 'Control+F /'"
-          class="h-7 w-full rounded-md border border-input bg-background pl-8 pr-16 text-sm text-foreground shadow-xs transition-[border-color,box-shadow] duration-fast ease-out placeholder:text-muted-foreground/80 hover:border-border-strong focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/20"
+          class="h-7 w-full rounded-md border border-transparent bg-muted/60 pl-8 pr-16 text-sm text-foreground transition-[border-color,box-shadow,background-color] duration-fast ease-out placeholder:text-muted-foreground hover:bg-muted focus:border-ring focus:bg-background focus:outline-none focus:ring-[3px] focus:ring-ring/20"
           autocorrect="off"
           autocomplete="off"
           autocapitalize="off"
@@ -1506,109 +1512,111 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
         aria-label="Refreshing"
       />
       <div class="ml-auto flex items-center gap-1.5">
-        <DropdownMenu v-if="groupOptions.length > 0">
+        <!-- View: grouping, columns and the keyboard reference in one menu -->
+        <DropdownMenu
+          v-if="
+            groupOptions.length > 0 ||
+            hideableColumns.length > 0 ||
+            keyboardEnabled
+          "
+        >
           <DropdownMenuTrigger as-child>
             <Button
               variant="ghost"
               size="sm"
               :class="activeGroup ? 'text-foreground' : 'text-muted-foreground'"
-              title="Group rows"
+              :aria-label="
+                activeGroup
+                  ? `View options, grouped by ${activeGroup.label.toLowerCase()}`
+                  : 'View options'
+              "
+              title="Grouping, columns and shortcuts"
             >
-              <Layers class="h-3.5 w-3.5" />
+              <SlidersHorizontal class="h-3.5 w-3.5" />
               {{
-                activeGroup ? `By ${activeGroup.label.toLowerCase()}` : "Group"
+                activeGroup ? `By ${activeGroup.label.toLowerCase()}` : "View"
               }}
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" class="min-w-[12rem]">
-            <DropdownMenuLabel>Group by</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuRadioGroup
-              :model-value="activeGroup?.id ?? 'none'"
-              @update:model-value="setGroupBy"
-            >
-              <DropdownMenuRadioItem value="none">None</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem
-                v-for="option in groupOptions"
-                :key="option.id"
-                :value="option.id"
+          <DropdownMenuContent align="end" class="w-56">
+            <template v-if="groupOptions.length > 0">
+              <DropdownMenuLabel>Group by</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                :model-value="activeGroup?.id ?? 'none'"
+                @update:model-value="setGroupBy"
               >
-                {{ option.label }}
-              </DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-            <template v-if="activeGroup">
+                <DropdownMenuRadioItem value="none">None</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem
+                  v-for="option in groupOptions"
+                  :key="option.id"
+                  :value="option.id"
+                >
+                  {{ option.label }}
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+              <template v-if="activeGroup">
+                <DropdownMenuSeparator />
+                <DropdownMenuItem @select="setAllGroupsCollapsed(true)">
+                  Collapse all groups
+                </DropdownMenuItem>
+                <DropdownMenuItem @select="setAllGroupsCollapsed(false)">
+                  Expand all groups
+                </DropdownMenuItem>
+              </template>
               <DropdownMenuSeparator />
-              <DropdownMenuItem @select="setAllGroupsCollapsed(true)">
-                Collapse all
-              </DropdownMenuItem>
-              <DropdownMenuItem @select="setAllGroupsCollapsed(false)">
-                Expand all
-              </DropdownMenuItem>
             </template>
+            <DropdownMenuSub v-if="hideableColumns.length > 0">
+              <DropdownMenuSubTrigger>
+                <Columns3 class="h-3.5 w-3.5 text-muted-foreground" />
+                Columns
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent class="w-56">
+                <DropdownMenuCheckboxItem
+                  v-for="column in hideableColumns"
+                  :key="column.id"
+                  :checked="column.getIsVisible()"
+                  @select="(event: Event) => event.preventDefault()"
+                  @update:checked="
+                    (checked: boolean) => setUserVisibility(column, checked)
+                  "
+                >
+                  {{ columnLabel(column) }}
+                </DropdownMenuCheckboxItem>
+                <template v-if="prefsKind">
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    :disabled="!hasColumnPrefs"
+                    @select="resetColumns"
+                  >
+                    <RotateCcw class="h-3.5 w-3.5 text-muted-foreground" />
+                    Reset columns
+                  </DropdownMenuItem>
+                  <p
+                    class="px-2 pb-1 pt-1.5 text-xs text-muted-foreground"
+                  >
+                    Drag a header to reorder, its edge to resize.
+                  </p>
+                </template>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuItem
+              v-if="keyboardEnabled"
+              aria-keyshortcuts="?"
+              @select="shortcutsOpen = true"
+            >
+              <Keyboard class="h-3.5 w-3.5 text-muted-foreground" />
+              Keyboard shortcuts
+              <DropdownMenuShortcut>?</DropdownMenuShortcut>
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <DropdownMenu v-if="hideableColumns.length > 0">
-          <DropdownMenuTrigger as-child>
-            <Button
-              variant="ghost"
-              size="sm"
-              class="text-muted-foreground"
-              title="Show / hide columns"
-            >
-              <Columns3 class="h-3.5 w-3.5" />
-              Columns
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" class="min-w-[13rem]">
-            <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuCheckboxItem
-              v-for="column in hideableColumns"
-              :key="column.id"
-              :checked="column.getIsVisible()"
-              @select="(event: Event) => event.preventDefault()"
-              @update:checked="
-                (checked: boolean) => setUserVisibility(column, checked)
-              "
-            >
-              {{ columnLabel(column) }}
-            </DropdownMenuCheckboxItem>
-            <template v-if="prefsKind">
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                :disabled="!hasColumnPrefs"
-                @select="resetColumns"
-              >
-                <RotateCcw class="h-3.5 w-3.5 text-muted-foreground" />
-                Reset columns
-              </DropdownMenuItem>
-              <p
-                class="px-2 pb-1 pt-1.5 text-2xs leading-4 text-muted-foreground"
-              >
-                Drag a header to reorder, its edge to resize.
-              </p>
-            </template>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <Button
-          v-if="keyboardEnabled"
-          variant="ghost"
-          size="icon-sm"
-          class="text-muted-foreground"
-          title="Keyboard shortcuts (?)"
-          aria-label="Keyboard shortcuts"
-          aria-keyshortcuts="?"
-          @click="shortcutsOpen = true"
-        >
-          <Keyboard class="h-3.5 w-3.5" />
-        </Button>
         <slot name="action-buttons" />
       </div>
     </div>
 
-    <!-- Load error banner -->
+    <!-- Load error banner (an empty table shows the error in its place) -->
     <div
-      v-if="error"
+      v-if="error && !(error.fatal && data.length === 0)"
       role="alert"
       class="flex shrink-0 items-start gap-3 border-b px-4 py-2.5 text-sm"
       :class="
@@ -1679,7 +1687,7 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
               <tr
                 v-for="headerGroup in table.getHeaderGroups()"
                 :key="headerGroup.id"
-                class="border-b-0"
+                class="group/row border-b-0"
               >
                 <th
                   v-for="header in headerGroup.headers"
@@ -1861,10 +1869,9 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
                         <span class="font-medium text-foreground">{{
                           item.label
                         }}</span>
-                        <span
-                          class="rounded-sm bg-muted px-1.5 py-px text-2xs font-medium tabular-nums text-muted-foreground"
-                          >{{ item.count }}</span
-                        >
+                        <span class="tabular-nums text-muted-foreground">{{
+                          item.count
+                        }}</span>
                       </div>
                     </td>
                   </template>
@@ -1956,10 +1963,15 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
                     </EmptyState>
                     <EmptyState
                       v-else-if="error?.fatal"
+                      role="alert"
                       :icon="CloudOff"
                       :title="`Couldn't load ${emptyResourceName}`"
-                      description="Check your connection to the cluster, then retry."
                     >
+                      Check your connection to the cluster, then retry.
+                      <span
+                        class="mt-3 block select-text break-words rounded-md bg-muted px-2.5 py-1.5 font-mono text-xs"
+                        >{{ error.message }}</span
+                      >
                       <template #action>
                         <Button
                           variant="outline"

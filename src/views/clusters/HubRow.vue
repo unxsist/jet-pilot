@@ -1,16 +1,11 @@
 <script setup lang="ts">
 /**
- * One cluster in the Clusters hub: status + avatar, alias and environment,
- * where it runs, its version and nodes, how it signs in, and actions.
+ * One cluster in the Clusters hub, kept calm: its avatar (with a status
+ * dot), name and where it runs, and on the right only what needs you (a
+ * problem, a sign-in), else whether it's connected or its version. The
+ * rest lives in the details panel (click) and the menu.
  */
-import {
-  Check,
-  Lock,
-  MoreHorizontal,
-  ShieldAlert,
-  Star,
-  TriangleAlert,
-} from "lucide-vue-next";
+import { Check, KeyRound, Lock, MoreHorizontal, ShieldAlert } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -23,26 +18,28 @@ import {
 } from "@/components/ui/dropdown-menu";
 import ContextAvatar from "@/components/ContextAvatar.vue";
 import EnvBadge from "@/components/clusters/EnvBadge.vue";
-import ProviderMark from "@/components/clusters/ProviderMark.vue";
-import CredentialBadge from "@/components/auth/CredentialBadge.vue";
 import { cn } from "@/lib/utils";
-import type { HubCluster } from "@/lib/clusters/hubModel";
-import { STATUS_LABELS, STATUS_TONES, relativeTime } from "@/lib/clusters/status";
-import { PROVIDER_LABELS } from "@/lib/clusters/provider";
+import { clusterSubtitle, minorVersion, rowAttention, type HubCluster } from "@/lib/clusters/hubModel";
+import { STATUS_TONES } from "@/lib/clusters/status";
+import { requestSignIn, useCredential } from "@/lib/auth/center";
+import { credentialBadge } from "@/lib/auth/badge";
 import type { CatalogCluster } from "@/lib/clusters/cloud";
 
 const props = defineProps<{
   cluster: HubCluster;
   selected: boolean;
-  /** Show the selection checkbox even without hover (a selection exists). */
+  /** Selection mode: every row shows its checkbox. */
   selecting: boolean;
   focused: boolean;
+  /** Its details are open. */
+  open: boolean;
   modKey: string;
   /** Its entry in a cloud account's catalog (added from there). */
   cloud?: CatalogCluster | null;
 }>();
 
 const emit = defineEmits<{
+  open: [event: MouseEvent];
   connect: [];
   addToActive: [];
   disconnect: [];
@@ -59,46 +56,23 @@ const emit = defineEmits<{
 
 const meta = computed(() => props.cluster.meta);
 const entry = computed(() => props.cluster.entry);
-const status = computed(() => props.cluster.status);
-
-const tone = computed(() => (status.value ? STATUS_TONES[status.value.reachability] : null));
-const statusTitle = computed(() => {
-  const s = status.value;
-  if (!s) return "Not checked yet";
-  const when = relativeTime(s.checkedAt);
-  const lines = [`${STATUS_LABELS[s.reachability]} · checked ${when}`];
-  if (s.message) lines.push(s.message);
-  if (s.reachability !== "reachable" && s.lastOkAt) lines.push(`Last reachable ${relativeTime(s.lastOkAt)}`);
-  if (s.latencyMs != null && s.reachability === "reachable") lines.push(`${s.latencyMs} ms`);
-  return lines.join("\n");
+const tone = computed(() => {
+  const t = props.cluster.status ? STATUS_TONES[props.cluster.status.reachability] : null;
+  return t === "muted" ? null : t;
 });
+const subtitle = computed(() => clusterSubtitle(props.cluster, props.cloud));
+const attention = computed(() => rowAttention(props.cluster, props.cloud?.state === "removed"));
 
-const providerDetail = computed(() =>
-  props.cloud
-    ? `${props.cloud.region} · ${props.cloud.accountName ?? props.cloud.accountId}`
-    : [entry.value.provider.region, entry.value.provider.account].filter(Boolean).join(" · ")
+/* Credentials only show up here when they need you. */
+const credential = useCredential(
+  () => entry.value.context,
+  () => entry.value.kubeConfig
 );
-
-const AUTH_TEXT: Record<string, string> = {
-  token: "Token",
-  clientCert: "Certificate",
-  authProvider: "Auth provider",
-  basic: "Password",
-  none: "No credentials",
-};
-const authText = computed(() => {
-  if (props.cloud) return props.cloud.roleName ? `AWS · ${props.cloud.roleName}` : "AWS";
-  const auth = entry.value.auth;
-  if (auth.kind === "exec") {
-    const command = auth.command ?? "Exec plugin";
-    return auth.awsProfile ? `${command} · ${auth.awsProfile}` : command;
-  }
-  return AUTH_TEXT[auth.kind] ?? auth.kind;
+const signIn = computed(() => {
+  const badge = credentialBadge(credential.value, Date.now());
+  return badge && (badge.tone === "warning" || badge.tone === "destructive") ? badge : null;
 });
-const interactive = computed(() => entry.value.auth.interactive === "interactive");
-/* "v1.31.4-eks-2d5f260" → "v1.31.4" (full version in the tooltip). */
-const shortVersion = computed(() => /^v?\d+\.\d+\.\d+/.exec(status.value?.serverVersion ?? "")?.[0] ?? status.value?.serverVersion);
-const problems = computed(() => entry.value.problems.map((p) => p.message).join("\n"));
+const version = computed(() => minorVersion(props.cluster.status?.serverVersion));
 </script>
 
 <template>
@@ -109,95 +83,76 @@ const problems = computed(() => entry.value.problems.map((p) => p.message).join(
     :tabindex="focused ? 0 : -1"
     :class="
       cn(
-        'group/row grid h-12 cursor-default grid-cols-[1.25rem_2rem_minmax(0,1fr)_minmax(0,11rem)_4.5rem_4rem_minmax(0,13rem)_auto] items-center gap-x-3 px-3 outline-none transition-colors duration-fast',
+        'group/row relative flex h-14 cursor-default items-center gap-3 rounded-lg px-3 outline-none transition-colors duration-fast',
         'hover:bg-accent/50 focus-visible:bg-accent/60 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring',
-        selected && 'bg-primary/[0.06] hover:bg-primary/10',
+        open && 'bg-accent/70 hover:bg-accent/70',
+        selected && 'bg-primary/[0.07] hover:bg-primary/10',
         meta.hidden && 'opacity-60'
       )
     "
     @focus="emit('focus')"
+    @click="(event) => emit('open', event)"
     @dblclick="emit('connect')"
   >
     <Checkbox
+      v-if="selecting"
       :checked="selected"
-      :class="selecting || selected ? '' : 'opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100'"
       :aria-label="`Select ${meta.displayName}`"
       @update:checked="(on: boolean) => emit('select', on)"
       @click.stop
     />
 
-    <span :title="statusTitle">
-      <ContextAvatar :name="entry.context" :kube-config="entry.kubeConfig" :status="tone === 'muted' ? null : tone" />
-    </span>
+    <ContextAvatar :name="entry.context" :kube-config="entry.kubeConfig" :status="tone" class="[--avatar-ring:var(--background)]" />
 
-    <div class="min-w-0">
-      <div class="flex min-w-0 items-center gap-1.5">
-        <span class="truncate text-sm font-medium" :title="entry.context">{{ meta.displayName }}</span>
-        <EnvBadge v-if="meta.env" :env="meta.env" :inferred="meta.envInferred" />
-        <ShieldAlert
-          v-if="meta.protected"
-          class="h-3.5 w-3.5 shrink-0 text-destructive"
-          aria-label="Protected"
-          title="Protected: destructive actions need a typed confirmation"
-        />
-        <Lock v-if="meta.readOnly" class="h-3.5 w-3.5 shrink-0 text-warning" aria-label="Read-only" title="Read-only in JET Pilot" />
-        <Star v-if="meta.favorite" class="h-3 w-3 shrink-0 fill-current text-warning" aria-label="Favourite" />
+    <div class="min-w-0 flex-1">
+      <div class="flex min-w-0 items-center gap-2">
+        <span class="truncate text-sm font-medium text-foreground">{{ meta.displayName }}</span>
+        <EnvBadge v-if="meta.env && !meta.envInferred" :env="meta.env" />
+        <ShieldAlert v-if="meta.protected" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Protected" />
+        <Lock v-if="meta.readOnly" class="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Read-only" />
       </div>
-      <div class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-        <span v-if="meta.displayName !== entry.context" class="truncate font-mono text-2xs">{{ entry.context }}</span>
-        <span v-else-if="meta.tags.length" class="truncate">{{ meta.tags.join(" · ") }}</span>
-        <span v-else-if="entry.namespace" class="truncate">{{ entry.namespace }}</span>
-        <span
-          v-if="cloud?.state === 'removed'"
-          class="truncate text-warning"
-          title="This cluster wasn't found in its AWS account any more. Remove it if it was deleted."
-        >
-          No longer in AWS
-        </span>
-        <span
-          v-else-if="status && status.reachability !== 'reachable' && status.reachability !== 'skipped'"
-          class="truncate"
-          :class="tone === 'destructive' ? 'text-destructive' : 'text-warning'"
-        >
-          {{ STATUS_LABELS[status.reachability] }}
-        </span>
-      </div>
+      <p class="truncate text-xs text-muted-foreground">{{ subtitle }}</p>
     </div>
 
-    <div class="flex min-w-0 items-center gap-2" :title="PROVIDER_LABELS[entry.provider.id]">
-      <ProviderMark :provider="entry.provider.id" :context="entry.context" />
-      <span class="truncate text-xs text-muted-foreground">
-        {{ providerDetail || PROVIDER_LABELS[entry.provider.id] }}
-      </span>
-    </div>
-
-    <span class="truncate font-mono text-xs tabular-nums text-muted-foreground" :title="status?.serverVersion ?? undefined">
-      {{ shortVersion ?? "—" }}
-    </span>
-    <span class="text-xs tabular-nums text-muted-foreground">
-      <template v-if="status?.nodeCount != null">{{ status.nodeCount }} {{ status.nodeCount === 1 ? "node" : "nodes" }}</template>
-      <template v-else>—</template>
-    </span>
-
-    <div class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground" :title="problems || authText">
-      <TriangleAlert v-if="problems" class="h-3.5 w-3.5 shrink-0 text-warning" />
-      <span class="truncate font-mono text-2xs">{{ authText }}</span>
-      <CredentialBadge :context="entry.context" :kube-config="entry.kubeConfig" size="sm" class="shrink-0" />
-    </div>
-
-    <div class="flex items-center justify-end gap-1">
+    <div class="flex shrink-0 items-center justify-end text-xs">
       <span
-        v-if="cluster.active"
-        class="mr-1 inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-2xs font-medium text-success"
+        v-if="attention"
+        class="flex items-center gap-1.5"
+        :class="attention.tone === 'destructive' ? 'text-destructive' : 'text-warning'"
+        :title="attention.title"
       >
-        <Check class="h-3 w-3" /> Connected
+        <span class="h-1.5 w-1.5 rounded-full bg-current" />
+        {{ attention.text }}
       </span>
+      <button
+        v-else-if="signIn"
+        type="button"
+        class="flex items-center gap-1.5 rounded-md px-2 py-1 font-medium transition-colors duration-fast focus-ring"
+        :class="signIn.tone === 'destructive' ? 'text-destructive hover:bg-destructive/10' : 'text-warning hover:bg-warning/10'"
+        :title="signIn.title"
+        :disabled="!signIn.signIn"
+        @click.stop="requestSignIn(credential.target)"
+        @dblclick.stop
+      >
+        <KeyRound class="h-3.5 w-3.5" />
+        {{ signIn.signIn ? (signIn.tone === "destructive" ? "Sign in again" : "Sign in") : signIn.text }}
+      </button>
+      <span v-else-if="cluster.active" class="flex items-center gap-1.5 text-success">
+        <Check class="h-3.5 w-3.5" /> Connected
+      </span>
+      <span v-else-if="version" class="font-mono tabular-nums text-muted-foreground" :title="cluster.status?.serverVersion ?? undefined">
+        v{{ version }}
+      </span>
+    </div>
+
+    <div class="flex w-[7.25rem] shrink-0 items-center justify-end gap-1">
       <Button
-        v-else
+        v-if="!cluster.active"
         size="sm"
         variant="outline"
-        class="h-7 opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100"
+        class="h-7 opacity-0 transition-opacity duration-fast group-hover/row:opacity-100 group-focus-within/row:opacity-100"
         @click.stop="emit('connect')"
+        @dblclick.stop
       >
         Connect
       </Button>
@@ -206,9 +161,10 @@ const problems = computed(() => entry.value.problems.map((p) => p.message).join(
           <Button
             variant="ghost"
             size="icon-sm"
-            class="text-muted-foreground"
+            class="text-muted-foreground opacity-0 transition-opacity duration-fast group-hover/row:opacity-100 group-focus-within/row:opacity-100 data-[state=open]:opacity-100"
             :aria-label="`Actions for ${meta.displayName}`"
             @click.stop
+            @dblclick.stop
           >
             <MoreHorizontal class="h-4 w-4" />
           </Button>
@@ -237,17 +193,14 @@ const problems = computed(() => entry.value.problems.map((p) => p.message).join(
             <DropdownMenuShortcut>H</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem :disabled="interactive" @select="emit('check')">
+          <DropdownMenuItem :disabled="entry.auth.interactive === 'interactive'" @select="emit('check')">
             Check status
-            <span v-if="interactive" class="ml-auto pl-3 text-2xs text-muted-foreground">needs sign-in</span>
           </DropdownMenuItem>
           <DropdownMenuItem @select="emit('copy')">Copy context name</DropdownMenuItem>
           <template v-if="entry.origin === 'managed'">
             <DropdownMenuSeparator />
             <DropdownMenuItem @select="emit('export')">Export…</DropdownMenuItem>
-            <DropdownMenuItem class="text-destructive focus:text-destructive" @select="emit('remove')">
-              Remove from JET Pilot…
-            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" @select="emit('remove')">Remove from JET Pilot…</DropdownMenuItem>
           </template>
         </DropdownMenuContent>
       </DropdownMenu>

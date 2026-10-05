@@ -376,7 +376,7 @@ onUnmounted(() => window.clearTimeout(timer));
         @keydown="onListKeydown"
       >
         <div
-          class="flex h-9 shrink-0 items-center px-3 text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground"
+          class="flex h-9 shrink-0 items-center px-3 text-xs font-medium text-muted-foreground"
         >
           Revisions
           <span class="ml-auto font-normal normal-case tracking-normal tabular-nums">{{
