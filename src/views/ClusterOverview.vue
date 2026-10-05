@@ -797,6 +797,18 @@ watch(
 
 /* Animations pause while the view moves (cheaper frames). */
 const moving = ref(false);
+/*
+ * A gesture or animation ended: switch the level of detail and mount the
+ * cards of the final viewport right away (no settle delay).
+ */
+const onMoveEnd = () => {
+  moving.value = false;
+  clearTimeout(lodTimer);
+  settleLod();
+  cardZoom = viewport.value.zoom;
+  cancelAnimationFrame(windowFrame);
+  updateWindow();
+};
 
 /** Bounds of the whole graph (or of some nodes). */
 const boundsOf = (ids?: string[]): Rect | null => {
@@ -1961,7 +1973,7 @@ const navigateTo = (x: number, y: number) =>
           @pane-click="onPaneClick"
           @nodes-initialized="onNodesInitialized"
           @move-start="moving = true"
-          @move-end="moving = false"
+          @move-end="onMoveEnd"
         >
           <template #node-k8s="props">
             <ObjectNode v-bind="props" />
