@@ -1,4 +1,5 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { Channel } from "@tauri-apps/api/core";
+import { Kubernetes } from "@/services/Kubernetes";
 
 /*
  * Client side of the Rust WatchHub (src-tauri/src/watch) and the metrics
@@ -50,6 +51,7 @@ export type WatchMessage<T> =
   | WatchDeltaMessage<T>;
 
 export interface WatchRequest {
+  /** "" = the selected kubeconfig. */
   kubeConfig: string;
   context: string;
   /** kubectl resource name: `pods`, `deployments.apps`, CRD plurals, ... */
@@ -92,8 +94,8 @@ let initialized: Promise<void> | null = null;
 function init(): Promise<void> {
   if (!initialized) {
     initialized = Promise.all([
-      invoke("watch_reset"),
-      invoke("metrics_reset"),
+      Kubernetes.watchReset(),
+      Kubernetes.metricsReset(),
     ]).then(
       () => undefined,
       () => undefined
@@ -101,7 +103,7 @@ function init(): Promise<void> {
 
     if (typeof document !== "undefined") {
       const sync = () =>
-        invoke("watch_set_paused", { paused: document.hidden }).catch(
+        Kubernetes.watchSetPaused(document.hidden).catch(
           () => undefined
         );
       document.addEventListener("visibilitychange", sync);
@@ -121,10 +123,7 @@ export const tauriWatchTransport: WatchTransport = {
     await init();
     const channel = new Channel<WatchMessage<T>>();
     channel.onmessage = onMessage;
-    const subscription = await invoke<WatchSubscription>("watch_subscribe", {
-      request,
-      onEvent: channel,
-    });
+    const subscription = await Kubernetes.watchSubscribe(request, channel);
 
     let active = true;
     return {
@@ -133,22 +132,15 @@ export const tauriWatchTransport: WatchTransport = {
         if (!active) return;
         active = false;
         channel.onmessage = () => undefined;
-        invoke("watch_unsubscribe", { id: subscription.id }).catch(
+        Kubernetes.watchUnsubscribe(subscription.id).catch(
           () => undefined
         );
       },
       restart: () =>
-        invoke<void>("watch_restart", { id: subscription.id }).catch(
-          () => undefined
-        ),
+        Kubernetes.watchRestart(subscription.id).catch(() => undefined),
     };
   },
 };
-
-/** The full cached object for `uid` from a running watcher. */
-export function getWatchedObject<T = unknown>(uid: string): Promise<T> {
-  return invoke<T>("watch_get", { uid });
-}
 
 /* ------------------------------------------------------------- metrics -- */
 
@@ -184,16 +176,13 @@ export async function subscribeMetrics<P = any, N = any>(
   await init();
   const channel = new Channel<MetricsMessage<P, N>>();
   channel.onmessage = onMessage;
-  const id = await invoke<number>("metrics_subscribe", {
-    request,
-    onEvent: channel,
-  });
+  const id = await Kubernetes.metricsSubscribe(request, channel);
 
   let active = true;
   return () => {
     if (!active) return;
     active = false;
     channel.onmessage = () => undefined;
-    invoke("metrics_unsubscribe", { id }).catch(() => undefined);
+    Kubernetes.metricsUnsubscribe(id).catch(() => undefined);
   };
 }

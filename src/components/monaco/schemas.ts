@@ -6,7 +6,7 @@
  * through the cached kube client and keeps the raw documents; here only the
  * small per-kind schemas are cached, per kubeconfig + context.
  */
-import { invoke } from "@tauri-apps/api/core";
+import { Kubernetes } from "@/services/Kubernetes";
 import {
   buildKindSchema,
   parseApiVersion,
@@ -35,11 +35,7 @@ function fetchDocument(context: string, kubeConfig: string, apiVersion: string) 
   const key = `${kubeConfig}\u0000${context}\u0000${apiVersion}`;
   let document = documents.get(key);
   if (!document) {
-    document = invoke<unknown>("get_openapi_v3_schema", {
-      context,
-      kubeConfig,
-      apiVersion,
-    }).then(decode);
+    document = Kubernetes.getOpenApiV3Schema(context, apiVersion, kubeConfig).then(decode);
     documents.set(key, document);
     // The parsed document is large; the backend keeps the bytes, so only
     // share it between concurrent callers.

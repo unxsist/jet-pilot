@@ -1,21 +1,20 @@
-import {
+import type {
   KubernetesObject,
-  PodMetric,
   V1APIGroup,
   V1APIResource,
-  V1ConfigMap,
-  V1CronJob,
-  V1Deployment,
-  V1Ingress,
   V1Job,
   V1Namespace,
-  V1PersistentVolumeClaim,
-  V1Pod,
-  V1Secret,
-  V1Service,
 } from "@kubernetes/client-node";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, type Channel } from "@tauri-apps/api/core";
 import { Command } from "@tauri-apps/plugin-shell";
+import type {
+  MetricsMessage,
+  MetricsRequest,
+  WatchMessage,
+  WatchRequest,
+  WatchSubscription,
+} from "@/lib/watch";
+import type { CliResult } from "@/actions/command";
 
 export interface KubernetesError {
   message: string;
@@ -52,6 +51,37 @@ function getExecCommand(authInfo: ContextAuthSummary): string | null {
   return basename;
 }
 
+/** Backend log stream (src-tauri/src/log_stream.rs `LogStreamSpec`). */
+export interface LogStreamSpec {
+  context: string;
+  namespace: string;
+  kubeConfig?: string | null;
+  target:
+    | { kind: "pod"; name: string }
+    | { kind: "selector"; selector: string }
+    | { kind: "object"; name: string };
+  container?: string | null;
+  follow?: boolean;
+  previous?: boolean;
+  since?: string | null;
+  tail?: number | null;
+  maxPods?: number | null;
+}
+
+export interface WatchStats {
+  watchers: number;
+  subscriptions: number;
+  objects: number;
+  idle: number;
+  paused: boolean;
+}
+
+/*
+ * Optional kubeconfig argument: "" and undefined both mean "the selected
+ * kubeconfig" to the backend; send null so the Rust Option is None.
+ */
+const kubeConfigArg = (kubeConfig?: string | null) => kubeConfig || null;
+
 export class Kubernetes {
   static async getAuthErrorHandler(
     context: string,
@@ -73,7 +103,7 @@ export class Kubernetes {
         "get_context_auth_info",
         {
           context: context,
-          kubeConfig: kubeConfig,
+          kubeConfig: kubeConfigArg(kubeConfig),
         }
       );
 
@@ -108,7 +138,7 @@ export class Kubernetes {
       "get_context_auth_info",
       {
         context: context,
-        kubeConfig: kubeConfig,
+        kubeConfig: kubeConfigArg(kubeConfig),
       }
     );
 
@@ -127,7 +157,7 @@ export class Kubernetes {
           try {
             const authOutput = (await invoke("login_exec_auth", {
               context: context,
-              kubeConfig: kubeConfig,
+              kubeConfig: kubeConfigArg(kubeConfig),
             })) as ExecAuthOutput;
 
             const instructions = [authOutput.stderr, authOutput.stdout]
@@ -308,141 +338,143 @@ export class Kubernetes {
     });
   }
 
-  static async getDeployments(
-    context: string,
-    namespace: string,
-    kubeConfig?: string
-  ): Promise<V1Deployment[]> {
-    return invoke("list_deployments", {
-      context: context,
-      namespace: namespace,
-      kubeConfig: kubeConfig,
-    });
-  }
 
-  static async restartDeployment(
-    context: string,
-    namespace: string,
-    name: string,
-    kubeConfig?: string
-  ): Promise<boolean> {
-    return invoke("restart_deployment", {
-      context: context,
-      namespace: namespace,
-      name: name,
-      kubeConfig: kubeConfig,
-    });
-  }
 
-  static async restartStatefulset(
-    context: string,
-    namespace: string,
-    name: string,
-    kubeConfig?: string
-  ): Promise<boolean> {
-    return invoke("restart_statefulset", {
-      context: context,
-      namespace: namespace,
-      name: name,
-      kubeConfig: kubeConfig,
-    });
-  }
 
-  static async getJobs(
-    context: string,
-    namespace: string,
-    kubeConfig?: string
-  ): Promise<V1Job[]> {
-    return invoke("list_jobs", {
-      context: context,
-      namespace: namespace,
-      kubeConfig: kubeConfig,
-    });
-  }
 
-  static async getCronJobs(
-    context: string,
-    namespace: string,
-    kubeConfig?: string
-  ): Promise<V1CronJob[]> {
-    return invoke("list_cronjobs", {
-      context: context,
-      namespace: namespace,
-      kubeConfig: kubeConfig,
-    });
-  }
 
-  static async getConfigMaps(
-    context: string,
-    namespace: string,
-    kubeConfig?: string
-  ): Promise<V1ConfigMap[]> {
-    return invoke("list_configmaps", {
-      context: context,
-      namespace: namespace,
-      kubeConfig: kubeConfig,
-    });
-  }
 
-  static async getSecrets(
-    context: string,
-    namespace: string,
-    kubeConfig?: string
-  ): Promise<V1Secret[]> {
-    return invoke("list_secrets", {
-      context: context,
-      namespace: namespace,
-      kubeConfig: kubeConfig,
-    });
-  }
 
-  static async getServices(
-    context: string,
-    namespace: string,
-    kubeConfig?: string
-  ): Promise<V1Service[]> {
-    return invoke("list_services", {
-      context: context,
-      namespace: namespace,
-      kubeConfig: kubeConfig,
-    });
-  }
 
-  static async getIngresses(
-    context: string,
-    namespace: string,
-    kubeConfig?: string
-  ): Promise<V1Ingress[]> {
-    return invoke("list_ingresses", {
-      context: context,
-      namespace: namespace,
-      kubeConfig: kubeConfig,
-    });
-  }
 
-  static async getPersistentVolumeClaims(
-    context: string,
-    namespace: string,
-    kubeConfig?: string
-  ): Promise<V1PersistentVolumeClaim[]> {
-    return invoke("list_persistentvolumeclaims", {
-      context: context,
-      namespace: namespace,
-      kubeConfig: kubeConfig,
-    });
-  }
 
+  /** Creates a Job from the CronJob's template (`kubectl create job --from`). */
   static async triggerCronJob(
     context: string,
     namespace: string,
     name: string,
     kubeConfig?: string
-  ): Promise<boolean> {
+  ): Promise<V1Job> {
     return invoke("trigger_cronjob", {
       context: context,
       namespace: namespace,
       name: name,
       kubeConfig: kubeConfig,
     });
+  }
+
+  /* --------------------------------------------- live lists (WatchHub) -- */
+
+  /**
+   * Subscribes to a live list (src-tauri/src/watch): a snapshot per scope,
+   * then batched deltas and status changes on `channel`.
+   */
+  static async watchSubscribe<T>(
+    request: WatchRequest,
+    channel: Channel<WatchMessage<T>>
+  ): Promise<WatchSubscription> {
+    return invoke("watch_subscribe", {
+      request: { ...request, kubeConfig: kubeConfigArg(request.kubeConfig) },
+      onEvent: channel,
+    });
+  }
+
+  static async watchUnsubscribe(id: number): Promise<void> {
+    return invoke("watch_unsubscribe", { id });
+  }
+
+  /** Reconnects the watchers of a subscription that are not ready. */
+  static async watchRestart(id: number): Promise<void> {
+    return invoke("watch_restart", { id });
+  }
+
+  /** Drops every subscription (after a webview reload). */
+  static async watchReset(): Promise<void> {
+    return invoke("watch_reset");
+  }
+
+  /** Pauses (window hidden) / resumes delta delivery of every watch. */
+  static async watchSetPaused(paused: boolean): Promise<void> {
+    return invoke("watch_set_paused", { paused });
+  }
+
+  /** The full cached object for `uid` from a running watcher. */
+  static async getWatchedObject<T = unknown>(uid: string): Promise<T> {
+    return invoke("watch_get", { uid });
+  }
+
+  static async watchStats(): Promise<WatchStats> {
+    return invoke("watch_stats");
+  }
+
+  /* ------------------------------------------------ metrics service -- */
+
+  /** Pod / node metrics every 15 s (+ history on subscribe) on `channel`. */
+  static async metricsSubscribe<P = unknown, N = unknown>(
+    request: MetricsRequest,
+    channel: Channel<MetricsMessage<P, N>>
+  ): Promise<number> {
+    return invoke("metrics_subscribe", {
+      request: { ...request, kubeConfig: kubeConfigArg(request.kubeConfig) },
+      onEvent: channel,
+    });
+  }
+
+  static async metricsUnsubscribe(id: number): Promise<void> {
+    return invoke("metrics_unsubscribe", { id });
+  }
+
+  static async metricsReset(): Promise<void> {
+    return invoke("metrics_reset");
+  }
+
+  /* ------------------------------------------------------- manifests -- */
+
+  /**
+   * The cluster's OpenAPI v3 document of `apiVersion` (raw JSON bytes,
+   * cached by the backend).
+   */
+  static async getOpenApiV3Schema(
+    context: string,
+    apiVersion: string,
+    kubeConfig?: string
+  ): Promise<unknown> {
+    return invoke("get_openapi_v3_schema", {
+      context,
+      kubeConfig: kubeConfigArg(kubeConfig),
+      apiVersion,
+    });
+  }
+
+  /* ------------------------------------------------------------ logs -- */
+
+  /** Streams `kubectl logs` into a structured logging session. */
+  static async startLogStream<E>(
+    sessionId: string,
+    spec: LogStreamSpec,
+    channel: Channel<E>
+  ): Promise<void> {
+    return invoke("start_log_stream", {
+      sessionId,
+      spec: { ...spec, kubeConfig: kubeConfigArg(spec.kubeConfig) },
+      onEvent: channel,
+    });
+  }
+
+  static async stopLogStream(sessionId: string): Promise<void> {
+    return invoke("stop_log_stream", { sessionId });
+  }
+
+  /* ------------------------------------------------------- workloads -- */
+
+  /**
+   * `helm <args> --values <tmp>`: the backend writes `values` to an
+   * owner-only temp file for the duration of the command.
+   */
+  static async runHelmWithValues(
+    args: string[],
+    values: string
+  ): Promise<CliResult> {
+    return invoke("run_helm_with_values", { args, values });
   }
 }

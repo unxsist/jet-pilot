@@ -14,7 +14,7 @@
 //! Documents are returned as raw JSON bytes (`ipc::Response`) so a multi-MB
 //! schema is not escaped into a JSON string and parsed twice.
 
-use crate::kubernetes::client::{client_with_context, SerializableKubeError};
+use crate::kubernetes::client::{client_with_context, resolve_kubeconfig_path, SerializableKubeError};
 use crate::util::lock;
 use once_cell::sync::Lazy;
 use serde::Serialize;
@@ -153,7 +153,8 @@ pub async fn get_openapi_v3_schema(
 ) -> Result<tauri::ipc::Response, SchemaError> {
     let path = openapi_path(api_version)
         .ok_or_else(|| error(format!("Invalid apiVersion '{}'", api_version), "BadRequest"))?;
-    let key: ContextKey = (kube_config.clone().unwrap_or_default(), context.to_string());
+    // Keyed like the API clients: "" / None is the selected kubeconfig.
+    let key: ContextKey = (resolve_kubeconfig_path(kube_config.as_deref()), context.to_string());
 
     let client = client_with_context(context, kube_config.as_deref()).await?;
     let index = index_for(&client, &key).await?;

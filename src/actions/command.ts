@@ -38,8 +38,8 @@ export async function runHelmWithValues(
   values: string
 ): Promise<CliResult> {
   try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    return await invoke<CliResult>("run_helm_with_values", { args, values });
+    const { Kubernetes } = await import("@/services/Kubernetes");
+    return await Kubernetes.runHelmWithValues(args, values);
   } catch (e) {
     return { code: null, stdout: "", stderr: String(e) };
   }

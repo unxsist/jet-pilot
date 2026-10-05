@@ -34,6 +34,7 @@ import { runCli, cliSucceeded, cliErrorMessage } from "@/actions/command";
 import { formatSnakeCaseToHumanReadable, injectStrict } from "@/lib/utils";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { error } from "@/lib/logger";
+import { Kubernetes, type LogStreamSpec } from "@/services/Kubernetes";
 import {
   LogRow,
   SourceColors,
@@ -124,10 +125,7 @@ type LogStreamEvent =
   | { type: "notice"; level: "info" | "warning" | "error"; message: string }
   | { type: "ended" };
 
-type LogTarget =
-  | { kind: "pod"; name: string }
-  | { kind: "selector"; selector: string }
-  | { kind: "object"; name: string };
+type LogTarget = LogStreamSpec["target"];
 
 /* ------------------------------------------------------------ state -- */
 
@@ -203,11 +201,11 @@ const resolveTarget = async (): Promise<LogTarget> => {
 
 /* ---------------------------------------------------------- stream -- */
 
-const streamSpec = () => ({
+const streamSpec = (streamTarget: LogTarget): LogStreamSpec => ({
   context: props.context,
   namespace: props.namespace,
   kubeConfig: props.kubeConfig || null,
-  target: target.value,
+  target: streamTarget,
   container: props.container || null,
   follow: follow.value && !previous.value,
   previous: previous.value,
@@ -240,11 +238,11 @@ const startStream = async () => {
   };
 
   try {
-    await invoke("start_log_stream", {
-      sessionId: sessionId.value,
-      spec: streamSpec(),
-      onEvent: channel,
-    });
+    await Kubernetes.startLogStream(
+      sessionId.value,
+      streamSpec(target.value),
+      channel
+    );
     if (token === streamToken && status.value === "starting") {
       status.value = "streaming";
     }
@@ -259,7 +257,7 @@ const startStream = async () => {
 const stopStream = () => {
   streamToken++;
   if (sessionId.value) {
-    invoke("stop_log_stream", { sessionId: sessionId.value }).catch(() => {});
+    Kubernetes.stopLogStream(sessionId.value).catch(() => {});
   }
 };
 
