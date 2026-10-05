@@ -335,6 +335,48 @@ describe("WatchedListController", () => {
   });
 });
 
+describe("WatchedListController fallback recovery", () => {
+  test("retry after a fallback to polling watches again and drops stale polled rows", async () => {
+    let fail = true;
+    const { transport, emit } = fakeTransport({ fail: () => fail });
+    const fallback = vi.fn(async () => [pod("1"), pod("gone")]);
+    const { list } = controller(transport, { fallback });
+    list.setTargets([target("a", ["ns1"])]);
+    await flush();
+    await flush();
+    expect(list.modes().get("a")).toBe("poll");
+    expect(list.items().map((p) => p.metadata.uid)).toEqual(["1", "gone"]);
+    const kept = list.items()[0];
+
+    // e.g. the login completed: watching works now
+    fail = false;
+    list.retry();
+    await flush();
+    expect(list.modes().get("a")).toBe("watch");
+    // polled rows stay visible until the watch snapshot arrived
+    expect(list.items()).toHaveLength(2);
+    emit("a", ready("ns1"));
+    emit("a", { type: "snapshot", scope: "ns1", items: [pod("1")] });
+    expect(list.items().map((p) => p.metadata.uid)).toEqual(["1"]);
+    expect(list.items()[0]).toBe(kept);
+    list.dispose();
+  });
+
+  test("forced polling keeps polling on retry", async () => {
+    const fallback = vi.fn(async () => [pod("1")]);
+    const { transport } = fakeTransport();
+    const subscribe = vi.spyOn(transport, "subscribe");
+    const { list } = controller(transport, { forcePolling: true, fallback });
+    list.setTargets([target("a")]);
+    await flush();
+    list.retry();
+    await flush();
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(fallback).toHaveBeenCalledTimes(2);
+    list.dispose();
+  });
+});
+
 describe("useWatchedList in a kept-alive view", () => {
   test("unsubscribes while hidden, applies selection changes on activation", async () => {
     const { createApp, effectScope, ref, nextTick } = await import("vue");

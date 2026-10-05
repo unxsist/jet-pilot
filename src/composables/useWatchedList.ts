@@ -209,6 +209,10 @@ export class ContextSource<T extends Row> {
     if (this.paused) return;
     if (this.mode === "watch") {
       this.handle?.restart();
+    } else if (!this.options.forcePolling) {
+      // Polling only as a fallback (watch couldn't start, forbidden, a
+      // failed login): try watching again, e.g. after a re-login.
+      this.switchToWatch();
     } else {
       this.poll();
       this.startTimer();
@@ -276,6 +280,7 @@ export class ContextSource<T extends Row> {
     switch (message.type) {
       case "snapshot":
         this.applySnapshot(message.scope, message.items);
+        this.sweepPolledRows(message.scope);
         this.scopeStatus.set(message.scope, {
           type: "status",
           scope: message.scope,
@@ -388,9 +393,43 @@ export class ContextSource<T extends Row> {
     this.options.onChange();
   }
 
+  /* Scopes that sent a snapshot since switching back from polling. */
+  private snapshotsAfterPolling: Set<string> | null = null;
+
+  private switchToWatch() {
+    this.stopTimer();
+    this.pollGeneration++;
+    this.inFlight = false;
+    this.mode = "watch";
+    this.failure = null;
+    this.scopeStatus.clear();
+    this.scopes = null;
+    // Polled rows (scope "") stay until every watch scope sent its snapshot.
+    this.snapshotsAfterPolling = new Set();
+    this.subscribe();
+    this.options.onChange();
+  }
+
+  /* Drops polled rows no watch snapshot confirmed. */
+  private sweepPolledRows(scope: string) {
+    const seen = this.snapshotsAfterPolling;
+    if (!seen || !this.scopes) return;
+    seen.add(scope);
+    if (!this.scopes.every((s) => seen.has(s))) return;
+    this.snapshotsAfterPolling = null;
+    if (this.scopes.includes("")) return; // reconciled by the "" snapshot
+    for (const [uid, rowScope] of this.scopeOf) {
+      if (rowScope === "") {
+        this.rows.delete(uid);
+        this.scopeOf.delete(uid);
+      }
+    }
+  }
+
   private switchToPolling() {
     if (this.disposed) return;
     this.subscribeGeneration++;
+    this.snapshotsAfterPolling = null;
     this.handle?.unsubscribe();
     this.handle = null;
     this.mode = "poll";
