@@ -1,7 +1,7 @@
 /*
  * Shared pieces of the theme settings UI. Everything heavy (the importers,
- * serialisation, culori) is imported lazily from its own module, never from
- * the "@/lib/themes" barrel, so none of it lands in the startup bundle.
+ * serialisation, culori) is imported lazily from its own module, so none
+ * of it lands in the startup bundle.
  */
 import { computed } from "vue";
 import { usePreferredDark } from "@vueuse/core";

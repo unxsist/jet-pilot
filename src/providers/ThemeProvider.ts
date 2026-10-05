@@ -133,7 +133,8 @@ export default {
           if (unmounted) loaded.dispose();
           return loaded;
         });
-        // A failed chunk load (e.g. after an update) may be retried.
+        // A failed chunk load (e.g. after an update) may be retried. Logged
+        // here once: callers only need to handle it when they use the result.
         runtime.catch((e) => {
           runtime = null;
           logError(`Failed to load the theme runtime: ${e}`);
@@ -142,6 +143,13 @@ export default {
       return runtime;
     };
 
+    /* Loads the runtime and paints with it (a failed load is logged by load()). */
+    const syncRuntime = () =>
+      load().then(
+        (rt) => rt.sync(),
+        () => undefined
+      );
+
     /*
      * JET needs nothing but the class until the runtime is there; any other
      * theme waits for it (boot.js painted the cached colours meanwhile).
@@ -149,22 +157,22 @@ export default {
     const sync = () => {
       if (loaded) return void loaded.sync();
       const { lightTheme, darkTheme } = appearanceSettings();
-      if ((wanted.value === "light" ? lightTheme : darkTheme) !== JET) {
-        return void load().then((rt) => rt.sync());
-      }
+      if ((wanted.value === "light" ? lightTheme : darkTheme) !== JET) return void syncRuntime();
       paint(wanted.value, null, null);
       activeId.value = JET;
+      // JET only: without a cache boot.js paints JET (no stale theme next run).
       if (lightTheme === JET && darkTheme === JET) {
-        store(
-          THEME_CACHE_KEY,
-          JSON.stringify({ v: 1, light: { id: JET, dark: false }, dark: { id: JET, dark: true } })
-        );
+        try {
+          localStorage.removeItem(THEME_CACHE_KEY);
+        } catch {
+          /* storage unavailable */
+        }
       }
     };
     watch([() => ({ ...appearanceSettings() }), wanted], sync);
     sync();
 
-    onMounted(() => whenIdle(() => void load().then((rt) => rt.sync()), 2000));
+    onMounted(() => whenIdle(() => void syncRuntime(), 2000));
     onUnmounted(() => {
       unmounted = true;
       loaded?.dispose();
