@@ -67,7 +67,7 @@ const problemCount = computed(
 
 <template>
   <div class="group/file border-b border-border-subtle last:border-b-0" :class="duplicate ? 'opacity-60' : ''">
-    <div class="flex min-h-10 items-center gap-2.5 bg-background pl-2 pr-1">
+    <div class="flex min-h-10 items-center gap-2.5 bg-background pl-2 pr-3">
       <button
         type="button"
         class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-ring"

@@ -40,6 +40,11 @@ const routes: Array<RouteRecordRaw> = [
     ],
   },
   {
+    path: "/clusters",
+    name: "ClustersHub",
+    component: () => import("./views/clusters/ClustersHub.vue"),
+  },
+  {
     path: "/cluster-overview",
     name: "ClusterOverview",
     component: () => import("./views/ClusterOverview.vue"),

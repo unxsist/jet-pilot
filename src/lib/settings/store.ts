@@ -96,9 +96,37 @@ export function migrate(
     changed = true;
   }
 
+  // Name-keyed namespace lists (< 1.41) become wildcard cluster records.
+  for (const source of [preferences, state]) {
+    if (!("contextSettings" in source)) continue;
+    state.clusters = mergeContextSettings(state.clusters, source.contextSettings);
+    delete source.contextSettings;
+    changed = true;
+  }
+
   delete preferences.version;
   delete preferences.$schema;
   return { preferences, state, changed };
+}
+
+/** Adds legacy `contextSettings` namespace lists as wildcard cluster records. */
+export function mergeContextSettings(clusters: unknown, legacy: unknown): unknown[] {
+  const records = Array.isArray(clusters) ? [...clusters] : [];
+  if (!Array.isArray(legacy)) return records;
+  for (const item of legacy) {
+    if (!isPlainObject(item) || typeof item.context !== "string" || !Array.isArray(item.namespaces)) continue;
+    const namespaces = item.namespaces.filter((n: unknown): n is string => typeof n === "string" && n !== "");
+    if (namespaces.length === 0) continue;
+    const existing = records.find(
+      (r) => isPlainObject(r) && r.context === item.context && r.kubeConfig === ""
+    ) as JsonObject | undefined;
+    if (existing) {
+      if (!Array.isArray(existing.namespaces) || existing.namespaces.length === 0) existing.namespaces = namespaces;
+    } else {
+      records.push({ kubeConfig: "", context: item.context, namespaces });
+    }
+  }
+  return records;
 }
 
 /*

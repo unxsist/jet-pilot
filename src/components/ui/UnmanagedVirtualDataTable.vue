@@ -29,6 +29,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { RowAction } from "../tables/types";
+import { blockedReason, type ClusterRef } from "@/lib/guardrails/menu";
+import { guardedCluster } from "@/lib/guardrails/backstop";
 
 interface DataTableState<T> {
   contextMenuSubject: T | null;
@@ -41,6 +43,17 @@ const state = reactive<DataTableState<TData>>({
 
 const setContextMenuSubject = (subject: TData | null) => {
   state.contextMenuSubject = subject as UnwrapRef<TData>;
+};
+
+/* Guardrails: no actions that would change a read-only cluster. */
+const isBlocked = (rowAction: RowAction<TData>) => {
+  const subject = state.contextMenuSubject as TData | null;
+  return (
+    !!subject &&
+    blockedReason(rowAction, [subject], (ref: ClusterRef) =>
+      guardedCluster(ref.context, ref.kubeConfig)
+    ) !== null
+  );
 };
 
 const props = defineProps<{
@@ -188,24 +201,26 @@ const table = useVueTable({
         </ContextMenuTrigger>
         <ContextMenuContent v-if="rowActions && rowActions?.length > 0">
           <template v-for="(rowAction, index) in rowActions" :key="index">
-            <ContextMenuItem
-              v-if="!rowAction.options"
-              @select="rowAction.handler(state.contextMenuSubject as TData)"
-              >{{ rowAction.label }}</ContextMenuItem
-            >
-            <ContextMenuSub v-else>
-              <ContextMenuSubTrigger>
-                {{ rowAction.label }}
-              </ContextMenuSubTrigger>
-              <ContextMenuSubContent>
-                <ContextMenuItem
-                  v-for="(option, optionIndex) in rowAction.options(state.contextMenuSubject as TData)"
-                  :key="optionIndex"
-                  @select="option.handler(state.contextMenuSubject as TData)"
-                  >{{ option.label }}</ContextMenuItem
-                >
-              </ContextMenuSubContent>
-            </ContextMenuSub>
+            <template v-if="!isBlocked(rowAction)">
+              <ContextMenuItem
+                v-if="!rowAction.options"
+                @select="rowAction.handler(state.contextMenuSubject as TData)"
+                >{{ rowAction.label }}</ContextMenuItem
+              >
+              <ContextMenuSub v-else>
+                <ContextMenuSubTrigger>
+                  {{ rowAction.label }}
+                </ContextMenuSubTrigger>
+                <ContextMenuSubContent>
+                  <ContextMenuItem
+                    v-for="(option, optionIndex) in rowAction.options(state.contextMenuSubject as TData)"
+                    :key="optionIndex"
+                    @select="option.handler(state.contextMenuSubject as TData)"
+                    >{{ option.label }}</ContextMenuItem
+                  >
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+            </template>
           </template>
         </ContextMenuContent>
       </ContextMenu>

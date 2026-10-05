@@ -3,6 +3,8 @@ import { VirtualService } from "@kubernetes-models/istio/networking.istio.io/v1b
 import { KubernetesObject } from "@kubernetes/client-node";
 import { formatResourceKind } from "@/lib/utils";
 import { runCliForEach } from "@/actions/command";
+import { confirmDialog, guard, rowTargets } from "@/lib/guardrails/guard";
+import type { ActionKind } from "@/lib/guardrails/policy";
 import {
   describeRows,
   getResourceTabId,
@@ -29,6 +31,11 @@ export type ContextAwareVirtualService = VirtualService & {
 
 export interface BaseRowAction<T> {
   label: string | ((row: T) => string);
+  /**
+   * What the action does to the cluster (guardrails: hidden / disabled on
+   * read-only clusters). Inferred from the label when unset.
+   */
+  kind?: ActionKind;
 }
 
 export interface WithOptions<T> extends BaseRowAction<T> {
@@ -114,9 +121,10 @@ export function getDefaultActions<
     },
     {
       label: "Delete",
+      kind: "delete",
       massAction: true,
-      handler: (rows: T[]) => {
-        const dialog: BaseDialogInterface = {
+      handler: async (rows: T[]) => {
+        const dialog: Omit<BaseDialogInterface, "buttons"> = {
           title:
             rows.length === 1
               ? `Delete ${getResourceTabTitle(rows[0])}?`
@@ -128,44 +136,37 @@ export function getDefaultActions<
           props: {
             lines: describeRows(rows),
           },
-          buttons: [
-            {
-              label: "Cancel",
-              variant: "ghost",
-              handler: (dialog) => {
-                dialog.close();
-              },
-            },
-            {
-              label: "Delete",
-              variant: "destructive",
-              handler: (dialog) => {
-                dialog.close();
-                runCliForEach("kubectl", rows, {
-                  args: (row) => {
-                    const args = [
-                      "delete",
-                      `${row.kind}/${row.metadata?.name}`,
-                      "--context",
-                      row.metadata.context,
-                    ];
-                    if (row.metadata.kubeConfig) {
-                      args.push("--kubeconfig", row.metadata.kubeConfig);
-                    }
-                    if (row.metadata?.namespace) {
-                      args.push("--namespace", row.metadata.namespace);
-                    }
-                    return args;
-                  },
-                  label: (row) => getResourceTabTitle(row),
-                  successVerb: "Deleted",
-                  failureVerb: "delete",
-                });
-              },
-            },
-          ],
         };
-        spawnDialog(dialog);
+        const confirmed = await guard("delete", rowTargets(rows), {
+          confirm: () =>
+            confirmDialog(spawnDialog, {
+              ...dialog,
+              confirmLabel: "Delete",
+              variant: "destructive",
+            }),
+        });
+        if (!confirmed) return;
+        runCliForEach("kubectl", rows, {
+          args: (row) => {
+            const args = [
+              "delete",
+              `${row.kind}/${row.metadata?.name}`,
+              "--context",
+              row.metadata.context,
+            ];
+            if (row.metadata.kubeConfig) {
+              args.push("--kubeconfig", row.metadata.kubeConfig);
+            }
+            if (row.metadata?.namespace) {
+              args.push("--namespace", row.metadata.namespace);
+            }
+            return args;
+          },
+          label: (row) => getResourceTabTitle(row),
+          successVerb: "Deleted",
+          failureVerb: "delete",
+          guarded: true,
+        });
       },
     },
   ];

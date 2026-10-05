@@ -7,6 +7,7 @@ import { AlertDialogFooter } from "@/components/ui/alert-dialog";
 import { useToast } from "@/components/ui/toast";
 import { Kubernetes } from "@/services/Kubernetes";
 import { error } from "@/lib/logger";
+import { guard, rowTargets } from "@/lib/guardrails/guard";
 
 const props = defineProps<{
   pod: V1Pod & { metadata: { context: string; kubeConfig: string } };
@@ -25,6 +26,7 @@ const gracePeriod = computed(
 
 const deletePod = async () => {
   const name = props.pod.metadata?.name ?? "";
+  if (!(await guard("delete", rowTargets([props.pod], "Pod")))) return;
   deleting.value = true;
 
   try {
@@ -33,7 +35,8 @@ const deletePod = async () => {
       props.pod.metadata?.namespace ?? "",
       name,
       force.value ? 0 : gracePeriod.value,
-      props.pod.metadata.kubeConfig
+      props.pod.metadata.kubeConfig,
+      { guarded: true }
     );
 
     toast({

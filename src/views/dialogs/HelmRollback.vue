@@ -21,6 +21,7 @@ const { toast } = useToast();
 import { parseJSON } from "date-fns";
 import { formatDateTime } from "@/lib/utils";
 import { error } from "@/lib/logger";
+import { guard } from "@/lib/guardrails/guard";
 
 const rollbackRevision = ref<string>("");
 const revisions = ref<any[]>([]);
@@ -59,8 +60,19 @@ const rollback = async () => {
     args.push("--kubeconfig", props.kubeConfig);
   }
 
+  const confirmed = await guard("helm-rollback", [
+    {
+      context: props.context,
+      kubeConfig: props.kubeConfig,
+      name: props.release.name,
+      kind: "release",
+      namespace: props.release.namespace,
+    },
+  ]);
+  if (!confirmed) return;
+
   rollingBack.value = true;
-  const result = await runCli("helm", args);
+  const result = await runCli("helm", args, { guarded: true });
   rollingBack.value = false;
 
   if (cliSucceeded(result)) {

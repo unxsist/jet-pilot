@@ -1,9 +1,9 @@
 import { V1Node } from "@kubernetes/client-node";
 import { RowAction } from "@/components/tables/types";
-import { BaseDialogInterface } from "@/providers/DialogProvider";
 import { toast } from "@/components/ui/toast";
 import { Router } from "vue-router";
 import { describeRows } from "@/components/tables/identity";
+import { allowed, confirmDialog, guard, rowTargets } from "@/lib/guardrails/guard";
 import { runCliForEach } from "./command";
 
 export function actions<
@@ -31,7 +31,9 @@ export function actions<
   return [
     {
       label: "Node shell",
+      kind: "node-shell",
       handler: (row: T) => {
+        if (!allowed("node-shell", rowTargets([row], "Node"))) return;
         spawnDialog({
           title: `Shell on node ${row.metadata?.name}`,
           message:
@@ -53,96 +55,81 @@ export function actions<
       label: (row: T) => {
         return isCordoned(row) ? "Uncordon" : "Cordon";
       },
-      handler: (row: T) => {
+      handler: async (row: T) => {
         const cordoned = isCordoned(row);
-        const dialog: BaseDialogInterface = {
-          title: cordoned ? "Uncordon" : "Cordon",
-          message: cordoned
-            ? `Are you sure you want to uncordon ${row.metadata?.name}? New pods can be scheduled on it again.`
-            : `Are you sure you want to cordon ${row.metadata?.name}? No new pods will be scheduled on it.`,
-          buttons: [
-            {
-              label: "Cancel",
-              variant: "ghost",
-              handler: (dialog) => {
-                dialog.close();
-              },
-            },
-            {
-              label: cordoned ? "Uncordon" : "Cordon",
-              handler: (dialog) => {
-                dialog.close();
-                runCliForEach("kubectl", [row], {
-                  args: (node) => [
-                    cordoned ? "uncordon" : "cordon",
-                    `${node.metadata?.name}`,
-                    ...contextArgs(node),
-                  ],
-                  label: nodeLabel,
-                  successVerb: cordoned ? "Uncordoned" : "Cordoned",
-                  failureVerb: cordoned ? "uncordon" : "cordon",
-                });
-              },
-            },
+        const confirmed = await guard(
+          cordoned ? "uncordon" : "cordon",
+          rowTargets([row], "Node"),
+          {
+            confirm: () =>
+              confirmDialog(spawnDialog, {
+                title: cordoned ? "Uncordon" : "Cordon",
+                message: cordoned
+                  ? `Are you sure you want to uncordon ${row.metadata?.name}? New pods can be scheduled on it again.`
+                  : `Are you sure you want to cordon ${row.metadata?.name}? No new pods will be scheduled on it.`,
+                confirmLabel: cordoned ? "Uncordon" : "Cordon",
+              }),
+          }
+        );
+        if (!confirmed) return;
+        runCliForEach("kubectl", [row], {
+          args: (node) => [
+            cordoned ? "uncordon" : "cordon",
+            `${node.metadata?.name}`,
+            ...contextArgs(node),
           ],
-        };
-        spawnDialog(dialog);
+          label: nodeLabel,
+          successVerb: cordoned ? "Uncordoned" : "Cordoned",
+          failureVerb: cordoned ? "uncordon" : "cordon",
+          guarded: true,
+        });
       },
     },
     {
       label: "Drain",
+      kind: "drain",
       massAction: true,
-      handler: (rows: T[]) => {
-        const dialog: BaseDialogInterface = {
-          title:
-            rows.length === 1
-              ? `Drain ${rows[0].metadata?.name}?`
-              : `Drain ${rows.length} nodes?`,
-          message:
-            "All pods (except DaemonSet pods) are evicted, including pods with local (emptyDir) data, which is lost.",
-          component: defineAsyncComponent(
-            () => import("@/views/dialogs/ResourceList.vue")
-          ),
-          props: {
-            lines: describeRows(rows),
-          },
-          buttons: [
-            {
-              label: "Cancel",
-              variant: "ghost",
-              handler: (dialog) => {
-                dialog.close();
+      handler: async (rows: T[]) => {
+        const confirmed = await guard("drain", rowTargets(rows, "Node"), {
+          confirm: () =>
+            confirmDialog(spawnDialog, {
+              title:
+                rows.length === 1
+                  ? `Drain ${rows[0].metadata?.name}?`
+                  : `Drain ${rows.length} nodes?`,
+              message:
+                "All pods (except DaemonSet pods) are evicted, including pods with local (emptyDir) data, which is lost.",
+              component: defineAsyncComponent(
+                () => import("@/views/dialogs/ResourceList.vue")
+              ),
+              props: {
+                lines: describeRows(rows),
               },
-            },
-            {
-              label: "Drain",
+              confirmLabel: "Drain",
               variant: "destructive",
-              handler: (dialog) => {
-                dialog.close();
-                toast({
-                  title: `Draining ${
-                    rows.length === 1 ? rows[0].metadata?.name : `${rows.length} nodes`
-                  }…`,
-                  autoDismiss: true,
-                });
-                runCliForEach("kubectl", rows, {
-                  args: (row) => [
-                    "drain",
-                    `${row.metadata?.name}`,
-                    "--force",
-                    "--ignore-daemonsets",
-                    "--delete-emptydir-data",
-                    ...contextArgs(row),
-                  ],
-                  label: nodeLabel,
-                  successVerb: "Drained",
-                  failureVerb: "drain",
-                });
-              },
-            },
+            }),
+        });
+        if (!confirmed) return;
+        toast({
+          title: `Draining ${
+            rows.length === 1 ? rows[0].metadata?.name : `${rows.length} nodes`
+          }…`,
+          autoDismiss: true,
+        });
+        runCliForEach("kubectl", rows, {
+          args: (row) => [
+            "drain",
+            `${row.metadata?.name}`,
+            "--force",
+            "--ignore-daemonsets",
+            "--delete-emptydir-data",
+            ...contextArgs(row),
           ],
-        };
-        spawnDialog(dialog);
+          label: nodeLabel,
+          successVerb: "Drained",
+          failureVerb: "drain",
+          guarded: true,
+        });
       },
     },
   ];

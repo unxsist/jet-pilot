@@ -20,6 +20,7 @@ import { runCli, runCliForEach, cliErrorMessage, cliSucceeded } from "@/actions/
 import { injectStrict, formatDateTime } from "@/lib/utils";
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 import { clusterArgs, labelSelectorToString, type LabelSelector } from "@/lib/workloads";
+import { confirmDialog, guard } from "@/lib/guardrails/guard";
 import {
   Revision,
   RolloutPhase,
@@ -176,77 +177,83 @@ const diffLabels = computed(() => ({
 
 /* --------------------------------------------------------- actions -- */
 
-const confirmRollback = () => {
+const guardTarget = () => [
+  {
+    context: props.context,
+    kubeConfig: props.kubeConfig,
+    name: props.name,
+    kind: props.kind,
+    namespace: props.namespace,
+  },
+];
+
+const confirmRollback = async () => {
   const revision = selectedRevision.value;
   if (!revision || revision.current) return;
-  spawnDialog({
-    title: `Roll back ${ref_.value} to revision ${revision.revision}?`,
-    message:
-      `Starts a rolling update to the pod template of revision ${revision.revision}` +
-      (revision.images.length ? ` (${revision.images.join(", ")})` : "") +
-      ". It becomes the newest revision; replicas and other spec fields are unchanged.",
-    buttons: [
-      { label: "Cancel", variant: "ghost", handler: (dialog) => dialog.close() },
-      {
-        label: `Roll back to r${revision.revision}`,
-        handler: async (dialog) => {
-          dialog.close();
-          busy.value = "undo";
-          await runCliForEach("kubectl", [revision], {
-            args: (r) => [
-              ...rolloutArgs("undo", props.kind, props.name, [`--to-revision=${r.revision}`]),
-              ...args.value,
-            ],
-            label: (r) => `${ref_.value} to revision ${r.revision}`,
-            successVerb: "Rolled back",
-            failureVerb: "roll back",
-          });
-          busy.value = "";
-          selected.value = null;
-          await load();
-          schedulePoll();
-        },
-      },
-    ],
+  const confirmed = await guard("rollback", guardTarget(), {
+    confirm: () =>
+      confirmDialog(spawnDialog, {
+        title: `Roll back ${ref_.value} to revision ${revision.revision}?`,
+        message:
+          `Starts a rolling update to the pod template of revision ${revision.revision}` +
+          (revision.images.length ? ` (${revision.images.join(", ")})` : "") +
+          ". It becomes the newest revision; replicas and other spec fields are unchanged.",
+        confirmLabel: `Roll back to r${revision.revision}`,
+      }),
   });
+  if (!confirmed) return;
+  busy.value = "undo";
+  await runCliForEach("kubectl", [revision], {
+    args: (r) => [
+      ...rolloutArgs("undo", props.kind, props.name, [`--to-revision=${r.revision}`]),
+      ...args.value,
+    ],
+    label: (r) => `${ref_.value} to revision ${r.revision}`,
+    successVerb: "Rolled back",
+    failureVerb: "roll back",
+    guarded: true,
+  });
+  busy.value = "";
+  selected.value = null;
+  await load();
+  schedulePoll();
 };
 
-const confirmRestart = () => {
-  spawnDialog({
-    title: `Restart ${ref_.value}?`,
-    message: "All pods are replaced through a rolling update, following the update strategy.",
-    buttons: [
-      { label: "Cancel", variant: "ghost", handler: (dialog) => dialog.close() },
-      {
-        label: "Restart",
-        handler: async (dialog) => {
-          dialog.close();
-          busy.value = "restart";
-          await runCliForEach("kubectl", [props.name], {
-            args: () => [...rolloutArgs("restart", props.kind, props.name), ...args.value],
-            label: () => ref_.value,
-            successVerb: "Restarted",
-            failureVerb: "restart",
-          });
-          busy.value = "";
-          await load();
-          schedulePoll();
-        },
-      },
-    ],
+const confirmRestart = async () => {
+  const confirmed = await guard("restart", guardTarget(), {
+    confirm: () =>
+      confirmDialog(spawnDialog, {
+        title: `Restart ${ref_.value}?`,
+        message: "All pods are replaced through a rolling update, following the update strategy.",
+        confirmLabel: "Restart",
+      }),
   });
+  if (!confirmed) return;
+  busy.value = "restart";
+  await runCliForEach("kubectl", [props.name], {
+    args: () => [...rolloutArgs("restart", props.kind, props.name), ...args.value],
+    label: () => ref_.value,
+    successVerb: "Restarted",
+    failureVerb: "restart",
+    guarded: true,
+  });
+  busy.value = "";
+  await load();
+  schedulePoll();
 };
 
 const paused = computed(() => workload.value?.spec?.paused === true);
 
 const togglePause = async () => {
-  busy.value = "pause";
   const verb = paused.value ? "resume" : "pause";
+  if (!(await guard(verb, guardTarget()))) return;
+  busy.value = "pause";
   await runCliForEach("kubectl", [props.name], {
     args: () => [...rolloutArgs(verb, props.kind, props.name), ...args.value],
     label: () => ref_.value,
     successVerb: paused.value ? "Resumed rollout of" : "Paused rollout of",
     failureVerb: `${verb} the rollout of`,
+    guarded: true,
   });
   busy.value = "";
   await load(false);

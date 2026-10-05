@@ -123,7 +123,8 @@ describe("migrate (v1 → v2)", () => {
     expect(settings.updates.checkOnStartup).toBe(false);
     expect(settings.updates.whatsNew).toBe("1.38.0");
     expect(settings.appearance.darkTheme).toBe("dracula");
-    expect(settings.contextSettings).toEqual([{ context: "prod", namespaces: ["payments"] }]);
+    expect(settings.clusters).toEqual([{ kubeConfig: "", context: "prod", namespaces: ["payments"] }]);
+    expect((settings as unknown as Record<string, unknown>).contextSettings).toBeUndefined();
   });
 
   it("drops the always-added ~/.kube/config and empty rows", () => {

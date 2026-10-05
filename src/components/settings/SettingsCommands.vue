@@ -16,6 +16,7 @@ import { SETTINGS } from "@/lib/settings/registry";
 import { formatSettingValue, validateSetting } from "@/lib/settings/values";
 import { getPath, setPath, type JsonObject } from "@/lib/settings/paths";
 import type { SettingDefinition } from "@/lib/settings/types";
+import { openWelcome } from "@/lib/welcome";
 
 const registerCommand = injectStrict(RegisterCommandStateKey);
 const { settings } = injectStrict(SettingsContextStateKey);
@@ -86,6 +87,14 @@ registerCommand({
 for (const def of visible) {
   registerCommand(settingCommand(def, { searchOnly: true }));
 }
+
+registerCommand({
+  id: "open-setup-guide",
+  name: "Open setup guide",
+  description: "Kubeconfig files, tools and appearance",
+  keywords: ["welcome", "onboarding", "setup", "getting started", "tour"],
+  execute: openWelcome,
+});
 
 registerCommand({
   id: "open-settings-json",

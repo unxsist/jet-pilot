@@ -2,6 +2,7 @@ import { V1Pod } from "@kubernetes/client-node";
 import { RowAction } from "@/components/tables/types";
 import { Router } from "vue-router";
 import { getResourceTabTitle } from "@/components/tables/identity";
+import { allowed, rowTargets } from "@/lib/guardrails/guard";
 
 /*
  * Extra pod actions: ephemeral debug containers and copying files from /
@@ -32,8 +33,10 @@ export function actions<T extends ContextAwarePod>(
   return [
     {
       label: "Debug",
+      kind: "debug",
       isAvailable: (row: T) => row.status?.phase === "Running",
       handler: (row: T) => {
+        if (!allowed("debug", rowTargets([row], "Pod"))) return;
         spawnDialog({
           title: `Debug ${getResourceTabTitle(row)}`,
           message:
@@ -47,6 +50,8 @@ export function actions<T extends ContextAwarePod>(
       },
     },
     {
+      // Copying out of a container is allowed on read-only clusters; the
+      // dialog blocks uploads.
       label: "Copy files",
       isAvailable: (row: T) => row.status?.phase === "Running",
       handler: (row: T) => {

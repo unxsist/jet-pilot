@@ -127,7 +127,13 @@ export interface KubeconfigContextSummary {
   server?: string | null;
   user: string;
   namespace?: string | null;
-  auth: { kind: AuthKind; command?: string | null; awsProfile?: string | null };
+  auth: {
+    kind: AuthKind;
+    command?: string | null;
+    awsProfile?: string | null;
+    /** Whether signing in may need the user (src-tauri/src/auth/classify.rs). */
+    interactive?: "nonInteractive" | "interactive" | "unknown";
+  };
   problems: KubeconfigProblem[];
 }
 

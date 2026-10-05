@@ -8,7 +8,7 @@
  *   ?theme=dark|light        colour scheme
  *   ?os=linux|macos|windows  window chrome variant
  *   ?scenario=default|empty|error|nocontext|whatsnew|large|large-graph|conflict|compare
- *            |update|update-error|announcement|kubeconfigs|tools-missing
+ *            |update|update-error|announcement|kubeconfigs|tools-missing|hub|fresh
  *   ?contexts=2              activate both contexts
  *   ?polling=0|1             kubectl polling instead of live watches
  *                            (settings.experimental.useKubectlPolling)
@@ -17,12 +17,16 @@
  *                            (settings.appearance.lightTheme/darkTheme;
  *                            `jet` is the default)
  *   ?version=<x.y.z>         app version (default: package.json)
+ *   ?readonly=1              (hub) the active cluster is read-only
  *
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views; `large-graph` swaps the
  * first context for a 2,000+ object topology for the resource graph.
  * Settings: `kubeconfigs` finds extra kubeconfig files (one in config.d, one
- * unreadable); `tools-missing` has no kubectl (downloads take ~2 s). The
+ * unreadable); `tools-missing` has no kubectl (downloads take ~2 s).
+ * `hub` fills the Clusters hub (EKS, GKE, AKS, DigitalOcean, Linode,
+ * Scaleway, local clusters, with aliases, folders and guardrails; probes
+ * stream varied statuses). `fresh` starts without settings (the setup guide). The
  * fixture settings are a v1 settings.json, so every fresh load exercises the
  * migration to settings.json + state.json.
  * `update` offers v9.9.9 on startup and "downloads" it in ~3 s;
@@ -56,6 +60,7 @@ import {
   logLines,
   openVsxThemes,
 } from "./fixtures";
+import { HUB_CLUSTER_RECORDS, HUB_FILES, hubStatus } from "./clusters";
 
 const params = new URLSearchParams(location.search);
 if (params.get("fresh")) {
@@ -138,6 +143,13 @@ const settings = {
   },
   logLevel: "error",
   ...(polling ? { experimental: { useKubectlPolling: true } } : {}),
+  ...(scenario === "hub"
+    ? {
+        clusters: params.get("readonly") === "1"
+          ? HUB_CLUSTER_RECORDS.map((r, i) => (i === 0 ? { ...r, readOnly: true } : r))
+          : HUB_CLUSTER_RECORDS,
+      }
+    : {}),
 };
 
 /* Synthetic large cluster: clones of the fixture pods with unique ids. */
@@ -1030,7 +1042,16 @@ const KIND_KUBECONFIG = `${HOME}/.kube/config.d/kind.yaml`;
 const BROKEN_KUBECONFIG = `${HOME}/.kube/old-cluster.yaml`;
 
 /* kubeconfig_discover (src-tauri/src/kubeconfig_discovery.rs). */
-const discoverKubeconfigs = () => [
+const discoverKubeconfigs = () =>
+  scenario === "hub"
+    ? Object.entries(HUB_FILES).map(([path, file]) => ({
+        path,
+        origin: file.origin,
+        readable: true,
+        contextCount: file.contexts.length,
+        contextNames: file.contexts.map((c) => c.name),
+      }))
+    : [
   {
     path: KUBECONFIG,
     origin: "default",
@@ -1055,6 +1076,22 @@ const discoverKubeconfigs = () => [
 
 /* kubeconfig_describe: an EKS context whose plugin is missing, a token context. */
 const describeKubeconfig = (path: string) => {
+  if (scenario === "hub" && HUB_FILES[path]) {
+    const file = HUB_FILES[path]!;
+    return {
+      path,
+      currentContext: file.current ?? null,
+      contexts: file.contexts.map((c) => ({
+        name: c.name,
+        cluster: c.cluster,
+        server: c.server,
+        user: c.user,
+        namespace: c.namespace ?? null,
+        auth: { command: null, awsProfile: null, ...c.auth },
+        problems: c.problems ?? [],
+      })),
+    };
+  }
   if (path === KIND_KUBECONFIG) {
     return {
       path,
@@ -1066,7 +1103,7 @@ const describeKubeconfig = (path: string) => {
           server: "https://127.0.0.1:52341",
           user: "kind-dev",
           namespace: null,
-          auth: { kind: "clientCert", command: null, awsProfile: null },
+          auth: { kind: "clientCert", command: null, awsProfile: null, interactive: "nonInteractive" },
           problems: [],
         },
       ],
@@ -1082,7 +1119,7 @@ const describeKubeconfig = (path: string) => {
         server: "https://4F1E2D3C.gr7.eu-west-1.eks.amazonaws.com",
         user: "prod-admin",
         namespace: CONTEXTS[0].namespace,
-        auth: { kind: "exec", command: "aws", awsProfile: "prod-admin" },
+        auth: { kind: "exec", command: "aws", awsProfile: "prod-admin", interactive: "nonInteractive" },
         problems: [],
       },
       {
@@ -1091,7 +1128,7 @@ const describeKubeconfig = (path: string) => {
         server: "https://staging.k8s.example.com:6443",
         user: "staging-oidc",
         namespace: CONTEXTS[1].namespace,
-        auth: { kind: "exec", command: "kubelogin", awsProfile: null },
+        auth: { kind: "exec", command: "kubelogin", awsProfile: null, interactive: "interactive" },
         problems: [
           {
             code: "execNotFound",
@@ -1155,6 +1192,7 @@ const installTool = async (id: string, channel: any) => {
 /* ------------------------------------------------------------- dispatch -- */
 
 const ptyChannels = new Map<string, any>();
+let probeBatches = 0;
 
 /* ------------------------------------------------------------------ fs -- */
 
@@ -1180,6 +1218,8 @@ const readFile = (path: string): string | null => {
   const stored = sessionStorage.getItem(fsKey(path));
   if (stored === null && path in PICKED_THEME_FILES) return PICKED_THEME_FILES[path]!;
   if (path !== "settings.json") return stored;
+  // A fresh install has no settings yet (the setup guide shows).
+  if (!stored && scenario === "fresh") return null;
   if (!stored) return JSON.stringify(settings);
   // The ?theme / ?themeId / ?polling knobs win over choices saved earlier.
   const saved = JSON.parse(stored);
@@ -1454,6 +1494,9 @@ mockIPC(
       case "get_current_context":
         return scenario === "nocontext" ? "" : CONTEXTS[0].name;
       case "list_contexts":
+        if (scenario === "hub" && HUB_FILES[p.kubeConfig]) {
+          return HUB_FILES[p.kubeConfig]!.contexts.map((c) => ({ name: c.name, context: { namespace: c.namespace ?? "default" } }));
+        }
         if (p.kubeConfig === BROKEN_KUBECONFIG) throw { message: "invalid type: string \"cluster\", expected a sequence" };
         if (p.kubeConfig === KIND_KUBECONFIG) return [{ name: "kind-dev", context: { namespace: "default" } }];
         return CONTEXTS.map((c) => ({ name: c.name, context: { namespace: c.namespace } }));
@@ -1470,6 +1513,27 @@ mockIPC(
         return installTool(p.tool, p.onEvent);
       case "tools_uninstall":
         toolState.set(p.tool, { found: false, path: null, version: null, source: "missing" });
+        return null;
+      case "cluster_status_cached":
+        return [];
+      case "cluster_probe": {
+        const id = ++probeBatches;
+        const contexts = (p.contexts ?? []) as { context: string; kubeConfig: string }[];
+        (async () => {
+          for (const [index, target] of contexts.entries()) {
+            await sleep(120 + (index % 4) * 90);
+            const file = HUB_FILES[target.kubeConfig];
+            const auth = file?.contexts.find((c) => c.name === target.context)?.auth;
+            const interactive =
+              auth?.interactive ?? (target.context === CONTEXTS[1]!.name ? "interactive" : "nonInteractive");
+            const status = hubStatus(target.context, target.kubeConfig, p.includeInteractive ? "nonInteractive" : interactive);
+            sendToChannel(p.onEvent, { type: "result", status: { ...status, interactive } });
+          }
+          sendToChannel(p.onEvent, { type: "done" });
+        })();
+        return id;
+      }
+      case "cluster_probe_cancel":
         return null;
       case "env_import_report":
         return {

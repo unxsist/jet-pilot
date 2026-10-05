@@ -1,6 +1,7 @@
 import { Command } from "@tauri-apps/plugin-shell";
 import { toast } from "@/components/ui/toast";
 import { error as logError } from "@/lib/logger";
+import type { GuardedCall } from "@/lib/guardrails/backstop";
 
 export interface CliResult {
   /** Process exit code; null when the process could not be started. */
@@ -12,12 +13,17 @@ export interface CliResult {
 /*
  * Runs kubectl / helm to completion. Success is decided by the exit code (from
  * the process `close` event), not by output on stderr: kubectl and helm also
- * write warnings / progress there.
+ * write warnings / progress there. Changes to a read-only cluster are refused
+ * (not started) unless the caller ran guard() (`guarded`).
  */
 export async function runCli(
   program: "kubectl" | "helm",
-  args: string[]
+  args: string[],
+  call?: GuardedCall
 ): Promise<CliResult> {
+  const { cliRefusal } = await import("@/lib/guardrails/backstop");
+  const refusal = cliRefusal(program, args, call);
+  if (refusal) return { code: null, stdout: "", stderr: refusal };
   try {
     const { code, stdout, stderr } = await Command.create(
       program,
@@ -35,13 +41,14 @@ export async function runCli(
  */
 export async function runHelmWithValues(
   args: string[],
-  values: string
+  values: string,
+  call?: GuardedCall
 ): Promise<CliResult> {
   try {
     const { Kubernetes } = await import("@/services/Kubernetes");
-    return await Kubernetes.runHelmWithValues(args, values);
+    return await Kubernetes.runHelmWithValues(args, values, call);
   } catch (e) {
-    return { code: null, stdout: "", stderr: String(e) };
+    return { code: null, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
   }
 }
 
@@ -70,10 +77,14 @@ export async function runCliForEach<T>(
     successVerb: string;
     /** e.g. "delete", "drain" */
     failureVerb: string;
+    /** The caller ran guard() for these items. */
+    guarded?: boolean;
   }
 ): Promise<{ succeeded: T[]; failed: T[] }> {
   const results = await Promise.all(
-    items.map((item) => runCli(program, options.args(item)))
+    items.map((item) =>
+      runCli(program, options.args(item), { guarded: options.guarded })
+    )
   );
 
   const succeeded: T[] = [];

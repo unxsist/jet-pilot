@@ -5,6 +5,7 @@ import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
 import { PtyStarter, kubectlExecCommand } from "@/lib/pty";
 import PtyTerminal from "@/components/PtyTerminal.vue";
+import TerminalClusterBanner from "@/components/guardrails/TerminalClusterBanner.vue";
 
 const { settings } = injectStrict(SettingsContextStateKey);
 
@@ -36,5 +37,10 @@ const start: PtyStarter = ({ rows, cols }, onEvent) =>
 </script>
 
 <template>
-  <PtyTerminal :start="start" :tab-id="tabId" />
+  <div class="flex h-full w-full flex-col">
+    <TerminalClusterBanner :context="context" :kube-config="kubeConfig" />
+    <div class="min-h-0 flex-1">
+      <PtyTerminal :start="start" :tab-id="tabId" />
+    </div>
+  </div>
 </template>

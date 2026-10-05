@@ -17,6 +17,9 @@ import { toast } from "@/components/ui/toast";
 import { runCli, cliSucceeded, cliErrorMessage } from "@/actions/command";
 import { baseName, kubectlCopyArgs } from "@/lib/workloads";
 import { error } from "@/lib/logger";
+import { guard } from "@/lib/guardrails/guard";
+import { guardedCluster } from "@/lib/guardrails/backstop";
+import { readOnlyReason } from "@/lib/guardrails/policy";
 
 /*
  * kubectl cp between a container and a local path picked with the native
@@ -41,6 +44,12 @@ watch(direction, () => {
   localPath.value = "";
 });
 
+/* Read-only clusters: copying out of the container only. */
+const cluster = computed(() => guardedCluster(props.context, props.kubeConfig));
+const uploadBlocked = computed(() =>
+  cluster.value.readOnly ? readOnlyReason(cluster.value) : ""
+);
+
 const pickLocal = async () => {
   if (direction.value === "download") {
     const path = await save({
@@ -63,6 +72,17 @@ const valid = computed(
 
 const copy = async () => {
   if (!valid.value) return;
+  const upload = direction.value === "upload";
+  if (upload) {
+    const target = {
+      context: props.context,
+      kubeConfig: props.kubeConfig,
+      name: props.pod.metadata?.name,
+      kind: "Pod",
+      namespace: props.namespace,
+    };
+    if (!(await guard("copy-to-pod", [target]))) return;
+  }
   copying.value = true;
   const args = kubectlCopyArgs({
     direction: direction.value,
@@ -73,7 +93,7 @@ const copy = async () => {
     localPath: localPath.value.trim(),
     cluster: props,
   });
-  const result = await runCli("kubectl", args);
+  const result = await runCli("kubectl", args, { guarded: upload });
   copying.value = false;
 
   if (cliSucceeded(result)) {
@@ -110,9 +130,11 @@ const copy = async () => {
         v-for="option in (['download', 'upload'] as const)"
         :key="option"
         type="button"
-        class="inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors duration-fast focus-ring"
+        class="inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors duration-fast focus-ring disabled:cursor-not-allowed disabled:opacity-50"
         :class="direction === option ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
         :aria-pressed="direction === option"
+        :disabled="option === 'upload' && !!uploadBlocked"
+        :title="option === 'upload' && uploadBlocked ? uploadBlocked : undefined"
         @click="direction = option"
       >
         <ArrowDownToLine v-if="option === 'download'" class="h-3.5 w-3.5" />

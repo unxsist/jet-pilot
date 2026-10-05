@@ -4,6 +4,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { ExternalLink, Heart } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
+import { openWelcome } from "@/lib/welcome";
 import SettingsSection from "@/components/settings/SettingsSection.vue";
 import { settingsRow } from "@/components/settings/styles";
 
@@ -39,6 +40,15 @@ const SPONSOR_URL = null as string | null;
           {{ link.label }}
           <ExternalLink class="h-3 w-3 text-muted-foreground" />
         </Button>
+      </div>
+    </div>
+    <div :class="settingsRow">
+      <div class="space-y-1">
+        <p class="text-sm font-medium">Setup guide</p>
+        <p class="text-xs text-muted-foreground">Walk through kubeconfig files, tools and appearance again.</p>
+      </div>
+      <div class="flex sm:justify-end">
+        <Button size="sm" variant="outline" @click="openWelcome">Open setup guide</Button>
       </div>
     </div>
     <div v-if="SPONSOR_URL" :class="settingsRow">

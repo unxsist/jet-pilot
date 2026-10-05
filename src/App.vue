@@ -17,6 +17,10 @@ import WorkspaceProvider from "./providers/WorkspaceProvider";
 import DialogHandler from "./components/DialogHandler.vue";
 import AppSkeleton from "./components/skeletons/AppSkeleton.vue";
 import TerminalLauncher from "./components/TerminalLauncher.vue";
+import ClusterTint from "./components/clusters/ClusterTint.vue";
+/* Setup guide and typed confirmations: needed after the first paint. */
+const WelcomeHost = defineAsyncComponent(() => import("./components/welcome/WelcomeHost.vue"));
+const GuardrailsHost = defineAsyncComponent(() => import("./components/guardrails/GuardrailsHost.vue"));
 import {
   ResizableHandle,
   ResizablePanel,
@@ -81,8 +85,10 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
                         data-tauri-drag-region
                       >
                         <div
-                          class="flex min-w-0 flex-1 overflow-hidden rounded-lg border bg-background shadow-xs"
+                          class="relative flex min-w-0 flex-1 overflow-hidden rounded-lg border bg-background shadow-xs"
                         >
+                          <ClusterTint />
+                          <WelcomeHost />
                           <ResizablePanelGroup direction="horizontal">
                             <ResizablePanel><RouterViewport /></ResizablePanel>
                             <ResizableHandle />
@@ -93,6 +99,7 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
                       <Toaster />
                       <CommandPalette />
                       <DialogHandler />
+                      <GuardrailsHost />
                       <template v-if="idle">
                         <UpdateHandler />
                         <AnnouncementHandler />

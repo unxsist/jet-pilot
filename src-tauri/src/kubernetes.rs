@@ -348,12 +348,9 @@ pub mod client {
         }
     }
 
-    /// The exec credential plugin command (basename) a context authenticates
-    /// with, if any. Used to word watch auth errors like kubectl does
-    /// ("executable aws failed") so the frontend's re-login detection works.
     /// The kubeconfig of `kube_config` (None / "" = the selected one, else
     /// kube's default resolution), like the API clients use it.
-    fn read_kubeconfig(kube_config: Option<&str>) -> Result<Kubeconfig, KubeconfigError> {
+    pub(crate) fn read_kubeconfig(kube_config: Option<&str>) -> Result<Kubeconfig, KubeconfigError> {
         let path = resolve_kubeconfig_path(kube_config);
         if path.is_empty() {
             Kubeconfig::read()
@@ -362,6 +359,9 @@ pub mod client {
         }
     }
 
+    /// The exec credential plugin command (basename) a context authenticates
+    /// with, if any. Used to word watch auth errors like kubectl does
+    /// ("executable aws failed") so the frontend's re-login detection works.
     pub(crate) fn exec_command_for_context(kube_config: Option<&str>, context: &str) -> Option<String> {
         let config = read_kubeconfig(kube_config).ok()?;
         let command = auth_info_for_context(&config, context).ok()?.exec?.command?;

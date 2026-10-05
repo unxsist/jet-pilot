@@ -38,6 +38,8 @@ import { Kbd } from "@/components/ui/kbd";
 import { toast } from "@/components/ui/toast";
 import KindIcon from "@/components/KindIcon.vue";
 import { actionIcon, isDestructiveAction } from "@/lib/actionIcons";
+import { blockedReason, type ClusterRef } from "@/lib/guardrails/menu";
+import { guardedCluster } from "@/lib/guardrails/backstop";
 import {
   ArrowDown,
   ArrowUp,
@@ -1359,10 +1361,24 @@ const handleRowAction = (
   rowAction.handler(subject);
 };
 
+/*
+ * Guardrails: actions that would change a read-only cluster are left out of
+ * the row menu and disabled (with the reason) in the selection bar. Their
+ * handlers block them too (keyboard shortcuts).
+ */
+const resolveCluster = (ref: ClusterRef) =>
+  guardedCluster(ref.context, ref.kubeConfig);
+
+const isRowActionBlocked = (rowAction: RowAction<TData>) => {
+  const subject = contextMenuSubject.value as TData | null;
+  return !!subject && blockedReason(rowAction, [subject], resolveCluster) !== null;
+};
+
 const isRowActionAvailable = (rowAction: RowAction<TData>) =>
-  "isAvailable" in rowAction && rowAction.isAvailable
+  !isRowActionBlocked(rowAction) &&
+  ("isAvailable" in rowAction && rowAction.isAvailable
     ? rowAction.isAvailable(contextMenuSubject.value as TData)
-    : true;
+    : true);
 
 const massActions = computed(() =>
   (props.rowActions || []).filter(
@@ -1370,6 +1386,17 @@ const massActions = computed(() =>
       "massAction" in rowAction && rowAction.massAction === true
   )
 );
+
+/* Why a mass action is disabled for the selection (read-only clusters). */
+const massActionBlocks = computed(() => {
+  const rows = selectedRows.value.map((row) => row.original);
+  return new Map(
+    massActions.value.map((rowAction) => [
+      rowAction,
+      rows.length ? blockedReason(rowAction, rows, resolveCluster) : null,
+    ])
+  );
+});
 
 /* -------------------------------------------------------- lifecycle -- */
 
@@ -1969,7 +1996,8 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
                   v-if="
                     isDestructiveAction(actionLabel(rowAction)) &&
                     index > 0 &&
-                    !isDestructiveAction(actionLabel(rowActions[index - 1]))
+                    !isDestructiveAction(actionLabel(rowActions[index - 1])) &&
+                    !isRowActionBlocked(rowAction)
                   "
                 />
                 <ContextMenuItem
@@ -2012,7 +2040,7 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
                   </ContextMenuShortcut>
                 </ContextMenuItem>
               </template>
-              <template v-else>
+              <template v-else-if="!isRowActionBlocked(rowAction)">
                 <ContextMenuSub>
                   <ContextMenuSubTrigger>
                     <component
@@ -2077,30 +2105,37 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
           selected
         </span>
         <span class="mx-1 h-4 w-px bg-border" aria-hidden="true" />
-        <Button
+        <!-- The wrapper shows the reason: a disabled button gets no hover. -->
+        <span
           v-for="(rowAction, index) in massActions"
           :key="index"
-          size="xs"
-          :variant="
-            isDestructiveAction(actionLabel(rowAction))
-              ? 'destructive'
-              : 'ghost'
-          "
-          @click="handleRowAction(rowAction)"
+          class="inline-flex"
+          :title="massActionBlocks.get(rowAction) ?? undefined"
         >
-          <component
-            :is="actionIcon(actionLabel(rowAction))"
-            v-if="actionIcon(actionLabel(rowAction))"
-            class="h-3 w-3"
-          />
-          {{ actionLabel(rowAction) }}
-          <Kbd
-            v-if="keyboardEnabled && actionShortcut(rowAction)"
-            :keys="actionShortcut(rowAction) || []"
-            size="sm"
-            variant="ghost"
-          />
-        </Button>
+          <Button
+            size="xs"
+            :variant="
+              isDestructiveAction(actionLabel(rowAction))
+                ? 'destructive'
+                : 'ghost'
+            "
+            :disabled="!!massActionBlocks.get(rowAction)"
+            @click="handleRowAction(rowAction)"
+          >
+            <component
+              :is="actionIcon(actionLabel(rowAction))"
+              v-if="actionIcon(actionLabel(rowAction))"
+              class="h-3 w-3"
+            />
+            {{ actionLabel(rowAction) }}
+            <Kbd
+              v-if="keyboardEnabled && actionShortcut(rowAction)"
+              :keys="actionShortcut(rowAction) || []"
+              size="sm"
+              variant="ghost"
+            />
+          </Button>
+        </span>
         <Button
           variant="ghost"
           size="icon-xs"

@@ -43,6 +43,9 @@ const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 import { PanelProviderSetSidePanelComponentKey } from "@/providers/PanelProvider";
 import { useWatchedList } from "@/composables/useWatchedList";
 import { resolveCreateTarget } from "@/components/tables/identity";
+import { allowed } from "@/lib/guardrails/guard";
+import { guardedCluster } from "@/lib/guardrails/backstop";
+import { readOnlyReason } from "@/lib/guardrails/policy";
 const setSidePanelComponent = injectStrict(
   PanelProviderSetSidePanelComponentKey
 );
@@ -117,14 +120,25 @@ const showDetails = (row: any) => {
   });
 };
 
-const create = () => {
-  const kind = String(route.query.kind || "");
-  const target = resolveCreateTarget(
+const createTarget = () =>
+  resolveCreateTarget(
     context.value,
     kubeConfig.value,
     contexts.value,
     contextKubeConfigMapping.value
   );
+
+/* New objects go to the primary context: not when it is read-only. */
+const createBlocked = computed(() => {
+  const target = createTarget();
+  const cluster = guardedCluster(target.context, target.kubeConfig);
+  return cluster.readOnly ? readOnlyReason(cluster) : "";
+});
+
+const create = () => {
+  const kind = String(route.query.kind || "");
+  const target = createTarget();
+  if (!allowed("create", [{ ...target, kind }])) return;
 
   addTab(
     `create_` + Math.random().toString(36).substring(7),
@@ -197,14 +211,18 @@ onMounted(async () => {
     @retry="retry"
   >
     <template #action-buttons>
-      <Button
-        size="sm"
-        :title="`Create ${route.query.kind || 'resource'}`"
-        @click="create"
-      >
-        <Plus class="h-3.5 w-3.5" />
-        New
-      </Button>
+      <!-- The wrapper shows the reason: a disabled button gets no hover. -->
+      <span class="inline-flex" :title="createBlocked || undefined">
+        <Button
+          size="sm"
+          :title="createBlocked ? undefined : `Create ${route.query.kind || 'resource'}`"
+          :disabled="!!createBlocked"
+          @click="create"
+        >
+          <Plus class="h-3.5 w-3.5" />
+          New
+        </Button>
+      </span>
     </template>
   </DataTable>
 </template>

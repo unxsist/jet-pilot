@@ -14,6 +14,7 @@ import type { TabSession } from "@/lib/tabDescriptors";
 import type { PortForwardProfile } from "@/lib/portForwardProfiles";
 import type { Workspace } from "@/lib/workspaces";
 import type { ThemeSettings } from "@/lib/themes/types";
+import type { ClusterRecord } from "@/lib/clusters/meta";
 
 export type LogLevel = "error" | "warn" | "info" | "debug" | "trace";
 
@@ -77,6 +78,7 @@ export interface Preferences {
   };
 }
 
+/** Per-context namespace lists of releases before 1.41 (now part of `clusters`). */
 export interface ContextSettings {
   context: string;
   namespaces: string[];
@@ -91,8 +93,8 @@ export interface AppState {
   PanelProvider: {
     height: number;
   };
-  /** Namespace lists per context name (Settings › Clusters). */
-  contextSettings: ContextSettings[];
+  /** What the user told JET Pilot about each cluster (alias, colour, guardrails...). */
+  clusters: ClusterRecord[];
   collapsedNavigationGroups: string[];
   pinnedResources: { name: string; kind: string }[];
   updates: {
@@ -110,6 +112,8 @@ export interface AppState {
   activeWorkspaceId: string | null;
   /** Command palette "Recent" items (most recent first). */
   recentCommands: string[];
+  /** Version in which the setup guide was finished or skipped. */
+  welcomeCompleted: string | null;
 }
 
 /** Everything the app reads through `SettingsContextStateKey`. */
