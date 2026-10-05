@@ -7,10 +7,10 @@
  * editor background, then lays the usable workbench colours on top:
  * foregrounds only win when they stay readable (4.5:1) on the surface they
  * land on, translucent colours are composited onto that surface. That
- * part, the detection and the light/dark pairing are ported from T3 Code
- * (MIT, github.com/pingdotgg/t3code, apps/web/src/vscodeThemeImport.ts).
+ * part, the detection and the light/dark pairing are derived from
+ * MIT-licensed code (see THIRD_PARTY_THEMES.md).
  *
- * Beyond T3, the parts JET Pilot can paint are kept in `jetPilot`:
+ * Beyond the standard roles, the parts JET Pilot can paint are kept in `jetPilot`:
  * tokenColors → syntax (TextMate scope matching, ./scopes.ts),
  * terminal.ansi* → terminal, editor / widget / scrollbar keys → editor, and
  * success / info from the git decoration / info colours.
@@ -186,7 +186,7 @@ const MAPPED_KEYS: ReadonlySet<string> = new Set([
   "editorInfo.foreground",
 ]);
 
-// T3 Code's stock accent / input, the fallbacks when a theme has none that stand apart.
+// Stock input colours, the fallbacks when a theme has none that stand apart.
 const STANDARD_INPUT: Record<ThemeAppearance, string> = { light: "#d4d4d8", dark: "#1e1e1e" };
 
 /* ---- detection, JSONC, includes ---- */

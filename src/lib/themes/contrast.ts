@@ -2,10 +2,8 @@
  * Colour primitives of the theme engine: parsing any CSS colour, hex and
  * HSL-triplet output, compositing and WCAG contrast. Everything works on
  * sRGB channels in 0–255 so contrast is measured on the exact pixels a
- * theme paints (the hex values the resolver hands out).
- *
- * Contrast maths ported from T3 Code (MIT, github.com/pingdotgg/t3code,
- * apps/web/src/themePalette.ts).
+ * theme paints (the hex values the resolver hands out). Licence: see
+ * THIRD_PARTY_THEMES.md.
  */
 import {
   converter,

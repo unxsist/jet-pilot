@@ -407,14 +407,14 @@ const save = async () => {
 
 const revert = () => setModelText(savedText.value, true);
 
-const exportDraft = async (forT3: boolean) => {
+const exportDraft = async (portable: boolean) => {
   parseNow();
   if (!draft.value) {
     showProblems.value = true;
     return;
   }
   try {
-    const path = await exportThemeFile(draft.value, { id: draft.value.id ?? (currentId.value || "theme") }, forT3);
+    const path = await exportThemeFile(draft.value, { id: draft.value.id ?? (currentId.value || "theme") }, portable);
     if (path) toast({ title: `Exported ${draft.value.name}`, description: path, variant: "success" });
   } catch (e) {
     toast({ title: "Couldn't export the theme", description: errorMessage(e), variant: "destructive" });
@@ -586,7 +586,7 @@ const badge = computed(() =>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" class="w-48">
             <DropdownMenuItem @select="exportDraft(false)">JET Pilot theme…</DropdownMenuItem>
-            <DropdownMenuItem @select="exportDraft(true)">For T3 Code…</DropdownMenuItem>
+            <DropdownMenuItem @select="exportDraft(true)">Standard theme…</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <Button v-if="readonly" size="sm" :disabled="duplicating" @click="duplicate">

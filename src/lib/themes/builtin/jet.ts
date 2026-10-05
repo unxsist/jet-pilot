@@ -2,9 +2,9 @@
  * The built-in JET theme: today's look, pixel for pixel. The token triplets
  * mirror src/assets/main.postcss (`:root,.light` and `.dark`) and are carried
  * as `jetPilot.tokens`, so resolving JET reproduces the stylesheet exactly;
- * the editor and terminal colours are JET's Monaco / xterm palettes. The T3
- * roles are mapped from the same tokens, so "Export for T3 Code" and theme
- * previews show JET too. (The runtime clears inline vars for JET and lets
+ * the editor and terminal colours are JET's Monaco / xterm palettes. The
+ * standard roles are mapped from the same tokens, so the portable export
+ * and theme previews show JET too. (The runtime clears inline vars for JET and lets
  * main.postcss paint; a test keeps this file and the stylesheet in sync.)
  */
 import { mix, tripletToHex } from "../contrast";
@@ -95,7 +95,7 @@ export const JET_TOKENS: Record<ThemeAppearance, Record<ThemeToken, string>> = {
   },
 };
 
-/** JET's tokens expressed as T3 roles (for exports and previews). */
+/** JET's tokens expressed as standard roles (for exports and previews). */
 function jetVariant(appearance: ThemeAppearance): ThemeVariant {
   const tokens = JET_TOKENS[appearance];
   const hex = (token: ThemeToken) => tripletToHex(tokens[token]);

@@ -112,21 +112,21 @@ export async function readThemeBlobs(
 /* ------------------------------------------------------------ export -- */
 
 /**
- * Saves a theme file where the user picks. `forT3` writes what T3 Code's
- * importer accepts (every role resolved, no jetPilot block). Returns the
- * path, or null when cancelled.
+ * Saves a theme file where the user picks. `portable` writes a standard
+ * theme file (version 1, every role resolved, no jetPilot block) for other
+ * apps that read the format. Returns the path, or null when cancelled.
  */
 export async function exportThemeFile(
   file: ThemeFile,
   entry: Pick<ThemeEntry, "id">,
-  forT3: boolean
+  portable: boolean
 ): Promise<string | null> {
   const { serializeTheme } = await import("@/lib/themes/serialize");
-  const text = serializeTheme(file, { forT3 });
+  const text = serializeTheme(file, { portable });
   const path = await saveDialog({
-    title: forT3 ? "Export theme for T3 Code" : "Export theme",
-    defaultPath: `${entry.id.replace(/~.*$/, "")}${forT3 ? ".t3" : ""}.json`,
-    filters: [{ name: forT3 ? "T3 Code theme" : "JET Pilot theme", extensions: ["json"] }],
+    title: portable ? "Export standard theme" : "Export theme",
+    defaultPath: `${entry.id.replace(/~.*$/, "")}${portable ? ".standard" : ""}.json`,
+    filters: [{ name: portable ? "Standard JSON theme" : "JET Pilot theme", extensions: ["json"] }],
   });
   if (!path) return null;
   await writeTextFile(path, text);

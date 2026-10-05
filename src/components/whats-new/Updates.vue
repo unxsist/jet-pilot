@@ -21,14 +21,14 @@ const slides = [
   {
     title: "Make JET Pilot yours",
     description:
-      "Themes are here. Pick from JET, T3 Code's palettes and favourites like Catppuccin, Tokyo Night, Dracula, Nord, GitHub, One Dark Pro, Rosé Pine and Gruvbox — hover a card to preview it on the whole app. Find them in Settings › Appearance.",
+      "Themes are here. Pick from JET, the Blossom, Grove, Ocean, Ember and Iris palettes and favourites like Catppuccin, Tokyo Night, Dracula, Nord, GitHub, One Dark Pro, Rosé Pine and Gruvbox — hover a card to preview it on the whole app. Find them in Settings › Appearance.",
     dark: themesDark,
     light: themesLight,
   },
   {
     title: "Bring the theme you already love",
     description:
-      "Drop in a VS Code, Sublime Text, TextMate or T3 Code theme, or install one from the Open VSX gallery without leaving the app. Light and dark variants are paired automatically, and the editor and terminal pick up the theme's own syntax and ANSI colours.",
+      "Drop in a VS Code, Sublime Text or TextMate theme, or a JET Pilot theme file, or install one from the Open VSX gallery without leaving the app. Light and dark variants are paired automatically, and the editor and terminal pick up the theme's own syntax and ANSI colours.",
     dark: galleryDark,
     light: galleryLight,
   },
@@ -66,8 +66,8 @@ const underTheHood = [
   },
   {
     icon: FileJson,
-    title: "T3 Code compatible",
-    text: "T3 Code themes import as they are, and any theme can be exported for T3 Code.",
+    title: "Portable theme files",
+    text: "Export any theme as a standard JSON theme file to share it.",
   },
   {
     icon: Scale,

@@ -6,7 +6,7 @@
 //! (src/lib/themes/types.ts: `OpenVsxSearchResult`, `OpenVsxInstallResult`)
 //! and runs every theme text through its VS Code / TextMate importer.
 //!
-//! Install safety (modelled on T3 Code's importer):
+//! Install safety:
 //! - only MIT-licensed extensions, so JET Pilot stays MIT (the SPDX
 //!   expression is evaluated: `MIT OR X` passes, `MIT AND X` and `WITH`
 //!   exceptions don't);

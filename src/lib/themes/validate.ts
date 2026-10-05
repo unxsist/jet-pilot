@@ -1,14 +1,11 @@
 /*
- * Validation of theme files (JET Pilot and T3 Code), with T3's rules and
- * readable errors: version 1 for the full form, a name of at most 48
- * characters, light / dark appearance, lower-case ids, no unknown colour
- * roles. Unknown top-level keys are kept (T3 ignores them too). Variants
- * are accepted in T3's flat form ({ "dark": { "canvas": ..., "text": ... } })
- * and in JET's structured form ({ "dark": { "colors": ..., "jetPilot": ... } })
- * and always come back structured.
- *
- * Rules ported from T3 Code (MIT, github.com/pingdotgg/t3code,
- * apps/web/src/themePalette.ts → parseThemeFile).
+ * Validation of JSON theme files (portable, optionally with a jetPilot
+ * block), with readable errors: version 1 for the full form, a name of at
+ * most 48 characters, light / dark appearance, lower-case ids, no unknown
+ * colour roles. Unknown top-level keys are kept. Variants are accepted in
+ * the flat form ({ "dark": { "canvas": ..., "text": ... } }) and in JET's
+ * structured form ({ "dark": { "colors": ..., "jetPilot": ... } }) and
+ * always come back structured. Licence: see THIRD_PARTY_THEMES.md.
  */
 import { isColor, TRIPLET_PATTERN } from "./contrast";
 import { RESERVED_THEME_IDS, THEME_ID_PATTERN, themeIdFromName } from "./runtime";
@@ -97,7 +94,7 @@ function parseExtensions(value: unknown, where: string): JetPilotThemeExtensions
       case "colors":
         result.colors = parseColorRecord(block, JET_ROLE_SET, `${at}colors: `, (role) =>
           ROLE_SET.has(role)
-            ? `"${role}" is a T3 role: put it in the top-level colors.`
+            ? `"${role}" is a standard role: put it in the top-level colors.`
             : `"${role}" is not a JET Pilot color role (${JET_COLOR_ROLES.join(", ")}).`
         );
         break;
@@ -180,7 +177,7 @@ function parseVariant(value: unknown, appearance: ThemeAppearance): ThemeVariant
   const structured = Object.keys(value).every((key) => STRUCTURED_VARIANT_KEYS.has(key));
   const variant = structured
     ? parseVariantBody(value, where)
-    : // T3's flat form: the variant is the role map itself.
+    : // The flat form: the variant is the role map itself.
       (() => {
         const { jetPilot, ...roles } = value;
         return parseVariantBody(

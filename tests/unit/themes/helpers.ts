@@ -19,7 +19,7 @@ export const FIXTURES = [
   "monokai.sublime-color-scheme",
   "meadow.tmTheme",
   "nightfall.json",
-  "t3-export.json",
+  "portable-export.json",
 ];
 
 /** Every built-in theme file (JSON loaded straight from disk). */

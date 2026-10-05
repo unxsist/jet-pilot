@@ -69,7 +69,7 @@ export function setModelSchema(
 }
 
 /*
- * JSON: strict (theme files must stay T3 Code compatible), schemas by model
+ * JSON: strict (theme files must stay portable, plain JSON), schemas by model
  * URI like YAML above. Colour swatches come from the JSON language service,
  * for strings whose schema has `"format": "color-hex"`.
  */

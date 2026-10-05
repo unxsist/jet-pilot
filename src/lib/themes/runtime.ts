@@ -3,12 +3,15 @@
  * culori, no Vue. Which theme and appearance to paint, theme ids of user
  * files and installs, and the first-paint cache read by public/boot.js.
  */
-import type { BootCache, BootCacheEntry, ThemeChoice } from "./scheme";
+import { canonicalThemeId, type BootCache, type BootCacheEntry, type ThemeChoice } from "./scheme";
 import type { ThemeAppearance, ThemeEntry, ThemeFile, ThemeSettings } from "./types";
 
 export {
   COLOR_SCHEME_KEY,
+  LEGACY_THEME_IDS,
   THEME_CACHE_KEY,
+  canonicalThemeId,
+  migrateThemeSettings,
   wantedAppearance,
   type BootCache,
   type BootCacheEntry,
@@ -31,8 +34,8 @@ export function themeAppearances(
 
 /**
  * The appearance a theme is painted in: the wanted one when it has it,
- * otherwise its own (T3: a dark-only theme chosen for light mode paints
- * dark, the `.dark` class included).
+ * otherwise its own (a dark-only theme chosen for light mode paints dark,
+ * the `.dark` class included).
  */
 export function paintedAppearance(
   appearances: readonly ThemeAppearance[],
@@ -41,7 +44,7 @@ export function paintedAppearance(
   return appearances.length === 0 || appearances.includes(wanted) ? wanted : appearances[0]!;
 }
 
-/** The themes folder below $APPCONFIG, and T3's limits for it. */
+/** The themes folder below $APPCONFIG, and its limits. */
 export const THEMES_DIR = "themes";
 export const MAX_THEME_FILES = 64;
 export const MAX_THEME_FILE_BYTES = 256 * 1024;
@@ -56,7 +59,14 @@ export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
   "jet",
 ]);
 
-/** "Tokyo Night Storm" → "tokyo-night-storm" (T3's rule). */
+/**
+ * True for the id of a built-in, current or former: a former id still
+ * names the built-in (LEGACY_THEME_IDS), so no user theme may take it.
+ */
+export const isBuiltinThemeId = (builtinIds: ReadonlySet<string>, id: string) =>
+  builtinIds.has(id) || canonicalThemeId(id) !== id;
+
+/** "Tokyo Night Storm" → "tokyo-night-storm". */
 export function themeIdFromName(name: string): string {
   const normalized = name
     .normalize("NFKD")
@@ -70,7 +80,7 @@ export function themeIdFromName(name: string): string {
   return normalized || "custom-theme";
 }
 
-/** "nightfall.json" → "nightfall": the file name is the id (T3's rule), slugged when it isn't one. */
+/** "nightfall.json" → "nightfall": the file name is the id, slugged when it isn't one. */
 export function themeIdFromFileName(fileName: string): string {
   const stem = fileName.replace(/\.json$/i, "");
   return THEME_ID_PATTERN.test(stem) ? stem : themeIdFromName(stem);
@@ -133,7 +143,7 @@ export function pickTheme(
   lookup: (id: string) => readonly ThemeAppearance[] | null | undefined,
   fallbackId: string
 ): ThemeChoice {
-  let id = wanted === "light" ? settings.lightTheme : settings.darkTheme;
+  let id = canonicalThemeId(wanted === "light" ? settings.lightTheme : settings.darkTheme);
   let appearances = lookup(id);
   if (!appearances) {
     id = fallbackId;
@@ -153,21 +163,21 @@ export function uniqueThemeId(base: string, taken: (id: string) => boolean): str
 }
 
 /**
- * What picking a theme (a card, a palette option) does, T3 Code's rule: a
- * theme with both appearances is used for both; a single-appearance theme
- * claims its own half only (Dracula becomes the dark theme).
+ * What picking a theme (a card, a palette option) does: a theme with both
+ * appearances is used for both; a single-appearance theme claims its own
+ * half only (Dracula becomes the dark theme).
  */
 export function clickMode(entry: Pick<ThemeEntry, "appearances">): ThemeAppearance | "both" {
   return entry.appearances.length === 1 ? entry.appearances[0]! : "both";
 }
 
 /** Palette / settings groups. */
-export type ThemeGroup = "Built-in" | "T3 Code" | "Yours" | "Open VSX";
+export type ThemeGroup = "Built-in" | "Yours" | "Open VSX";
 
-export function themeGroup(entry: Pick<ThemeEntry, "source" | "origin">): ThemeGroup {
+export function themeGroup(entry: Pick<ThemeEntry, "source">): ThemeGroup {
   if (entry.source === "openvsx") return "Open VSX";
   if (entry.source === "user") return "Yours";
-  return entry.origin?.label === "T3 Code" ? "T3 Code" : "Built-in";
+  return "Built-in";
 }
 
 /** Source of a user theme file: Open VSX installs carry `origin.label = "Open VSX"`. */

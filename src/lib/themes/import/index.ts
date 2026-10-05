@@ -4,14 +4,14 @@
  *   plist XML                      → TextMate (.tmTheme)
  *   `globals` / `rules`            → Sublime (.sublime-color-scheme)
  *   dotted `colors` / tokenColors  → VS Code (unless version: 1)
- *   anything else                  → JET Pilot / T3 Code theme file
+ *   anything else                  → JSON theme file (JET Pilot / portable)
  * Errors never throw: they come back as { ok: false, error } with a
  * message fit for the UI.
  */
 import type { ImportResult } from "../types";
 import { isRecord } from "../validate";
 import { importSublimeColorScheme, isSublimeColorScheme } from "./sublime";
-import { importThemeFile } from "./t3";
+import { importThemeFile } from "./themeFile";
 import { importTmTheme } from "./tmtheme";
 import { importVsCodeTheme, isVsCodeThemeFile, parseJsoncText } from "./vscode";
 

@@ -53,7 +53,7 @@ const emit = defineEmits<{
   (e: "hover", hovering: boolean): void;
   (e: "duplicate"): void;
   (e: "edit"): void;
-  (e: "export", forT3: boolean): void;
+  (e: "export", portable: boolean): void;
   (e: "delete"): void;
 }>();
 
@@ -159,7 +159,7 @@ const menuOpen = ref(false);
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent class="w-48">
               <DropdownMenuItem @select="emit('export', false)">JET Pilot theme…</DropdownMenuItem>
-              <DropdownMenuItem @select="emit('export', true)">For T3 Code…</DropdownMenuItem>
+              <DropdownMenuItem @select="emit('export', true)">Standard theme…</DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <template v-if="editable">

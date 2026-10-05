@@ -10,7 +10,7 @@ const full = (extra: Record<string, unknown> = {}) => ({
 });
 
 describe("themeIdFromName", () => {
-  it("follows T3's rule", () => {
+  it("slugs the name", () => {
     expect(themeIdFromName("Tokyo Night Storm")).toBe("tokyo-night-storm");
     expect(themeIdFromName("  --Rosé Pine!! ")).toBe("rose-pine");
     expect(themeIdFromName("***")).toBe("custom-theme");
@@ -69,7 +69,7 @@ describe("parseThemeFile", () => {
     [full({ variants: { light: { canvas: "#fff", bogus: "#000" } } }), 'variants.light: "bogus" is not a supported theme color role.'],
     [full({ collection: { id: "x" } }), "Theme collections need a valid id and label."],
     [full({ jetPilot: { fonts: {} } }), 'jetPilot: "fonts" is not supported'],
-    [full({ jetPilot: { colors: { text: "#fff" } } }), '"text" is a T3 role: put it in the top-level colors.'],
+    [full({ jetPilot: { colors: { text: "#fff" } } }), '"text" is a standard role: put it in the top-level colors.'],
     [full({ jetPilot: { terminal: { orange: "#f80" } } }), '"orange" is not an ANSI colour'],
     [full({ jetPilot: { syntax: { keyword: "#f80" } } }), '"keyword" is not a syntax slot'],
     [full({ jetPilot: { editor: { "editor.background": "x" } } }), 'The colour for "editor.background"'],
@@ -79,7 +79,7 @@ describe("parseThemeFile", () => {
     expect(() => parseThemeFile(value)).toThrow(message);
   });
 
-  it("normalises T3's flat variants to the structured form", () => {
+  it("normalises flat variants to the structured form", () => {
     const file = parseThemeFile(
       full({ variants: { light: { canvas: "#ffffff", text: "#111111", jetPilot: { colors: { success: "#070" } } } } })
     );

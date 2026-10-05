@@ -17,8 +17,8 @@ describe("format sniffing", () => {
     ["harbor-light-color-theme.jsonc", "vscode"],
     ["monokai.sublime-color-scheme", "sublime"],
     ["meadow.tmTheme", "tmtheme"],
-    ["nightfall.json", "t3"],
-    ["t3-export.json", "t3"],
+    ["nightfall.json", "portable"],
+    ["portable-export.json", "portable"],
   ])("%s → %s", (name, format) => {
     const result = importTheme(fixture(name), name);
     expect(result.ok && result.format).toBe(format);
@@ -37,10 +37,10 @@ describe("format sniffing", () => {
 
   it("sniffs by content, not the file name", () => {
     expect(importTheme(fixture("meadow.tmTheme"), "theme.json")).toMatchObject({ format: "tmtheme" });
-    expect(importTheme(fixture("nightfall.json"), "x.sublime-color-scheme")).toMatchObject({ format: "t3" });
+    expect(importTheme(fixture("nightfall.json"), "x.sublime-color-scheme")).toMatchObject({ format: "portable" });
   });
 
-  it("a version-1 file with dotted keys is still a theme file (and fails T3 rules)", () => {
+  it("a version-1 file with dotted keys is still a theme file (and fails its rules)", () => {
     const result = importTheme(JSON.stringify({ version: 1, name: "X", appearance: "dark", colors: { "editor.background": "#000" } }));
     expect(result).toEqual({ ok: false, error: '"editor.background" is not a supported theme color role.' });
   });
@@ -332,10 +332,10 @@ describe("scope matching", () => {
   });
 });
 
-describe("T3 / JET import", () => {
-  it("imports the Nightfall example and a full T3 export", () => {
+describe("JSON theme file import", () => {
+  it("imports the Nightfall example and a full portable export", () => {
     expect(importFixture("nightfall.json")).toMatchObject({ id: "nightfall", canvas: "#1a1b26", accent: "#7aa2f7" });
-    const exported = importFixture("t3-export.json");
+    const exported = importFixture("portable-export.json");
     expect(exported).toMatchObject({ id: "my-ocean", appearance: "light" });
     expect(Object.keys(exported.colors!)).toHaveLength(57);
     expect(Object.keys(exported.variants!.dark!.colors!)).toHaveLength(57);

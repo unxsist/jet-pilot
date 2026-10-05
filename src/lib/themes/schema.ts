@@ -23,21 +23,21 @@ export const THEME_SCHEMA_URI = "https://www.jet-pilot.app/schemas/theme.json";
 
 export const ROLE_DESCRIPTIONS: Record<ThemeColorRole, string> = {
   canvas: "Main background behind content: tables, editor, terminal (--background). Seed of the derived palette.",
-  chrome: "Window chrome background (T3 Code). JET Pilot uses `sidebar` for its chrome.",
-  toolbar: "Toolbar background (T3 Code).",
-  toolbarForeground: "Text on the toolbar (T3 Code).",
-  toolbarBorder: "Toolbar border (T3 Code).",
-  toolbarControl: "Toolbar button background (T3 Code).",
-  toolbarControlForeground: "Toolbar button text (T3 Code).",
-  toolbarControlHover: "Toolbar button background on hover (T3 Code).",
+  chrome: "Window chrome background in apps that have one. JET Pilot paints its chrome with `sidebar`.",
+  toolbar: "Toolbar background. Not painted by JET Pilot (kept for portable theme files).",
+  toolbarForeground: "Text on the toolbar. Not painted by JET Pilot (kept for portable theme files).",
+  toolbarBorder: "Toolbar border. Not painted by JET Pilot (kept for portable theme files).",
+  toolbarControl: "Toolbar button background. Not painted by JET Pilot (kept for portable theme files).",
+  toolbarControlForeground: "Toolbar button text. Not painted by JET Pilot (kept for portable theme files).",
+  toolbarControlHover: "Toolbar button background on hover. Not painted by JET Pilot (kept for portable theme files).",
   surface: "Panels and cards: side panel, grouped settings (--surface-2 / --card).",
   surfaceRaised: "Raised surfaces; the placeholder text is checked against it.",
   surfaceOverlay: "Popovers, menus, dialogs, command palette and editor widgets (--surface-3 / --popover).",
-  text: "Primary text (--foreground). Kept at 7:1 contrast on the canvas.",
-  textMuted: "Secondary text (T3 Code). JET Pilot's muted text is `mutedForeground`.",
+  text: "Primary text (--foreground). Derived at 7:1 on the canvas; a colour you set is kept unless it is below 4.5:1.",
+  textMuted: "Secondary text on the canvas; the editor's comments, punctuation and line numbers. JET Pilot's muted UI text is `mutedForeground`.",
   border: "Hairline borders (--border); --border-subtle and --border-strong are mixed from it.",
   input: "Input borders (--input).",
-  focus: "Focus rings (--ring) and the editor's focus border.",
+  focus: "Focus rings (--ring) and the editor's focus border. A neutral focus colour louder than 6:1 is softened toward the canvas for the rings.",
   accent: "Brand / accent colour: links (--link), text selection (--selection), editor selection. Seed of the derived palette.",
   accentForeground: "Text on a solid accent fill.",
   secondary: "Secondary buttons and controls (--secondary).",
@@ -45,35 +45,35 @@ export const ROLE_DESCRIPTIONS: Record<ThemeColorRole, string> = {
   muted: "Muted backgrounds: skeletons, subtle fills (--muted).",
   mutedForeground: "Muted text: descriptions, captions, table meta (--muted-foreground).",
   placeholder: "Input placeholder text.",
-  secondaryLabel: "Secondary labels (T3 Code).",
-  iconMuted: "Muted icons (T3 Code).",
-  error: "Error signal colour (T3 Code). The editor's find highlights use `warning`.",
+  secondaryLabel: "Secondary labels. Not painted by JET Pilot (kept for portable theme files).",
+  iconMuted: "Muted icons. Not painted by JET Pilot (kept for portable theme files).",
+  error: "Error signal colour (solid fills); readable error text is `errorForeground`.",
   errorForeground: "Readable error text; becomes --destructive (also checked on the canvas).",
   errorSurface: "Background of error alerts.",
   warning: "Warning signal colour; editor find-match highlight.",
   warningForeground: "Readable warning text; becomes --warning (also checked on the canvas).",
   warningSurface: "Background of warning alerts.",
-  update: "Update / info signal colour (T3 Code).",
-  updateForeground: "Text on update surfaces (T3 Code).",
-  updateSurface: "Background of update notices (T3 Code).",
+  update: "Update notice colour. Not painted by JET Pilot (kept for portable theme files).",
+  updateForeground: "Text on update notices. Not painted by JET Pilot (kept for portable theme files).",
+  updateSurface: "Background of update notices. Not painted by JET Pilot (kept for portable theme files).",
   accentSurface: "Hover and selected rows, menu highlight (--accent) and the editor's selected suggestion.",
   accentSurfaceForeground: "Text on hovered / selected rows (--accent-foreground).",
-  messageSurface: "Message bubble background (T3 Code).",
-  messageForeground: "Message bubble text (T3 Code).",
+  messageSurface: "Message bubble background. Not painted by JET Pilot (kept for portable theme files).",
+  messageForeground: "Message bubble text. Not painted by JET Pilot (kept for portable theme files).",
   messageAction:
-    "Primary buttons, switches, the active nav indicator (--primary). When it is not a vivid colour (3:1 on the canvas, apart from accentSurface), the accent / focus colour is used instead.",
+    "Primary buttons, switches, the active nav indicator (--primary). When it is not a vivid colour (3:1 on the canvas, apart from accentSurface), the accent / focus colour is used instead. A neutral one louder than 6:1 (a monochrome theme's text colour) is softened toward the canvas, to at least 4.5:1.",
   messageActionForeground: "Text on primary buttons (--primary-foreground).",
-  messageActionHover: "Primary button hover (T3 Code).",
+  messageActionHover: "Primary button hover. Not painted by JET Pilot (kept for portable theme files).",
   codeBackground: "Inline code background.",
   codeForeground: "Inline code text.",
   sidebar: "App chrome: navigation, tab bar, toolbars (--surface-1 / --sidebar).",
   sidebarForeground: "Navigation text (--sidebar-foreground).",
   sidebarMutedForeground: "Muted navigation text.",
-  sidebarControlSurface: "Controls in the sidebar (T3 Code).",
-  sidebarRowHover: "Sidebar row on hover (T3 Code).",
-  sidebarRowActive: "Active sidebar row (T3 Code).",
-  sidebarRowSelected: "Selected sidebar row (T3 Code).",
-  sidebarBorder: "Sidebar border (T3 Code).",
+  sidebarControlSurface: "Controls in the sidebar. Not painted by JET Pilot (kept for portable theme files).",
+  sidebarRowHover: "Sidebar row on hover. Not painted by JET Pilot (kept for portable theme files).",
+  sidebarRowActive: "Active sidebar row. Not painted by JET Pilot (kept for portable theme files).",
+  sidebarRowSelected: "Selected sidebar row. Not painted by JET Pilot (kept for portable theme files).",
+  sidebarBorder: "Sidebar border. Not painted by JET Pilot (kept for portable theme files).",
   terminalBackground: "Terminal background.",
   terminalForeground: "Terminal text.",
   terminalCursor: "Terminal and editor cursor.",
@@ -83,9 +83,9 @@ export const ROLE_DESCRIPTIONS: Record<ThemeColorRole, string> = {
 };
 
 export const JET_ROLE_DESCRIPTIONS: Record<JetColorRole, string> = {
-  success: "Success colour, text-grade on the canvas (--success): ready pods, healthy status. Derived as a green when missing.",
+  success: "Success colour, text-grade on the canvas (--success): ready pods, healthy status. Derived as a green when missing, as muted as the theme's own error / warning colours.",
   successForeground: "Text on a solid success fill (--success-foreground).",
-  info: "Info colour, text-grade on the canvas (--info). Derived as a blue when missing.",
+  info: "Info colour, text-grade on the canvas (--info): traffic edges, info badges. Derived as a blue when missing, as muted as the theme's own error / warning colours.",
   infoForeground: "Text on a solid info fill (--info-foreground).",
 };
 
@@ -111,14 +111,14 @@ const ansiLabel = (name: AnsiColor) =>
 
 const colorsSchema = {
   type: "object",
-  description: "T3 Code colour roles (any CSS colour). Missing roles are derived from the canvas and accent.",
+  description: "The standard colour roles (any CSS colour). Missing roles are derived from the canvas and accent.",
   properties: properties(THEME_COLOR_ROLES, (role) => ROLE_DESCRIPTIONS[role]),
   additionalProperties: false,
 };
 
 const jetPilotSchema = {
   type: "object",
-  description: "JET Pilot extensions (T3 Code ignores this block).",
+  description: "JET Pilot extensions (other readers of the format ignore this block).",
   properties: {
     colors: {
       type: "object",
@@ -162,7 +162,7 @@ const jetPilotSchema = {
 const variantSchema = {
   type: "object",
   description:
-    'The other appearance. Either JET\'s form ({ "canvas", "accent", "colors", "jetPilot" }) or T3\'s flat role map.',
+    'The other appearance. Either the structured form ({ "canvas", "accent", "colors", "jetPilot" }) or a flat role map.',
   properties: {
     canvas: color(ROLE_DESCRIPTIONS.canvas),
     accent: color(ROLE_DESCRIPTIONS.accent),
@@ -170,7 +170,7 @@ const variantSchema = {
     jetPilot: jetPilotSchema,
     ...properties(
       THEME_COLOR_ROLES.filter((role) => role !== "canvas" && role !== "accent"),
-      (role) => `${ROLE_DESCRIPTIONS[role]} (T3 flat variant form)`
+      (role) => `${ROLE_DESCRIPTIONS[role]} (flat variant form)`
     ),
   },
   additionalProperties: false,
@@ -181,7 +181,7 @@ export const THEME_JSON_SCHEMA = {
   $id: THEME_SCHEMA_URI,
   title: "JET Pilot theme",
   description:
-    "A JET Pilot theme: T3 Code's theme file (version 1) plus an optional jetPilot block. Short form: name, appearance, canvas and accent.",
+    "A JET Pilot theme: a portable JSON theme file (version 1) plus an optional jetPilot block. Short form: name, appearance, canvas and accent.",
   type: "object",
   required: ["name", "appearance"],
   properties: {
@@ -213,9 +213,9 @@ export const THEME_JSON_SCHEMA = {
     managed: { type: "boolean" },
     origin: {
       type: "object",
-      description: "Where the theme came from (JET Pilot; T3 Code ignores it).",
+      description: "Where the theme came from (JET Pilot; other readers ignore it).",
       properties: {
-        label: { type: "string", description: 'E.g. "Open VSX", "VS Code", "T3 Code".' },
+        label: { type: "string", description: 'E.g. "Open VSX", "VS Code", "Sublime Text".' },
         url: { type: "string" },
         author: { type: "string" },
         license: { type: "string" },

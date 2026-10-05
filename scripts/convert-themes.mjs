@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 /*
  * Generates the lazy-loaded built-in themes (src/lib/themes/builtin/themes/
- * *.json + manifest.json) from pinned upstream sources:
+ * *.json + manifest.json):
  *
- *   - T3 Code's five palettes (packages/shared/src/themePalettes.ts, MIT)
  *   - curated VS Code themes (MIT), from the repository at a pinned commit
  *     or, for themes that are only built at release time, from the
  *     published .vsix on Open VSX at a pinned version
+ *   - the built-in palettes (Blossom, Grove, Ocean, Ember, Iris): complete
+ *     theme files kept in the output folder as they are (PALETTES)
  *
  * VS Code themes go through the app's own importer (src/lib/themes/import)
  * and light / dark files are merged into one theme with a variant. Every
- * source's licence is checked to be MIT before it is converted; licences
- * and attributions are listed in THIRD_PARTY_THEMES.md.
+ * downloaded source's licence is checked to be MIT before it is converted;
+ * licences and attributions are listed in THIRD_PARTY_THEMES.md.
  *
  *   node scripts/convert-themes.mjs [--refresh]
  *
@@ -31,11 +32,8 @@ const manifestPath = join(root, "src/lib/themes/builtin/manifest.json");
 const cacheDir = join(tmpdir(), "jet-pilot-theme-sources");
 const refresh = process.argv.includes("--refresh");
 
-const T3 = {
-  repo: "pingdotgg/t3code",
-  ref: "250e052f44dd313b658abebc707242a7b25be340",
-  path: "packages/shared/src/themePalettes.ts",
-};
+/** Built-in palettes kept as complete theme files (provenance: THIRD_PARTY_THEMES.md). */
+const PALETTES = ["blossom", "grove", "ocean", "ember", "iris"];
 
 const raw = (repo, ref, path) => `https://raw.githubusercontent.com/${repo}/${ref}/${path}`;
 const vsix = (namespace, name, version) =>
@@ -242,34 +240,19 @@ async function convertCurated(theme) {
   };
 }
 
-async function convertT3() {
-  const path = join(cacheDir, `themePalettes-${T3.ref.slice(0, 12)}.ts`);
-  writeFileSync(path, await download(raw(T3.repo, T3.ref, T3.path)));
-  if (!isMit(await repoLicense(T3.repo, T3.ref))) throw new Error("T3 Code is not MIT licensed.");
-  const palettes = await tsImport(path, import.meta.url);
-  const ids = { "t3-chat": "t3-chat", grove: "t3-grove", ocean: "t3-ocean", ember: "t3-ember", iris: "t3-iris" };
-  return palettes.BUILT_IN_THEMES.map((theme) => ({
-    file: {
-      version: 1,
-      id: ids[theme.id],
-      name: theme.label,
-      appearance: theme.appearance,
-      colors: theme.colors,
-      ...(theme.variants
-        ? {
-            variants: Object.fromEntries(
-              Object.entries(theme.variants).map(([appearance, colors]) => [appearance, { colors }])
-            ),
-          }
-        : {}),
-    },
-    origin: { label: "T3 Code", url: "https://github.com/pingdotgg/t3code", license: "MIT" },
-    ref: T3.ref.slice(0, 12),
-  }));
+/** The palettes as committed (read before the output folder is rewritten). */
+function readPalettes() {
+  return PALETTES.map((id) => {
+    const file = JSON.parse(readFileSync(join(outDir, `${id}.json`), "utf8"));
+    if (file.id !== id) throw new Error(`${id}.json: the id must be "${id}".`);
+    return { file, origin: { label: "JET Pilot", license: "MIT" }, ref: "local" };
+  });
 }
 
-const converted = [...(await convertT3())];
+const palettes = readPalettes();
+const converted = [];
 for (const theme of CURATED) converted.push(await convertCurated(theme));
+converted.push(...palettes);
 
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });

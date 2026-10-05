@@ -22,7 +22,10 @@ onMounted(async () => {
   const lastSeenVersion = settings.value.updates.whatsNew;
   currentVersion.value = await getVersion();
 
-  if (lastSeenVersion !== currentVersion.value) {
+  // Patch releases don't bring new slides: only a new minor (or major)
+  // version shows the dialog again.
+  const minor = (version: string | null) => version?.split(".").slice(0, 2).join(".") ?? null;
+  if (minor(lastSeenVersion) !== minor(currentVersion.value)) {
     shouldShowWhatsNew.value = true;
   }
 });

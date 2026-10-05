@@ -5,9 +5,9 @@ import { JetDark, JetLight } from "@/components/monaco/themes/jet";
 import { BUILTIN_THEMES, DEFAULT_THEME_ID } from "@/lib/themes/builtin";
 import { JET_THEME } from "@/lib/themes/builtin/jet";
 import { contrastRatio } from "@/lib/themes/contrast";
-import { CONTRAST_PAIRS } from "@/lib/themes/derive";
-import { themeAppearances } from "@/lib/themes/runtime";
-import { resolveTheme } from "@/lib/themes/resolve";
+import { CONTRAST_PAIRS, explicitRoles } from "@/lib/themes/derive";
+import { LEGACY_THEME_IDS, themeAppearances } from "@/lib/themes/runtime";
+import { pickVariant, resolveTheme } from "@/lib/themes/resolve";
 import { THEME_JSON_SCHEMA } from "@/lib/themes/schema";
 import { JET_XTERM } from "@/lib/themes/xtermTheme";
 import { serializeTheme } from "@/lib/themes/serialize";
@@ -93,8 +93,12 @@ describe("resolution", () => {
 
   it.each(cases)("%s (%s) meets the contrast guarantees", (_name, appearance, file) => {
     const { roles } = resolveTheme(file, appearance);
-    expect(contrastRatio(roles.text, roles.canvas)).toBeGreaterThanOrEqual(7);
-    for (const [foreground, background, min] of CONTRAST_PAIRS) {
+    const { variant } = pickVariant(file, appearance);
+    const explicit = explicitRoles({ ...variant.colors, ...variant.jetPilot?.colors });
+    // Derived text is AAA; text the theme sets itself only has to be readable.
+    expect(contrastRatio(roles.text, roles.canvas)).toBeGreaterThanOrEqual(explicit.has("text") ? 4.5 : 7);
+    for (const [foreground, background, derived, floor] of CONTRAST_PAIRS) {
+      const min = explicit.has(foreground) ? floor : derived;
       expect(contrastRatio(roles[foreground], roles[background]), `${foreground} on ${background}`).toBeGreaterThanOrEqual(min);
     }
   });
@@ -138,8 +142,8 @@ describe("resolution", () => {
 });
 
 describe("serialization", () => {
-  /** T3 Code's strict file shape (its parseThemeFile). */
-  function expectT3Shape(value: Record<string, unknown>) {
+  /** The strict shape of a portable theme file. */
+  function expectPortableShape(value: Record<string, unknown>) {
     expect(Object.keys(value).every((key) => ["version", "id", "name", "appearance", "colors", "variants", "collection", "managed"].includes(key))).toBe(true);
     expect(value.version).toBe(1);
     const roleMaps = [value.colors, ...Object.values((value.variants ?? {}) as object)] as Record<string, string>[];
@@ -149,10 +153,10 @@ describe("serialization", () => {
     }
   }
 
-  it.each(allThemes())("%s round-trips through the T3 export", (_name, file) => {
-    const text = serializeTheme(file, { forT3: true });
+  it.each(allThemes())("%s round-trips through the portable export", (_name, file) => {
+    const text = serializeTheme(file, { portable: true });
     const value = JSON.parse(text);
-    expectT3Shape(value);
+    expectPortableShape(value);
     const parsed = parseThemeFile(value);
     expect(themeAppearances(parsed)).toEqual(themeAppearances(file));
     for (const appearance of themeAppearances(file)) {
@@ -163,9 +167,14 @@ describe("serialization", () => {
     }
   });
 
-  it("avoids ids T3 Code reserves", () => {
-    expect(JSON.parse(serializeTheme(JET_THEME, { forT3: true })).id).toBe("jet-theme");
-    expect(JSON.parse(serializeTheme({ ...JET_THEME, id: "t3-grove" }, { forT3: true })).id).toBe("t3-grove-theme");
+  it("avoids reserved and built-in ids", () => {
+    const exportedId = (id: string) => JSON.parse(serializeTheme({ ...JET_THEME, id }, { portable: true })).id;
+    expect(JSON.parse(serializeTheme(JET_THEME, { portable: true })).id).toBe("jet-theme");
+    expect(exportedId("grove")).toBe("grove-theme");
+    expect(exportedId("dracula")).toBe("dracula-theme");
+    // Former built-in ids are taken too.
+    for (const legacy of Object.keys(LEGACY_THEME_IDS)) expect(exportedId(legacy)).toBe(`${legacy}-theme`);
+    expect(exportedId("my-theme")).toBe("my-theme");
   });
 
   it("writes theme files in a stable key order and re-parses them", () => {
@@ -182,9 +191,9 @@ describe("schema", () => {
     expect(validateSchema(THEME_JSON_SCHEMA, JSON.parse(JSON.stringify(file)))).toEqual([]);
   });
 
-  it("accepts the raw T3 files and rejects unknown roles", () => {
+  it("accepts raw portable files and rejects unknown roles", () => {
     expect(validateSchema(THEME_JSON_SCHEMA, JSON.parse(fixture("nightfall.json")))).toEqual([]);
-    expect(validateSchema(THEME_JSON_SCHEMA, JSON.parse(fixture("t3-export.json")))).toEqual([]);
+    expect(validateSchema(THEME_JSON_SCHEMA, JSON.parse(fixture("portable-export.json")))).toEqual([]);
     expect(validateSchema(THEME_JSON_SCHEMA, { name: "x", appearance: "dark", colors: { nope: "#000" } })).toEqual([
       "$.colors.nope: not allowed",
     ]);
@@ -200,14 +209,9 @@ describe("schema", () => {
 });
 
 describe("built-in catalogue", () => {
-  it("lists JET, T3's palettes and the curated themes", () => {
+  it("lists JET, the curated themes and the palettes", () => {
     expect(BUILTIN_THEMES.map((theme) => theme.id)).toEqual([
       "jet",
-      "t3-chat",
-      "t3-grove",
-      "t3-ocean",
-      "t3-ember",
-      "t3-iris",
       "catppuccin",
       "tokyo-night",
       "dracula",
@@ -216,7 +220,21 @@ describe("built-in catalogue", () => {
       "one-dark-pro",
       "rose-pine",
       "gruvbox",
+      "blossom",
+      "grove",
+      "ocean",
+      "ember",
+      "iris",
     ]);
+    expect(BUILTIN_THEMES.map((theme) => theme.name).slice(-5)).toEqual(["Blossom", "Grove", "Ocean", "Ember", "Iris"]);
+  });
+
+  it("maps every former built-in id to a current built-in", () => {
+    const ids = new Set(BUILTIN_THEMES.map((theme) => theme.id));
+    for (const [legacy, current] of Object.entries(LEGACY_THEME_IDS)) {
+      expect(ids.has(legacy), legacy).toBe(false);
+      expect(ids.has(current), current).toBe(true);
+    }
   });
 
   it.each(BUILTIN_THEMES.map((theme) => [theme.id, theme] as const))("%s loads lazily and matches its manifest", async (id, theme) => {

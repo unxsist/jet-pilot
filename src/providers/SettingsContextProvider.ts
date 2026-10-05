@@ -25,6 +25,7 @@ import type { PortForwardProfile } from "@/lib/portForwardProfiles";
 import type { Workspace } from "@/lib/workspaces";
 import type { ThemeSettings } from "@/lib/themes/types";
 import { mergeSettings } from "@/lib/settingsMerge";
+import { migrateThemeSettings } from "@/lib/themes/scheme";
 
 export const SettingsContextStateKey: InjectionKey<
   ToRefs<SettingsContextState>
@@ -213,6 +214,8 @@ export default {
             state.settings,
             JSON.parse(fileContents)
           );
+          // Renamed built-in themes: saved with their former ids (persisted below).
+          migrateThemeSettings(state.settings.appearance);
           lastWritten = fileContents;
           canSave = true;
         } catch (e) {
