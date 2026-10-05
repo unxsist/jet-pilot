@@ -1,7 +1,11 @@
 # JET Pilot
 
 <p align="center">
-<img src="https://raw.githubusercontent.com/unxsist/jet-pilot/main/public/header.png"/>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="public/header-dark.webp">
+    <source media="(prefers-color-scheme: light)" srcset="public/header-light.webp">
+    <img alt="JET Pilot — Kubernetes, beautifully." src="public/header-dark.webp">
+  </picture>
 </p>
 
 <p align="center">
