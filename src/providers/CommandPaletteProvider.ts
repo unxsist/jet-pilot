@@ -75,10 +75,13 @@ export default {
         state.callStack.size - 1
       ];
       state.callStack.delete(lastCommand);
+      lastCommand?.onLeave?.();
     };
 
     const clearStack = () => {
+      const left = Array.from(state.callStack.keys()).reverse();
       state.callStack.clear();
+      for (const command of left) command.onLeave?.();
     };
 
     const showSingleCommand = (id: string) => {

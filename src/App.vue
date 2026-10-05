@@ -37,6 +37,10 @@ const UpdateHandler = defineAsyncComponent(
 const WhatsNew = defineAsyncComponent(
   () => import("./components/WhatsNew.vue")
 );
+/* Theme palette commands + shortcuts (they come with the theme runtime). */
+const ThemeCommands = defineAsyncComponent(
+  () => import("./components/ThemeCommands.vue")
+);
 const idle = ref(false);
 onMounted(() => whenIdle(() => (idle.value = true), 2000));
 </script>
@@ -84,6 +88,7 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
                       <template v-if="idle">
                         <UpdateHandler />
                         <WhatsNew />
+                        <ThemeCommands />
                       </template>
                       <TerminalLauncher />
                     </WorkspaceProvider>

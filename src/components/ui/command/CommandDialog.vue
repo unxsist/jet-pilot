@@ -13,9 +13,11 @@ const props = withDefaults(
       hints?: boolean;
       /** Replaces the default fuzzy filter (list of item values, query). */
       filter?: (list: any[], query: string) => any[];
+      /** Called with the value of the highlighted item (keyboard or pointer). */
+      onHighlight?: (value: unknown) => void;
     }
   >(),
-  { hints: true, filter: undefined }
+  { hints: true, filter: undefined, onHighlight: undefined }
 );
 /** The text typed in the input. */
 const searchTerm = defineModel<string>("searchTerm", { default: "" });
@@ -24,7 +26,7 @@ const emits = defineEmits<DialogRootEmits>();
 const emitsAsProps = useEmitAsProps(emits);
 
 const rootProps = computed(() => {
-  const { hints: _, filter: __, ...rest } = props;
+  const { hints: _, filter: __, onHighlight: ___, ...rest } = props;
   return rest;
 });
 
@@ -65,6 +67,7 @@ const filter = (
         @update:modelValue="value = ''"
         v-model:searchTerm="searchTerm"
         :filterFunction="props.filter ?? filter"
+        @update:selected-value="props.onHighlight?.($event)"
         class="rounded-xl bg-transparent"
       >
         <slot />

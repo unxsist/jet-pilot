@@ -20,9 +20,11 @@ import {
   History,
   Layers,
   Loader2,
+  Palette,
   SearchX,
   SquareTerminal,
   Sparkles,
+  SunMoon,
   TriangleAlert,
 } from "lucide-vue-next";
 
@@ -375,6 +377,8 @@ const PALETTE_ICONS: Record<string, Component> = {
   "selected-edit": actionIcon("edit yaml") ?? Sparkles,
   "selected-logs": actionIcon("logs") ?? Sparkles,
   "selected-copy": Copy,
+  "change-theme": Palette,
+  "change-appearance": SunMoon,
 };
 
 const commandIcon = (command: PaletteItem): Component => {
@@ -395,7 +399,47 @@ const subCommandIcon = (command: Command): Component =>
     ["switch-context", "switch-namespace"].includes(c.id)
   )
     ? FolderTree
-    : CornerDownRight;
+    : command.swatches
+      ? Palette
+      : CornerDownRight;
+
+/* Options of the open drill-down, grouped by `group` (in order). */
+const optionGroups = computed(() => {
+  const keys = Array.from(callStack.value.keys());
+  const options = callStack.value.get(keys[keys.length - 1]) ?? [];
+  const heading = breadcrumbs.value[breadcrumbs.value.length - 1];
+  const groups = new Map<string, Command[]>();
+  for (const option of options) {
+    const group = option.group ?? heading;
+    groups.set(group, [...(groups.get(group) ?? []), option]);
+  }
+  return [...groups].map(([group, commands]) => ({ heading: group, commands }));
+});
+
+/*
+ * Live previews (Change theme): an option's onHighlight runs once the user
+ * moves the highlight (keys or pointer), debounced; not for the automatic
+ * highlight of the first option when a list opens.
+ */
+const PREVIEW_DELAY_MS = 60;
+let userNavigated = false;
+let highlightTimer: ReturnType<typeof setTimeout> | undefined;
+const cancelHighlight = () => clearTimeout(highlightTimer);
+const onHighlight = (value: unknown) => {
+  cancelHighlight();
+  const option = value as Command | undefined;
+  if (!userNavigated || !option?.onHighlight) return;
+  highlightTimer = setTimeout(() => option.onHighlight?.(), PREVIEW_DELAY_MS);
+};
+const markNavigation = (event: Event) => {
+  if (event instanceof KeyboardEvent && ["Escape", "Enter"].includes(event.key)) return;
+  userNavigated = true;
+};
+watch([() => callStack.value.size, open], () => {
+  cancelHighlight();
+  userNavigated = false;
+});
+onBeforeUnmount(cancelHighlight);
 
 /* Esc steps back out of a drill-down (Switch context › prod › …). */
 const handleEscapeKey = (event: KeyboardEvent) => {
@@ -406,7 +450,13 @@ const handleEscapeKey = (event: KeyboardEvent) => {
 watchEffect((onCleanup) => {
   if (open.value) {
     window.addEventListener("keydown", handleEscapeKey);
-    onCleanup(() => window.removeEventListener("keydown", handleEscapeKey));
+    window.addEventListener("keydown", markNavigation, true);
+    window.addEventListener("pointermove", markNavigation, true);
+    onCleanup(() => {
+      window.removeEventListener("keydown", handleEscapeKey);
+      window.removeEventListener("keydown", markNavigation, true);
+      window.removeEventListener("pointermove", markNavigation, true);
+    });
   }
 });
 </script>
@@ -420,6 +470,7 @@ watchEffect((onCleanup) => {
       v-model:search-term="searchTerm"
       :open="open"
       :filter="filter"
+      :on-highlight="onHighlight"
       @update:open="
         () => {
           clearCallStack();
@@ -447,7 +498,7 @@ watchEffect((onCleanup) => {
         <CommandInput
           :placeholder="
             breadcrumbs.length > 0
-              ? `Search ${breadcrumbs[breadcrumbs.length - 1].toLowerCase()}…`
+              ? `Search ${breadcrumbs[breadcrumbs.length - 1].toLowerCase().replace(/…$/, '')}…`
               : 'Type a command, or : to jump to a resource…'
           "
         />
@@ -572,14 +623,18 @@ watchEffect((onCleanup) => {
             </CommandItem>
           </CommandGroup>
         </template>
-        <CommandGroup v-else :heading="breadcrumbs[breadcrumbs.length - 1]">
-          <template
-            v-for="(command, index) in callStack.get(
-              Array.from(callStack.keys())[callStack.size - 1]
-            )"
-            :key="index"
+        <template v-else>
+          <CommandGroup
+            v-for="group in optionGroups"
+            :key="group.heading"
+            :heading="group.heading"
           >
-            <CommandItem :value="command" @select="executeCommand(command)">
+            <CommandItem
+              v-for="(command, index) in group.commands"
+              :key="index"
+              :value="command"
+              @select="executeCommand(command)"
+            >
               <ContextAvatar
                 v-if="isContextList"
                 :name="command.name"
@@ -588,17 +643,33 @@ watchEffect((onCleanup) => {
               <component :is="subCommandIcon(command)" v-else class="h-4 w-4" />
               <span class="truncate">{{ command.name }}</span>
               <span
-                v-if="command.description && isWorkspaceList"
+                v-if="command.description && (isWorkspaceList || command.group)"
                 class="ml-1 truncate text-xs text-muted-foreground"
                 >{{ command.description }}</span
               >
+              <span
+                v-if="command.badge || command.swatches?.length"
+                class="ml-auto flex shrink-0 items-center gap-2"
+              >
+                <span v-if="command.badge" class="text-xs text-muted-foreground">{{
+                  command.badge
+                }}</span>
+                <span
+                  v-for="(swatch, swatchIndex) in command.swatches"
+                  :key="swatchIndex"
+                  class="h-3 w-3 rounded-full border border-border-strong"
+                  :style="{ background: swatch }"
+                  aria-hidden="true"
+                />
+              </span>
               <ChevronRight
                 v-if="command.commands"
-                class="ml-auto h-3.5 w-3.5"
+                class="h-3.5 w-3.5"
+                :class="{ 'ml-auto': !command.badge && !command.swatches?.length }"
               />
             </CommandItem>
-          </template>
-        </CommandGroup>
+          </CommandGroup>
+        </template>
       </CommandList>
       <div
         v-if="executionError"
