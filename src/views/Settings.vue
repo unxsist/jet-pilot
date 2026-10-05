@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { getVersion } from "@tauri-apps/api/app";
+import { useRoute } from "vue-router";
 import Navigation from "@/components/settings/Navigation.vue";
+
+const route = useRoute();
 
 const appVersion = ref("");
 
@@ -11,7 +14,11 @@ onMounted(() => {
 });
 </script>
 <template>
-  <div class="h-full overflow-auto">
+  <!-- Full-bleed settings pages (the theme editor) bring their own layout. -->
+  <div v-if="route.meta.fullBleed" class="h-full">
+    <router-view />
+  </div>
+  <div v-else class="h-full overflow-auto">
     <div class="mx-auto flex max-w-5xl gap-10 px-10 py-8">
       <aside class="w-48 shrink-0">
         <div class="sticky top-8 space-y-6">
