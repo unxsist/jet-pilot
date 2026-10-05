@@ -1015,8 +1015,26 @@ const ptyChannels = new Map<string, any>();
 /* ------------------------------------------------------------------ fs -- */
 
 const fsKey = (path: string) => `harness-fs:${path}`;
+
+/*
+ * Files the theme import dialog picks (Settings › Appearance › Import
+ * file…): a VS Code light / dark pair that gets paired, and a file that
+ * isn't a theme.
+ */
+const PICKED_THEME_FILES: Record<string, string> = (() => {
+  const [latte, mocha] = openVsxThemes();
+  const renamed = (text: string, name: string) =>
+    JSON.stringify({ ...JSON.parse(text), name }, null, 2);
+  return {
+    [`${HOME}/Downloads/harbor-light-color-theme.json`]: renamed(latte!.text, "Harbor Light"),
+    [`${HOME}/Downloads/harbor-dark-color-theme.json`]: renamed(mocha!.text, "Harbor Dark"),
+    [`${HOME}/Downloads/notes.txt`]: "Not a theme.",
+  };
+})();
+
 const readFile = (path: string): string | null => {
   const stored = sessionStorage.getItem(fsKey(path));
+  if (stored === null && path in PICKED_THEME_FILES) return PICKED_THEME_FILES[path]!;
   if (path !== "settings.json") return stored;
   if (!stored) return JSON.stringify(settings);
   // The ?theme / ?themeId knobs win over choices saved earlier.
@@ -1345,8 +1363,13 @@ mockIPC(
         return s ? filteredEntries(s, p.searchQuery).entries.length : 0;
       }
       case "plugin:dialog|save":
-        return `${HOME}/Downloads/export.log`;
+        return p.options?.defaultPath
+          ? `${HOME}/Downloads/${p.options.defaultPath}`
+          : `${HOME}/Downloads/export.log`;
       case "plugin:dialog|open":
+        if (p.options?.filters?.some((filter: { name: string }) => filter.name === "Themes")) {
+          return Object.keys(PICKED_THEME_FILES);
+        }
         return `${HOME}/Downloads/config.yaml`;
       case "repurpose_structured_logging_session": {
         const s = sessions.get(p.sessionId);
