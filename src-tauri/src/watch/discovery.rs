@@ -32,9 +32,11 @@ struct CachedDiscovery {
 
 /// Discovery is refreshed after this long, or earlier (but at most every
 /// `MISS_REFRESH`) when a resource can't be found, e.g. a CRD that was just
-/// installed.
+/// installed. The frontend only asks for resources its own discovery listed,
+/// so a miss almost always means this cache is stale: refresh quickly (with
+/// 20 s, a new CRD's list fell back to kubectl polling for its lifetime).
 const DISCOVERY_TTL: Duration = Duration::from_secs(10 * 60);
-const MISS_REFRESH: Duration = Duration::from_secs(20);
+const MISS_REFRESH: Duration = Duration::from_secs(2);
 
 static CACHE: Lazy<Mutex<HashMap<(String, String), CachedDiscovery>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));

@@ -30,7 +30,7 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tokio::time::Instant;
 use tracing::{debug, warn};
 
-use crate::kubernetes::client::client_with_context;
+use crate::kubernetes::client::{client_with_context, resolve_kubeconfig_path};
 use crate::util::lock;
 use crate::watch::{channel_sink, next_subscription_id, paused_receiver, WatchSink as Sink};
 
@@ -203,7 +203,19 @@ async fn poll_once(poller: &Poller, client: &Client, key: &PollerKey) -> Duratio
                 _ => (MetricsState::Error, POLL_INTERVAL),
             };
             debug!("Pod metrics for {} unavailable: {}", key.context, err);
-            poller.set_status(state, Some(err.to_string()));
+            // A missing metrics API comes back as an unparsable 404 body
+            // ("404 page not found"); say what it means instead.
+            let message = match state {
+                MetricsState::Unavailable => {
+                    "The metrics API (metrics.k8s.io) is not available; is metrics-server installed?".to_string()
+                }
+                MetricsState::Forbidden => match &err {
+                    kube::Error::Api(status) => status.message.clone(),
+                    _ => err.to_string(),
+                },
+                _ => err.to_string(),
+            };
+            poller.set_status(state, Some(message));
             return interval;
         }
     };
@@ -302,7 +314,7 @@ fn key_for(request: &MetricsRequest) -> PollerKey {
     namespaces.sort();
     namespaces.dedup();
     PollerKey {
-        kube_config: request.kube_config.clone().unwrap_or_default(),
+        kube_config: resolve_kubeconfig_path(request.kube_config.as_deref()),
         context: request.context.clone(),
         namespaces,
     }
@@ -313,11 +325,14 @@ pub async fn metrics_subscribe(
     request: MetricsRequest,
     on_event: Channel<InvokeResponseBody>,
 ) -> Result<u64, String> {
+    subscribe(request, channel_sink(on_event)).await
+}
+
+pub(crate) async fn subscribe(request: MetricsRequest, sink: Sink) -> Result<u64, String> {
     let key = key_for(&request);
     let client = client_with_context(&key.context, Some(&key.kube_config))
         .await
         .map_err(|e| e.message)?;
-    let sink = channel_sink(on_event);
     let id = next_subscription_id();
 
     let poller = {

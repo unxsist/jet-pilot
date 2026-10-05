@@ -211,7 +211,7 @@ pub mod client {
     /// The kubeconfig path a command should use: the explicit `kube_config`
     /// argument when given, otherwise the globally selected one (empty string
     /// = kube's default resolution via $KUBECONFIG / ~/.kube/config).
-    fn resolve_kubeconfig_path(kube_config: Option<&str>) -> String {
+    pub(crate) fn resolve_kubeconfig_path(kube_config: Option<&str>) -> String {
         match kube_config {
             Some(path) if !path.is_empty() => path.to_string(),
             _ => lock(&CURRENT_KUBECONFIG).clone().unwrap_or_default(),
@@ -1145,7 +1145,10 @@ pub mod client {
         dry_run: Option<bool>,
     ) -> Result<String, String> {
         let dry_run = dry_run.unwrap_or(false);
-        let args = manifest_args(mode, context, namespace, kube_config.as_deref(), dry_run);
+        // Same kubeconfig the API client of this context uses (the selected
+        // one when the frontend passes none / "").
+        let kube_config = resolve_kubeconfig_path(kube_config.as_deref());
+        let args = manifest_args(mode, context, namespace, Some(&kube_config), dry_run);
         debug!("Running kubectl {:?} (dry run: {}) with manifest on stdin", mode, dry_run);
 
         let mut cmd = Command::new("kubectl");

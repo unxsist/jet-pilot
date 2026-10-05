@@ -21,7 +21,7 @@
 mod batch;
 #[cfg(test)]
 mod bench;
-mod discovery;
+pub(crate) mod discovery;
 mod entry;
 mod object;
 
@@ -41,7 +41,9 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tokio::time::Instant;
 use tracing::{debug, info, warn};
 
-use crate::kubernetes::client::{auth_error_message, client_with_context, exec_command_for_context};
+use crate::kubernetes::client::{
+    auth_error_message, client_with_context, exec_command_for_context, resolve_kubeconfig_path,
+};
 use crate::util::lock;
 use entry::{Entry, Sink, State, Status};
 use object::Tag;
@@ -128,14 +130,14 @@ pub struct WatchRequest {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WatchSubscription {
-    id: u64,
+    pub(crate) id: u64,
     /// The scopes the subscription receives messages for ("" = all
     /// namespaces / cluster scoped). The list is complete once every scope
     /// reported `ready`.
-    scopes: Vec<String>,
-    namespaced: bool,
-    api_version: String,
-    kind: String,
+    pub(crate) scopes: Vec<String>,
+    pub(crate) namespaced: bool,
+    pub(crate) api_version: String,
+    pub(crate) kind: String,
 }
 
 /// The namespace scopes to watch for a request.
@@ -147,6 +149,41 @@ fn scopes_for(namespaced: bool, namespaces: &[String]) -> Vec<Option<String>> {
     scopes.sort();
     scopes.dedup();
     scopes.into_iter().map(Some).collect()
+}
+
+const BACKOFF_MIN: Duration = Duration::from_millis(500);
+const BACKOFF_MAX: Duration = Duration::from_secs(5);
+
+/// Reconnect backoff of the watchers: exponential from 500 ms to 5 s with
+/// ±20 % jitter, reset by every successful event. kube-runtime's default
+/// (client-go's 800 ms .. 30 s) is meant for controllers; for a UI it left
+/// lists stale for ~15 s after a short outage (measured against a restarted
+/// API server; VPN reconnects behave the same).
+struct WatchBackoff {
+    current: Duration,
+}
+
+impl WatchBackoff {
+    fn new() -> Self {
+        WatchBackoff { current: BACKOFF_MIN }
+    }
+}
+
+impl Iterator for WatchBackoff {
+    type Item = Duration;
+
+    fn next(&mut self) -> Option<Duration> {
+        use rand::Rng;
+        let delay = self.current.mul_f64(rand::thread_rng().gen_range(0.8..1.2));
+        self.current = (self.current * 2).min(BACKOFF_MAX);
+        Some(delay)
+    }
+}
+
+impl kube::runtime::utils::Backoff for WatchBackoff {
+    fn reset(&mut self) {
+        self.current = BACKOFF_MIN;
+    }
 }
 
 /// Maps a watcher error to the status reported to the frontend.
@@ -218,7 +255,7 @@ async fn run_watcher(entry: Arc<Entry>, client: Client, namespace: Option<String
     // any_semantic: the initial list may be served from the API server's
     // watch cache instead of etcd (much cheaper for large lists).
     let config = watcher::Config::default().any_semantic();
-    let stream = watcher(api, config).default_backoff();
+    let stream = watcher(api, config).backoff(WatchBackoff::new());
     futures::pin_mut!(stream);
 
     let mut paused = paused_receiver();
@@ -369,8 +406,10 @@ pub async fn watch_subscribe(
     subscribe(request, channel_sink(on_event)).await
 }
 
-async fn subscribe(request: WatchRequest, sink: Sink) -> Result<WatchSubscription, String> {
-    let kube_config = request.kube_config.clone().unwrap_or_default();
+pub(crate) async fn subscribe(request: WatchRequest, sink: Sink) -> Result<WatchSubscription, String> {
+    // "" / None = the selected kubeconfig: resolved, so the same cluster
+    // never runs two sets of watchers and rows carry the real path.
+    let kube_config = resolve_kubeconfig_path(request.kube_config.as_deref());
     let client = client_with_context(&request.context, Some(&kube_config))
         .await
         .map_err(|e| e.message)?;
@@ -534,6 +573,17 @@ mod tests {
         assert_eq!(scopes_for(true, &["all".into()]), vec![None]);
         assert_eq!(scopes_for(true, &["a".into(), "all".into()]), vec![None]);
         assert_eq!(scopes_for(false, &["a".into(), "b".into()]), vec![None]);
+    }
+
+    #[test]
+    fn backoff_grows_to_five_seconds_and_resets() {
+        use kube::runtime::utils::Backoff;
+        let mut backoff = WatchBackoff::new();
+        let delays: Vec<Duration> = (&mut backoff).take(6).collect();
+        assert!(delays[0] >= Duration::from_millis(400) && delays[0] <= Duration::from_millis(600));
+        assert!(delays[5] >= Duration::from_secs(4) && delays[5] <= Duration::from_secs(6));
+        backoff.reset();
+        assert!(backoff.next().unwrap() <= Duration::from_millis(600));
     }
 
     #[test]
