@@ -8,6 +8,7 @@
  *   ?theme=dark|light        colour scheme
  *   ?os=linux|macos|windows  window chrome variant
  *   ?scenario=default|empty|error|nocontext|whatsnew|large|large-graph|conflict|compare
+ *            |update|update-error|announcement
  *   ?contexts=2              activate both contexts
  *   ?polling=0|1             kubectl polling instead of live watches
  *                            (settings.experimental.useKubectlPolling)
@@ -20,6 +21,9 @@
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views; `large-graph` swaps the
  * first context for a 2,000+ object topology for the resource graph.
+ * `update` offers v9.9.9 on startup and "downloads" it in ~3 s;
+ * `update-error` fails that install the way a translocated (read-only) macOS
+ * app does. `announcement` serves a critical and an info announcement.
  * Editor scenarios: `conflict` bumps an object's resourceVersion after its
  * first fetch (stale-edit flow); `compare` activates a second context.
  *
@@ -124,7 +128,10 @@ const settings = {
     { name: "services", kind: "Service" },
   ],
   appearance: { colorScheme: theme, lightTheme: themeId || "jet", darkTheme: themeId || "jet" },
-  updates: { checkOnStartup: false, whatsNew: scenario === "whatsnew" ? "1.0.0" : VERSION },
+  updates: {
+    checkOnStartup: scenario.startsWith("update"),
+    whatsNew: scenario === "whatsnew" ? "1.0.0" : VERSION,
+  },
   logLevel: "error",
   ...(polling ? { experimental: { useKubectlPolling: true } } : {}),
 };
@@ -1222,7 +1229,53 @@ mockIPC(
       case "plugin:app|tauri_version":
         return "2.9.0";
       case "plugin:updater|check":
+        return scenario.startsWith("update")
+          ? {
+              rid: 1,
+              currentVersion: VERSION,
+              version: "9.9.9",
+              date: "2026-10-05T12:00:00Z",
+              body: "## [9.9.9](https://github.com/unxsist/jet-pilot)\n\n### Bug Fixes\n\n* **updater:** wait for the update before offering a restart",
+              rawJson: {},
+            }
+          : null;
+      case "plugin:updater|download_and_install": {
+        const total = 18 * 1024 * 1024;
+        const emit = (event: unknown) => p.onEvent?.onmessage?.(event);
+        emit({ event: "Started", data: { contentLength: total } });
+        for (let done = 0; done < total; done += total / 20) {
+          await sleep(150);
+          emit({ event: "Progress", data: { chunkLength: total / 20 } });
+          if (scenario === "update-error" && done > total / 2) {
+            throw "Read-only file system (os error 30)";
+          }
+        }
+        emit({ event: "Finished" });
+        await sleep(800);
         return null;
+      }
+      case "fetch_announcements":
+        return {
+          announcements:
+            scenario === "announcement"
+              ? [
+                  {
+                    id: "harness-info",
+                    title: "JET Pilot has a new home for themes",
+                    body: "Browse and install colour themes from **Settings → Themes**.",
+                    link: { label: "Read more", url: "https://www.jet-pilot.app" },
+                  },
+                  {
+                    id: "harness-critical",
+                    title: "Update JET Pilot by hand",
+                    severity: "critical",
+                    maxVersion: "99.0.0",
+                    body: "This version can't install updates itself. Download the latest version from [jet-pilot.app](https://www.jet-pilot.app), or run:\n\n```\nbrew upgrade --cask --greedy unxsist/tap/jet-pilot\n```",
+                    link: { label: "Download", url: "https://www.jet-pilot.app" },
+                  },
+                ]
+              : [],
+        };
       case "plugin:window|is_maximized":
         return false;
       case "plugin:clipboard-manager|write_text":

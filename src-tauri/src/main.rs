@@ -8,6 +8,7 @@ use tracing_subscriber::{fmt, prelude::*, reload, Registry};
 use once_cell::sync::Lazy;
 use std::sync::{Arc, RwLock};
 
+mod announcements;
 mod app_log;
 mod kubernetes;
 mod logs;
@@ -110,6 +111,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             update_log_level,
             write_log,
+            announcements::fetch_announcements,
             get_logs,
             kubernetes::client::set_current_kubeconfig,
             kubernetes::client::list_contexts,
