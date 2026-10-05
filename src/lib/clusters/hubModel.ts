@@ -6,6 +6,7 @@
  * folder and tags; tokens narrow further:
  *   env:prod  provider:aws  tag:payments  folder:team-a
  *   is:active is:favorite is:hidden is:protected is:readonly is:unreachable
+ *   is:available (clusters in your cloud accounts you haven't added)
  */
 import type { InventoryEntry } from "./inventory";
 import type { ResolvedCluster } from "./meta";
@@ -100,6 +101,7 @@ export function matchesFilter(cluster: HubCluster, filter: HubFilter): boolean {
     if (flag === "protected" && !cluster.meta.protected) return false;
     if (flag === "readonly" && !cluster.meta.readOnly) return false;
     if (flag === "unreachable" && cluster.status?.reachability !== "unreachable") return false;
+    if (flag === "available") return false;
   }
   return true;
 }

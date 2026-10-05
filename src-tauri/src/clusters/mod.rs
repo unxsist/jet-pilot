@@ -1,12 +1,15 @@
 //! Clusters added in JET Pilot: the managed kubeconfig
 //! (`~/.kube/jet-pilot/config`), importing kubeconfigs, entering clusters
-//! by hand, exports, and installing the `jetpilot-auth` credential helper
-//! that makes them work in external terminals.
+//! by hand, cloud connections and their live catalog, exports, and
+//! installing the `jetpilot-auth` credential helper that makes them work in
+//! external terminals.
 //!
 //! Credentials never live in the managed kubeconfig or cross into the
 //! webview: they go to the vault (`crate::secrets`) and kubeconfig users run
 //! the helper.
 
+pub mod catalog;
+pub mod connections;
 pub mod error;
 pub mod export;
 pub mod helper_install;
@@ -14,6 +17,7 @@ pub mod import;
 pub mod managed_kubeconfig;
 pub mod manual;
 pub mod naming;
+pub mod providers;
 
 use std::sync::OnceLock;
 
@@ -31,6 +35,11 @@ static APP: OnceLock<AppHandle> = OnceLock::new();
 pub fn init(app: &AppHandle) {
     let _ = APP.set(app.clone());
     helper_install::spawn_startup_install();
+}
+
+/// The app (None before `init`, e.g. in tests).
+pub(crate) fn app() -> Option<&'static AppHandle> {
+    APP.get()
 }
 
 /// Emits a payload-less event to the webview (no-op before `init`, e.g. in

@@ -20,6 +20,44 @@ zeroize = "1.8"
 sha2 = "0.10"
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 
+# AWS (feature `aws`): IAM Identity Center sign-in and role credentials,
+# ~/.aws profiles, and presigned EKS tokens. TLS is rustls with ring (no
+# aws-lc: Windows CI needs no cmake/NASM); every client gets that
+# connector explicitly, so no default HTTPS client is compiled in.
+aws-config = { version = "1.8", default-features = false, features = ["rt-tokio", "behavior-version-latest", "credentials-process", "sso"], optional = true }
+aws-sdk-sso = { version = "1.80", default-features = false, features = ["rt-tokio", "behavior-version-latest"], optional = true }
+aws-sdk-ssooidc = { version = "1.80", default-features = false, features = ["rt-tokio", "behavior-version-latest"], optional = true }
+aws-sdk-sts = { version = "1.80", default-features = false, features = ["rt-tokio", "behavior-version-latest"], optional = true }
+aws-sigv4 = { version = "1.3", default-features = false, features = ["sign-http", "http1"], optional = true }
+aws-credential-types = { version = "1.2", optional = true }
+aws-smithy-http-client = { version = "1.1", default-features = false, features = ["rustls-ring", "rt-tokio"], optional = true }
+aws-smithy-runtime-api = { version = "1.9", features = ["client"], optional = true }
+aws-smithy-types = { version = "1.3", optional = true }
+aws-smithy-async = { version = "1.2", features = ["rt-tokio"], optional = true }
+http = { version = "1", optional = true }
+sha1 = { version = "0.10", optional = true }
+tokio = { version = "1.29.1", features = ["rt", "time", "sync", "macros"], optional = true }
+
+[features]
+default = []
+aws = [
+    "dep:aws-config",
+    "dep:aws-sdk-sso",
+    "dep:aws-sdk-ssooidc",
+    "dep:aws-sdk-sts",
+    "dep:aws-sigv4",
+    "dep:aws-credential-types",
+    "dep:aws-smithy-http-client",
+    "dep:aws-smithy-runtime-api",
+    "dep:aws-smithy-types",
+    "dep:aws-smithy-async",
+    "dep:http",
+    "dep:sha1",
+    "dep:tokio",
+]
+# The fake AWS HTTP server (`aws::fake`) for the app's tests.
+test-util = ["aws", "tokio/net", "tokio/io-util"]
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # The kernel keyring caches an unlocked passphrase vault for other terminals.
 linux-keyutils = { version = "0.2", features = ["std"] }
@@ -29,3 +67,4 @@ dbus = "0.9"
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { version = "1.29.1", features = ["rt", "rt-multi-thread", "time", "sync", "macros", "net", "io-util"] }

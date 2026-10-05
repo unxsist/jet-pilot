@@ -77,6 +77,13 @@ fn open() -> Result<Vault, AppError> {
 
 /* ------------------------------------------------- for other modules */
 
+/// The vault (with the in-app key of an unlocked passphrase vault) for
+/// code that opens it itself (the AWS credential paths).
+pub(crate) fn store() -> jp_auth_core::vault::Store {
+    let (env, session) = snapshot();
+    jp_auth_core::vault::Store::new(env, session)
+}
+
 /// Stores secrets in one write (initializing a keychain vault if needed).
 pub(crate) fn put_many(items: Vec<(String, serde_json::Value)>) -> Result<(), AppError> {
     if items.is_empty() {

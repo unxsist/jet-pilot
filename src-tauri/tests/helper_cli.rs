@@ -306,3 +306,145 @@ users:
     let version = client.apiserver_version().await.unwrap();
     assert_eq!(version.git_version, "v1.31.0-e2e");
 }
+
+const AWS_SECRET: &str = "aws-secret-access-key-value";
+
+/// A JET Pilot home with an access-key connection (`keys1`, keys in the
+/// vault) and an IAM Identity Center connection (`sso1`) never signed in.
+fn aws_setup() -> (tempfile::TempDir, tempfile::TempDir) {
+    let home = setup();
+    let env = VaultEnv {
+        dir: home.path().join("vault"),
+        keychain: Arc::new(NoKeychain {
+            reason: "tests".into(),
+        }),
+        unlock_cache: Arc::new(NoUnlockCache),
+        kdf: KdfParams::INSECURE_FOR_TESTS,
+    };
+    let key = Vault::key_from_passphrase(&env, PASSPHRASE).unwrap();
+    Vault::open_with(&env, Some(&key))
+        .unwrap()
+        .put(
+            "conn:keys1:aws-keys",
+            json!({"accessKeyId": "AKIAIOSFODNN7EXAMPLE", "secretAccessKey": AWS_SECRET}),
+        )
+        .unwrap();
+    std::fs::write(
+        home.path().join("connections.json"),
+        json!({"version": 1, "connections": [
+            {"id": "keys1", "provider": "aws", "kind": "keys", "label": "ci", "region": "eu-west-1", "createdAt": 0},
+            {"id": "sso1", "provider": "aws", "kind": "sso", "label": "Acme", "createdAt": 0,
+             "sso": {"startUrl": "https://acme.awsapps.com/start", "region": "eu-west-1"}},
+        ]})
+        .to_string(),
+    )
+    .unwrap();
+    (home, tempfile::tempdir().unwrap())
+}
+
+fn aws_helper(home: &Path, user_home: &Path, args: &[&str]) -> Output {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_jetpilot-auth"));
+    cmd.args(args)
+        .env("JET_PILOT_HOME", home)
+        .env("JET_PILOT_NO_KEYCHAIN", "1")
+        .env("JET_PILOT_NO_KEYUTILS", "1")
+        .env("JET_PILOT_VAULT_PASSPHRASE", PASSPHRASE)
+        .env("HOME", user_home)
+        .env("USERPROFILE", user_home)
+        .env_remove("AWS_CONFIG_FILE")
+        .env_remove("AWS_SHARED_CREDENTIALS_FILE")
+        .env_remove("AWS_PROFILE")
+        .env_remove("KUBERNETES_EXEC_INFO");
+    cmd.output().unwrap()
+}
+
+#[test]
+fn aws_eks_mints_a_presigned_token_without_the_aws_cli() {
+    use base64::Engine;
+    let (home, user_home) = aws_setup();
+    let output = aws_helper(
+        home.path(),
+        user_home.path(),
+        &[
+            "credential",
+            "aws-eks",
+            "--connection",
+            "keys1",
+            "--region",
+            "eu-west-1",
+            "--cluster",
+            "prod",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert!(output.stderr.is_empty(), "{}", stderr(&output));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!stdout.contains(AWS_SECRET));
+    let credential: Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(credential["kind"], "ExecCredential");
+    assert_eq!(credential["apiVersion"], "client.authentication.k8s.io/v1");
+    let token = credential["status"]["token"].as_str().unwrap();
+    let url = String::from_utf8(
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(token.strip_prefix("k8s-aws-v1.").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(url.starts_with("https://sts.eu-west-1.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F"), "{url}");
+    assert!(
+        url.contains("&X-Amz-Expires=60&X-Amz-SignedHeaders=host%3Bx-k8s-aws-id&X-Amz-Signature=")
+    );
+    let expires = credential["status"]["expirationTimestamp"]
+        .as_str()
+        .unwrap();
+    assert!(expires.ends_with('Z') && expires.len() == 20, "{expires}");
+}
+
+#[test]
+fn aws_eks_never_signs_in_and_exits_3() {
+    let (home, user_home) = aws_setup();
+    let output = aws_helper(
+        home.path(),
+        user_home.path(),
+        &[
+            "credential",
+            "aws-eks",
+            "--connection",
+            "sso1",
+            "--account",
+            "123456789012",
+            "--role",
+            "ReadOnly",
+            "--region",
+            "eu-west-1",
+            "--cluster",
+            "prod",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(3), "{}", stderr(&output));
+    assert!(output.stdout.is_empty());
+    assert!(
+        stderr(&output).contains("Sign in to AWS in JET Pilot"),
+        "{}",
+        stderr(&output)
+    );
+
+    // A connection that was removed.
+    let output = aws_helper(
+        home.path(),
+        user_home.path(),
+        &[
+            "credential",
+            "aws-eks",
+            "--connection",
+            "gone1",
+            "--region",
+            "eu-west-1",
+            "--cluster",
+            "prod",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(3), "{}", stderr(&output));
+    assert_no_secrets(&stderr(&output));
+    assert!(!stderr(&output).contains(AWS_SECRET));
+}

@@ -42,7 +42,13 @@ const finishPrompt = (prompt: VaultPrompt, ok: boolean) => {
 </script>
 
 <template>
-  <AddClusterDialog v-if="addClusterRequest" v-model:open="addOpen" :method="addClusterRequest.method" />
+  <AddClusterDialog
+    v-if="addClusterRequest"
+    :key="addClusterRequest.id"
+    v-model:open="addOpen"
+    :method="addClusterRequest.method"
+    :connection-id="addClusterRequest.connectionId"
+  />
   <VaultPassphraseDialog
     v-if="vaultPrompt"
     :key="vaultPrompt.mode"

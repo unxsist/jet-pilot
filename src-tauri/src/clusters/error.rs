@@ -18,6 +18,13 @@ pub enum AppErrorCode {
     NotFound,
     Io,
     Internal,
+    /// A cloud connection needs an interactive sign-in first (IAM Identity
+    /// Center session expired / never signed in).
+    SignInRequired,
+    /// An AWS profile with `mfa_serial` needs a fresh MFA code.
+    MfaRequired,
+    /// The cloud provider answered with an error or could not be reached.
+    Provider,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -101,6 +108,35 @@ impl From<VaultError> for AppError {
             VaultError::NotInitialized => AppError::not_found(message),
             VaultError::Corrupt(_) | VaultError::Io(_) => AppError::new(AppErrorCode::Io, message),
         }
+    }
+}
+
+impl From<jp_auth_core::aws::AwsError> for AppError {
+    fn from(error: jp_auth_core::aws::AwsError) -> AppError {
+        use jp_auth_core::aws::AwsError;
+        let message = error.to_string();
+        match error {
+            AwsError::SignInRequired(_) => AppError::new(AppErrorCode::SignInRequired, message),
+            AwsError::MfaRequired(_) => AppError::new(AppErrorCode::MfaRequired, message),
+            AwsError::Vault(vault) => {
+                if vault == VaultError::Locked {
+                    crate::clusters::emit(crate::secrets::UNLOCK_REQUIRED_EVENT);
+                }
+                AppError::from(vault)
+            }
+            AwsError::NotFound(_) => AppError::not_found(message),
+            AwsError::Invalid(_) => AppError::internal(message),
+            AwsError::Service { .. } | AwsError::Network(_) => {
+                AppError::new(AppErrorCode::Provider, message)
+            }
+        }
+    }
+}
+
+/// File errors of the connection / catalog stores.
+impl From<std::io::Error> for AppError {
+    fn from(error: std::io::Error) -> AppError {
+        AppError::io("A JET Pilot file can't be written", error)
     }
 }
 

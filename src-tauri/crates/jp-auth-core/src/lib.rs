@@ -9,15 +9,24 @@
 //! - [`exec_credential`]: the `ExecCredential` document kubectl expects.
 //! - [`request`]: the helper's command line.
 //! - [`redact`]: masking secrets in human-readable text.
+//! - [`connections`]: cloud connections (`connections.json`, no secrets).
+//! - [`cache`]: short-lived credentials cached in the vault.
+//! - [`aws`] (feature `aws`): IAM Identity Center, `~/.aws` profiles and
+//!   EKS tokens, shared by the app and the helper.
 //!
 //! Nothing here depends on Tauri or kube-rs.
 
+#[cfg(feature = "aws")]
+pub mod aws;
+pub mod cache;
+pub mod connections;
 pub mod credentials;
 pub mod exec_credential;
 pub mod fsutil;
 pub mod paths;
 pub mod redact;
 pub mod request;
+pub mod time;
 pub mod vault;
 
 pub use redact::redact;

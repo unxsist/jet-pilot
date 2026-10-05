@@ -160,6 +160,61 @@ pub struct VaultStatus {
     pub unlock_cached: bool,
 }
 
+/// Where to open the vault from: its environment plus the in-app key of an
+/// unlocked passphrase vault. Cheap to clone; every call opens the file
+/// again (other processes write it too).
+#[derive(Clone)]
+pub struct Store {
+    pub env: VaultEnv,
+    pub session: Option<MasterKey>,
+}
+
+impl Store {
+    pub fn new(env: VaultEnv, session: Option<MasterKey>) -> Store {
+        Store { env, session }
+    }
+
+    /// The system vault without an in-app key.
+    pub fn system() -> Store {
+        Store::new(VaultEnv::system(), None)
+    }
+
+    pub fn open(&self) -> Result<Vault, VaultError> {
+        Vault::open_with(&self.env, self.session.as_ref())
+    }
+
+    /// One secret, if stored.
+    pub fn get(&self, id: &str) -> Result<Option<serde_json::Value>, VaultError> {
+        Ok(self.open()?.get(id))
+    }
+
+    /// Stores and removes entries with one write.
+    pub fn put_and_remove(
+        &self,
+        items: Vec<(String, serde_json::Value)>,
+        remove: &[String],
+    ) -> Result<(), VaultError> {
+        if items.is_empty() && remove.is_empty() {
+            return Ok(());
+        }
+        let mut vault = self.open()?;
+        if items.is_empty() && !vault.is_initialized() {
+            return Ok(());
+        }
+        vault.put_and_remove(items, remove)
+    }
+
+    /// The ids of stored entries starting with `prefix`.
+    pub fn ids_with_prefix(&self, prefix: &str) -> Result<Vec<String>, VaultError> {
+        Ok(self
+            .open()?
+            .ids()
+            .into_iter()
+            .filter(|id| id.starts_with(prefix))
+            .collect())
+    }
+}
+
 /// An opened vault: the decrypted entries plus the key to write them back.
 pub struct Vault {
     env: VaultEnv,
@@ -324,6 +379,34 @@ impl Vault {
             removed > 0
         })?;
         Ok(removed)
+    }
+
+    /// Stores `items` and removes `remove` with one write (initializing a
+    /// keychain vault when there is something to store).
+    pub fn put_and_remove(
+        &mut self,
+        items: Vec<(String, serde_json::Value)>,
+        remove: &[String],
+    ) -> Result<(), VaultError> {
+        let now = crate::now_secs();
+        let create = !items.is_empty();
+        self.update(create, move |entries| {
+            let mut changed = false;
+            for id in remove {
+                changed |= entries.remove(id).is_some();
+            }
+            for (id, value) in items {
+                entries.insert(
+                    id,
+                    StoredEntry {
+                        value,
+                        updated_at: now,
+                    },
+                );
+                changed = true;
+            }
+            changed
+        })
     }
 
     /// Lock, re-read, apply `change` (returns whether anything changed),

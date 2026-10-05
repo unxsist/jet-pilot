@@ -139,6 +139,9 @@ export function installAuthMocks(options: AuthMockOptions): void {
     if (expired.has(target.context)) {
       return { ...base, state: "expired", expiresAt: Date.now() - 20 * 60_000 };
     }
+    // Clusters added from a cloud account sign in through it (cloud.ts).
+    const cloud = (window as any).__harnessCloudCredential?.(target.context);
+    if (cloud) return { ...base, canSignIn: true, ...cloud };
     if (auth.kind !== "exec") return { ...base, state: "valid", expiresAt: null };
     const at = expiresAt.get(target.context) ?? Date.now() + expiryMinutes(target.context) * 60_000;
     expiresAt.set(target.context, at);

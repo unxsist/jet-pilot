@@ -4,6 +4,9 @@
 //!
 //! - `aws` with an SSO `AWS_PROFILE`: `aws sso login --profile <p>`, then a
 //!   (non-interactive) mint to verify;
+//! - `jetpilot-auth credential aws-eks` of an IAM Identity Center
+//!   connection (or an SSO profile connection): JET Pilot's own device
+//!   flow (no aws CLI), then a mint;
 //! - `gke-gcloud-auth-plugin`: `gcloud auth login --brief`, then a mint;
 //! - Azure `kubelogin` in `azurecli` mode: `az login --output none`, then a
 //!   mint;
@@ -71,6 +74,14 @@ pub enum SignInPlan {
     /// `aws sso login --profile <login profile>`. `profile` is the context's
     /// `AWS_PROFILE`.
     AwsSso { profile: String, sso: AwsSso },
+    /// JET Pilot's IAM Identity Center device flow for a cloud connection
+    /// (helper `aws-eks` entries).
+    AwsNative {
+        connection_id: String,
+        label: String,
+        start_url: String,
+        region: String,
+    },
     Gcloud,
     AzureCli,
     /// Run the exec plugin interactively.
@@ -81,6 +92,7 @@ impl SignInPlan {
     pub fn label(&self) -> String {
         match self {
             SignInPlan::AwsSso { profile, .. } => format!("Sign in with AWS SSO (profile {profile})"),
+            SignInPlan::AwsNative { label, .. } => format!("Sign in to AWS ({label})"),
             SignInPlan::Gcloud => "Sign in with gcloud".to_string(),
             SignInPlan::AzureCli => "Sign in with Azure CLI".to_string(),
             SignInPlan::ExecPlugin { command } => format!("Sign in with {command}"),
@@ -96,7 +108,7 @@ impl SignInPlan {
             )),
             SignInPlan::Gcloud => Some(("gcloud", vec!["auth".into(), "login".into(), "--brief".into()])),
             SignInPlan::AzureCli => Some(("az", vec!["login".into(), "--output".into(), "none".into()])),
-            SignInPlan::ExecPlugin { .. } => None,
+            SignInPlan::ExecPlugin { .. } | SignInPlan::AwsNative { .. } => None,
         }
     }
 }
@@ -161,6 +173,18 @@ fn valid_profile_name(name: &str) -> bool {
 
 /// The sign-in plan of an exec plugin (see the module docs).
 pub fn sign_in_plan(exec: &ExecConfig, aws: Option<&AwsConfig>) -> SignInPlan {
+    if let Some(jp_auth_core::request::Request::CredentialAwsEks(args)) =
+        crate::clusters::managed_kubeconfig::helper_request(exec)
+    {
+        if let Some(target) = crate::clusters::providers::aws::sign_in_target(&args.connection) {
+            return SignInPlan::AwsNative {
+                connection_id: args.connection.clone(),
+                label: target.label,
+                start_url: target.start_url,
+                region: target.region,
+            };
+        }
+    }
     let command = broker::display_command(exec);
     match command.to_ascii_lowercase().as_str() {
         "aws" => {
@@ -376,6 +400,70 @@ struct Session {
 }
 
 static SESSIONS: Lazy<Mutex<HashMap<String, Arc<Session>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// A sign-in that runs in-process (JET Pilot's AWS device flow), registered
+/// like CLI sessions so `auth_login_open_url` / `auth_login_cancel` work
+/// with its id. Unregistered on drop.
+pub(crate) struct NativeSession {
+    session: Arc<Session>,
+    cancel: watch::Receiver<bool>,
+}
+
+impl NativeSession {
+    pub fn id(&self) -> &str {
+        &self.session.id
+    }
+
+    /// Lets `auth_login_open_url` open `url`.
+    pub fn allow_url(&self, url: &str) {
+        lock(&self.session.urls).insert(url.to_string());
+    }
+
+    /// Resolves when the session is cancelled.
+    pub async fn cancelled(&self) {
+        let mut cancel = self.cancel.clone();
+        loop {
+            if *cancel.borrow_and_update() {
+                return;
+            }
+            if cancel.changed().await.is_err() {
+                // The sender lives as long as the session: never cancelled.
+                std::future::pending::<()>().await;
+            }
+        }
+    }
+}
+
+impl Drop for NativeSession {
+    fn drop(&mut self) {
+        let mut sessions = lock(&SESSIONS);
+        if sessions.get(&self.session.id).is_some_and(|s| Arc::ptr_eq(s, &self.session)) {
+            sessions.remove(&self.session.id);
+        }
+    }
+}
+
+/// Registers an in-process sign-in for `target` (cancelling a running one
+/// for the same target).
+pub(crate) fn begin_native(target: (String, String)) -> NativeSession {
+    let (cancel, cancel_rx) = watch::channel(false);
+    let session = Arc::new(Session {
+        id: uuid::Uuid::new_v4().to_string(),
+        target,
+        urls: Mutex::new(HashSet::new()),
+        cancel,
+        pid: Arc::new(Mutex::new(None)),
+    });
+    let mut sessions = lock(&SESSIONS);
+    for other in sessions.values().filter(|s| s.target == session.target) {
+        other.cancel.send_replace(true);
+    }
+    sessions.insert(session.id.clone(), session.clone());
+    NativeSession {
+        session,
+        cancel: cancel_rx,
+    }
+}
 
 /// Everything a session needs, read up front.
 #[derive(Clone)]
@@ -603,6 +691,37 @@ async fn drive(
     };
     let mut on_line = |stream: StreamKind, line: &str| handler.line(stream, line);
 
+    if let SignInPlan::AwsNative {
+        connection_id,
+        label,
+        start_url,
+        region,
+    } = &prepared.plan
+    {
+        let target = crate::clusters::providers::aws::SignInTarget {
+            connection_id: Some(connection_id.clone()),
+            label: label.clone(),
+            start_url: start_url.clone(),
+            region: region.clone(),
+        };
+        let mut cancel = cancel;
+        let cancelled = async move {
+            while !*cancel.borrow_and_update() {
+                if cancel.changed().await.is_err() {
+                    std::future::pending::<()>().await;
+                }
+            }
+        };
+        let allow = |url: &str| {
+            lock(&session.urls).insert(url.to_string());
+        };
+        return match crate::clusters::providers::aws::run_device_flow(&target, sink, &allow, cancelled).await {
+            Ok(_) => Ok(None),
+            Err(crate::clusters::providers::aws::FlowError::Cancelled) => Err(LoginError::Cancelled),
+            Err(crate::clusters::providers::aws::FlowError::Failed(message)) => Err(LoginError::Failed(message)),
+        };
+    }
+
     match prepared.plan.tool_command() {
         None => {
             let command = broker::display_command(&prepared.exec);
@@ -693,8 +812,27 @@ fn shares_login(plan: &SignInPlan, exec: &ExecConfig, aws_profiles: &HashSet<Str
         SignInPlan::AwsSso { .. } => command == "aws" && aws_profile(exec).is_some_and(|p| aws_profiles.contains(&p)),
         SignInPlan::Gcloud => command == "gke-gcloud-auth-plugin",
         SignInPlan::AzureCli => command == "kubelogin" && kubelogin_mode(exec).as_deref() == Some("azurecli"),
+        SignInPlan::AwsNative { connection_id, .. } => match crate::clusters::managed_kubeconfig::helper_request(exec) {
+            Some(jp_auth_core::request::Request::CredentialAwsEks(args)) => &args.connection == connection_id,
+            // `aws eks get-token` with a profile of the same start URL: the
+            // sign-in wrote the aws CLI's token cache.
+            _ => command == "aws" && aws_profile(exec).is_some_and(|p| aws_profiles.contains(&p)),
+        },
         SignInPlan::ExecPlugin { .. } => false,
     }
+}
+
+/// `~/.aws/config` profiles that sign in at `start_url`.
+pub(crate) fn profiles_signed_in_with(start_url: &str) -> HashSet<String> {
+    let sso = AwsSso {
+        login_profile: String::new(),
+        start_url: start_url.to_string(),
+        session: None,
+    };
+    status::aws_config_path(&ExecConfig::default(), status::home_dir().as_deref(), status::process_aws_config_file())
+        .and_then(|p| AwsConfig::read(&p))
+        .map(|aws| aws.profiles_sharing(&sso))
+        .unwrap_or_default()
 }
 
 /// Every known context that the sign-in refreshed: the same kubeconfig
@@ -710,6 +848,7 @@ fn affected_contexts(prepared: &Prepared) -> Vec<Affected> {
             profiles.insert(profile.clone());
             profiles
         }
+        SignInPlan::AwsNative { start_url, .. } => profiles_signed_in_with(start_url),
         _ => HashSet::new(),
     };
 
@@ -781,6 +920,47 @@ async fn finish(prepared: &Prepared, minted: Option<Credential>) -> Result<Optio
         .iter()
         .map(|a| (a.kube_config.clone(), a.context.clone()))
         .collect();
+    resolved(pairs);
+    Ok(credential.expires_at_ms())
+}
+
+/// Every context whose credentials come from the AWS sign-in of
+/// `connection_id` (helper `aws-eks` entries) or, through the aws CLI's
+/// token cache, from `start_url` (`aws eks get-token` with a profile of
+/// that start URL), across the kubeconfigs in use. Their cached
+/// credentials are dropped.
+pub(crate) fn contexts_of_aws_sign_in(connection_id: &str, start_url: Option<&str>) -> Vec<(String, String)> {
+    let plan = SignInPlan::AwsNative {
+        connection_id: connection_id.to_string(),
+        label: String::new(),
+        start_url: start_url.unwrap_or_default().to_string(),
+        region: String::new(),
+    };
+    let profiles = start_url.map(profiles_signed_in_with).unwrap_or_default();
+    let mut paths = vec![crate::clusters::managed_kubeconfig::managed_path().to_string_lossy().into_owned()];
+    for path in cached_kubeconfig_paths() {
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    let mut pairs = Vec::new();
+    for path in paths {
+        let Ok(config) = read_kubeconfig(Some(&path)) else { continue };
+        for named in &config.contexts {
+            let Some(found) = status::context_auth(&config, &named.name) else { continue };
+            let Some(exec) = found.auth.exec.as_ref().filter(|_| broker::uses_exec(&found.auth)) else { continue };
+            if shares_login(&plan, exec, &profiles) {
+                broker::slot(&CredentialKey::with_server(&path, &found.user, exec, found.server.as_deref())).clear();
+                pairs.push((path.clone(), named.name.clone()));
+            }
+        }
+    }
+    pairs
+}
+
+/// After a sign-in: rebuild the clients of `pairs` (resolved kubeconfig
+/// path, context), restart what failed and tell the UI.
+pub(crate) fn resolved(pairs: Vec<(String, String)>) {
     invalidate_clients(&pairs);
     let contexts: Vec<ContextRef> = pairs
         .iter()
@@ -803,7 +983,6 @@ async fn finish(prepared: &Prepared, minted: Option<Credential>) -> Result<Optio
         contexts.iter().map(|c| c.context.as_str()).collect::<Vec<_>>().join(", ")
     );
     center::emit_resolved(contexts);
-    Ok(credential.expires_at_ms())
 }
 
 #[cfg(test)]

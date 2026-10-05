@@ -95,16 +95,32 @@ for (const def of visible) {
 registerCommand({
   id: "add-cluster",
   name: "Add cluster…",
-  description: "Paste a kubeconfig, import a file or enter a cluster",
+  description: "Connect AWS, paste a kubeconfig, import a file or enter a cluster",
   keywords: ["kubeconfig", "import", "paste", "new cluster", "connect", "context"],
   shortcut: [isMac ? "⌘" : "Ctrl", "N"],
   execute: () => openAddCluster(),
 });
 
 registerCommand({
+  id: "connect-aws",
+  name: "Connect AWS…",
+  description: "Find and add EKS clusters from your AWS accounts",
+  keywords: ["aws", "eks", "amazon", "sso", "identity center", "cloud", "account", "profile"],
+  execute: () => openAddCluster("aws"),
+});
+
+registerCommand({
+  id: "cloud-accounts",
+  name: "Cloud accounts",
+  description: "The cloud accounts JET Pilot finds clusters in",
+  keywords: ["aws", "accounts", "connections", "sign in", "catalog"],
+  execute: () => router.push({ name: "ClustersHub", query: { tab: "accounts" } }),
+});
+
+registerCommand({
   id: "open-setup-guide",
   name: "Open setup guide",
-  description: "Kubeconfig files, tools and appearance",
+  description: "Kubeconfig files, tools, appearance and cloud accounts",
   keywords: ["welcome", "onboarding", "setup", "getting started", "tour"],
   execute: openWelcome,
 });

@@ -790,7 +790,43 @@ async fn mint_helper(
             inner.env = Some(env);
             Some(Box::pin(mint(&inner, timeout)).await)
         }
+        Request::CredentialAwsEks(args) => {
+            let minted = tokio::time::timeout(timeout, crate::clusters::providers::aws::mint_eks(&args)).await;
+            Some(match minted {
+                Ok(Ok((token, expires_at))) => Ok(Credential {
+                    token: Some(token),
+                    client_certificate: None,
+                    client_key: None,
+                    expires_at: Some(expires_at),
+                    minted_at: SystemTime::now(),
+                }),
+                Ok(Err(error)) => Err(aws_error(&command, error)),
+                Err(_) => Err(BrokerError::Timeout { command, after: timeout }),
+            })
+        }
         _ => None,
+    }
+}
+
+/// An AWS failure of an in-process `aws-eks` mint as a broker error: an
+/// expired IAM Identity Center session is `Expired` (sign in again), an
+/// MFA profile without a session needs a person.
+fn aws_error(command: &str, error: jp_auth_core::aws::AwsError) -> BrokerError {
+    use jp_auth_core::aws::AwsError;
+    let message = center::redact(&error.to_string());
+    match error {
+        AwsError::SignInRequired(_) => BrokerError::Expired {
+            command: command.to_string(),
+            message: format!("Sign in to AWS in JET Pilot. {message}"),
+        },
+        AwsError::MfaRequired(_) => BrokerError::InteractionRequired {
+            command: command.to_string(),
+            message,
+        },
+        _ => BrokerError::ExecFailed {
+            command: command.to_string(),
+            message,
+        },
     }
 }
 

@@ -181,11 +181,12 @@ export async function withVault<T>(operation: () => Promise<T>): Promise<T> {
 
 /* --------------------------------------------------------- the dialog -- */
 
-export type AddMethod = "choose" | "paste" | "file" | "manual";
+export type AddMethod = "choose" | "paste" | "file" | "manual" | "aws";
 
-/** The add-cluster dialog (AddClusterHost renders it). */
-export const addClusterRequest = shallowRef<{ method: AddMethod; id: number } | null>(null);
+/** The add-cluster dialog (ClustersHost renders it). */
+export const addClusterRequest = shallowRef<{ method: AddMethod; connectionId?: string | null; id: number } | null>(null);
 let requests = 0;
-export function openAddCluster(method: AddMethod = "choose") {
-  addClusterRequest.value = { method, id: ++requests };
+/** Opens the dialog; with `connectionId`, edits that cloud account (accounts, regions). */
+export function openAddCluster(method: AddMethod = "choose", options: { connectionId?: string | null } = {}) {
+  addClusterRequest.value = { method, connectionId: options.connectionId ?? null, id: ++requests };
 }

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /*
  * The setup guide (fresh installs; reopen from the palette): the kubeconfig
- * files JET Pilot found, the command-line tools it uses, and how it looks.
+ * files JET Pilot found, the command-line tools it uses, how it looks, and
+ * the cloud accounts to find clusters in.
  * Everything here can be changed later in Settings; every step can be
  * skipped.
  */
@@ -9,11 +10,14 @@ import { useRouter } from "vue-router";
 import { homeDir, join } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
 import { type as getOsType } from "@tauri-apps/plugin-os";
-import { ArrowLeft, ArrowRight, Check, FolderOpen, Loader2, Sparkles } from "lucide-vue-next";
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, FolderOpen, Loader2, Sparkles } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import KubeconfigFileRow from "@/components/settings/sections/KubeconfigFileRow.vue";
 import { openAddCluster } from "@/lib/clusters/managed";
+import ProviderMark from "@/components/clusters/ProviderMark.vue";
+import { CONNECTION_KIND_LABELS } from "@/lib/clusters/cloud";
+import { connections, loadCloud, watchCloud } from "@/lib/clusters/catalogStore";
 import ToolsSection from "@/components/settings/sections/ToolsSection.vue";
 import ColorSchemeSection from "@/components/settings/sections/ColorSchemeSection.vue";
 import ThemeLibrary from "@/components/settings/themes/ThemeLibrary.vue";
@@ -37,13 +41,18 @@ const STEPS = [
   { id: "clusters", title: "Your clusters" },
   { id: "tools", title: "Tools" },
   { id: "appearance", title: "Appearance" },
+  { id: "cloud", title: "Cloud accounts" },
   { id: "done", title: "Ready" },
 ] as const;
 const step = ref(0);
 const next = () => (step.value = Math.min(STEPS.length - 1, step.value + 1));
 const back = () => (step.value = Math.max(0, step.value - 1));
 
-onMounted(() => void discoverKubeconfigs(true));
+onMounted(() => {
+  void discoverKubeconfigs(true);
+  watchCloud();
+  void loadCloud();
+});
 const detected = computed(() => discoveredKubeconfigs.value ?? null);
 const readable = computed(() => (detected.value ?? []).filter((file) => file.readable));
 const contextCount = computed(() => readable.value.reduce((count, file) => count + file.contextCount, 0));
@@ -164,7 +173,43 @@ const finish = (goToHub: boolean) => {
           <ThemeLibrary />
         </template>
 
-        <!-- 4. Done -->
+        <!-- 4. Cloud accounts -->
+        <template v-else-if="STEPS[step]!.id === 'cloud'">
+          <div class="space-y-2">
+            <h1 class="text-2xl font-semibold tracking-tight">Connect a cloud account</h1>
+            <p class="text-sm text-muted-foreground">
+              JET Pilot finds the clusters in your cloud accounts, keeps the list current and signs in to them for you, in
+              the app and in your terminal. Optional: kubeconfig files keep working as they are.
+            </p>
+          </div>
+          <div class="overflow-hidden rounded-lg border bg-card shadow-xs">
+            <div class="flex items-center gap-4 px-5 py-4">
+              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-1">
+                <ProviderMark provider="aws" :size="24" />
+              </span>
+              <div class="min-w-0 flex-1 space-y-0.5">
+                <h2 class="text-sm font-semibold">Amazon Web Services</h2>
+                <p class="text-xs text-muted-foreground">
+                  EKS clusters in every account and region you can reach. Sign in with IAM Identity Center, an AWS profile
+                  or access keys.
+                </p>
+              </div>
+              <Button size="sm" :variant="connections?.length ? 'outline' : 'default'" @click="openAddCluster('aws')">
+                {{ connections?.length ? "Connect another" : "Connect AWS" }}
+              </Button>
+            </div>
+            <ul v-if="connections?.length" class="divide-y divide-border-subtle border-t">
+              <li v-for="connection in connections" :key="connection.id" class="flex items-center gap-3 px-5 py-2.5 text-sm">
+                <CheckCircle2 class="h-4 w-4 text-success" />
+                <span class="font-medium">{{ connection.label }}</span>
+                <span class="text-xs text-muted-foreground">{{ CONNECTION_KIND_LABELS[connection.kind] }}</span>
+              </li>
+            </ul>
+          </div>
+          <p class="text-xs text-muted-foreground">You can connect accounts any time from the Clusters hub.</p>
+        </template>
+
+        <!-- 5. Done -->
         <template v-else>
           <div class="space-y-2">
             <h1 class="text-2xl font-semibold tracking-tight">You're all set</h1>
