@@ -27,7 +27,7 @@ import {
   rgbToHex,
   toHexAlpha,
 } from "../contrast";
-import { createVividThemeColors, DEFAULT_SEEDS } from "../derive";
+import { createVividThemeColors, DEFAULT_SEEDS, pickActionColor } from "../derive";
 import { themeAppearances } from "../resolve";
 import {
   type AnsiColor,
@@ -50,6 +50,17 @@ export interface VsCodeImportOptions {
 }
 
 const MAX_INCLUDE_DEPTH = 8;
+
+/** Workbench keys tried, in order, for the primary action colour. */
+const ACTION_KEYS = [
+  "button.background",
+  "statusBarItem.remoteBackground",
+  "activityBarBadge.background",
+  "progressBar.background",
+  "focusBorder",
+  "textLink.foreground",
+  "list.highlightForeground",
+] as const;
 
 /** Keys copied into `jetPilot.editor` (Monaco, plus the terminal keys xterm reads). */
 export const EDITOR_KEYS: ReadonlySet<string> = new Set([
@@ -405,12 +416,20 @@ export function convertVsCodeTheme(
   };
 
   const surfaceRaisedHex = raisedCandidate ?? derived.surfaceRaised;
-  // The primary button maps to messageAction; resolve it before the input role.
-  const buttonHex = solidOver(canvas, "button.background");
-  const actionHex =
-    buttonHex && standsApart(buttonHex, canvasHex) && standsApart(buttonHex, surfaceRaisedHex)
-      ? buttonHex
-      : accentHex;
+  const accentSurfaceHex =
+    solidOver(canvas, "list.activeSelectionBackground", "list.hoverBackground") ?? derived.accentSurface;
+  // The primary button maps to messageAction; resolve it before the input
+  // role. It must be a vivid action colour (≥ 3:1 on the canvas, apart from
+  // the selection surface): many themes give their buttons the selection
+  // grey (Dracula: #44475a), so the theme's brand colours are tried next.
+  const actionHex = pickActionColor(
+    [
+      ...ACTION_KEYS.map((key) => solidOver(canvas, key)),
+      accentHex,
+    ].filter((candidate) => candidate === null || standsApart(candidate, surfaceRaisedHex)),
+    canvasHex,
+    accentSurfaceHex
+  );
   let inputHex =
     [derived.input, derived.surfaceRaised, STANDARD_INPUT[appearance], "#000000", "#ffffff", "#808080"].find(
       (candidate) => standsApart(candidate, canvasHex) && standsApart(candidate, actionHex)
@@ -437,8 +456,7 @@ export function convertVsCodeTheme(
     placeholder: readableOn(surfaceRaisedHex, derived.placeholder, "input.placeholderForeground"),
     error: readableOn(canvasHex, derived.error, "editorError.foreground", "errorForeground"),
     warning: readableOn(canvasHex, derived.warning, "editorWarning.foreground"),
-    accentSurface:
-      solidOver(canvas, "list.activeSelectionBackground", "list.hoverBackground") ?? derived.accentSurface,
+    accentSurface: accentSurfaceHex,
     codeBackground: solidOver(canvas, "textCodeBlock.background") ?? derived.codeBackground,
     sidebar: sidebarHex,
     sidebarForeground: readableOn(sidebarHex, derived.sidebarForeground, "sideBar.foreground"),

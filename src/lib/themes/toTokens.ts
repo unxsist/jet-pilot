@@ -6,9 +6,28 @@
  * itself is text-grade on the canvas, *-foreground is the text on a solid
  * fill of it.
  */
-import { ensureContrast, readableForeground, type ThemeRoles } from "./derive";
+import { ensureContrast, pickActionColor, readableForeground, type ThemeRoles } from "./derive";
 import { isDark, mix, toHslTriplet, TRIPLET_PATTERN } from "./contrast";
 import { type ThemeToken, THEME_TOKENS } from "./types";
+
+/**
+ * The primary fill and its text. T3's messageAction when it is a vivid
+ * action colour; otherwise the theme's accent / focus colour (VS Code
+ * themes often give their buttons the selection grey, which made the
+ * active nav indicator invisible on the selected row).
+ */
+function primaryPair(roles: ThemeRoles): [string, string] {
+  const primary = pickActionColor(
+    [roles.messageAction, roles.accent, roles.focus],
+    roles.canvas,
+    roles.accentSurface
+  );
+  if (primary === roles.messageAction) return [primary, roles.messageActionForeground];
+  return [
+    primary,
+    readableForeground(primary, [roles.messageActionForeground, roles.accentForeground, roles.text, roles.canvas]),
+  ];
+}
 
 /** A text-grade status colour and the text that sits on a solid fill of it. */
 function statusPair(color: string, roles: ThemeRoles): [string, string] {
@@ -24,6 +43,7 @@ export function rolesToTokens(
   const dark = isDark(roles.canvas);
   const [destructive, destructiveForeground] = statusPair(roles.errorForeground, roles);
   const [warning, warningForeground] = statusPair(roles.warningForeground, roles);
+  const [primary, primaryForeground] = primaryPair(roles);
   // Light themes get an inverted tooltip (JET light: near-black), dark ones
   // a raised surface.
   const tooltip = dark ? mix(roles.canvas, roles.text, 0.13) : mix(roles.text, roles.canvas, 0.02);
@@ -50,8 +70,8 @@ export function rolesToTokens(
     "border-strong": mix(roles.border, roles.text, 0.1),
     input: roles.input,
     ring: roles.focus,
-    primary: roles.messageAction,
-    "primary-foreground": roles.messageActionForeground,
+    primary,
+    "primary-foreground": primaryForeground,
     link: ensureContrast(roles.accent, roles.canvas, 4.5),
     success: roles.success,
     "success-foreground": roles.successForeground,

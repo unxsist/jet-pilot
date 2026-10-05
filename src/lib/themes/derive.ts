@@ -520,3 +520,55 @@ export function completeRoles(appearance: ThemeAppearance, input: RoleInput): Th
 
 /** Relative luminance of a colour string (0 when it can't be parsed). */
 export const luminanceOf = (color: string) => relativeLuminance(hexRgb(color));
+
+/* ---- the primary action colour ---- */
+
+/** Minimum contrast of the primary fill on the canvas (non-text UI, WCAG 1.4.11). */
+export const PRIMARY_MIN_CONTRAST = 3;
+/** Minimum contrast between the primary fill and the neutral accent surface. */
+export const PRIMARY_MIN_SEPARATION = 1.5;
+/** OKLCH chroma below which a colour reads as grey rather than as an accent. */
+const VIVID_CHROMA = 0.05;
+
+/** OKLCH chroma of a colour (0 when it can't be parsed). */
+export const chromaOf = (color: string) => {
+  const parsed = parseColor(color);
+  return parsed ? rgbToOklch(parsed).C : 0;
+};
+
+/**
+ * True when `color` works as the app's primary (active nav indicator,
+ * switches, primary buttons): colourful, ≥ 3:1 on the canvas and visibly
+ * apart from the neutral hover / selection surface.
+ */
+export function isVividAction(color: string, canvas: string, accentSurface?: string): boolean {
+  const rgb = parseColor(color);
+  if (!rgb || chromaOf(color) < VIVID_CHROMA) return false;
+  if (contrastRgb(rgb, hexRgb(canvas)) < PRIMARY_MIN_CONTRAST) return false;
+  return !accentSurface || contrastRgb(rgb, hexRgb(accentSurface)) >= PRIMARY_MIN_SEPARATION;
+}
+
+/**
+ * The first candidate that is a vivid action colour; otherwise the most
+ * colourful candidate with its lightness solved to 3:1 on the canvas (and
+ * away from the accent surface). VS Code themes often style their buttons
+ * like list selections (Dracula: #44475a), which made the active nav
+ * indicator vanish into the selected row.
+ */
+export function pickActionColor(
+  candidates: (string | null | undefined)[],
+  canvas: string,
+  accentSurface?: string
+): string {
+  const usable = candidates.filter((c): c is string => !!c && parseColor(c) !== null);
+  const vivid = usable.find((c) => isVividAction(c, canvas, accentSurface));
+  if (vivid) return vivid;
+  const base =
+    [...usable].sort((a, b) => chromaOf(b) - chromaOf(a))[0] ??
+    DEFAULT_SEEDS[isDarkRgb(hexRgb(canvas)) ? "dark" : "light"].accent;
+  let solved = ensureContrast(rgbToHex(hexRgb(base)), canvas, PRIMARY_MIN_CONTRAST);
+  if (accentSurface && contrastRgb(hexRgb(solved), hexRgb(accentSurface)) < PRIMARY_MIN_SEPARATION) {
+    solved = ensureContrast(solved, accentSurface, PRIMARY_MIN_SEPARATION);
+  }
+  return solved;
+}
