@@ -223,7 +223,8 @@ const screens = {
       const values = await page.locator("textarea").inputValue();
       await page.locator("textarea").fill(values.replace("tag: v2.14.3", "tag: v2.15.0"));
       await page.getByRole("tab", { name: /Values diff/ }).click();
-      await wait(600);
+      // Monaco loads lazily and diffs in a worker.
+      await wait(2000);
     },
   },
   "helm-history": {

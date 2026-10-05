@@ -1,13 +1,16 @@
 import { describe, expect, test, vi } from "vitest";
+import type { MetricsMessage, MetricsRequest } from "@/lib/watch";
+
+type OnMessage = (message: MetricsMessage) => void;
 
 const subscriptions: {
   context: string;
-  onMessage: (message: any) => void;
+  onMessage: OnMessage;
   unsubscribed: boolean;
 }[] = [];
 
 vi.mock("@/lib/watch", () => ({
-  subscribeMetrics: vi.fn(async (request: any, onMessage: any) => {
+  subscribeMetrics: vi.fn(async (request: MetricsRequest, onMessage: OnMessage) => {
     const entry = { context: request.context, onMessage, unsubscribed: false };
     subscriptions.push(entry);
     return () => (entry.unsubscribed = true);
@@ -75,7 +78,7 @@ describe("usePodMetrics", () => {
     )!;
     await flush();
     expect(subscriptions).toHaveLength(1);
-    const send = (message: any) =>
+    const send = (message: MetricsMessage) =>
       subscriptions[subscriptions.length - 1].onMessage(message);
 
     send({ type: "status", state: "ready" });
