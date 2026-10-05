@@ -23,6 +23,8 @@ import { perfMark } from "@/lib/perf";
 import type { TabSession } from "@/lib/tabDescriptors";
 import type { PortForwardProfile } from "@/lib/portForwardProfiles";
 import type { Workspace } from "@/lib/workspaces";
+import type { ThemeSettings } from "@/lib/themes/types";
+import { mergeSettings } from "@/lib/settingsMerge";
 
 export const SettingsContextStateKey: InjectionKey<
   ToRefs<SettingsContextState>
@@ -64,9 +66,8 @@ export interface SettingsContextState {
     contextSettings: ContextSettings[];
     collapsedNavigationGroups: string[];
     pinnedResources: { name: string; kind: string }[];
-    appearance: {
-      colorScheme: "auto" | "light" | "dark";
-    };
+    /** Mode plus the theme used for each appearance (theme ids). */
+    appearance: ThemeSettings;
     updates: {
       checkOnStartup: boolean;
       whatsNew: string | null;
@@ -116,6 +117,8 @@ export default {
         pinnedResources: [],
         appearance: {
           colorScheme: "auto",
+          lightTheme: "jet",
+          darkTheme: "jet",
         },
         updates: {
           checkOnStartup: true,
@@ -204,8 +207,12 @@ export default {
         });
 
         try {
-          // Merge initial state with file contents
-          state.settings = { ...state.settings, ...JSON.parse(fileContents) };
+          // Defaults first; sections (appearance, updates...) are merged
+          // so keys added in a newer release keep their defaults.
+          state.settings = mergeSettings(
+            state.settings,
+            JSON.parse(fileContents)
+          );
           lastWritten = fileContents;
           canSave = true;
         } catch (e) {
