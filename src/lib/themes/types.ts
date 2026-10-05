@@ -290,6 +290,8 @@ export interface OpenVsxTheme {
 export interface OpenVsxInstallResult {
   extension: OpenVsxExtension;
   themes: OpenVsxTheme[];
+  /** Themes of the extension that could not be read (omitted when empty). */
+  warnings?: string[];
 }
 
 /* ---- Module API (implemented in src/lib/themes/*, re-exported from ./index) ----
