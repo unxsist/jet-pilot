@@ -37,6 +37,22 @@ describe("primary action colour", () => {
     expect(contrastRatio(primary, "#282a36")).toBeGreaterThanOrEqual(3);
   });
 
+  it("imported VS Code themes keep hairline borders (visible, never loud)", () => {
+    const vscode = [
+      ...builtinFiles().filter((file) => file.id !== "jet" && !file.id!.startsWith("t3-")),
+      importFixture("dracula-color-theme.json"),
+      importFixture("harbor-light-color-theme.jsonc"),
+    ];
+    for (const file of vscode) {
+      for (const appearance of APPEARANCES) {
+        const { roles } = resolveTheme(file, appearance);
+        const ratio = contrastRatio(roles.border, roles.canvas);
+        expect(ratio, `${file.id} ${appearance}`).toBeGreaterThanOrEqual(1.1);
+        expect(ratio, `${file.id} ${appearance}`).toBeLessThanOrEqual(3.2);
+      }
+    }
+  });
+
   it("falls back to the most colourful candidate, solved for contrast", () => {
     // Both candidates are too dark on a dark canvas; the blue is kept and lightened.
     const picked = pickActionColor(["#44475a", "#1e2a8a"], "#101011", "#252528");

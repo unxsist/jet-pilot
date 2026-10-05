@@ -59,7 +59,8 @@ export const ROLE_DESCRIPTIONS: Record<ThemeColorRole, string> = {
   accentSurfaceForeground: "Text on hovered / selected rows (--accent-foreground).",
   messageSurface: "Message bubble background (T3 Code).",
   messageForeground: "Message bubble text (T3 Code).",
-  messageAction: "Primary buttons (--primary).",
+  messageAction:
+    "Primary buttons, switches, the active nav indicator (--primary). When it is not a vivid colour (3:1 on the canvas, apart from accentSurface), the accent / focus colour is used instead.",
   messageActionForeground: "Text on primary buttons (--primary-foreground).",
   messageActionHover: "Primary button hover (T3 Code).",
   codeBackground: "Inline code background.",
@@ -80,7 +81,7 @@ export const ROLE_DESCRIPTIONS: Record<ThemeColorRole, string> = {
   terminalScrollbarHover: "Scrollbar thumbs on hover (--scrollbar-hover).",
 };
 
-const JET_ROLE_DESCRIPTIONS: Record<JetColorRole, string> = {
+export const JET_ROLE_DESCRIPTIONS: Record<JetColorRole, string> = {
   success: "Success colour, text-grade on the canvas (--success): ready pods, healthy status. Derived as a green when missing.",
   successForeground: "Text on a solid success fill (--success-foreground).",
   info: "Info colour, text-grade on the canvas (--info). Derived as a blue when missing.",

@@ -51,6 +51,18 @@ export interface VsCodeImportOptions {
 
 const MAX_INCLUDE_DEPTH = 8;
 
+/** Workbench keys tried, in order, for the hairline border. */
+const BORDER_KEYS = [
+  "panel.border",
+  "editorGroup.border",
+  "contrastBorder",
+  "sideBar.border",
+  "tab.border",
+  "editorWidget.border",
+] as const;
+/** Contrast range (on the canvas) of a border that reads as a hairline. */
+const BORDER_CONTRAST = { min: 1.1, max: 3.2 } as const;
+
 /** Workbench keys tried, in order, for the primary action colour. */
 const ACTION_KEYS = [
   "button.background",
@@ -442,6 +454,17 @@ export function convertVsCodeTheme(
     }
   }
 
+  // JET's borders are hairlines on every panel, row and control: a border
+  // key only wins when it reads like one (visible, yet quiet). Dracula's
+  // purple panel.border would outline everything; Rosé Pine's transparent
+  // ones would vanish.
+  const borderHex =
+    BORDER_KEYS.map((key) => solidOver(canvas, key)).find((candidate) => {
+      if (!candidate) return false;
+      const ratio = contrastRgb(rgb(candidate), canvas);
+      return ratio >= BORDER_CONTRAST.min && ratio <= BORDER_CONTRAST.max;
+    }) ?? derived.border;
+
   const overrides: Partial<Record<ThemeColorRole, string>> = {
     canvas: canvasHex,
     text: readableOn(canvasHex, derived.text, "editor.foreground", "foreground"),
@@ -451,7 +474,7 @@ export function convertVsCodeTheme(
     surfaceOverlay:
       solidOver(canvas, "menu.background", "quickInput.background", "dropdown.background") ??
       derived.surfaceOverlay,
-    border: solidOver(canvas, "panel.border", "editorGroup.border", "contrastBorder") ?? derived.border,
+    border: borderHex,
     input: inputHex,
     placeholder: readableOn(surfaceRaisedHex, derived.placeholder, "input.placeholderForeground"),
     error: readableOn(canvasHex, derived.error, "editorError.foreground", "errorForeground"),
