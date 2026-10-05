@@ -505,13 +505,49 @@ const scene = computed<Scene>(() => ({
  */
 const cardWindow = shallowRef<Rect | null>(null);
 const NO_CARDS = new Set<string>();
-const mountedIds = computed<Set<string>>(() => {
+/*
+ * Mounted cards follow the card window a few dozen per frame, nearest to
+ * the centre of the view first (the canvas draws the rest meanwhile), so
+ * entering the card level never costs one long frame.
+ */
+const MOUNT_PER_FRAME = 16;
+const mountedIds = shallowRef<Set<string>>(NO_CARDS);
+let mountFrame = 0;
+const syncMounted = () => {
+  cancelAnimationFrame(mountFrame);
   const area = cardWindow.value;
-  if (lod.value !== "cards" || !area) return NO_CARDS;
-  const ids = new Set<string>();
-  sceneCards.value.index.query(area, (card) => ids.add(card.id));
-  return ids;
-});
+  const current = mountedIds.value;
+  if (lod.value !== "cards" || !area) {
+    if (current.size > 0) mountedIds.value = NO_CARDS;
+    return;
+  }
+  const wanted: SceneCard[] = [];
+  sceneCards.value.index.query(area, (card) => wanted.push(card));
+  const next = new Set<string>();
+  const missing: SceneCard[] = [];
+  for (const card of wanted) {
+    if (current.has(card.id)) next.add(card.id);
+    else missing.push(card);
+  }
+  if (missing.length > MOUNT_PER_FRAME) {
+    const { x, y, zoom: scale } = viewport.value;
+    const { width, height } = dimensions.value;
+    const cx = (width / 2 - x) / scale;
+    const cy = (height / 2 - y) / scale;
+    const distance = (card: SceneCard) =>
+      Math.abs(card.x + card.width / 2 - cx) +
+      Math.abs(card.y + card.height / 2 - cy);
+    missing.sort((a, b) => distance(a) - distance(b));
+  }
+  for (const card of missing.slice(0, MOUNT_PER_FRAME)) next.add(card.id);
+  const changed =
+    next.size !== current.size || [...next].some((id) => !current.has(id));
+  if (changed) mountedIds.value = next;
+  if (missing.length > MOUNT_PER_FRAME) {
+    mountFrame = requestAnimationFrame(syncMounted);
+  }
+};
+watch([cardWindow, lod, sceneCards], syncMounted);
 
 let flowNodeCache = new Map<string, { card: SceneCard; node: Node }>();
 const flowNodeOf = (card: SceneCard): Node => {
@@ -818,13 +854,20 @@ const moving = ref(false);
  * A gesture or animation ended: switch the level of detail and mount the
  * cards of the final viewport right away (no settle delay).
  */
-const onMoveEnd = () => {
-  moving.value = false;
+const settleView = () => {
   clearTimeout(lodTimer);
   settleLod();
   cardZoom = viewport.value.zoom;
   cancelAnimationFrame(windowFrame);
   updateWindow();
+};
+const onMoveEnd = () => {
+  moving.value = false;
+  settleView();
+};
+/* Programmatic moves end without a move-end event. */
+const afterMove = (move: Promise<unknown>) => {
+  move.then(settleView, () => undefined);
 };
 
 /** Bounds of the whole graph (or of some nodes). */
@@ -865,13 +908,15 @@ const fitRect = (
     options.maxZoom ?? 1
   );
   const zoomLevel = Math.max(0.05, scale);
-  setViewport(
-    {
-      x: width / 2 - (rect.x + rect.width / 2) * zoomLevel,
-      y: height / 2 - (rect.y + rect.height / 2) * zoomLevel,
-      zoom: zoomLevel,
-    },
-    { duration: options.duration ?? 300 }
+  afterMove(
+    setViewport(
+      {
+        x: width / 2 - (rect.x + rect.width / 2) * zoomLevel,
+        y: height / 2 - (rect.y + rect.height / 2) * zoomLevel,
+        zoom: zoomLevel,
+      },
+      { duration: options.duration ?? 300 }
+    )
   );
 };
 const fitAll = (duration = 300) => fitRect(boundsOf(), { duration });
@@ -891,7 +936,7 @@ const initialView = () => {
     1
   );
   if (fitZoom >= MIN_READABLE_ZOOM) fitAll(0);
-  else setViewport({ x: 24, y: 16, zoom: 0.75 });
+  else afterMove(setViewport({ x: 24, y: 16, zoom: 0.75 }));
   lod.value = lodForZoom(fitZoom >= MIN_READABLE_ZOOM ? fitZoom : 0.75);
 };
 
@@ -972,10 +1017,12 @@ const centerOn = (id: string, keepZoom = false) => {
   const card = sceneCards.value.byId.get(id);
   if (!card) return;
   const scale = viewport.value.zoom;
-  setCenter(card.x + card.width / 2, card.y + card.height / 2, {
-    zoom: keepZoom ? scale : Math.max(scale, 0.9),
-    duration: 350,
-  });
+  afterMove(
+    setCenter(card.x + card.width / 2, card.y + card.height / 2, {
+      zoom: keepZoom ? scale : Math.max(scale, 0.9),
+      duration: 350,
+    })
+  );
 };
 
 /* --------------------------------------------------------- selection -- */
@@ -1483,6 +1530,7 @@ onBeforeUnmount(() => {
   clearTimeout(lodTimer);
   cancelAnimationFrame(windowFrame);
   cancelAnimationFrame(hoverFrame);
+  cancelAnimationFrame(mountFrame);
 });
 
 /* ------------------------------------------------------------ status -- */
@@ -1555,7 +1603,7 @@ const visibleArea = computed<Rect | null>(() => {
   return { x: -x / scale, y: -y / scale, width: width / scale, height: height / scale };
 });
 const navigateTo = (x: number, y: number) =>
-  setCenter(x, y, { zoom: viewport.value.zoom, duration: 0 });
+  afterMove(setCenter(x, y, { zoom: viewport.value.zoom, duration: 0 }));
 </script>
 
 <template>
@@ -2118,7 +2166,7 @@ const navigateTo = (x: number, y: number) =>
               size="icon-sm"
               aria-label="Zoom in"
               title="Zoom in"
-              @click="zoomIn({ duration: 150 })"
+              @click="afterMove(zoomIn({ duration: 150 }))"
             >
               <ZoomIn class="h-3.5 w-3.5" />
             </Button>
@@ -2127,7 +2175,7 @@ const navigateTo = (x: number, y: number) =>
               size="icon-sm"
               aria-label="Zoom out"
               title="Zoom out"
-              @click="zoomOut({ duration: 150 })"
+              @click="afterMove(zoomOut({ duration: 150 }))"
             >
               <ZoomOut class="h-3.5 w-3.5" />
             </Button>
