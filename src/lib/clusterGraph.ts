@@ -1710,10 +1710,14 @@ const sameGroup = (a: AppGroup, b: AppGroup) =>
   sameArray(a.nodeIds, b.nodeIds);
 
 export interface TopologyChange {
+  /** The first model of a scope (everything is new). */
+  initial: boolean;
   /** Nodes / edges / groups were added or removed (layout input changed). */
   structure: boolean;
   /** Ids of nodes that are new or drawn differently. */
   nodes: Set<string>;
+  /** Ids of nodes that are new. */
+  added: Set<string>;
   /** Ids of nodes that are gone. */
   removed: Set<string>;
 }
@@ -1732,13 +1736,16 @@ export function reconcileTopology(
     return {
       topology: next,
       change: {
+        initial: true,
         structure: true,
         nodes: new Set(next.nodes.keys()),
+        added: new Set(next.nodes.keys()),
         removed: new Set(),
       },
     };
   }
   const changedNodes = new Set<string>();
+  const added = new Set<string>();
   let structure = next.nodes.size !== previous.nodes.size;
   const nodes = new Map<string, TopoNode>();
   for (const [id, node] of next.nodes) {
@@ -1748,7 +1755,10 @@ export function reconcileTopology(
     } else {
       nodes.set(id, node);
       changedNodes.add(id);
-      if (!old) structure = true;
+      if (!old) {
+        added.add(id);
+        structure = true;
+      }
     }
   }
   const removed = new Set<string>();
@@ -1785,7 +1795,7 @@ export function reconcileTopology(
   if (changedNodes.size === 0 && removed.size === 0 && edgesSame && groupsSame) {
     return {
       topology: previous,
-      change: { structure: false, nodes: changedNodes, removed },
+      change: { initial: false, structure: false, nodes: changedNodes, added, removed },
     };
   }
   return {
@@ -1794,7 +1804,7 @@ export function reconcileTopology(
       edges: edgesSame ? previous.edges : edges,
       groups,
     },
-    change: { structure, nodes: changedNodes, removed },
+    change: { initial: false, structure, nodes: changedNodes, added, removed },
   };
 }
 

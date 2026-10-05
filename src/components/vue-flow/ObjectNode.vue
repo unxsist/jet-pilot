@@ -12,7 +12,14 @@ import {
   kindLabel,
   nodeSubtitle,
 } from "./nodeStatus";
-import { GraphViewStateKey } from "./graphState";
+import {
+  FLAG_ENTER,
+  FLAG_LEAVE,
+  FLAG_LIT,
+  FLAG_MATCH,
+  FLAG_SELECTED,
+  GraphViewStateKey,
+} from "./graphState";
 
 /*
  * A Kubernetes object in the resource graph: kind icon, name, a kind
@@ -61,20 +68,15 @@ const stripLabel = computed(() => {
   return pods === 0 ? "no pods" : `${pods} pod${pods === 1 ? "" : "s"}`;
 });
 
-const dimmed = computed(() => {
-  const lit = state.lit.value;
-  if (lit) return !lit.nodes.has(props.id);
-  const matches = state.matches.value;
-  if (matches) return !matches.has(props.id);
-  if (state.problems.value) return !isProblem(node.value.health);
-  return false;
-});
-const selected = computed(() => state.selected.value === props.id);
-const inPath = computed(
-  () => !selected.value && !!state.lit.value?.nodes.has(props.id)
-);
-const matched = computed(
-  () => !!state.matches.value?.has(props.id) && !state.lit.value
+/*
+ * Highlighting: this card's own flags (selected, in the selected path,
+ * search match, entering / leaving); dimming everything else is one class
+ * on the canvas (see ClusterOverview.vue), so a selection only re-renders
+ * the cards whose flags changed.
+ */
+const flags = state.flags.of(props.id);
+const problem = computed(
+  () => !!node.value.missing || isProblem(node.value.health)
 );
 
 const accent = computed(() => {
@@ -97,24 +99,17 @@ const accent = computed(() => {
   <div
     :class="[
       'graph-card relative flex h-full w-full flex-col justify-center overflow-hidden rounded-lg border text-left text-foreground',
-      'transition-[opacity,border-color,box-shadow,filter] duration-base ease-out',
       accent,
       node.missing
         ? 'border-dashed border-destructive/70 bg-destructive/[0.04]'
         : 'bg-card',
       node.external && 'border-dashed',
-      selected
-        ? 'border-primary ring-2 ring-primary/30'
-        : inPath
-          ? 'border-primary/60'
-          : matched
-            ? 'border-link ring-2 ring-link/25'
-            : !node.missing && 'hover:border-border-strong',
-      dimmed &&
-        (state.lit.value || state.matches.value
-          ? 'opacity-[0.22] saturate-50'
-          : 'opacity-50 saturate-50'),
-      state.entering.value.has(id) && 'graph-card--enter',
+      problem && 'is-problem',
+      flags & FLAG_SELECTED && 'is-selected',
+      flags & FLAG_LIT && 'is-lit',
+      flags & FLAG_MATCH && 'is-match',
+      flags & FLAG_ENTER && 'graph-card--enter',
+      flags & FLAG_LEAVE && 'graph-card--leave',
     ]"
     :data-health="node.health"
   >

@@ -55,6 +55,25 @@ export function nodeSize(node: TopoNode): Size {
   return { width: CARD_WIDTH, height: CARD_HEIGHT };
 }
 
+/**
+ * Everything the layout of a visible graph depends on: groups (in order),
+ * nodes with their size and edges - not health or status. Equal signatures
+ * give equal layouts, so a status-only change never re-lays out.
+ */
+export function layoutSignature(
+  graph: VisibleGraph,
+  sizeOf: (node: TopoNode) => Size = nodeSize
+): string {
+  const nodes = graph.nodes.map((node) => {
+    const size = sizeOf(node);
+    return `${node.id}@${node.group}:${size.width}x${size.height}`;
+  });
+  nodes.sort();
+  const edges = graph.edges.map((edge) => edge.id);
+  edges.sort();
+  return `${graph.groups.map((group) => group.id).join("|")}#${nodes.join("|")}#${edges.join("|")}`;
+}
+
 interface GroupLayout {
   signature: string;
   /** Node positions relative to the group's content box. */

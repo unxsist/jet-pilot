@@ -79,6 +79,52 @@ const screens = {
     },
   },
   "graph-large": { url: "/cluster-overview?scenario=large-graph", ready: ".vue-flow__node-k8s", settle: 3000 },
+  // Zoomed out: cards drawn on the canvas (names + health), then the overview.
+  "graph-zoomed-out": {
+    url: "/cluster-overview?scenario=large-graph",
+    ready: ".vue-flow__node-k8s",
+    settle: 2500,
+    run: async (page) => {
+      await wheelZoom(page, 14);
+      await wait(900);
+    },
+  },
+  "graph-overview": {
+    url: "/cluster-overview?scenario=large-graph",
+    ready: ".vue-flow__node-k8s",
+    settle: 2500,
+    run: async (page) => {
+      await wheelZoom(page, 30);
+      await wait(900);
+    },
+  },
+  "graph-search": {
+    url: "/cluster-overview?scenario=large-graph",
+    ready: ".vue-flow__node-k8s",
+    settle: 2500,
+    run: async (page) => {
+      await page.getByLabel("Find an object").fill("orders");
+      await wait(700);
+    },
+  },
+  // A live change: the selected workload loses its replicas, a pod appears.
+  "graph-live": {
+    url: "/cluster-overview",
+    ready: ".vue-flow__node-k8s",
+    settle: 2000,
+    run: async (page) => {
+      await page.keyboard.press("ArrowRight");
+      await wait(300);
+      await page.evaluate(() =>
+        window.__harnessMutate("deployments", "nginx", (d) => ({
+          ...d,
+          status: { ...d.status, availableReplicas: 0, readyReplicas: 0 },
+        }))
+      );
+      await page.mouse.move(5, 500);
+      await wait(1200);
+    },
+  },
   yaml: {
     url: "/pods",
     ready: "tbody tr td",
@@ -438,6 +484,16 @@ async function editorTrigger(page, action) {
 }
 
 /* Drags the bottom panel up so tab content gets most of the window. */
+/* Wheel-zooms out (positive steps) around the centre of the graph. */
+async function wheelZoom(page, steps) {
+  const box = await page.locator(".vue-flow").boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  for (let i = 0; i < Math.abs(steps); i++) {
+    await page.mouse.wheel(0, Math.sign(steps) * 40);
+    await wait(30);
+  }
+}
+
 async function enlargePanel(page, dy = -330) {
   const handle = page.locator("[data-panel-resize-handle-id]").first();
   const box = await handle.boundingBox().catch(() => null);

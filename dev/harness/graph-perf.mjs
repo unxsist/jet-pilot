@@ -5,7 +5,9 @@
  *
  * - load: navigation -> first card on screen
  * - search: typing a query -> matches highlighted (next paint)
- * - select: Enter on the first result -> selection + neighbourhood lit
+ * - select: Enter on the first result -> neighbourhood lit (next paint),
+ *   and -> the selected card centred on screen
+
  * - zoom: frame times of a wheel zoom from ~75% to the overview and back
  * - delta: a live change (workload loses its replicas) -> card turns red
  *
@@ -35,7 +37,13 @@ const browser = await chromium.launch({
   args: ["--font-render-hinting=none"],
 });
 
-const results = { load: [], search: [], select: [], zoomAvg: [], zoomP95: [], zoomWorst: [], delta: [] };
+const results = { load: [], search: [], select: [], selectCard: [], zoomAvg: [], zoomP95: [], zoomWorst: [], zoomRange: [], delta: [] };
+const scale = (page) =>
+  page.evaluate(() => {
+    const pane = document.querySelector(".vue-flow__transformationpane");
+    const match = /scale\(([\d.]+)\)/.exec(pane?.style.transform || "");
+    return match ? Number(match[1]) : NaN;
+  });
 
 for (let run = 0; run < runs; run++) {
   const context = await browser.newContext({
@@ -67,11 +75,13 @@ for (let run = 0; run < runs; run++) {
     };
     requestAnimationFrame(loop);
   });
+  const zooms = [await scale(page)];
   for (const direction of [1, -1]) {
     for (let i = 0; i < 32; i++) {
       await page.mouse.wheel(0, direction * 40);
       await wait(16);
     }
+    zooms.push(await scale(page));
     await wait(400);
   }
   const frames = await page.evaluate(() => {
@@ -82,6 +92,7 @@ for (let run = 0; run < runs; run++) {
   results.zoomAvg.push(frames.reduce((s, f) => s + f, 0) / frames.length);
   results.zoomP95.push(sorted[Math.floor(sorted.length * 0.95)]);
   results.zoomWorst.push(sorted[sorted.length - 1]);
+  results.zoomRange.push(zooms.map((z) => z.toFixed(2)).join(" -> "));
   await wait(800);
 
   /* Search -> highlight, Enter -> selection lit. */
@@ -107,7 +118,12 @@ for (let run = 0; run < runs; run++) {
     const t0 = performance.now();
     setter.call(input, query);
     input.dispatchEvent(new Event("input", { bubbles: true }));
-    await until(() => document.querySelector("#graph-search-results"));
+    // Matches highlighted: the dimming class (or, before, the match rings).
+    await until(
+      () =>
+        document.querySelector(".graph-flow--search") ||
+        document.querySelector(".graph-card.ring-link\\/25")
+    );
     await paint();
     const search = performance.now() - t0;
 
@@ -115,17 +131,25 @@ for (let run = 0; run < runs; run++) {
     input.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
     );
-    const selectedCard = () =>
-      document.querySelector(
-        ".graph-card--selected, .graph-card.ring-primary\\/30"
-      );
-    await until(selectedCard);
+    // Highlight: the neighbourhood is lit (or, before, the dimming of the
+    // other cards); then the selected card itself on screen (centred).
+    await until(
+      () =>
+        document.querySelector(".graph-flow--lit") ||
+        document.querySelector(".graph-card.opacity-\\[0\\.22\\]")
+    );
     await paint();
     const select = performance.now() - t1;
-    return { search, select };
+    await until(() =>
+      document.querySelector(".graph-card.is-selected, .graph-card.ring-primary\\/30")
+    );
+    await paint();
+    const selectCard = performance.now() - t1;
+    return { search, select, selectCard };
   }, QUERY);
   results.search.push(timing.search);
   results.select.push(timing.select);
+  results.selectCard.push(timing.selectCard);
   await wait(1500);
 
   /* Live delta: the selected workload loses its replicas. */
@@ -158,8 +182,10 @@ const fmt = (values) =>
 console.log(`mode: ${polling ? "kubectl polling" : "watch"}  runs: ${runs}`);
 console.log(`load            ${fmt(results.load)}`);
 console.log(`search->matches ${fmt(results.search)}`);
-console.log(`enter->selected ${fmt(results.select)}`);
+console.log(`enter->lit      ${fmt(results.select)}`);
+console.log(`enter->card on screen ${fmt(results.selectCard)}`);
 console.log(`zoom avg frame  ${fmt(results.zoomAvg)}`);
 console.log(`zoom p95 frame  ${fmt(results.zoomP95)}`);
 console.log(`zoom worst      ${fmt(results.zoomWorst)}`);
+console.log(`zoom range      ${results.zoomRange.join(" | ")}`);
 console.log(`delta->visible  ${fmt(results.delta)}`);

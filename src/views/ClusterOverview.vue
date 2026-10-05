@@ -2,11 +2,15 @@
 /*
  * Resource graph: a live topology of the applications in a context.
  *
- * Data: useClusterTopology (curated kinds, live refresh) -> buildTopology
- * (pure model: relationships, health, app groups) -> visibleGraph
- * (collapsed pods, filters) -> GraphLayoutCache (memoised per group) ->
- * vue-flow nodes / edges. Highlighting (selection, search, problems) lives
- * in a provided view state, so it never rebuilds the node list.
+ * Data: useClusterTopology (shared discovery; WatchHub watches with a
+ * kubectl fallback) -> buildTopology + reconcileTopology (pure model;
+ * unchanged parts keep their identity) -> visibleGraph (collapsed pods,
+ * filters) -> GraphLayoutCache (memoised per group, skipped while the
+ * structure is unchanged) -> a scene: lanes and groups (and, zoomed out,
+ * every card) drawn on one canvas, detailed vue-flow cards near the
+ * viewport when zoomed in. Highlighting (selection, search, problems) is
+ * per-id flags plus one class on the canvas: it never rebuilds the node
+ * list and only re-renders cards whose flags changed.
  */
 import type { Edge, Node, NodeMouseEvent } from "@vue-flow/core";
 import { VueFlow, useVueFlow } from "@vue-flow/core";
@@ -52,16 +56,25 @@ import { StatusDot } from "@/components/ui/status";
 import ContextAvatar from "@/components/ContextAvatar.vue";
 import KindIcon from "@/components/KindIcon.vue";
 import ObjectNode from "@/components/vue-flow/ObjectNode.vue";
-import GroupNode from "@/components/vue-flow/GroupNode.vue";
-import LaneNode from "@/components/vue-flow/LaneNode.vue";
 import TopologyEdge from "@/components/vue-flow/TopologyEdge.vue";
+import GraphCanvas from "@/components/vue-flow/GraphCanvas.vue";
 import GraphLegend from "@/components/vue-flow/GraphLegend.vue";
 import GraphMinimap from "@/components/vue-flow/GraphMinimap.vue";
 import GraphInspector from "@/components/vue-flow/GraphInspector.vue";
-import { GraphViewStateKey } from "@/components/vue-flow/graphState";
+import {
+  FLAG_ENTER,
+  FLAG_HOVER,
+  FLAG_LEAVE,
+  FLAG_LIT,
+  FLAG_MATCH,
+  FLAG_SELECTED,
+  GraphViewStateKey,
+  HighlightFlags,
+} from "@/components/vue-flow/graphState";
 import {
   HEALTH_LABEL,
   HEALTH_TONE,
+  kindLabel,
   nodeSubtitle,
 } from "@/components/vue-flow/nodeStatus";
 import { cn, formatResourceKind, injectStrict } from "@/lib/utils";
@@ -78,6 +91,7 @@ import {
   NodeCategory,
   TopoNode,
   VisibleGraph,
+  buildAdjacency,
   isProblem,
   qualifiedResourceName,
   summarize,
@@ -85,11 +99,28 @@ import {
   visibleGraph,
 } from "@/lib/clusterGraph";
 import {
+  GraphLayout,
   GraphLayoutCache,
-  LANE_HEADER,
   Rect,
+  layoutSignature,
   nodeSize,
 } from "@/lib/clusterGraphLayout";
+import type {
+  Scene,
+  SceneCard,
+  SceneEdge,
+  SceneGroup,
+  SceneHighlight,
+} from "@/lib/clusterGraphCanvas";
+import {
+  Direction,
+  GraphLod,
+  SpatialIndex,
+  literalSearch,
+  lodForZoom,
+  nearestInDirection,
+  searchEntries,
+} from "@/lib/clusterGraphView";
 import {
   GRAPH_REFRESH_INTERVAL,
   GraphScope,
@@ -145,6 +176,7 @@ const scopeLabel = computed(() => {
 
 const {
   topology,
+  change,
   loading,
   refreshing,
   progress,
@@ -168,11 +200,11 @@ const hovered = ref<string | null>(null);
 const expanded = ref(new Set<string>());
 const history = ref(new Set<string>());
 const problems = ref(false);
-const entering = ref(new Set<string>());
+/** Cards added by the last live update (fade in). */
+const entering = shallowRef(new Set<string>());
 const zoom = ref(1);
-/* Semantic zoom: less detail, larger labels when zoomed out. */
-const far = computed(() => zoom.value < 0.45);
-const overview = computed(() => zoom.value < 0.22);
+/* Semantic zoom (see lodForZoom), switched once a zoom gesture settles. */
+const lod = ref<GraphLod>("cards");
 
 const toggleIn = (set: Ref<Set<string>>, id: string) => {
   const next = new Set(set.value);
@@ -266,234 +298,286 @@ const visible = computed<VisibleGraph>(() =>
 const visibleIds = computed(
   () => new Set(visible.value.nodes.map((node) => node.id))
 );
+/* Edges by source / target: built once per graph, used by every query. */
+const adjacency = computed(() => buildAdjacency(visible.value.edges));
 
+/*
+ * Layout: memoised per group (GraphLayoutCache), and skipped entirely
+ * while the structure is unchanged - a status-only live update keeps every
+ * position (and the viewport) as it is.
+ */
 const layoutCache = new GraphLayoutCache();
 /* Duration of the last layout pass (for the timings), not reactive. */
 let lastLayoutMs = 0;
-const layout = computed(() => {
+let layoutRuns = 0;
+/* The graph laid out last (read by `layout` without depending on it). */
+let laidOut: VisibleGraph = EMPTY;
+const structure = computed(() => {
+  laidOut = visible.value;
+  return layoutSignature(visible.value);
+});
+const layout = computed<GraphLayout>(() => {
+  void structure.value;
   const started = performance.now();
-  const result = layoutCache.layout(visible.value);
+  const result = layoutCache.layout(laidOut);
   lastLayoutMs = performance.now() - started;
+  layoutRuns++;
   return result;
 });
+
+/* -------------------------------------------------------------- scene -- */
 
 /*
- * Flow elements of the whole graph. Rendering is virtualised below: only
- * what is near the viewport is handed to vue-flow, so its per-frame work
- * does not grow with the cluster.
+ * What is drawn: scene items keep their identity while their node and
+ * position do, so live updates only touch what changed.
  */
-const laneNodes = computed<Node[]>(() =>
-  layout.value.lanes.map((lane) => ({
-    id: `lane:${lane.namespace}`,
-    type: "lane",
-    position: { x: lane.x, y: lane.y },
-    width: Math.max(lane.width, 200),
-    height: LANE_HEADER - 6,
-    data: { namespace: lane.namespace, apps: lane.apps },
-    selectable: false,
-    draggable: false,
-    connectable: false,
-    focusable: false,
-    zIndex: 0,
-  }))
-);
-
-const groupNodes = computed<(Node & { rect: Rect })[]>(() => {
-  const { nodes: positions, groups: rects } = layout.value;
-  const membersOf = new Map<string, TopoNode[]>();
-  for (const node of visible.value.nodes) {
-    const list = membersOf.get(node.group);
-    if (list) list.push(node);
-    else membersOf.set(node.group, [node]);
-  }
-  const result: (Node & { rect: Rect })[] = [];
-  for (const group of visible.value.groups) {
-    const rect = rects.get(group.id);
-    if (!rect) continue;
-    let pods = 0;
-    let issues = 0;
-    for (const id of group.nodeIds) {
-      const node = topology.value!.nodes.get(id)!;
-      if (node.parent) continue;
-      pods += node.pods?.length || 0;
-      if (isProblem(node.health)) issues++;
-    }
-    const members = membersOf.get(group.id) || [];
-    result.push({
-      id: `group:${group.id}`,
-      type: "group",
-      position: { x: rect.x, y: rect.y },
-      width: rect.width,
-      height: rect.height,
-      rect,
-      data: {
-        group,
-        pods,
-        problems: issues,
-        members: members.map((node) => node.id),
-        // Overview zoom: the group draws its members as health blocks.
-        blocks: members.map((node) => {
-          const position = positions.get(node.id)!;
-          const size = nodeSize(node);
-          return {
-            id: node.id,
-            x: position.x - rect.x,
-            y: position.y - rect.y,
-            width: size.width,
-            height: size.height,
-            health: node.missing ? "error" : node.health,
-          };
-        }),
-      },
-      selectable: false,
-      draggable: false,
-      connectable: false,
-      focusable: false,
-      zIndex: 0,
-    });
-  }
-  return result;
-});
-
-const cardNodes = computed(() => {
+interface CardEntry {
+  node: TopoNode;
+  position: { x: number; y: number };
+  card: SceneCard;
+}
+let cardCache = new Map<string, CardEntry>();
+const cardSubtitle = (node: TopoNode) => {
+  const subtitle = nodeSubtitle(node);
+  if (node.missing || node.category === "pod") return subtitle;
+  return subtitle.startsWith(node.kind)
+    ? `${kindLabel(node.kind)}${subtitle.slice(node.kind.length)}`
+    : `${kindLabel(node.kind)} · ${subtitle}`;
+};
+const sceneCards = computed(() => {
   const positions = layout.value.nodes;
-  const cards = new Map<string, Node & { rect: Rect }>();
+  const next = new Map<string, CardEntry>();
+  const list: SceneCard[] = [];
+  const byId = new Map<string, SceneCard>();
   for (const node of visible.value.nodes) {
     const position = positions.get(node.id);
     if (!position) continue;
-    const size = nodeSize(node);
-    cards.set(node.id, {
-      id: node.id,
-      type: "k8s",
-      position,
-      width: size.width,
-      height: size.height,
-      rect: { ...position, ...size },
-      data: { node: markRaw(node) },
-      draggable: false,
-      connectable: false,
-      selectable: false,
-      zIndex: 2,
-      ariaLabel: `${node.kind} ${node.name}, ${HEALTH_LABEL[node.health]}`,
-    });
+    let entry = cardCache.get(node.id);
+    if (!entry || entry.node !== node || entry.position !== position) {
+      const size = nodeSize(node);
+      entry = {
+        node,
+        position,
+        card: {
+          id: node.id,
+          x: position.x,
+          y: position.y,
+          width: size.width,
+          height: size.height,
+          name: node.name,
+          subtitle: cardSubtitle(node),
+          health: node.health,
+          category: node.category,
+          missing: !!node.missing,
+          external: !!node.external,
+          compact: node.category === "pod",
+          group: node.group,
+        },
+      };
+    }
+    next.set(node.id, entry);
+    list.push(entry.card);
+    byId.set(node.id, entry.card);
   }
-  return cards;
+  cardCache = next;
+  return { list, byId, index: new SpatialIndex(list) };
 });
 
-const allEdges = computed<Edge[]>(() => {
+const sceneGroups = computed<SceneGroup[]>(() => {
   const nodes = topology.value?.nodes;
-  const cards = cardNodes.value;
-  if (!nodes) return [];
-  const result: Edge[] = [];
-  for (const edge of visible.value.edges) {
-    const source = nodes.get(edge.source)!;
-    const target = nodes.get(edge.target)!;
-    const from = cards.get(edge.source)?.rect;
-    const to = cards.get(edge.target)?.rect;
-    if (!from || !to) continue;
+  const rects = layout.value.groups;
+  const membersOf = new Map<string, SceneCard[]>();
+  for (const card of sceneCards.value.list) {
+    const list = membersOf.get(card.group);
+    if (list) list.push(card);
+    else membersOf.set(card.group, [card]);
+  }
+  const result: SceneGroup[] = [];
+  for (const group of visible.value.groups) {
+    const rect = rects.get(group.id);
+    if (!rect || !nodes) continue;
+    let pods = 0;
+    let issues = 0;
+    for (const id of group.nodeIds) {
+      const node = nodes.get(id);
+      if (!node || node.parent) continue;
+      pods += node.pods?.length || 0;
+      if (isProblem(node.health)) issues++;
+    }
     result.push({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      type: "topology",
-      selectable: false,
-      focusable: false,
-      zIndex: 1,
-      data: {
-        type: edge.type,
-        // Right side of the source card to the left side of the target.
-        points: {
+      id: group.id,
+      ...rect,
+      title:
+        group.type === "shared"
+          ? "Shared"
+          : group.type === "unused"
+            ? "Unreferenced"
+            : group.name,
+      type: group.type,
+      health: group.health,
+      pods,
+      problems: issues,
+      members: membersOf.get(group.id) || [],
+    });
+  }
+  return result;
+});
+
+let edgeCache = new Map<
+  string,
+  { from: SceneCard; to: SceneCard; edge: SceneEdge }
+>();
+const sceneEdges = computed<SceneEdge[]>(() => {
+  const groups = topology.value?.groups;
+  const cards = sceneCards.value.byId;
+  const next = new Map<string, { from: SceneCard; to: SceneCard; edge: SceneEdge }>();
+  const result: SceneEdge[] = [];
+  for (const edge of visible.value.edges) {
+    const from = cards.get(edge.source);
+    const to = cards.get(edge.target);
+    if (!from || !to) continue;
+    let entry = edgeCache.get(edge.id);
+    if (!entry || entry.from !== from || entry.to !== to) {
+      entry = {
+        from,
+        to,
+        edge: {
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          type: edge.type,
+          // Right side of the source card to the left side of the target.
           sx: from.x + from.width,
           sy: from.y + from.height / 2,
           tx: to.x,
           ty: to.y + to.height / 2,
+          missing: from.missing || to.missing,
+          crossGroup: from.group !== to.group,
+          // Edges into shared / unreferenced groups (a StorageClass used by
+          // many apps) stay faint until one of their ends is highlighted.
+          faint:
+            from.group !== to.group && groups?.get(to.group)?.type !== "app",
+          problem:
+            from.missing ||
+            to.missing ||
+            isProblem(from.health) ||
+            isProblem(to.health),
         },
-        missing: !!target.missing || !!source.missing,
-        crossGroup: source.group !== target.group,
-        // Edges into shared / unreferenced groups (a StorageClass used by
-        // many apps) stay faint until one of their ends is highlighted.
-        faint:
-          source.group !== target.group &&
-          topology.value!.groups.get(target.group)?.type !== "app",
-        problem: isProblem(source.health) || isProblem(target.health),
-      },
-    });
+      };
+    }
+    next.set(edge.id, entry);
+    result.push(entry.edge);
   }
+  edgeCache = next;
   return result;
 });
 
-/** Neighbours per card: edges of a rendered card need both of their ends. */
-const neighbours = computed(() => {
-  const map = new Map<string, string[]>();
-  for (const edge of visible.value.edges) {
-    const a = map.get(edge.source);
-    if (a) a.push(edge.target);
-    else map.set(edge.source, [edge.target]);
-    const b = map.get(edge.target);
-    if (b) b.push(edge.source);
-    else map.set(edge.target, [edge.source]);
-  }
-  return map;
-});
+const scene = computed<Scene>(() => ({
+  cards: sceneCards.value.index,
+  groups: sceneGroups.value,
+  lanes: layout.value.lanes,
+  edges: sceneEdges.value,
+}));
 
-const intersects = (a: Rect, b: Rect) =>
-  a.x < b.x + b.width &&
-  b.x < a.x + a.width &&
-  a.y < b.y + b.height &&
-  b.y < a.y + a.height;
+/* --------------------------------------------------------- DOM cards -- */
 
 /*
- * Graph areas to render: the viewport plus a margin, snapped to a grid.
- * Groups follow the viewport every frame (they are cheap); cards follow
- * immediately while panning, but only once a zoom gesture settles, so
- * zooming out does not mount hundreds of cards mid-gesture.
+ * Zoomed in, the cards near the viewport are real (vue-flow) cards: full
+ * detail, focusable, expandable. Their node objects are cached, so vue-flow
+ * only patches cards whose object or position changed.
  */
-const renderWindow = shallowRef<Rect | null>(null);
 const cardWindow = shallowRef<Rect | null>(null);
-
-const flowNodes = computed<Node[]>(() => {
-  const window = renderWindow.value;
-  // Overview (and before the first viewport): groups draw their members.
-  if (overview.value || !window) {
-    return [...laneNodes.value, ...groupNodes.value];
-  }
-  const cardArea = cardWindow.value || window;
-  const result: Node[] = laneNodes.value.filter((lane) =>
-    intersects(window, {
-      ...lane.position,
-      width: lane.width as number,
-      height: LANE_HEADER,
-    })
-  );
-  for (const group of groupNodes.value) {
-    if (intersects(window, group.rect)) result.push(group);
-  }
-  const rendered = new Set<string>();
-  for (const [id, card] of cardNodes.value) {
-    if (!intersects(cardArea, card.rect)) continue;
-    rendered.add(id);
-    for (const other of neighbours.value.get(id) || []) rendered.add(other);
-  }
-  for (const id of rendered) {
-    const card = cardNodes.value.get(id);
-    if (card) result.push(card);
-  }
-  return result;
+const NO_CARDS = new Set<string>();
+const mountedIds = computed<Set<string>>(() => {
+  const area = cardWindow.value;
+  if (lod.value !== "cards" || !area) return NO_CARDS;
+  const ids = new Set<string>();
+  sceneCards.value.index.query(area, (card) => ids.add(card.id));
+  return ids;
 });
 
+let flowNodeCache = new Map<string, { card: SceneCard; node: Node }>();
+const flowNodeOf = (card: SceneCard): Node => {
+  const cached = flowNodeCache.get(card.id);
+  if (cached && cached.card === card) return cached.node;
+  const topoNode = cardCache.get(card.id)!.node;
+  const node: Node = {
+    id: card.id,
+    type: "k8s",
+    position: cardCache.get(card.id)!.position,
+    width: card.width,
+    height: card.height,
+    data: { node: markRaw(topoNode) },
+    draggable: false,
+    connectable: false,
+    selectable: false,
+    zIndex: 2,
+    ariaLabel: `${topoNode.kind} ${topoNode.name}, ${HEALTH_LABEL[topoNode.health]}`,
+  };
+  flowNodeCache.set(card.id, { card, node });
+  return node;
+};
+
+/* Objects removed by a live update fade out where they were. */
+const leaving = shallowRef<Node[]>([]);
+
+const flowNodes = computed<Node[]>(() => {
+  const cards = sceneCards.value.byId;
+  const result: Node[] = [];
+  const keep = new Map<string, { card: SceneCard; node: Node }>();
+  for (const id of mountedIds.value) {
+    const card = cards.get(id);
+    if (!card) continue;
+    result.push(flowNodeOf(card));
+    keep.set(id, flowNodeCache.get(id)!);
+  }
+  flowNodeCache = keep;
+  return leaving.value.length ? [...result, ...leaving.value] : result;
+});
+
+let flowEdgeCache = new Map<string, { edge: SceneEdge; flow: Edge }>();
 const flowEdges = computed<Edge[]>(() => {
-  if (overview.value || !renderWindow.value) return [];
-  const rendered = new Set(flowNodes.value.map((node) => node.id));
-  return allEdges.value.filter(
-    (edge) => rendered.has(edge.source) && rendered.has(edge.target)
-  );
+  const mounted = mountedIds.value;
+  if (mounted.size === 0) return [];
+  const result: Edge[] = [];
+  const keep = new Map<string, { edge: SceneEdge; flow: Edge }>();
+  for (const edge of sceneEdges.value) {
+    if (!mounted.has(edge.source) || !mounted.has(edge.target)) continue;
+    let entry = flowEdgeCache.get(edge.id);
+    if (!entry || entry.edge !== edge) {
+      entry = {
+        edge,
+        flow: {
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          type: "topology",
+          selectable: false,
+          focusable: false,
+          zIndex: 1,
+          data: {
+            type: edge.type,
+            points: { sx: edge.sx, sy: edge.sy, tx: edge.tx, ty: edge.ty },
+            missing: edge.missing,
+            crossGroup: edge.crossGroup,
+            faint: edge.faint,
+            problem: edge.problem,
+          },
+        },
+      };
+    }
+    keep.set(edge.id, entry);
+    result.push(entry.flow);
+  }
+  flowEdgeCache = keep;
+  return result;
 });
 
 /* -------------------------------------------------------- highlighting -- */
 
 const lit = computed(() =>
   selected.value && visibleIds.value.has(selected.value)
-    ? traceNeighbourhood(visible.value.edges, selected.value)
+    ? traceNeighbourhood(adjacency.value, selected.value)
     : null
 );
 
@@ -501,6 +585,14 @@ const search = ref("");
 const searchInput = ref<InstanceType<typeof Input> | null>(null);
 const searchOpen = ref(false);
 const searchIndex = ref(0);
+/*
+ * Search: literal (substring) matches first - instant on thousands of
+ * objects - and fuzzy matching (Fuse) only when nothing matches literally.
+ * Both indexes are built lazily, on the first search of a model.
+ */
+const searchList = computed(() =>
+  searchEntries(topology.value?.nodes.values() || [])
+);
 const fuse = computed(() => {
   const nodes = [...(topology.value?.nodes.values() || [])];
   return new Fuse(nodes, {
@@ -517,7 +609,10 @@ const fuse = computed(() => {
 const searchResults = computed(() => {
   const query = search.value.trim();
   if (!query) return [];
-  return fuse.value.search(query, { limit: 200 }).map((result) => result.item);
+  return (
+    literalSearch(searchList.value, query) ??
+    fuse.value.search(query, { limit: 200 }).map((result) => result.item)
+  );
 });
 /** Visible node a (possibly collapsed) object is drawn as. */
 const drawnAs = (node: TopoNode) =>
@@ -531,35 +626,83 @@ watch(search, () => {
   searchOpen.value = true;
 });
 
+/* Groups with a highlighted member stay bright. */
+const highlightGroups = computed(() => {
+  const ids = lit.value?.nodes ?? matches.value;
+  const nodes = topology.value?.nodes;
+  if (!ids || !nodes) return null;
+  const groups = new Set<string>();
+  for (const id of ids) {
+    const node = nodes.get(id);
+    if (node) groups.add(node.group);
+  }
+  return groups;
+});
+
+const sceneHighlight = computed<SceneHighlight>(() => ({
+  selected: selected.value,
+  hovered: hovered.value,
+  lit: lit.value,
+  matches: matches.value,
+  problems: problems.value,
+  groups: highlightGroups.value,
+}));
+
+/*
+ * Per-card / per-edge flags for the DOM cards: only the ids whose flags
+ * change are touched; dimming the rest is one class (highlightClass).
+ */
+const flags = new HighlightFlags();
+watchEffect(() => {
+  const next = new Map<string, number>();
+  const add = (id: string, flag: number) =>
+    next.set(id, (next.get(id) ?? 0) | flag);
+  const { outgoing, incoming } = adjacency.value;
+  const edgesOf = (id: string, flag: number) => {
+    for (const edge of outgoing.get(id) || []) add(edge.id, flag);
+    for (const edge of incoming.get(id) || []) add(edge.id, flag);
+  };
+  const neighbourhood = lit.value;
+  if (neighbourhood) {
+    for (const id of neighbourhood.nodes) add(id, FLAG_LIT);
+    for (const id of neighbourhood.edges) add(id, FLAG_LIT);
+  }
+  if (selected.value) add(selected.value, FLAG_SELECTED);
+  if (matches.value && !neighbourhood) {
+    for (const id of matches.value) {
+      add(id, FLAG_MATCH);
+      edgesOf(id, FLAG_MATCH);
+    }
+  }
+  if (hovered.value) edgesOf(hovered.value, FLAG_HOVER);
+  for (const id of entering.value) add(id, FLAG_ENTER);
+  for (const node of leaving.value) add(node.id, FLAG_LEAVE);
+  flags.apply(next);
+});
+const highlightClass = computed(() =>
+  lit.value
+    ? "graph-flow--lit"
+    : matches.value
+      ? "graph-flow--search"
+      : problems.value
+        ? "graph-flow--problems"
+        : ""
+);
+
 /*
  * Expanding / collapsing re-lays out a group (and the groups after it):
- * keep the toggled card where it is on screen.
+ * the toggled card stays where it is on screen (see the layout watcher).
  */
+let anchorId: string | null = null;
 const keepInPlace = (id: string, change: () => void) => {
-  const before = layout.value.nodes.get(id);
+  anchorId = id;
   change();
-  nextTick(() => {
-    const after = layout.value.nodes.get(id);
-    if (!before || !after) return;
-    const { x, y, zoom: scale } = viewport.value;
-    setViewport({
-      x: x - (after.x - before.x) * scale,
-      y: y - (after.y - before.y) * scale,
-      zoom: scale,
-    });
-  });
 };
 
 provide(GraphViewStateKey, {
-  selected,
-  hovered,
-  lit,
-  problems,
-  matches,
+  flags,
   expanded,
   history,
-  entering,
-  overview,
   toggleExpanded: (id: string) => keepInPlace(id, () => toggleIn(expanded, id)),
   toggleHistory: (id: string) => keepInPlace(id, () => toggleIn(history, id)),
 });
@@ -578,22 +721,43 @@ const problemNodeIds = computed(() =>
 const { setCenter, setViewport, zoomIn, zoomOut, dimensions, viewport } =
   useVueFlow();
 
+/*
+ * Level of detail: switched once the zoom settles, so a zoom gesture never
+ * swaps hundreds of cards mid-way (the canvas draws whatever is not
+ * mounted meanwhile).
+ */
+const LOD_SETTLE_MS = 160;
+let lodTimer: ReturnType<typeof setTimeout> | undefined;
+const settleLod = () => {
+  lod.value = lodForZoom(viewport.value.zoom, lod.value);
+};
 watch(
   () => viewport.value.zoom,
-  (value) => (zoom.value = value)
+  (value) => {
+    zoom.value = value;
+    clearTimeout(lodTimer);
+    if (lodForZoom(value, lod.value) !== lod.value) {
+      lodTimer = setTimeout(settleLod, LOD_SETTLE_MS);
+    }
+  }
 );
 
-/* Render window: recomputed at most once per frame, and only changes when
- * the viewport moves past a grid step (small pans keep the same set). */
+/*
+ * Card window: the viewport plus a margin, snapped to a grid. It follows
+ * panning right away (small pans keep the same set), zooming only once the
+ * gesture settles.
+ */
 const WINDOW_GRID = 400;
 let windowFrame = 0;
+let cardTimer: ReturnType<typeof setTimeout> | undefined;
+let cardZoom = 0;
 const updateWindow = () => {
   const { width, height } = dimensions.value;
   const { x, y, zoom: scale } = viewport.value;
   if (!width || !height || !scale) return;
   const viewWidth = width / scale;
   const viewHeight = height / scale;
-  const margin = Math.max(viewWidth, viewHeight) * 0.35;
+  const margin = Math.max(viewWidth, viewHeight) * 0.25;
   const snap = (value: number, up: boolean) =>
     (up ? Math.ceil(value / WINDOW_GRID) : Math.floor(value / WINDOW_GRID)) *
     WINDOW_GRID;
@@ -602,28 +766,26 @@ const updateWindow = () => {
   const right = snap(-x / scale + viewWidth + margin, true);
   const bottom = snap(-y / scale + viewHeight + margin, true);
   const next = { x: left, y: top, width: right - left, height: bottom - top };
-  const same = (rect: Rect | null) =>
-    !!rect &&
-    rect.x === next.x &&
-    rect.y === next.y &&
-    rect.width === next.width &&
-    rect.height === next.height;
-  if (!same(renderWindow.value)) renderWindow.value = next;
+  const current = cardWindow.value;
+  const same =
+    !!current &&
+    current.x === next.x &&
+    current.y === next.y &&
+    current.width === next.width &&
+    current.height === next.height;
 
   clearTimeout(cardTimer);
-  if (same(cardWindow.value)) return;
-  if (scale === cardZoom || !cardWindow.value) {
+  if (same) return;
+  if (scale === cardZoom || !current) {
     cardWindow.value = next;
     cardZoom = scale;
   } else {
     cardTimer = setTimeout(() => {
-      cardWindow.value = renderWindow.value;
       cardZoom = viewport.value.zoom;
-    }, 160);
+      updateWindow();
+    }, LOD_SETTLE_MS);
   }
 };
-let cardTimer: ReturnType<typeof setTimeout> | undefined;
-let cardZoom = 0;
 watch(
   [viewport, dimensions],
   () => {
@@ -635,11 +797,6 @@ watch(
 
 /* Animations pause while the view moves (cheaper frames). */
 const moving = ref(false);
-
-/* Zoom for CSS (overview label sizes), set without re-rendering the view. */
-watch(zoom, (value) =>
-  canvas.value?.style.setProperty("--graph-zoom", String(value))
-);
 
 /** Bounds of the whole graph (or of some nodes). */
 const boundsOf = (ids?: string[]): Rect | null => {
@@ -655,8 +812,8 @@ const boundsOf = (ids?: string[]): Rect | null => {
   };
   if (ids) {
     for (const id of ids) {
-      const card = cardNodes.value.get(id);
-      if (card) add(card.rect);
+      const card = sceneCards.value.byId.get(id);
+      if (card) add(card);
     }
   } else {
     for (const rect of layout.value.groups.values()) add(rect);
@@ -701,38 +858,94 @@ const initialView = () => {
   if (!width || !height || !bounds) return;
   const fitZoom = Math.min(
     width / (bounds.width * 1.16),
-    height / (bounds.height * 1.16)
+    height / (bounds.height * 1.16),
+    1
   );
   if (fitZoom >= MIN_READABLE_ZOOM) fitAll(0);
   else setViewport({ x: 24, y: 16, zoom: 0.75 });
+  lod.value = lodForZoom(fitZoom >= MIN_READABLE_ZOOM ? fitZoom : 0.75);
 };
 
+const showGraph = computed(
+  () => !loadError.value && !loading.value && !!topology.value
+);
+
+/* Once per scope, as soon as the graph and the canvas size are known. */
 const viewedScope = ref("");
+watch(
+  [showGraph, () => dimensions.value.width, layout],
+  () => {
+    if (!showGraph.value || !dimensions.value.width) return;
+    const key = JSON.stringify(scope.value);
+    if (viewedScope.value === key || layout.value.groups.size === 0) return;
+    viewedScope.value = key;
+    nextTick(initialView);
+  }
+);
+
+/* Render time of the last change (for the timings). */
 const renderMs = ref(0);
 let layoutDone = 0;
 watch(layout, () => (layoutDone = performance.now()));
-
 const onNodesInitialized = () => {
   renderMs.value = performance.now() - layoutDone;
-  const key = JSON.stringify(scope.value);
-  if (viewedScope.value !== key) {
-    viewedScope.value = key;
-    requestAnimationFrame(initialView);
-  }
 };
+
+/*
+ * Keep the viewport stable when the layout changes (live updates,
+ * expanding a workload): the anchor - the toggled card, the selection or
+ * the card nearest the centre of the view - stays where it is on screen.
+ */
+watch(layout, (next, previous) => {
+  const requested = anchorId;
+  anchorId = null;
+  if (!previous || next === previous || next.nodes.size === 0) return;
+  const { x, y, zoom: scale } = viewport.value;
+  const { width, height } = dimensions.value;
+  let anchor: string | null = null;
+  for (const id of [requested, selected.value]) {
+    if (id && previous.nodes.has(id) && next.nodes.has(id)) {
+      anchor = id;
+      break;
+    }
+  }
+  if (!anchor && scale && width) {
+    const cx = (width / 2 - x) / scale;
+    const cy = (height / 2 - y) / scale;
+    let best = Infinity;
+    for (const [id, position] of previous.nodes) {
+      if (!next.nodes.has(id)) continue;
+      const distance = Math.hypot(position.x - cx, position.y - cy);
+      if (distance < best) {
+        best = distance;
+        anchor = id;
+      }
+    }
+  }
+  if (!anchor) return;
+  const before = previous.nodes.get(anchor)!;
+  const after = next.nodes.get(anchor)!;
+  if (before.x === after.x && before.y === after.y) return;
+  setViewport({
+    x: x - (after.x - before.x) * scale,
+    y: y - (after.y - before.y) * scale,
+    zoom: scale,
+  });
+});
 
 const focusNodes = (ids: string[], maxZoom = 1.1) => {
   if (ids.length === 0) return;
   fitRect(boundsOf(ids), { padding: 0.15, maxZoom, duration: 400 });
 };
 
-const centerOn = (id: string) => {
-  const card = cardNodes.value.get(id);
+/** Centre a card (zoomed in to a readable level unless `keepZoom`). */
+const centerOn = (id: string, keepZoom = false) => {
+  const card = sceneCards.value.byId.get(id);
   if (!card) return;
-  const { rect } = card;
-  setCenter(rect.x + rect.width / 2, rect.y + rect.height / 2, {
-    zoom: Math.max(viewport.value.zoom, 0.9),
-    duration: 400,
+  const scale = viewport.value.zoom;
+  setCenter(card.x + card.width / 2, card.y + card.height / 2, {
+    zoom: keepZoom ? scale : Math.max(scale, 0.9),
+    duration: 350,
   });
 };
 
@@ -742,7 +955,6 @@ const setSidePanelComponent = injectStrict(
   PanelProviderSetSidePanelComponentKey
 );
 const { sidePanel } = injectStrict(PanelProviderStateKey);
-
 
 /*
  * The side panel shows the object's health, relationships and the regular
@@ -759,29 +971,27 @@ const openDetails = (node: TopoNode) => {
       node: markRaw(node),
       topology: markRaw(topology.value),
       resource: node.object,
-      onSelect: (id: string) => select(id, { center: true }),
+      onSelect: (id: string) => select(id, { reveal: "center" }),
       onFocus: () => focusSelection(),
     },
   });
 };
 
-/** Pan to a node when it ended up off screen (e.g. behind the panel). */
+/** Pan to a node when it is (partly) off screen (e.g. behind the panel). */
 const ensureVisible = (id: string) => {
-  const position = layout.value.nodes.get(id);
-  const node = topology.value?.nodes.get(id);
-  if (!position || !node) return;
-  const size = nodeSize(node);
+  const card = sceneCards.value.byId.get(id);
+  if (!card) return;
   const { x, y, zoom: scale } = viewport.value;
-  const left = position.x * scale + x;
-  const top = position.y * scale + y;
+  const left = card.x * scale + x;
+  const top = card.y * scale + y;
   const margin = 24;
   if (
     left < margin ||
     top < margin ||
-    left + size.width * scale > dimensions.value.width - margin ||
-    top + size.height * scale > dimensions.value.height - margin
+    left + card.width * scale > dimensions.value.width - margin ||
+    top + card.height * scale > dimensions.value.height - margin
   ) {
-    centerOn(id);
+    centerOn(id, true);
   }
 };
 
@@ -791,33 +1001,58 @@ const ensureVisible = (id: string) => {
  * node (not on the panel that slid in under the pointer).
  */
 let panelTimer: ReturnType<typeof setTimeout> | undefined;
+let panelFrame = 0;
+/* Without a delay: right after the highlight is painted. */
+const schedulePanel = (open: () => void, delay: number) => {
+  clearTimeout(panelTimer);
+  cancelAnimationFrame(panelFrame);
+  if (delay > 0) panelTimer = setTimeout(open, delay);
+  else {
+    panelFrame = requestAnimationFrame(() => {
+      panelTimer = setTimeout(open, 0);
+    });
+  }
+};
+const cancelPanel = () => {
+  clearTimeout(panelTimer);
+  cancelAnimationFrame(panelFrame);
+};
 
-/** Select an object (expanding its workload when it is collapsed). */
+/**
+ * Select an object (expanding its workload when it is collapsed). The
+ * highlight is immediate; `reveal` brings it into view right away, the side
+ * panel follows after `panelDelay`.
+ */
 const select = (
   id: string,
-  options: { center?: boolean; panelDelay?: number } = {}
+  options: { reveal?: "center" | "ensure"; panelDelay?: number } = {}
 ) => {
   const node = topology.value?.nodes.get(id);
   if (!node) return;
   if (node.parent && !expanded.value.has(node.parent)) {
+    anchorId = node.parent;
     toggleIn(expanded, node.parent);
   }
   if (node.old && node.parent && !history.value.has(node.parent)) {
     toggleIn(history, node.parent);
   }
   selected.value = id;
-  clearTimeout(panelTimer);
-  const delay = options.panelDelay ?? 0;
-  panelTimer = setTimeout(() => {
+  if (options.reveal) {
+    // After an expansion is laid out.
+    nextTick(() => {
+      if (selected.value !== id) return;
+      if (options.reveal === "center") centerOn(id);
+      else ensureVisible(id);
+    });
+  }
+  schedulePanel(() => {
     if (selected.value !== id) return;
     openDetails(node);
     // Once the panel narrowed the canvas.
     setTimeout(() => {
-      if (selected.value !== id) return;
-      if (options.center) centerOn(id);
-      else ensureVisible(id);
+      if (selected.value === id) ensureVisible(id);
     }, 220);
-  }, delay);
+  }, options.panelDelay ?? 0);
 };
 
 const focusSelection = () => {
@@ -825,7 +1060,7 @@ const focusSelection = () => {
 };
 
 const clearSelection = () => {
-  clearTimeout(panelTimer);
+  cancelPanel();
   if (selected.value === null) return;
   selected.value = null;
   setSidePanelComponent(null);
@@ -836,32 +1071,83 @@ watch(sidePanel, (panel) => {
   if (!panel && selected.value) selected.value = null;
 });
 
-const onNodeClick = ({ node }: NodeMouseEvent) => {
-  if (node.type !== "k8s") {
-    clearSelection();
-    return;
-  }
-  if (selected.value !== node.id) select(node.id, { panelDelay: 260 });
+const clickCard = (id: string) => {
+  if (selected.value !== id) select(id, { panelDelay: 260 });
 };
-
-const onNodeDoubleClick = ({ node }: NodeMouseEvent) => {
-  if (node.type !== "k8s") return;
-  clearTimeout(panelTimer);
-  const topoNode = topology.value?.nodes.get(node.id);
-  selected.value = node.id;
+const doubleClickCard = (id: string) => {
+  cancelPanel();
+  const topoNode = topology.value?.nodes.get(id);
+  selected.value = id;
   if (topoNode) openDetails(topoNode);
   // Fit the neighbourhood into the canvas the panel left.
   setTimeout(
-    () =>
-      focusNodes([...traceNeighbourhood(visible.value.edges, node.id).nodes]),
+    () => focusNodes([...traceNeighbourhood(adjacency.value, id).nodes]),
     240
   );
 };
 
+const onNodeClick = ({ node }: NodeMouseEvent) => {
+  if (node.type !== "k8s" || node.id.startsWith("ghost:")) return;
+  clickCard(node.id);
+};
+const onNodeDoubleClick = ({ node }: NodeMouseEvent) => {
+  if (node.type !== "k8s" || node.id.startsWith("ghost:")) return;
+  doubleClickCard(node.id);
+};
+
 /*
- * Keep the selection (and its panel) in sync with live updates: the panel
- * is only refreshed when the selected object or the relationships changed
- * (unchanged nodes and edges keep their identity across updates).
+ * Cards drawn on the canvas (zoomed out / not mounted) are hit-tested on
+ * the pane: same click, double-click and hover as the DOM cards.
+ */
+const { vueFlowRef } = useVueFlow();
+const isPane = (event: Event) =>
+  (event.target as Element | null)?.classList?.contains("vue-flow__pane") ??
+  false;
+const canvasCardAt = (event: MouseEvent): SceneCard | null => {
+  const element = vueFlowRef.value;
+  if (!element) return null;
+  const rect = element.getBoundingClientRect();
+  const { x, y, zoom: scale } = viewport.value;
+  const card = sceneCards.value.index.at(
+    (event.clientX - rect.left - x) / scale,
+    (event.clientY - rect.top - y) / scale
+  );
+  return card && !mountedIds.value.has(card.id) ? card : null;
+};
+const onPaneClick = (event: MouseEvent) => {
+  const card = canvasCardAt(event);
+  if (card) clickCard(card.id);
+  else clearSelection();
+};
+const onPaneDoubleClick = (event: MouseEvent) => {
+  if (!isPane(event)) return;
+  const card = canvasCardAt(event);
+  if (card) doubleClickCard(card.id);
+};
+const pointerOnCard = ref(false);
+let hoverFrame = 0;
+const onPaneMouseMove = (event: MouseEvent) => {
+  if (!isPane(event)) return;
+  cancelAnimationFrame(hoverFrame);
+  hoverFrame = requestAnimationFrame(() => {
+    const card = moving.value ? null : canvasCardAt(event);
+    pointerOnCard.value = !!card;
+    if ((card?.id ?? null) === hoverSource) return;
+    if (card) showTooltip(card.id, event);
+    else if (hoverSource !== null) hideTooltip();
+  });
+};
+const onPaneMouseLeave = () => {
+  cancelAnimationFrame(hoverFrame);
+  pointerOnCard.value = false;
+  if (hoverSource !== null) hideTooltip();
+};
+
+/*
+ * Live updates: the selection (and its panel) follows the object - the
+ * panel only refreshes when the selected object or the relationships
+ * changed (unchanged nodes and edges keep their identity); new cards fade
+ * in, removed ones fade out.
  */
 watch(topology, (next, previous) => {
   if (!selected.value) return;
@@ -878,15 +1164,40 @@ watch(topology, (next, previous) => {
   }
 });
 
-/* New objects of a live refresh fade in. */
+/* The DOM cards of the last render (ghosts of removed objects). */
+let renderedCards = new Map<string, Node>();
+watch(
+  flowNodes,
+  (nodes) => (renderedCards = new Map(nodes.map((node) => [node.id, node]))),
+  { flush: "post" }
+);
+
 let enteringTimer: ReturnType<typeof setTimeout> | undefined;
-watch(visibleIds, (next, previous) => {
-  if (!previous || previous.size === 0) return;
-  const added = new Set([...next].filter((id) => !previous.has(id)));
-  if (added.size === 0 || added.size === next.size) return;
-  entering.value = added;
-  clearTimeout(enteringTimer);
-  enteringTimer = setTimeout(() => (entering.value = new Set()), 1200);
+let leavingTimer: ReturnType<typeof setTimeout> | undefined;
+watch(change, (next) => {
+  if (!next || !next.structure || next.initial) return;
+  if (next.added.size > 0) {
+    entering.value = next.added;
+    clearTimeout(enteringTimer);
+    enteringTimer = setTimeout(() => (entering.value = new Set()), 1200);
+  }
+  // Removed objects that were on screen: a ghost fades out in place.
+  const ghosts: Node[] = [];
+  for (const id of next.removed) {
+    const card = renderedCards.get(id);
+    if (!card) continue;
+    ghosts.push({
+      ...card,
+      id: `ghost:${id}`,
+      focusable: false,
+      zIndex: 1,
+    });
+  }
+  if (ghosts.length > 0) {
+    leaving.value = [...leaving.value, ...ghosts];
+    clearTimeout(leavingTimer);
+    leavingTimer = setTimeout(() => (leaving.value = []), 450);
+  }
 });
 
 /* A new scope starts fresh. */
@@ -898,6 +1209,8 @@ watch(
     history.value = new Set();
     namespaceFilter.value = [];
     layoutCache.clear();
+    flags.clear();
+    leaving.value = [];
   }
 );
 
@@ -909,10 +1222,7 @@ const toggleProblems = () => {
   problems.value = !problems.value;
   clearSelection();
   // Once the re-laid-out graph is rendered.
-  setTimeout(
-    () => (problems.value ? fitAll() : initialView()),
-    150
-  );
+  setTimeout(() => (problems.value ? fitAll() : initialView()), 150);
 };
 
 const allExpanded = computed(() => {
@@ -939,18 +1249,21 @@ const toggleExpandAll = () => {
 const canvas = ref<HTMLElement | null>(null);
 const tooltip = ref<{ node: TopoNode; x: number; y: number } | null>(null);
 let tooltipTimer: ReturnType<typeof setTimeout> | undefined;
+/** Card the pointer is on (DOM or canvas). */
+let hoverSource: string | null = null;
 
-const onNodeMouseEnter = ({ node, event }: NodeMouseEvent) => {
-  if (node.type !== "k8s") return;
-  hovered.value = node.id;
-  const topoNode = topology.value?.nodes.get(node.id);
+const showTooltip = (id: string, event: MouseEvent) => {
+  hoverSource = id;
+  hovered.value = id;
+  const topoNode = topology.value?.nodes.get(id);
   const rect = canvas.value?.getBoundingClientRect();
-  const mouse = event as MouseEvent;
   clearTimeout(tooltipTimer);
+  tooltip.value = null;
   if (!topoNode || !rect) return;
+  const { clientX, clientY } = event;
   tooltipTimer = setTimeout(() => {
-    const x = mouse.clientX - rect.left;
-    const y = mouse.clientY - rect.top;
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
     tooltip.value = {
       node: topoNode,
       x: x > rect.width - 300 ? x - 296 : x + 16,
@@ -958,11 +1271,18 @@ const onNodeMouseEnter = ({ node, event }: NodeMouseEvent) => {
     };
   }, 350);
 };
-const onNodeMouseLeave = () => {
+const hideTooltip = () => {
+  hoverSource = null;
   hovered.value = null;
   clearTimeout(tooltipTimer);
   tooltip.value = null;
 };
+const onNodeMouseEnter = ({ node, event }: NodeMouseEvent) => {
+  if (node.type !== "k8s" || node.id.startsWith("ghost:")) return;
+  showTooltip(node.id, event as MouseEvent);
+};
+const onNodeMouseLeave = () => hideTooltip();
+
 /* Node placement: the node of a pod, the spread of a workload's pods. */
 const tooltipPlacement = computed(() => {
   const node = tooltip.value?.node;
@@ -997,7 +1317,7 @@ const tooltipLabels = computed(() =>
 
 const pickResult = (node: TopoNode) => {
   searchOpen.value = false;
-  select(node.id, { center: true });
+  select(node.id, { reveal: "center" });
 };
 const onSearchKeydown = (event: KeyboardEvent) => {
   const results = searchResults.value.slice(0, 8);
@@ -1020,6 +1340,51 @@ const onSearchKeydown = (event: KeyboardEvent) => {
 
 /* ---------------------------------------------------------- keyboard -- */
 
+const ARROWS: Record<string, Direction> = {
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  ArrowUp: "up",
+  ArrowDown: "down",
+};
+
+/*
+ * Arrow keys move the selection to the nearest card in that direction
+ * (from the card nearest the centre when nothing is selected). The panel
+ * follows once the keys rest.
+ */
+const navigate = (direction: Direction) => {
+  const cards = sceneCards.value;
+  let from = selected.value ? cards.byId.get(selected.value) : undefined;
+  if (!from) {
+    const { x, y, zoom: scale } = viewport.value;
+    const { width, height } = dimensions.value;
+    const center = { x: (width / 2 - x) / scale, y: (height / 2 - y) / scale, width: 0, height: 0 };
+    let best = Infinity;
+    for (const card of cards.list) {
+      const distance = Math.hypot(
+        card.x + card.width / 2 - center.x,
+        card.y + card.height / 2 - center.y
+      );
+      if (distance < best) {
+        best = distance;
+        from = card;
+      }
+    }
+    if (from) select(from.id, { reveal: "ensure", panelDelay: 400 });
+    return;
+  }
+  const next = nearestInDirection(from, cards.list, direction, from.id);
+  if (!next) return;
+  select(next.id, { reveal: "ensure", panelDelay: 400 });
+  nextTick(() =>
+    (
+      canvas.value?.querySelector(
+        `.vue-flow__node[data-id="${CSS.escape(next.id)}"]`
+      ) as HTMLElement | null
+    )?.focus({ preventScroll: true })
+  );
+};
+
 const isTyping = (target: EventTarget | null) => {
   const element = target as HTMLElement | null;
   return (
@@ -1035,16 +1400,21 @@ const onKeydown = (event: KeyboardEvent) => {
   // Only when the graph is on screen (not behind a dialog / in a tab).
   if (!canvas.value || canvas.value.offsetParent === null) return;
   if (document.querySelector("[role=dialog]")) return;
-  const card = (event.target as HTMLElement | null)?.closest?.(
-    ".vue-flow__node-k8s"
-  );
+  // Keys in the side panel / toolbar belong to them.
+  const target = event.target as HTMLElement | null;
+  const inGraph =
+    !target || target === document.body || !!canvas.value.contains(target);
+  const card = target?.closest?.(".vue-flow__node-k8s");
   if (card && (event.key === "Enter" || event.key === " ")) {
     event.preventDefault();
     const id = card.getAttribute("data-id");
-    if (id) select(id);
+    if (id && !id.startsWith("ghost:")) select(id);
     return;
   }
-  if (event.key === "/") {
+  if (ARROWS[event.key] && inGraph && showGraph.value) {
+    event.preventDefault();
+    navigate(ARROWS[event.key]);
+  } else if (event.key === "/") {
     event.preventDefault();
     searchInput.value?.focus();
   } else if (event.key === "Escape") {
@@ -1063,9 +1433,12 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeydown);
   clearTimeout(tooltipTimer);
   clearTimeout(enteringTimer);
-  clearTimeout(panelTimer);
+  clearTimeout(leavingTimer);
+  cancelPanel();
   clearTimeout(cardTimer);
+  clearTimeout(lodTimer);
   cancelAnimationFrame(windowFrame);
+  cancelAnimationFrame(hoverFrame);
 });
 
 /* ------------------------------------------------------------ status -- */
@@ -1112,8 +1485,10 @@ watchEffect(() => {
   (window as any).__graphTimings = {
     ...timings.value,
     layoutMs: lastLayoutMs,
+    layouts: layoutRuns,
     renderMs: renderMs.value,
-    nodes: flowNodes.value.length,
+    lod: lod.value,
+    cards: flowNodes.value.length,
     edges: flowEdges.value.length,
     groups: visible.value.groups.length,
   };
@@ -1121,14 +1496,12 @@ watchEffect(() => {
 
 /* Minimap: every group (not only the rendered ones) and the visible area. */
 const minimapGroups = computed(() =>
-  visible.value.groups
-    .map((group) => ({
-      id: group.id,
-      rect: layout.value.groups.get(group.id)!,
-      health: group.health,
-      app: group.type === "app",
-    }))
-    .filter((group) => group.rect)
+  sceneGroups.value.map((group) => ({
+    id: group.id,
+    rect: group as Rect,
+    health: group.health,
+    app: group.type === "app",
+  }))
 );
 const graphBounds = computed(() => boundsOf());
 const visibleArea = computed<Rect | null>(() => {
@@ -1139,10 +1512,6 @@ const visibleArea = computed<Rect | null>(() => {
 });
 const navigateTo = (x: number, y: number) =>
   setCenter(x, y, { zoom: viewport.value.zoom, duration: 0 });
-
-const showGraph = computed(
-  () => !loadError.value && !loading.value && !!topology.value
-);
 </script>
 
 <template>
@@ -1479,7 +1848,13 @@ const showGraph = computed(
     </div>
 
     <!-- Canvas -->
-    <div ref="canvas" class="relative min-h-0 flex-1">
+    <div
+      ref="canvas"
+      class="relative min-h-0 flex-1"
+      @dblclick="onPaneDoubleClick"
+      @mousemove="onPaneMouseMove"
+      @mouseleave="onPaneMouseLeave"
+    >
       <SpotlightGridContainer>
         <div
           v-if="loadError"
@@ -1553,6 +1928,14 @@ const showGraph = computed(
           </EmptyState>
         </div>
 
+        <GraphCanvas
+          v-if="showGraph"
+          :scene="scene"
+          :viewport="viewport"
+          :lod="lod"
+          :mounted="mountedIds"
+          :highlight="sceneHighlight"
+        />
         <VueFlow
           v-if="showGraph"
           :nodes="flowNodes"
@@ -1567,27 +1950,21 @@ const showGraph = computed(
           :fit-view-on-init="false"
           :class="[
             'graph-flow',
-            far && 'graph-flow--far',
-            overview && 'graph-flow--overview',
+            highlightClass,
             moving && 'graph-flow--moving',
+            pointerOnCard && 'graph-flow--pointer',
           ]"
           @node-click="onNodeClick"
           @node-double-click="onNodeDoubleClick"
           @node-mouse-enter="onNodeMouseEnter"
           @node-mouse-leave="onNodeMouseLeave"
-          @pane-click="clearSelection"
+          @pane-click="onPaneClick"
           @nodes-initialized="onNodesInitialized"
           @move-start="moving = true"
           @move-end="moving = false"
         >
           <template #node-k8s="props">
             <ObjectNode v-bind="props" />
-          </template>
-          <template #node-group="props">
-            <GroupNode v-bind="props" />
-          </template>
-          <template #node-lane="props">
-            <LaneNode v-bind="props" />
           </template>
           <template #edge-topology="props">
             <TopologyEdge v-bind="props" />
@@ -1737,26 +2114,51 @@ const showGraph = computed(
 @import "@vue-flow/core/dist/theme-default.css";
 
 /* Nodes are fully drawn by their components. */
-.cluster-graph .vue-flow__node-k8s,
-.cluster-graph .vue-flow__node-group,
-.cluster-graph .vue-flow__node-lane {
+.cluster-graph .vue-flow__node-k8s {
   padding: 0;
   border: 0;
   background: transparent;
   font-size: inherit;
-  cursor: default;
-}
-.cluster-graph .vue-flow__node-k8s {
   cursor: pointer;
-}
-.cluster-graph .vue-flow__node-group,
-.cluster-graph .vue-flow__node-lane {
-  pointer-events: none !important;
+  /* Cards have a fixed size: keep their layout and paint to themselves. */
+  contain: layout style;
 }
 .cluster-graph .vue-flow__node:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
   border-radius: var(--radius);
+}
+/* The pane is under the pointer on canvas-drawn cards. */
+.cluster-graph .graph-flow--pointer .vue-flow__pane {
+  cursor: pointer;
+}
+
+/* Cards: highlight states (flags) and dimming (one class on the canvas). */
+.graph-card {
+  contain: layout paint style;
+}
+.graph-card:not(.is-selected):not(.is-lit):not(.is-match):hover {
+  border-color: hsl(var(--border-strong));
+}
+.graph-card.is-selected {
+  border-color: hsl(var(--primary));
+  outline: 2px solid hsl(var(--primary) / 0.3);
+  outline-offset: 1px;
+}
+.graph-card.is-lit:not(.is-selected) {
+  border-color: hsl(var(--primary) / 0.6);
+}
+.graph-flow--search .graph-card.is-match {
+  border-color: hsl(var(--link));
+  outline: 2px solid hsl(var(--link) / 0.25);
+  outline-offset: 1px;
+}
+.graph-flow--lit .graph-card:not(.is-lit),
+.graph-flow--search .graph-card:not(.is-match) {
+  opacity: 0.22;
+}
+.graph-flow--problems .graph-card:not(.is-problem) {
+  opacity: 0.5;
 }
 
 /* Edges: one style per relationship type. */
@@ -1764,9 +2166,6 @@ const showGraph = computed(
   stroke: hsl(var(--muted-foreground) / 0.45);
   stroke-width: 1.4;
   fill: none;
-  transition:
-    opacity 160ms ease-out,
-    stroke-width 160ms ease-out;
 }
 .graph-edge--owns {
   stroke: hsl(var(--muted-foreground) / 0.4);
@@ -1798,20 +2197,30 @@ const showGraph = computed(
 .graph-edge--cross {
   opacity: 0.55;
 }
-.graph-edge--lit {
+.graph-edge--faint {
+  opacity: 0.12;
+}
+.graph-edge.is-lit,
+.graph-edge.is-hover {
   stroke-width: 2.2;
   opacity: 1;
 }
-.graph-edge--lit.graph-edge--owns,
-.graph-edge--lit.graph-edge--mounts,
-.graph-edge--lit.graph-edge--selects {
+.graph-edge-end.is-lit,
+.graph-edge-end.is-hover {
+  opacity: 1;
+}
+.graph-edge.is-lit.graph-edge--owns,
+.graph-edge.is-lit.graph-edge--mounts,
+.graph-edge.is-lit.graph-edge--selects,
+.graph-edge.is-hover.graph-edge--owns,
+.graph-edge.is-hover.graph-edge--mounts,
+.graph-edge.is-hover.graph-edge--selects {
   stroke: hsl(var(--primary) / 0.85);
 }
-.graph-edge--dim {
+.graph-flow--lit :is(.graph-edge, .graph-edge-end):not(.is-lit):not(.is-hover),
+.graph-flow--search :is(.graph-edge, .graph-edge-end):not(.is-match):not(.is-hover),
+.graph-flow--problems :is(.graph-edge, .graph-edge-end):not(.graph-edge--problem):not(.is-hover) {
   opacity: 0.1;
-}
-.graph-edge--faint {
-  opacity: 0.12;
 }
 .graph-edge--legend {
   animation: none;
@@ -1836,8 +2245,18 @@ const showGraph = computed(
 .graph-card--enter {
   animation: graph-enter 450ms cubic-bezier(0.16, 1, 0.3, 1);
 }
+.graph-card--leave {
+  animation: graph-leave 420ms ease-in forwards;
+  pointer-events: none;
+}
 @keyframes graph-enter {
   from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@keyframes graph-leave {
+  to {
     opacity: 0;
     transform: scale(0.96);
   }
@@ -1855,40 +2274,9 @@ const showGraph = computed(
   .graph-card--enter {
     animation: none;
   }
+  .graph-card--leave {
+    animation: none;
+    opacity: 0;
+  }
 }
-
-/* Far zoom: cards and groups trade detail for legible names. */
-.graph-flow--far .graph-card__meta {
-  visibility: hidden;
-}
-.graph-flow--far .graph-card__name {
-  font-size: 18px;
-  line-height: 24px;
-  font-weight: 600;
-  overflow: visible;
-}
-.graph-flow--far .graph-group__title {
-  font-size: 22px;
-  line-height: 28px;
-}
-.graph-flow--far .graph-lane__title {
-  font-size: 20px;
-  line-height: 26px;
-}
-.graph-flow--far .graph-edge--routes {
-  animation: none;
-}
-/* Overview: group and namespace titles keep a readable on-screen size. */
-.graph-flow--overview .graph-group__overview-title {
-  font-size: calc(13px / var(--graph-zoom));
-  line-height: 1.4;
-}
-/* Namespace titles would overlap the rows at this scale. */
-.graph-flow--overview .graph-lane {
-  visibility: hidden;
-}
-.graph-flow--overview .graph-edge {
-  opacity: 0.35;
-}
-
 </style>

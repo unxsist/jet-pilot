@@ -3,12 +3,13 @@ defineOptions({ inheritAttrs: false });
 import { getBezierPath, Position } from "@vue-flow/core";
 import { injectStrict } from "@/lib/utils";
 import type { EdgeType } from "@/lib/clusterGraph";
-import { GraphViewStateKey } from "./graphState";
+import { FLAG_HOVER, FLAG_LIT, FLAG_MATCH, GraphViewStateKey } from "./graphState";
 
 /*
  * A typed relationship: owns / routes / selects / mounts / scales, styled
  * per type (see the legend). Traffic edges carry a subtle animated flow
- * (off with reduced motion). Dimmed outside the selected neighbourhood.
+ * (off with reduced motion). Dimmed outside the selected neighbourhood
+ * (CSS: .graph-flow--lit etc. in ClusterOverview.vue).
  */
 const props = defineProps<{
   id: string;
@@ -48,53 +49,39 @@ const path = computed(
     })[0]
 );
 
-const lit = computed(() => !!state.lit.value?.edges.has(props.id));
-const hovered = computed(
-  () =>
-    state.hovered.value !== null &&
-    (state.hovered.value === props.source ||
-      state.hovered.value === props.target)
-);
-const dimmed = computed(() => {
-  if (state.lit.value) return !lit.value;
-  if (state.matches.value) {
-    return !(
-      state.matches.value.has(props.source) ||
-      state.matches.value.has(props.target)
-    );
-  }
-  return state.problems.value && !props.data.problem;
-});
+/* Highlighting: own flags + one class on the canvas (see ObjectNode). */
+const flags = state.flags.of(props.id);
 </script>
 
 <template>
   <path
     :d="path"
     fill="none"
-    :class="
-      [
-        'graph-edge',
-        `graph-edge--${data.type}`,
-        data.missing && 'graph-edge--missing',
-        (lit || hovered) && 'graph-edge--lit',
-        dimmed && !hovered && 'graph-edge--dim',
-        data.crossGroup && 'graph-edge--cross',
-        data.faint && !lit && !hovered && 'graph-edge--faint',
-      ]
-    "
+    :class="[
+      'graph-edge',
+      `graph-edge--${data.type}`,
+      data.missing && 'graph-edge--missing',
+      data.crossGroup && 'graph-edge--cross',
+      data.faint && 'graph-edge--faint',
+      data.problem && 'graph-edge--problem',
+      flags & FLAG_LIT && 'is-lit',
+      flags & FLAG_HOVER && 'is-hover',
+      flags & FLAG_MATCH && 'is-match',
+    ]"
   />
   <circle
     :cx="data.points.tx"
     :cy="data.points.ty"
     r="2.5"
-    :class="
-      [
-        'graph-edge-end',
-        `graph-edge-end--${data.type}`,
-        data.missing && 'graph-edge-end--missing',
-        dimmed && !hovered && 'graph-edge--dim',
-        data.faint && !lit && !hovered && 'graph-edge--faint',
-      ]
-    "
+    :class="[
+      'graph-edge-end',
+      `graph-edge-end--${data.type}`,
+      data.missing && 'graph-edge-end--missing',
+      data.faint && 'graph-edge--faint',
+      data.problem && 'graph-edge--problem',
+      flags & FLAG_LIT && 'is-lit',
+      flags & FLAG_HOVER && 'is-hover',
+      flags & FLAG_MATCH && 'is-match',
+    ]"
   />
 </template>
