@@ -442,7 +442,7 @@ function filteredEntries(session: LogSession, query: string, sinceSeq?: number) 
 
 /* Mirrors logs::streaming: lines go into the session, the view is notified. */
 function podsForTarget(context: string, namespace: string, target: any): any[] {
-  const pods: any[] = (CLUSTERS[context] || CLUSTERS[CONTEXTS[0].name]).pods.filter(
+  const pods: any[] = (clusters[context] || clusters[CONTEXTS[0].name]).pods.filter(
     (p: any) => !namespace || p.metadata.namespace === namespace
   );
   if (target.kind === "pod") return pods.filter((p) => p.metadata.name === target.name).slice(0, 1);
@@ -744,17 +744,55 @@ const tagRow = (item: any, context: string, kubeConfig: string) => ({
   },
 });
 
+/* Cluster scoped kinds and API groups, like the backend's discovery. */
+const CLUSTER_SCOPED = new Set([
+  "nodes",
+  "namespaces",
+  "persistentvolumes",
+  "storageclasses",
+  "clusterroles",
+  "clusterrolebindings",
+  "customresourcedefinitions",
+  "ingressclasses",
+  "priorityclasses",
+  "apiservices",
+  "mutatingwebhookconfigurations",
+  "validatingwebhookconfigurations",
+]);
+const API_VERSIONS: Record<string, string> = {
+  deployments: "apps/v1",
+  statefulsets: "apps/v1",
+  daemonsets: "apps/v1",
+  replicasets: "apps/v1",
+  jobs: "batch/v1",
+  cronjobs: "batch/v1",
+  ingresses: "networking.k8s.io/v1",
+  ingressclasses: "networking.k8s.io/v1",
+  networkpolicies: "networking.k8s.io/v1",
+  storageclasses: "storage.k8s.io/v1",
+  clusterroles: "rbac.authorization.k8s.io/v1",
+  clusterrolebindings: "rbac.authorization.k8s.io/v1",
+  roles: "rbac.authorization.k8s.io/v1",
+  rolebindings: "rbac.authorization.k8s.io/v1",
+  customresourcedefinitions: "apiextensions.k8s.io/v1",
+};
+
 function watchSubscribe(request: any, channel: any) {
   const { context, kubeConfig = "", resource, namespaces = [] } = request;
   const key = resourceKey(resource);
-  const cluster = CLUSTERS[context];
+  const cluster = clusters[context];
   if (!cluster) throw new Error(`context ${context} not found`);
 
-  const clusterScoped = ["nodes", "namespaces", "persistentvolumes"].includes(key);
+  const clusterScoped = CLUSTER_SCOPED.has(key);
   const scopes: string[] =
-    clusterScoped || namespaces.length === 0 || namespaces.includes("all") ? [""] : [...namespaces].sort();
+    clusterScoped || namespaces.length === 0 || namespaces.some((ns: string) => ns === "all" || ns === "")
+      ? [""]
+      : [...new Set<string>(namespaces)].sort();
   const id = ++watchIds;
   watchSubscriptions.set(id, { channel, context, key, scopes });
+
+  // Like Entry::add_sink: the current status right away.
+  for (const scope of scopes) sendToChannel(channel, { type: "status", scope, state: "syncing" });
 
   setTimeout(() => {
     for (const scope of scopes) {
@@ -777,7 +815,13 @@ function watchSubscribe(request: any, channel: any) {
     }
   }, 60);
 
-  return { id, scopes, namespaced: !clusterScoped, apiVersion: "v1", kind: request.kind || "" };
+  return {
+    id,
+    scopes,
+    namespaced: !clusterScoped,
+    apiVersion: API_VERSIONS[key] || "v1",
+    kind: request.kind || "",
+  };
 }
 
 if (scenario === "large") {
@@ -816,20 +860,56 @@ if (scenario === "large") {
   }, 150);
 }
 
+/* Usage of a PodMetric: [millicores, bytes] (sum of the containers). */
+function metricUsage(metric: any): [number, number] {
+  let cpu = 0;
+  let memory = 0;
+  for (const c of metric.containers || []) {
+    const q = String(c.usage?.cpu ?? "0");
+    cpu += q.endsWith("n") ? parseFloat(q) / 1e6 : q.endsWith("m") ? parseFloat(q) : parseFloat(q) * 1000;
+    const m = String(c.usage?.memory ?? "0");
+    const unit = m.match(/(Ki|Mi|Gi)$/)?.[1];
+    memory += parseFloat(m) * (unit === "Gi" ? 1024 ** 3 : unit === "Mi" ? 1024 ** 2 : unit === "Ki" ? 1024 : 1);
+  }
+  return [cpu, memory];
+}
+
+/*
+ * Like the metrics service: status, the latest sample and the ring buffer
+ * history ([ms, millicores, bytes] per "ns/name", 15 s apart) on subscribe.
+ * The history is a deterministic wave around the current usage, so the
+ * sparkline columns have something to draw.
+ */
 function metricsSubscribe(request: any, channel: any) {
   const { context, kubeConfig = "", namespaces = [] } = request;
-  const cluster = CLUSTERS[context];
+  const cluster = clusters[context];
+  sendToChannel(channel, { type: "status", state: "syncing" });
   setTimeout(() => {
     if (!cluster || scenario === "error") {
-      sendToChannel(channel, { type: "status", state: "unavailable", message: "metrics-server not installed" });
+      sendToChannel(channel, {
+        type: "status",
+        state: "unavailable",
+        message: "The metrics API (metrics.k8s.io) is not available; is metrics-server installed?",
+      });
       return;
     }
     const all = namespaces.length === 0 || namespaces.includes("all");
+    const now = Date.now();
     const pods = cluster.podmetrics
       .filter((m) => all || namespaces.includes(m.metadata?.namespace))
-      .map((m) => tagRow(m, context, kubeConfig));
+      .map((m) => tagRow({ ...m, timestamp: new Date(now).toISOString() }, context, kubeConfig));
+    const history: Record<string, [number, number, number][]> = {};
+    pods.forEach((m: any, index: number) => {
+      const [cpu, memory] = metricUsage(m);
+      history[`${m.metadata.namespace}/${m.metadata.name}`] = Array.from({ length: 40 }, (_, i) => {
+        const wave = 1 + 0.35 * Math.sin((i + index * 3) / 4) + 0.15 * Math.sin((i * 7 + index) / 3);
+        const ts = now - (39 - i) * 15_000;
+        return [ts, i === 39 ? cpu : Math.max(0, cpu * wave), i === 39 ? memory : memory * (0.9 + 0.1 * wave)];
+      });
+    });
     sendToChannel(channel, { type: "status", state: "ready" });
-    sendToChannel(channel, { type: "sample", timestamp: Date.now(), pods, nodes: [] });
+    sendToChannel(channel, { type: "sample", timestamp: now, pods, nodes: [] });
+    sendToChannel(channel, { type: "history", pods: history, nodes: {} });
   }, 80);
   return ++watchIds;
 }
@@ -1079,6 +1159,20 @@ mockIPC(
         return { ...p.spec, id: `pf-${Date.now()}`, status: "ready", error: null, startedAtMs: Date.now(), expiresAtMs: null };
       case "stop_port_forward":
         return null;
+
+      // object commands (kubernetes.rs)
+      case "delete_pod":
+        await sleep(150);
+        return { Deleted: p.name };
+      case "trigger_cronjob":
+        await sleep(150);
+        return true;
+      case "replace_pod":
+        await sleep(200);
+        return p.object;
+      case "login_exec_auth":
+        await sleep(400);
+        return { command: "kubelogin", stdout: "", stderr: "" };
 
       default:
         if (!cmd.startsWith("plugin:event|")) {
