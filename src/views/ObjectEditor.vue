@@ -12,6 +12,7 @@ import {
 } from "@/components/monaco";
 import { kindSchema, errorMessage } from "@/components/monaco/schemas";
 import { diffLines, diffSummary } from "@/lib/diff";
+import { clusterArgs } from "@/lib/workloads";
 import { readTypeMeta } from "@/components/monaco/kubernetesSchema";
 import {
   classifyError,
@@ -207,11 +208,8 @@ const nextProblem = () => {
 
 /* ------------------------------------------------------------ kubectl -- */
 
-const contextArgs = (context = props.context, kubeConfig = props.kubeConfig) => {
-  const args = ["--context", context, "--kubeconfig", kubeConfig];
-  if (props.namespace) args.push("--namespace", props.namespace);
-  return args;
-};
+const contextArgs = (context = props.context, kubeConfig = props.kubeConfig) =>
+  clusterArgs({ context, kubeConfig, namespace: props.namespace });
 
 /*
  * Runs kubectl to completion. Only the exit code decides success: kubectl

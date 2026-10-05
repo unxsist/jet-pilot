@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { ArrowLeftRight, Columns2, RefreshCw, Rows2 } from "lucide-vue-next";
 import { diffObjects, stripServerFields } from "@/components/monaco/manifest";
 import { error } from "@/lib/logger";
+import { clusterArgs } from "@/lib/workloads";
 
 interface Side {
   context: string;
@@ -43,12 +44,12 @@ const fetchSide = async (side: Side) => {
     `${props.type}/${props.name}`,
     "-o",
     "yaml",
-    "--context",
-    side.context,
-    "--kubeconfig",
-    side.kubeConfig,
+    ...clusterArgs({
+      context: side.context,
+      kubeConfig: side.kubeConfig,
+      namespace: props.namespace,
+    }),
   ];
-  if (props.namespace) args.push("--namespace", props.namespace);
   const { code, stdout, stderr } = await Command.create("kubectl", args).execute();
   if (code !== 0) throw new Error(stderr.trim() || `kubectl exited with code ${code}`);
   return yaml.load(stdout);

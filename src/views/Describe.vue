@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { clusterArgs } from "@/lib/workloads";
 import Loading from "@/components/Loading.vue";
 import MonacoView from "@/components/monaco/MonacoView.vue";
 import { Button } from "@/components/ui/button";
@@ -36,8 +37,14 @@ const loading = ref(true);
 const describeError = ref<string | null>(null);
 
 const runKubectl = async (args: string[]) => {
-  const fullArgs = [...args, "--context", props.context, "--kubeconfig", props.kubeConfig];
-  if (props.namespace) fullArgs.push("--namespace", props.namespace);
+  const fullArgs = [
+    ...args,
+    ...clusterArgs({
+      context: props.context,
+      kubeConfig: props.kubeConfig,
+      namespace: props.namespace,
+    }),
+  ];
   // Only the exit code decides success: kubectl also writes warnings to
   // stderr.
   const { code, stdout, stderr } = await Command.create("kubectl", fullArgs).execute();

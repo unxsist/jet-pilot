@@ -5,6 +5,7 @@ import type { Command } from "@/command-palette";
 import { Kbd } from "@/components/ui/kbd";
 import ContextAvatar from "@/components/ContextAvatar.vue";
 import { kindIcon } from "@/lib/kindIcons";
+import { actionIcon } from "@/lib/actionIcons";
 import Fuse from "fuse.js";
 import { useRouter } from "vue-router";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -15,16 +16,13 @@ import {
   Copy,
   CornerDownLeft,
   CornerDownRight,
-  FileCode2,
   FolderTree,
   History,
   Layers,
   Loader2,
-  ScrollText,
   SearchX,
   SquareTerminal,
   Sparkles,
-  TextSearch,
   TriangleAlert,
 } from "lucide-vue-next";
 
@@ -366,15 +364,16 @@ const isWorkspaceList = computed(() => {
   return keys.length === 1 && keys[0].id === "switch-workspace";
 });
 
-const ACTION_ICONS: Record<string, Component> = {
+/* Palette commands by id; row actions share the table menus' icons. */
+const PALETTE_ICONS: Record<string, Component> = {
   "switch-context": ArrowLeftRight,
   "switch-namespace": FolderTree,
   "open-terminal": SquareTerminal,
   "switch-workspace": Layers,
   "save-workspace": Layers,
-  "selected-describe": TextSearch,
-  "selected-edit": FileCode2,
-  "selected-logs": ScrollText,
+  "selected-describe": actionIcon("describe") ?? Sparkles,
+  "selected-edit": actionIcon("edit yaml") ?? Sparkles,
+  "selected-logs": actionIcon("logs") ?? Sparkles,
   "selected-copy": Copy,
 };
 
@@ -386,7 +385,7 @@ const commandIcon = (command: PaletteItem): Component => {
     if (name === "resource graph") return kindIcon("diagram");
     return kindIcon(name.replace(/\s+/g, ""));
   }
-  return ACTION_ICONS[command.id.replace(/^recent:/, "")] ?? Sparkles;
+  return PALETTE_ICONS[command.id.replace(/^recent:/, "")] ?? Sparkles;
 };
 
 /* Options below a context / "Switch namespace" are namespaces. */
