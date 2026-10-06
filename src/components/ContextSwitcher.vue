@@ -121,7 +121,7 @@ const rememberModifier = (event: PointerEvent | KeyboardEvent) => {
 
 /* Picking replaces the whole selection instead of toggling. */
 const switchesOnPick = () =>
-  (settings.value.switcher.pick !== "add") !== invertPick.value;
+  (settings.value.switcher.pick === "switch") !== invertPick.value;
 
 const toggleActiveNamespace = (
   context: string,

@@ -352,7 +352,7 @@ export const SETTINGS: readonly SettingDefinition[] = [
 
   choice({
     key: "switcher.pick",
-    default: "switch",
+    default: "add",
     label: "Picking a cluster or namespace",
     description: "Switch to just that one, or add it to what you're viewing. Hold ⌘ or Ctrl while picking to do the other.",
     options: [
