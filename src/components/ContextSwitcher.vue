@@ -3,6 +3,7 @@ import { Command } from "@/command-palette";
 import { injectStrict } from "@/lib/utils";
 import { error } from "@/lib/logger";
 import { Kubernetes } from "@/services/Kubernetes";
+import { type as getOsType } from "@tauri-apps/plugin-os";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import {
   RegisterCommandStateKey,
@@ -106,6 +107,22 @@ const activeNamespacesOf = (context: string, kubeConfig: string) =>
     ? activeContexts.value.get(context) || []
     : [];
 
+/*
+ * Whether ⌘ (macOS) or Ctrl was held while picking: it inverts
+ * Settings › Clusters › Picking a cluster or namespace. The menu's select
+ * event carries no modifiers, so the pointer / key event before it is
+ * remembered.
+ */
+const isMac = getOsType() === "macos";
+const invertPick = ref(false);
+const rememberModifier = (event: PointerEvent | KeyboardEvent) => {
+  invertPick.value = isMac ? event.metaKey : event.ctrlKey;
+};
+
+/* Picking replaces the whole selection instead of toggling. */
+const switchesOnPick = () =>
+  (settings.value.switcher.pick !== "add") !== invertPick.value;
+
 const toggleActiveNamespace = (
   context: string,
   kubeConfig: string,
@@ -114,6 +131,12 @@ const toggleActiveNamespace = (
   const ctx = findContext(context, kubeConfig);
 
   if (!ctx) return;
+
+  if (switchesOnPick()) {
+    switchContext(context, kubeConfig, namespace === "all" ? "" : namespace);
+    menuOpen.value = false;
+    return;
+  }
 
   const current = activeNamespacesOf(context, kubeConfig);
 
@@ -635,6 +658,8 @@ onUnmounted(stopRecovered);
               align="start"
               side="right"
               :side-offset="6"
+              @pointerdown.capture="rememberModifier"
+              @keydown.capture="rememberModifier"
             >
               <div
                 v-if="context.namespaces.length > NAMESPACE_SEARCH_THRESHOLD"

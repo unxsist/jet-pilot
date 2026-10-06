@@ -350,6 +350,21 @@ export const SETTINGS: readonly SettingDefinition[] = [
     hidden: true,
   }),
 
+  choice({
+    key: "switcher.pick",
+    default: "switch",
+    label: "Picking a cluster or namespace",
+    description: "Switch to just that one, or add it to what you're viewing. Hold ⌘ or Ctrl while picking to do the other.",
+    options: [
+      { value: "switch", label: "Switch" },
+      { value: "add", label: "Add" },
+    ],
+    control: "segmented",
+    keywords: ["context", "namespace", "switch", "multi", "multiple", "combine", "several", "active", "only", "k9s"],
+    category: "clusters",
+    section: "switcher",
+  }),
+
   /* ----------------------------------------------------------- advanced -- */
   number({
     key: "network.requestTimeout",

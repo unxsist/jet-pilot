@@ -104,7 +104,7 @@ export const CATEGORIES: readonly SettingCategory[] = [
   {
     id: "clusters",
     title: "Clusters",
-    description: "Kubeconfig files and cluster details",
+    description: "Kubeconfig files, switching and cluster details",
     icon: Server,
     sections: [
       {
@@ -114,6 +114,7 @@ export const CATEGORIES: readonly SettingCategory[] = [
         keywords: ["kubeconfig", "KUBECONFIG", "contexts", "clusters", "files", "~/.kube/config"],
         component: () => import("@/components/settings/sections/KubeconfigSourcesSection.vue"),
       },
+      { id: "switcher", title: "Context switcher", description: "Moving between clusters and namespaces" },
       {
         id: "details",
         title: "Cluster details",
