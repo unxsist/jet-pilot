@@ -59,6 +59,14 @@ export interface Preferences {
     wrap: boolean;
     follow: boolean;
   };
+  switcher: {
+    /**
+     * Picking a namespace in the context switcher: "switch" makes it the
+     * whole selection (that cluster, that namespace), "add" toggles it next
+     * to what is active. Mod-click does the other.
+     */
+    pick: "switch" | "add";
+  };
   kubeconfig: {
     /** Kubeconfig files added by the user. */
     sources: string[];
