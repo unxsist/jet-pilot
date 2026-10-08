@@ -37,6 +37,16 @@ export const SETTINGS: readonly SettingDefinition[] = [
     section: "updates",
   }),
   boolean({
+    key: "updates.countInstall",
+    default: true,
+    label: "Count this install in usage statistics",
+    description:
+      "The update check on startup also sends the version, the platform and whether it is the first check today, this week or this month. Nothing identifies you or this machine, and only daily totals are kept.",
+    keywords: ["usage", "statistics", "telemetry", "privacy", "analytics", "anonymous"],
+    category: "general",
+    section: "updates",
+  }),
+  boolean({
     key: "updates.showWhatsNew",
     default: true,
     label: "Show what's new after updating",

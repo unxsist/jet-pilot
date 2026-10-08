@@ -2,7 +2,8 @@
 import { check, type DownloadEvent, Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { listen } from "@tauri-apps/api/event";
-import { type as getOsType } from "@tauri-apps/plugin-os";
+import { arch as getArch, type as getOsType } from "@tauri-apps/plugin-os";
+import { getVersion } from "@tauri-apps/api/app";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import { injectStrict } from "@/lib/utils";
 import { error as logError } from "@/lib/logger";
 import { renderRemoteMarkdown } from "@/lib/markdown";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
+import { countHeaders, noCountedPeriods } from "@/lib/usage";
 
 const DOWNLOAD_PAGE = "https://www.jet-pilot.app";
 
@@ -92,9 +94,26 @@ function onOpenChange(value: boolean) {
 const errorMessage = (e: unknown) =>
   e instanceof Error ? e.message : String(e);
 
+/*
+ * The startup check is the one counted (src/lib/usage.ts); manual checks and
+ * the check before installing are not, so their update requests to GitHub
+ * never carry the count headers.
+ */
+async function countedCheck() {
+  if (!settings.value.updates.countInstall) return check();
+  const count = countHeaders(
+    new Date(),
+    settings.value.updates.counted ?? noCountedPeriods(),
+    { version: await getVersion(), os: getOsType(), arch: getArch() }
+  );
+  const update = await check({ headers: count.headers });
+  settings.value.updates.counted = count.counted;
+  return update;
+}
+
 async function checkForUpdates(forced = false) {
   try {
-    updateInfo.value = await check();
+    updateInfo.value = await (forced ? check() : countedCheck());
   } catch (e) {
     logError(`Checking for updates failed: ${errorMessage(e)}`);
     // A failed check on startup stays silent; a manual check shows why.

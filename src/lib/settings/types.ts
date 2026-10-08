@@ -15,12 +15,15 @@ import type { PortForwardProfile } from "@/lib/portForwardProfiles";
 import type { Workspace } from "@/lib/workspaces";
 import type { ThemeSettings } from "@/lib/themes/types";
 import type { ClusterRecord } from "@/lib/clusters/meta";
+import type { CountedPeriods } from "@/lib/usage";
 
 export type LogLevel = "error" | "warn" | "info" | "debug" | "trace";
 
 export interface Preferences {
   updates: {
     checkOnStartup: boolean;
+    /** Count this install in the anonymous usage counts (src/lib/usage.ts). */
+    countInstall: boolean;
     showWhatsNew: boolean;
   };
   /** Mode plus the theme used for each appearance (theme ids). */
@@ -106,6 +109,8 @@ export interface AppState {
     whatsNew: string | null;
     /** Ids of announcements (src/lib/announcements.ts) the user dismissed. */
     dismissedAnnouncements: string[];
+    /** Periods the startup update check was last counted in (src/lib/usage.ts). */
+    counted: CountedPeriods;
   };
   /** Bottom-panel tabs of the last session, restored on start. */
   openTabs: TabSession | null;

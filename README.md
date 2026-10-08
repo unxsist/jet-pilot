@@ -16,7 +16,7 @@
 ## Introduction
 JET Pilot is an open-source K8s IDE. It was created out of frustration, as all "good-looking" K8s IDEs went commercial. Power-users nowadays resort to tools like `k9s`, which works great, but heavily relies on keyboard input. JET Pilot combines a keyboard-first workflow with a polished, mouse-friendly desktop UI — built with Rust and Tauri, so it stays small and fast.
 
-No account, no telemetry: JET Pilot uses your existing kubeconfig files and `kubectl`, and connects your cloud accounts when you want it to.
+No account, no tracking: JET Pilot uses your existing kubeconfig files and `kubectl`, and connects your cloud accounts when you want it to. To count how many installs are in use, the update check on startup sends the version, the platform and whether it is the first check today, this week or this month. Nothing identifies you or your machine, the update server keeps only daily totals, and Settings › General turns it off.
 
 ## What's new in 2.0
 - **Clusters hub**: every cluster from every kubeconfig and cloud account in one list, with live status. Give clusters names, colours, environments, folders and tags; click one for everything about it.

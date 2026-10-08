@@ -21,7 +21,7 @@ const SPONSOR_URL = null as string | null;
 </script>
 
 <template>
-  <SettingsSection title="About JET Pilot" description="Free and open source (MIT). No account, no telemetry.">
+  <SettingsSection title="About JET Pilot" description="Free and open source (MIT). No account, no tracking.">
     <div :class="settingsRow">
       <div class="min-w-0">
         <p :class="settingsLabel">Version</p>
