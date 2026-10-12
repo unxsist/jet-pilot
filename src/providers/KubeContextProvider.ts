@@ -195,7 +195,7 @@ export default {
     provide(KubeContextSetActiveNamespacesKey, setActiveNamespaces);
 
     /**
-     * Single-context switch (command palette): deactivate every other context
+     * Single-context switch (palette, switcher): deactivate every other context
      * and activate only `context` with `namespace` ("" = all namespaces).
      */
     const switchContext = (
