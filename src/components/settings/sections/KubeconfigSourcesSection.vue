@@ -72,13 +72,14 @@ const scan = async () => {
     scanning.value = false;
   }
 };
-onMounted(() => {
-  if (autoDetect.value) void discoverKubeconfigs();
-});
+onMounted(() => void discoverKubeconfigs());
 watch(autoDetect, (on) => on && void discoverKubeconfigs());
 
 const added = computed(() => new Set(sources.value.map(normalizeKubeconfigPath)));
-const detected = computed(() => discoveredKubeconfigs.value ?? []);
+/* Without auto-detection only JET Pilot's own file (clusters added in the app) is still loaded. */
+const detected = computed(() =>
+  (discoveredKubeconfigs.value ?? []).filter((file) => autoDetect.value || file.origin === "managed")
+);
 
 const addPaths = (paths: string[]) => {
   for (const path of paths) {
@@ -187,9 +188,9 @@ const remove = (index: number) => {
         </form>
       </div>
 
-      <div v-if="autoDetect" class="space-y-1">
+      <div v-if="autoDetect || detected.length" class="space-y-1">
         <h3 class="flex h-7 items-center text-xs font-medium text-muted-foreground">
-          Found automatically<span v-if="detected.length" class="ml-1.5 font-normal tabular-nums">{{ detected.length }}</span>
+          {{ autoDetect ? "Found automatically" : "Added in JET Pilot" }}<span v-if="detected.length" class="ml-1.5 font-normal tabular-nums">{{ detected.length }}</span>
         </h3>
         <div v-if="detected.length" class="-mx-3 space-y-px">
           <KubeconfigFileRow

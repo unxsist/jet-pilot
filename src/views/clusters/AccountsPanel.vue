@@ -4,7 +4,7 @@
  * they sign in and until when, what they reach, and their clusters. Sign in
  * again, look for new clusters, change accounts and regions, or remove.
  */
-import { CloudOff, Loader2, LogIn, MoreHorizontal, Plus, RefreshCw } from "lucide-vue-next";
+import { CircleAlert, CloudOff, Loader2, LogIn, MoreHorizontal, Plus, RefreshCw } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -28,7 +28,7 @@ import {
 import { useToast } from "@/components/ui/toast";
 import ProviderMark from "@/components/clusters/ProviderMark.vue";
 import ConnectionSignInDialog from "./ConnectionSignInDialog.vue";
-import { errorMessage, openAddCluster } from "@/lib/clusters/managed";
+import { errorMessage, openAddCluster, withVault } from "@/lib/clusters/managed";
 import { discoverKubeconfigs } from "@/lib/kubeconfigSources";
 import { relativeTime } from "@/lib/clusters/status";
 import {
@@ -38,14 +38,21 @@ import {
 } from "@/lib/clusters/cloud";
 import { connectionScope, expiryText, regionsSummary } from "@/lib/clusters/cloudModel";
 import { connectionKindLabel, narrowLabel, providerInfo } from "@/lib/clusters/providers";
-import { catalog, catalogRefreshedAt, connections, discovery, loadCloud, refreshCloud } from "@/lib/clusters/catalogStore";
+import { useClusters } from "@/lib/clusters/useClusters";
+import { injectStrict } from "@/lib/utils";
+import { KubeContextIsContextActiveKey, KubeContextSetActiveNamespacesKey } from "@/providers/KubeContextProvider";
+import { catalog, catalogRefreshedAt, cloudError, connections, discovery, loadCloud, refreshCloud } from "@/lib/clusters/catalogStore";
 
 const { toast } = useToast();
+const clusters = useClusters();
+const isContextActive = injectStrict(KubeContextIsContextActiveKey);
+const setActiveNamespaces = injectStrict(KubeContextSetActiveNamespacesKey);
 
 const counts = (connection: CloudConnection) => {
   const own = (catalog.value ?? []).filter((c) => c.connectionId === connection.id);
   return {
-    added: own.filter((c) => c.state === "added").length,
+    // Including the ones deleted in the cloud but still here.
+    added: own.filter((c) => c.addedContext).length,
     available: own.filter((c) => c.state === "available").length,
     removed: own.filter((c) => c.state === "removed").length,
   };
@@ -83,26 +90,50 @@ const refresh = async (connection?: CloudConnection) => {
 
 const signingIn = ref<CloudConnection | null>(null);
 
+/* Kept apart from the open state: the dialog closes before its action's click handler runs. */
 const removing = ref<CloudConnection | null>(null);
+const removeOpen = ref(false);
 const removeClusters = ref(true);
+const confirmRemove = (connection: CloudConnection) => {
+  removing.value = connection;
+  removeClusters.value = true;
+  removeOpen.value = true;
+};
 const remove = async () => {
   const connection = removing.value;
-  removing.value = null;
+  const withClusters = removeClusters.value;
+  removeOpen.value = false;
   if (!connection) return;
   try {
-    await deleteConnection(connection.id, removeClusters.value);
-    if (removeClusters.value) void discoverKubeconfigs(true);
+    // A locked vault asks for its passphrase first; nothing changes until then.
+    const result = await withVault(() => deleteConnection(connection.id, withClusters));
+    const removed = result.removed.map((context) => ({ context, kubeConfig: result.kubeConfig }));
+    for (const { context, kubeConfig } of removed) {
+      if (isContextActive(context, kubeConfig)) setActiveNamespaces(context, kubeConfig, []);
+    }
+    clusters.forget(removed);
+    if (removed.length) void discoverKubeconfigs(true);
     await loadCloud();
-    toast({ title: `Removed ${connection.label}` });
+    toast({
+      title: `Removed ${connection.label}`,
+      ...(result.credentialsKept ? { description: `Its stored credentials were kept: ${result.credentialsKept}` } : {}),
+    });
   } catch (e) {
     toast({ title: "Couldn't remove the account", description: errorMessage(e), variant: "destructive" });
   }
 };
-watch(removing, () => (removeClusters.value = true));
 </script>
 
 <template>
   <div class="space-y-4">
+    <div
+      v-if="cloudError"
+      class="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+      role="alert"
+    >
+      <CircleAlert class="mt-px h-3.5 w-3.5 shrink-0" />
+      <span class="whitespace-pre-line">{{ cloudError }}</span>
+    </div>
     <div v-if="connections === null" class="flex items-center justify-center gap-2 py-24 text-sm text-muted-foreground">
       <Loader2 class="h-4 w-4 animate-spin" /> Loading your accounts…
     </div>
@@ -152,7 +183,7 @@ watch(removing, () => (removeClusters.value = true));
                   {{ narrowLabel(connection) }}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" @select="removing = connection">Remove…</DropdownMenuItem>
+                <DropdownMenuItem variant="destructive" @select="confirmRemove(connection)">Remove…</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -218,19 +249,19 @@ watch(removing, () => (removeClusters.value = true));
 
     <ConnectionSignInDialog v-if="signingIn" :connection="signingIn" @close="signingIn = null" />
 
-    <AlertDialog :open="!!removing" @update:open="(value) => !value && (removing = null)">
+    <AlertDialog v-model:open="removeOpen">
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Remove {{ removing?.label }}?</AlertDialogTitle>
           <AlertDialogDescription>
-            JET Pilot forgets this account and its stored sign-in. Nothing changes in AWS.
+            JET Pilot forgets this account and its stored sign-in. Nothing changes in
+            {{ removing ? providerInfo(removing.provider).name : "the cloud" }}.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <label v-if="removing && counts(removing).added" class="flex items-start gap-2.5 text-sm">
           <Checkbox v-model:checked="removeClusters" class="mt-0.5" />
           <span>
             Also remove its {{ counts(removing).added }} {{ counts(removing).added === 1 ? "cluster" : "clusters" }} from JET Pilot
-            <span class="block text-xs text-muted-foreground">They can't sign in without the account.</span>
           </span>
         </label>
         <AlertDialogFooter>

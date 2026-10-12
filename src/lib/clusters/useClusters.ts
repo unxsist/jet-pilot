@@ -7,6 +7,7 @@ import { injectStrict } from "@/lib/utils";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { runtimeSettings } from "@/lib/settings/runtime";
 import {
+  removeRecords,
   resolveCluster,
   updateRecords,
   type ClusterMeta,
@@ -23,6 +24,10 @@ export function useClusters() {
       resolveCluster(records.value, context, kubeConfig),
     update(context: string, kubeConfig: string, patch: Partial<ClusterMeta>) {
       settings.value.clusters = updateRecords(records.value, context, kubeConfig, patch);
+    },
+    /** Forgets everything about clusters that were removed. */
+    forget(targets: { context: string; kubeConfig: string }[]) {
+      if (targets.length) settings.value.clusters = removeRecords(records.value, targets);
     },
     /** One patch for several clusters (bulk edit). */
     updateMany(targets: { context: string; kubeConfig: string }[], patch: Partial<ClusterMeta>) {

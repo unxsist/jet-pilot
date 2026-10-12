@@ -19,7 +19,7 @@ use jp_auth_core::request::{
     valid_account_id, valid_profile_name, valid_region, valid_role_arn, valid_role_name,
 };
 use serde::Deserialize;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::error::AppError;
 use super::managed_kubeconfig as managed;
@@ -971,20 +971,23 @@ pub async fn connection_update(
 /// certificates). `remove_clusters` also removes the clusters added from
 /// it (and their stored credentials). The aws CLI's token cache and the
 /// cloud CLIs' own sign-ins are left alone.
+///
+/// A locked vault asks for its passphrase first (nothing changes until it
+/// is unlocked). The connection and its clusters go before its secrets, so
+/// a vault that can't be opened only leaves those behind
+/// (`credentialsKept`) and never half a connection.
 #[tauri::command]
-pub async fn connection_delete(id: String, remove_clusters: bool) -> Result<(), AppError> {
+pub async fn connection_delete(
+    id: String,
+    remove_clusters: bool,
+) -> Result<super::RemoveResult, AppError> {
     super::blocking(move || {
         let ctx = aws::context();
         let Some(connection) = load(&ctx)?.into_iter().find(|c| c.id == id) else {
             return Err(AppError::not_found("This connection no longer exists."));
         };
-        let mut secret_ids = Vec::new();
-        for prefix in store::secret_prefixes(&id) {
-            secret_ids.extend(ctx.store.ids_with_prefix(&prefix).map_err(vault_error)?);
-        }
-        ctx.store
-            .put_and_remove(Vec::new(), &secret_ids)
-            .map_err(vault_error)?;
+        crate::secrets::require_unlocked()?;
+        let mut result = super::RemoveResult::default();
         if remove_clusters {
             let path = super::catalog::managed_file();
             let doc = managed::read(&path)?;
@@ -995,7 +998,7 @@ pub async fn connection_delete(id: String, remove_clusters: bool) -> Result<(), 
                 .map(|c| c.name.clone())
                 .collect();
             let forget = connection.provider != providers::AWS;
-            super::remove(&path, &contexts, forget)?;
+            result = super::remove(&path, &contexts, forget)?;
         }
         store::update::<_, AppError>(&ctx.connections_file, |list| {
             list.retain(|c| c.id != id);
@@ -1004,8 +1007,23 @@ pub async fn connection_delete(id: String, remove_clusters: bool) -> Result<(), 
         super::catalog::forget_connection(&id)?;
         aws::forget_entry_statuses();
         api::forget_entry_statuses();
+        let forgotten = (|| {
+            let mut secret_ids = Vec::new();
+            for prefix in store::secret_prefixes(&id) {
+                secret_ids.extend(ctx.store.ids_with_prefix(&prefix)?);
+            }
+            ctx.store.put_and_remove(Vec::new(), &secret_ids)
+        })();
+        if let Err(e) = forgotten {
+            let e = vault_error(e);
+            warn!(
+                "Removed connection {} but kept its secrets: {}",
+                id, e.message
+            );
+            result.credentials_kept = Some(e.message);
+        }
         info!("Removed {} connection {}", connection.provider, id);
-        Ok(())
+        Ok(result)
     })
     .await
 }

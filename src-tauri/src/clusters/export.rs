@@ -93,6 +93,12 @@ pub(crate) fn inline_credentials(
     secret: &dyn Fn(&str) -> Result<Option<serde_json::Value>, AppError>,
 ) -> Result<(), AppError> {
     let b64 = |text: &str| base64::engine::general_purpose::STANDARD.encode(text);
+    // Errors name the cluster, not our internal user entry.
+    let names: std::collections::HashMap<String, String> = doc
+        .contexts
+        .iter()
+        .filter_map(|c| Some((c.context.as_ref()?.user.clone()?, c.name.clone())))
+        .collect();
     for user in &mut doc.auth_infos {
         let Some(auth) = user.auth_info.as_mut() else {
             continue;
@@ -100,10 +106,10 @@ pub(crate) fn inline_credentials(
         let Some(request) = auth.exec.as_ref().and_then(managed::helper_request) else {
             continue;
         };
+        let name = names.get(&user.name).unwrap_or(&user.name).clone();
         let missing = || {
             AppError::not_found(format!(
-                "The credentials of \"{}\" are missing from the vault. Add the cluster again.",
-                user.name
+                "The credentials of \"{name}\" are missing from the vault. Add the cluster again."
             ))
         };
         match request {
@@ -136,6 +142,18 @@ pub(crate) fn inline_credentials(
                     install_hint: None,
                     ..exec
                 });
+            }
+            // Short-lived credentials minted with a cloud account in JET
+            // Pilot: there's nothing to copy that works anywhere else.
+            Request::CredentialAwsEks(_)
+            | Request::CredentialDigitalocean(_)
+            | Request::CredentialExoscale(_) => {
+                return Err(AppError::invalid(
+                    "mode",
+                    format!(
+                        "\"{name}\" signs in with a cloud account in JET Pilot, so its credentials can't be included. Export it through JET Pilot instead."
+                    ),
+                ));
             }
             _ => {}
         }
@@ -391,6 +409,47 @@ users:
             "cluster:bbb:env" => Some(json!({"AWS_SECRET_ACCESS_KEY": "aws-secret"})),
             _ => None,
         })
+    }
+
+    #[test]
+    fn cloud_minted_credentials_are_never_inlined() {
+        use kube::config::{AuthInfo, Context, NamedAuthInfo, NamedContext};
+        let args = jp_auth_core::request::AwsEksArgs {
+            connection: "c1".into(),
+            account: None,
+            role: None,
+            profile: Some("dev".into()),
+            assume_role: None,
+            region: "eu-west-1".into(),
+            cluster: "prod".into(),
+        };
+        let mut doc = managed::new_doc();
+        doc.auth_infos.push(NamedAuthInfo {
+            name: "jetpilot-eks-1".into(),
+            auth_info: Some(AuthInfo {
+                exec: Some(managed::aws_eks_exec(
+                    &args,
+                    Path::new("/bin/jetpilot-auth"),
+                )),
+                ..AuthInfo::default()
+            }),
+            other: managed::no_other(),
+        });
+        doc.contexts.push(NamedContext {
+            name: "eks-eu-west-1-prod".into(),
+            context: Some(Context {
+                cluster: "jetpilot-eks-1".into(),
+                user: Some("jetpilot-eks-1".into()),
+                ..Context::default()
+            }),
+            other: managed::no_other(),
+        });
+        let err = inline_credentials(&mut doc, &|_| Ok(None)).unwrap_err();
+        assert!(
+            err.message.contains("eks-eu-west-1-prod"),
+            "{}",
+            err.message
+        );
     }
 
     #[test]

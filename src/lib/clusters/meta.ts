@@ -71,6 +71,8 @@ export interface ResolvedCluster {
   kubeConfig: string;
   /** The alias, else the cluster part of the context name. */
   displayName: string;
+  /** The alias the user set, if any. */
+  alias?: string;
   initials: string;
   /** Avatar hue: the chosen colour, else derived from the name. */
   hue: number;
@@ -179,6 +181,7 @@ export function resolveCluster(
     context,
     kubeConfig: kubeConfig ?? record?.kubeConfig ?? "",
     displayName: alias || shortName(context),
+    alias: alias || undefined,
     initials: alias ? initialsOf(alias) : initialsOf(context),
     hue: record?.color ? CLUSTER_COLORS[record.color] : nameHue(context),
     color: record?.color,
@@ -223,6 +226,19 @@ export function updateRecords(
   delete (meta as Partial<ClusterRecord>).kubeConfig;
   delete (meta as Partial<ClusterRecord>).context;
   return isEmpty(meta) ? others : [...others, next];
+}
+
+/**
+ * Drops the records of `targets` (clusters that were removed). Wildcard
+ * records (any kubeconfig) stay: they may describe other files' contexts.
+ */
+export function removeRecords(
+  records: readonly ClusterRecord[],
+  targets: readonly { context: string; kubeConfig: string }[]
+): ClusterRecord[] {
+  return records.filter(
+    (record) => !targets.some((t) => t.context === record.context && t.kubeConfig === record.kubeConfig)
+  );
 }
 
 export const envInfo = (env: Environment | undefined) =>

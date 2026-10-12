@@ -463,10 +463,16 @@ pub fn serialize(doc: &Kubeconfig) -> Result<String, AppError> {
         .map_err(|e| AppError::internal(format!("The kubeconfig could not be written: {e}")))
 }
 
-/// Refuses documents with credentials in them: tokens, client keys,
-/// passwords, auth-provider tokens and secret exec environment variables.
+/// Refuses documents where our entries have credentials in them: tokens,
+/// client keys, passwords, auth-provider tokens and secret exec environment
+/// variables. Users we didn't write (e.g. added with kubectl) are left
+/// alone: refusing them would block every change, removals included.
 pub fn assert_no_inline_secrets(doc: &Kubeconfig) -> Result<(), AppError> {
-    for user in &doc.auth_infos {
+    for user in doc
+        .auth_infos
+        .iter()
+        .filter(|u| u.name.starts_with(INTERNAL_PREFIX))
+    {
         let Some(auth) = &user.auth_info else {
             continue;
         };
@@ -533,11 +539,12 @@ impl KubeconfigLock {
             match options.open(&path) {
                 Ok(_) => return Ok(KubeconfigLock { path }),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    // A lock from the future (a synced ~/.kube, clock
+                    // skew) would never age: stale too.
                     let stale = std::fs::metadata(&path)
                         .and_then(|m| m.modified())
                         .ok()
-                        .and_then(|t| t.elapsed().ok())
-                        .is_some_and(|age| age > STALE_LOCK);
+                        .is_some_and(|t| t.elapsed().map_or(true, |age| age > STALE_LOCK));
                     if stale && !removed_stale {
                         removed_stale = true;
                         let _ = std::fs::remove_file(&path);
@@ -602,15 +609,10 @@ pub fn context_names(doc: &Kubeconfig) -> impl Iterator<Item = &str> {
 }
 
 /// Removes contexts (and their `jetpilot-*` cluster and user entries when no
-/// other context uses them). Returns the cluster ids of removed contexts.
-pub fn remove_contexts(doc: &mut Kubeconfig, names: &[String]) -> Result<Vec<String>, AppError> {
-    for name in names {
-        if !doc.contexts.iter().any(|c| &c.name == name) {
-            return Err(AppError::not_found(format!(
-                "There is no cluster called \"{name}\"."
-            )));
-        }
-    }
+/// other context uses them). Names that aren't there are skipped (already
+/// removed, e.g. from another window). Returns the cluster ids of removed
+/// contexts.
+pub fn remove_contexts(doc: &mut Kubeconfig, names: &[String]) -> Vec<String> {
     let mut ids = Vec::new();
     let removed: Vec<NamedContext> = doc
         .contexts
@@ -645,14 +647,16 @@ pub fn remove_contexts(doc: &mut Kubeconfig, names: &[String]) -> Result<Vec<Str
             }
         }
     }
+    // Like `kubectl config delete-context`: no current context rather than
+    // quietly pointing terminals at another cluster.
     if doc
         .current_context
         .as_ref()
         .is_some_and(|current| names.contains(current))
     {
-        doc.current_context = doc.contexts.first().map(|c| c.name.clone());
+        doc.current_context = None;
     }
-    Ok(ids)
+    ids
 }
 
 /// Empty `BTreeMap` helper for struct literals.
@@ -881,6 +885,27 @@ extensions:
             assert!(err.message.contains(what), "{what}: {}", err.message);
             assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
         }
+        // Someone else's entry with a token doesn't block our changes.
+        update(&path, |doc| {
+            doc.auth_infos.push(NamedAuthInfo {
+                name: "kubectl-added".into(),
+                auth_info: Some(AuthInfo {
+                    token: Some("t".to_string().into()),
+                    ..AuthInfo::default()
+                }),
+                other: no_other(),
+            });
+            Ok(())
+        })
+        .unwrap();
+        update(&path, |doc| {
+            remove_contexts(doc, &["prod".into()]);
+            Ok(())
+        })
+        .unwrap();
+        assert!(list(&read(&path).unwrap()).is_empty());
+        std::fs::write(&path, &before).unwrap();
+
         // A failing change writes nothing either.
         let err = update(&path, |_| -> Result<(), AppError> {
             Err(AppError::conflict("nope"))
@@ -908,6 +933,16 @@ extensions:
             .unwrap()
             .set_modified(old)
             .unwrap();
+        drop(KubeconfigLock::acquire(&path).unwrap());
+
+        // So is one from the future.
+        std::fs::write(dir.path().join("config.lock"), "").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(dir.path().join("config.lock"))
+            .unwrap()
+            .set_modified(SystemTime::now() + Duration::from_secs(3600))
+            .unwrap();
         KubeconfigLock::acquire(&path).unwrap();
     }
 
@@ -917,18 +952,16 @@ extensions:
         managed_entry(&mut doc, "aaa", "one");
         managed_entry(&mut doc, "bbb", "two");
         doc.current_context = Some("one".into());
-        let ids = remove_contexts(&mut doc, &["one".into()]).unwrap();
+        let ids = remove_contexts(&mut doc, &["one".into()]);
         assert_eq!(ids, vec!["aaa"]);
         assert!(!doc.clusters.iter().any(|c| c.name == "jetpilot-aaa"));
         assert!(!doc.auth_infos.iter().any(|u| u.name == "jetpilot-aaa"));
         assert!(doc.clusters.iter().any(|c| c.name == "hand-cluster"));
-        assert_eq!(doc.current_context.as_deref(), Some("hand-made"));
-        assert_eq!(
-            remove_contexts(&mut doc, &["ghost".into()])
-                .unwrap_err()
-                .code,
-            super::super::error::AppErrorCode::NotFound
-        );
+        assert_eq!(doc.current_context, None);
+        // Already gone (another window removed it): nothing to do.
+        let before = serde_json::to_value(&doc).unwrap();
+        assert!(remove_contexts(&mut doc, &["ghost".into(), "one".into()]).is_empty());
+        assert_eq!(serde_json::to_value(&doc).unwrap(), before);
     }
 
     #[test]

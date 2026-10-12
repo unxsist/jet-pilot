@@ -52,13 +52,10 @@ async function defaultKubeconfig(): Promise<string> {
 }
 
 let pending: Promise<DiscoveredKubeconfig[]> | null = null;
+let again = false;
 
-/** Finds kubeconfig files (cached; `force` looks again). */
-export function discoverKubeconfigs(force = false): Promise<DiscoveredKubeconfig[]> {
-  if (!force && discoveredKubeconfigs.value) {
-    return Promise.resolve(discoveredKubeconfigs.value);
-  }
-  pending ??= invoke<DiscoveredKubeconfig[] | null>("kubeconfig_discover")
+const discoverOnce = () =>
+  invoke<DiscoveredKubeconfig[] | null>("kubeconfig_discover")
     .then((found) => found ?? [])
     .catch(async (e) => {
       warn(`Kubeconfig discovery failed, using ~/.kube/config: ${e}`);
@@ -66,23 +63,45 @@ export function discoverKubeconfigs(force = false): Promise<DiscoveredKubeconfig
       return path
         ? [{ path, origin: "default" as const, readable: true, contextCount: 0, contextNames: [] }]
         : [];
-    })
-    .then((found) => {
-      discoveredKubeconfigs.value = found;
-      return found;
-    })
-    .finally(() => (pending = null));
+    });
+
+/**
+ * Finds kubeconfig files (cached; `force` looks again). A forced look while
+ * one runs looks once more afterwards: the running one may predate the
+ * change it's asked for.
+ */
+export function discoverKubeconfigs(force = false): Promise<DiscoveredKubeconfig[]> {
+  if (!force && discoveredKubeconfigs.value) {
+    return Promise.resolve(discoveredKubeconfigs.value);
+  }
+  if (pending) {
+    if (force) again = true;
+    return pending;
+  }
+  pending = (async () => {
+    let found: DiscoveredKubeconfig[];
+    do {
+      again = false;
+      found = await discoverOnce();
+    } while (again);
+    discoveredKubeconfigs.value = found;
+    return found;
+  })().finally(() => (pending = null));
   return pending;
 }
 
 /**
  * Kubeconfig paths in order: added files, then readable detected ones.
- * Duplicates (the same file added and detected) are listed once.
+ * Duplicates (the same file added and detected) are listed once. Without
+ * auto-detection only JET Pilot's own kubeconfig (clusters added in the
+ * app) is taken from `detected`, and ~/.kube/config stands in when the user
+ * has no files of their own.
  */
 export function mergeKubeconfigPaths(
   sources: readonly string[],
   detected: readonly DiscoveredKubeconfig[] | null,
-  fallback: string
+  fallback: string,
+  autoDetect = true
 ): string[] {
   const seen = new Set<string>();
   const paths: string[] = [];
@@ -94,22 +113,38 @@ export function mergeKubeconfigPaths(
     paths.push(trimmed);
   };
   sources.forEach(add);
+  const managed = new Set<string>();
   for (const file of detected ?? []) {
-    if (file.readable) add(file.path);
+    if (!file.readable || (!autoDetect && file.origin !== "managed")) continue;
+    if (file.origin === "managed") managed.add(normalizeKubeconfigPath(file.path.trim()));
+    add(file.path);
   }
-  if (paths.length === 0 && fallback) add(fallback);
+  const ownFiles = paths.filter((path) => !managed.has(normalizeKubeconfigPath(path.trim())));
+  if (fallback && ownFiles.length === 0 && (!autoDetect || paths.length === 0)) add(fallback);
   return paths;
 }
 
-/** The kubeconfig files to load contexts from, for the current settings. */
+/**
+ * The kubeconfig files to load contexts from, for the current settings.
+ * Clusters added in JET Pilot are always included: auto-detection is about
+ * the user's other kubeconfig files.
+ */
 export async function resolveKubeconfigPaths(settings: Settings): Promise<string[]> {
   const { sources, autoDetect } = settings.kubeconfig;
   const [expanded, detected, fallback] = await Promise.all([
     Promise.all(sources.map(expandHome)),
-    autoDetect ? discoverKubeconfigs() : Promise.resolve(null),
+    discoverKubeconfigs(),
     defaultKubeconfig(),
   ]);
-  return mergeKubeconfigPaths(expanded, detected, fallback);
+  return mergeKubeconfigPaths(expanded, detected, fallback, autoDetect);
+}
+
+/** Whether `path` is JET Pilot's own kubeconfig (as found by discovery). */
+export function isManagedKubeconfig(path: string): boolean {
+  const key = normalizeKubeconfigPath(path.trim());
+  return !!discoveredKubeconfigs.value?.some(
+    (file) => file.origin === "managed" && normalizeKubeconfigPath(file.path.trim()) === key
+  );
 }
 
 /* --------------------------------------------- kubeconfig_describe -- */

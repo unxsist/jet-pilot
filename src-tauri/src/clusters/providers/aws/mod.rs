@@ -248,6 +248,9 @@ pub async fn aws_mfa_sign_in(
                 "This connection does not use an AWS profile.",
             )
         })?;
+    // The MFA session goes into the vault: make sure it can before the
+    // one-time code is used up.
+    crate::clusters::blocking(crate::secrets::require_writable).await?;
     creds::mfa_sign_in(&ctx, &connection.id, &profile, &code)
         .await
         .map_err(|e| match e {

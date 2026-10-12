@@ -125,6 +125,13 @@ const reload = async () => {
   }
 };
 onMounted(reload);
+/* Kubeconfigs change outside JET Pilot too (kubectl, cloud CLIs): look again when the window comes back. */
+let lastFocusReload = 0;
+useEventListener(window, "focus", () => {
+  if (Date.now() - lastFocusReload < 5_000) return;
+  lastFocusReload = Date.now();
+  void discoverKubeconfigs(true);
+});
 watch(
   () => [settings.value.kubeconfig.sources.join("\n"), settings.value.kubeconfig.autoDetect, discoveredKubeconfigs.value],
   reload
@@ -255,6 +262,15 @@ const focusRow = (key: string | undefined) => {
 /* The cluster whose details are open (click a row). */
 const detailKey = ref<string | null>(null);
 const detail = computed(() => hubClusters.value.find((c) => c.entry.key === detailKey.value) ?? null);
+
+/* Clusters that went away (removed here, with their account, or outside JET Pilot) leave no traces. */
+watch(hubClusters, (list) => {
+  const keys = new Set(list.map((c) => c.entry.key));
+  for (const key of [...selection]) if (!keys.has(key)) selection.delete(key);
+  if (detailKey.value && !keys.has(detailKey.value)) detailKey.value = null;
+  if (focusedKey.value && !keys.has(focusedKey.value)) focusedKey.value = null;
+});
+
 const onRowClick = (cluster: HubCluster, event: MouseEvent) => {
   focusedKey.value = cluster.entry.key;
   if (event.metaKey || event.ctrlKey || event.shiftKey || selection.size) {
@@ -312,20 +328,35 @@ watch(
 /* Clusters added in JET Pilot: export and remove. */
 const exportOpen = ref(false);
 const exportTargets = ref<string[]>([]);
+/*
+ * The dialog closes before its action's click handler runs, so the cluster
+ * to remove is kept apart from the open state (clearing it on close made
+ * Remove do nothing).
+ */
 const removing = ref<HubCluster | null>(null);
+const removeOpen = ref(false);
+const confirmRemove = (cluster: HubCluster) => {
+  removing.value = cluster;
+  removeOpen.value = true;
+};
 const removeCluster = async () => {
   const cluster = removing.value;
-  removing.value = null;
+  removeOpen.value = false;
   if (!cluster) return;
+  const { context, kubeConfig } = cluster.entry;
   try {
-    if (cluster.active) setActiveNamespaces(cluster.entry.context, cluster.entry.kubeConfig, []);
-    await removeManaged([cluster.entry.context], true);
-    clusters.update(cluster.entry.context, cluster.entry.kubeConfig, {
-      alias: undefined, color: undefined, env: undefined, folder: undefined, tags: undefined,
-      favorite: undefined, hidden: undefined, protected: undefined, readOnly: undefined, namespaces: undefined,
+    // A locked vault asks for its passphrase first; nothing changes until then.
+    const result = await withVault(() => removeManaged([context], true));
+    if (isContextActive(context, kubeConfig)) setActiveNamespaces(context, kubeConfig, []);
+    clusters.forget([{ context, kubeConfig }]);
+    if (detailKey.value === cluster.entry.key) detailKey.value = null;
+    selection.delete(cluster.entry.key);
+    // The catalog offers a cluster added from a cloud account again.
+    await Promise.all([discoverKubeconfigs(true), loadCloud()]);
+    toast({
+      title: result.removed.length ? `Removed ${cluster.meta.displayName}` : `${cluster.meta.displayName} was already removed`,
+      ...(result.credentialsKept ? { description: `Its stored credentials were kept: ${result.credentialsKept}` } : {}),
     });
-    await discoverKubeconfigs(true);
-    toast({ title: `Removed ${cluster.meta.displayName}` });
   } catch (e) {
     toast({ title: "Couldn't remove the cluster", description: errorMessage(e), variant: "destructive" });
   }
@@ -433,6 +464,9 @@ const availableProviders = computed(() => [...new Set(available.value.available.
 
 const filterInput = ref<HTMLInputElement | null>(null);
 const onListKeydown = (event: KeyboardEvent) => {
+  // Keys typed on a row's own buttons (Connect, its menu) belong to them.
+  const target = event.target as HTMLElement | null;
+  if (target && target.closest("[data-cluster-key]") !== target) return;
   const rows = visibleRows.value;
   const index = rows.findIndex((c) => c.entry.key === focusedKey.value);
   const current = rows[index];
@@ -701,7 +735,7 @@ const subtitle = computed(() => {
                   @check="check([cluster], true)"
                   @copy="copyName(cluster)"
                   @export="exportTargets = [cluster.entry.context]; exportOpen = true"
-                  @remove="removing = cluster"
+                  @remove="confirmRemove(cluster)"
                   @select="(on) => toggleSelect(cluster, on)"
                 />
               </div>
@@ -729,7 +763,7 @@ const subtitle = computed(() => {
               @hide="toggleHidden(detail)"
               @check="check([detail], true)"
               @export="exportTargets = [detail.entry.context]; exportOpen = true"
-              @remove="removing = detail"
+              @remove="confirmRemove(detail)"
             />
           </Transition>
         </div>
@@ -777,13 +811,13 @@ const subtitle = computed(() => {
       @restore="(list) => setAvailableState(list, 'available')"
       @refresh="refreshAvailable"
     />
-    <AlertDialog :open="!!removing" @update:open="(value) => !value && (removing = null)">
+    <AlertDialog v-model:open="removeOpen">
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Remove {{ removing?.meta.displayName }} from JET Pilot?</AlertDialogTitle>
           <AlertDialogDescription>
-            The cluster and its stored credentials are deleted from JET Pilot's kubeconfig and your keychain. The cluster
-            itself isn't touched; you can add it again later.
+            JET Pilot forgets the cluster and its stored credentials. The cluster itself isn't touched; you can add it
+            again later.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

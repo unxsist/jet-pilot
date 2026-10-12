@@ -105,9 +105,19 @@ export interface ManagedCluster {
   server?: string | null;
 }
 
+export interface RemoveResult {
+  /** The kubeconfig they were removed from. */
+  kubeConfig: string;
+  /** The contexts removed (ones already gone are left out). */
+  removed: string[];
+  /** Why their stored credentials were kept (still used elsewhere, or the vault couldn't be opened). */
+  credentialsKept?: string | null;
+}
+
 export const managedList = () => invoke<ManagedCluster[]>("managed_list");
+/** A locked vault fails with `vaultLocked` before anything changes (use withVault). */
 export const removeManaged = (contexts: string[], forgetSecrets = true) =>
-  invoke<void>("managed_remove", { contexts, forgetSecrets });
+  invoke<RemoveResult>("managed_remove", { contexts, forgetSecrets });
 export const renameManaged = (context: string, newName: string) =>
   invoke<string>("managed_rename", { context, newName });
 export const exportManaged = (contexts: string[], mode: "helper" | "inline", dest: string) =>
@@ -174,6 +184,8 @@ export async function withVault<T>(operation: () => Promise<T>): Promise<T> {
   } catch (e) {
     if (!isAppError(e) || (e.code !== "vaultLocked" && e.code !== "keychainUnavailable")) throw e;
     const status = await vaultStatus().catch(() => null);
+    // A keychain vault has no passphrase to ask for: its error says what's wrong with the keychain.
+    if (status?.initialized && status.backend === "keychain") throw e;
     const mode = status?.initialized ? "unlock" : "setup";
     if (!(await askVault(mode, status?.keychainProblem))) throw e;
     return operation();

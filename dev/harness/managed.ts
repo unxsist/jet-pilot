@@ -218,7 +218,9 @@ export function createManagedMocks(scenario: string, knownContexts: () => string
     managed_list: () =>
       load().map((e) => ({ context: e.context, clusterId: e.clusterId, origin: e.origin, addedAt: e.addedAt, server: e.server })),
     managed_remove: (p) => {
+      const removed = load().filter((e) => p.contexts.includes(e.context)).map((e) => e.context);
       store(load().filter((e) => !p.contexts.includes(e.context)));
+      return { kubeConfig: MANAGED_KUBECONFIG, removed, credentialsKept: null };
     },
     managed_rename: (p) => {
       store(load().map((e) => (e.context === p.context ? { ...e, context: p.newName } : e)));

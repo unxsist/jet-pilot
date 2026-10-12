@@ -359,4 +359,24 @@ describe("mergeKubeconfigPaths", () => {
     expect(mergeKubeconfigPaths([], null, "/home/me/.kube/config")).toEqual(["/home/me/.kube/config"]);
     expect(mergeKubeconfigPaths([], [], "")).toEqual([]);
   });
+  const managed = {
+    path: "/home/me/.kube/jet-pilot/config",
+    origin: "managed" as const,
+    readable: true,
+    contextCount: 1,
+    contextNames: [],
+  };
+  it("keeps clusters added in JET Pilot without auto-detection", () => {
+    expect(mergeKubeconfigPaths([], [managed, ...detected], "/home/me/.kube/config", false)).toEqual([
+      "/home/me/.kube/jet-pilot/config",
+      "/home/me/.kube/config",
+    ]);
+    expect(mergeKubeconfigPaths(["/home/me/lab.yaml"], [managed, ...detected], "/home/me/.kube/config", false)).toEqual([
+      "/home/me/lab.yaml",
+      "/home/me/.kube/jet-pilot/config",
+    ]);
+  });
+  it("doesn't add a missing ~/.kube/config next to JET Pilot's kubeconfig", () => {
+    expect(mergeKubeconfigPaths([], [managed], "/home/me/.kube/config")).toEqual(["/home/me/.kube/jet-pilot/config"]);
+  });
 });

@@ -69,7 +69,11 @@ import { catalog, discovery, refreshCloud } from "@/lib/clusters/catalogStore";
 import type { ContextRef } from "@/lib/contextKey";
 
 const props = defineProps<{ connectionId?: string | null; folders?: string[] }>();
-const emit = defineEmits<{ back: []; done: [added: ContextRef[]]; heading: [heading: { title: string; description: string }] }>();
+const emit = defineEmits<{
+  back: [];
+  done: [added: ContextRef[], warnings?: { key: string; message: string }[]];
+  heading: [heading: { title: string; description: string }];
+}>();
 
 const clusters = useClusters();
 
@@ -202,7 +206,7 @@ const useProfile = () =>
 const mfaCode = ref("");
 const enterMfa = (code: string) =>
   run(async () => {
-    connection.value = await awsMfaSignIn(connection.value!.id, code);
+    connection.value = await withVault(() => awsMfaSignIn(connection.value!.id, code));
     replace("regions");
   });
 
@@ -443,7 +447,8 @@ const addClusters = () =>
     if (result.failed.length && !result.added.length) {
       throw new Error(result.failed.map((f) => f.message).join("\n"));
     }
-    emit("done", result.added);
+    // Some couldn't be added: say so next to the ones that were.
+    emit("done", result.added, [...(result.warnings ?? []), ...result.failed]);
   });
 
 

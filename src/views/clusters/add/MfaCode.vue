@@ -12,10 +12,18 @@ const emit = defineEmits<{ submit: [code: string] }>();
 const code = defineModel<string>({ default: "" });
 const input = ref<InstanceType<typeof Input> | null>(null);
 
+/* Once per code: typing the sixth digit and pressing Enter would use it twice. */
+let sent = "";
+const send = (digits: string) => {
+  if (digits === sent) return;
+  sent = digits;
+  emit("submit", digits);
+};
 watch(code, (value) => {
   const digits = value.replace(/\D/g, "").slice(0, 6);
   if (digits !== value) code.value = digits;
-  else if (digits.length === 6) emit("submit", digits);
+  else if (digits.length === 6) send(digits);
+  else sent = "";
 });
 onMounted(() => nextTick(() => (input.value?.$el as HTMLInputElement | undefined)?.focus()));
 </script>
@@ -23,7 +31,7 @@ onMounted(() => nextTick(() => (input.value?.$el as HTMLInputElement | undefined
 <template>
   <form
     class="flex flex-col items-center gap-5 rounded-xl bg-muted/50 px-6 py-7 text-center"
-    @submit.prevent="code.length === 6 && emit('submit', code)"
+    @submit.prevent="code.length === 6 && send(code)"
   >
     <span class="flex items-center gap-2 text-xs text-muted-foreground" :title="`For the ${profile} profile`">
       <Smartphone class="h-3.5 w-3.5" /> The 6-digit code from your MFA device
