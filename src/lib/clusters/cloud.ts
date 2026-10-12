@@ -28,6 +28,11 @@ export interface ConnectionTarget {
   accountId: string;
   accountName?: string | null;
   roleName: string;
+  /**
+   * Role chaining: the IAM role assumed with `accountId` + `roleName`'s
+   * credentials. Its account is the one scanned (`accountName` names it).
+   */
+  assumeRoleArn?: string | null;
 }
 
 export interface CloudConnection {
@@ -89,6 +94,9 @@ export interface AwsAccount {
   roles: string[];
 }
 export const awsSsoAccounts = (connectionId: string) => invoke<AwsAccount[]>("aws_sso_accounts", { connectionId });
+/** Checks an IAM Identity Center account + role can assume `roleArn` (rejects when it can't). */
+export const awsAssumeRoleCheck = (connectionId: string, accountId: string, roleName: string, roleArn: string) =>
+  invoke<void>("aws_assume_role_check", { connectionId, accountId, roleName, roleArn });
 
 export interface AwsProfile {
   name: string;
@@ -97,6 +105,8 @@ export interface AwsProfile {
   ssoSession?: string | null;
   ssoStartUrl?: string | null;
   ssoRegion?: string | null;
+  /** The role an assume-role profile assumes. */
+  roleArn?: string | null;
   mfa: boolean;
 }
 export const awsProfiles = () => invoke<AwsProfile[]>("aws_profiles_list");
@@ -142,6 +152,8 @@ export interface CatalogCluster {
   accountId: string;
   accountName?: string | null;
   roleName?: string | null;
+  /** AWS role chaining: the role assumed to reach the cluster (`roleName` is its name). */
+  assumeRoleArn?: string | null;
   region: string;
   name: string;
   version?: string | null;

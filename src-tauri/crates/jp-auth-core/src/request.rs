@@ -48,13 +48,14 @@ pub enum Request {
 
 /// An EKS token for a cluster of a cloud connection. SSO connections name
 /// the account and role, profile connections the profile; access-key
-/// connections neither.
+/// connections neither. `assume_role` chains an IAM role (its ARN) on top.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AwsEksArgs {
     pub connection: String,
     pub account: Option<String>,
     pub role: Option<String>,
     pub profile: Option<String>,
+    pub assume_role: Option<String>,
     pub region: String,
     pub cluster: String,
 }
@@ -92,7 +93,7 @@ Usage:
   jetpilot-auth credential static --id <cluster-id>
   jetpilot-auth credential wrap-exec --id <cluster-id> -- <command> [args...]
   jetpilot-auth credential aws-eks --connection <id> [--account <id> --role <name> | --profile <name>]
-                --region <region> --cluster <name>
+                [--assume-role <role-arn>] --region <region> --cluster <name>
   jetpilot-auth credential digitalocean --connection <id> --cluster <cluster-id>
   jetpilot-auth credential exoscale --connection <id> --zone <zone> --cluster <cluster-id>
   jetpilot-auth unlock      unlock a passphrase vault for terminals (12 hours)
@@ -131,7 +132,7 @@ pub fn wrap_exec_args(id: &str, command: &str, args: &[String]) -> Vec<String> {
 }
 
 /// `credential aws-eks --connection <id> [--account <a> --role <r> |
-/// --profile <p>] --region <region> --cluster <name>`.
+/// --profile <p>] [--assume-role <arn>] --region <region> --cluster <name>`.
 pub fn aws_eks_args(args: &AwsEksArgs) -> Vec<String> {
     let mut argv: Vec<String> = ["credential", "aws-eks", "--connection", &args.connection]
         .iter()
@@ -146,6 +147,7 @@ pub fn aws_eks_args(args: &AwsEksArgs) -> Vec<String> {
     option("--account", &args.account);
     option("--role", &args.role);
     option("--profile", &args.profile);
+    option("--assume-role", &args.assume_role);
     argv.extend([
         "--region".to_string(),
         args.region.clone(),
@@ -208,6 +210,39 @@ pub fn valid_role_name(name: &str) -> bool {
         && name
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"+=,.@_-".contains(&b))
+}
+
+/// An IAM role ARN: `arn:<partition>:iam::<account>:role/<path/>name`.
+pub fn valid_role_arn(arn: &str) -> bool {
+    let Some(rest) = arn.strip_prefix("arn:") else {
+        return false;
+    };
+    let Some((partition, rest)) = rest.split_once(":iam::") else {
+        return false;
+    };
+    let Some((account, path)) = rest.split_once(":role/") else {
+        return false;
+    };
+    let name = path.rsplit('/').next().unwrap_or_default();
+    arn.len() <= 2048
+        && matches!(partition, "aws" | "aws-cn" | "aws-us-gov")
+        && valid_account_id(account)
+        && valid_role_name(name)
+        && path
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"+=,.@_-/".contains(&b))
+}
+
+/// The account of a valid role ARN.
+pub fn role_arn_account(arn: &str) -> Option<&str> {
+    valid_role_arn(arn).then(|| arn.split(':').nth(4)).flatten()
+}
+
+/// The role name of a valid role ARN (without its path).
+pub fn role_arn_name(arn: &str) -> Option<&str> {
+    valid_role_arn(arn)
+        .then(|| arn.rsplit('/').next())
+        .flatten()
 }
 
 /// `~/.aws` profile names (no flags, nothing odd).
@@ -343,6 +378,7 @@ fn parse_aws_eks(options: &[String], trailing: Option<&[String]>) -> Result<Requ
             "--account",
             "--role",
             "--profile",
+            "--assume-role",
             "--region",
             "--cluster",
         ],
@@ -356,6 +392,7 @@ fn parse_aws_eks(options: &[String], trailing: Option<&[String]>) -> Result<Requ
     let account = take("--account");
     let role = take("--role");
     let profile = take("--profile");
+    let assume_role = take("--assume-role");
     let region = take("--region").ok_or_else(|| UsageError("missing --region".into()))?;
     let cluster = take("--cluster").ok_or_else(|| UsageError("missing --cluster".into()))?;
     if account.is_some() != role.is_some() {
@@ -375,6 +412,9 @@ fn parse_aws_eks(options: &[String], trailing: Option<&[String]>) -> Result<Requ
     if profile.as_deref().is_some_and(|p| !valid_profile_name(p)) {
         return Err(UsageError("invalid --profile".into()));
     }
+    if assume_role.as_deref().is_some_and(|r| !valid_role_arn(r)) {
+        return Err(UsageError("invalid --assume-role (a role ARN)".into()));
+    }
     if !valid_region(&region) {
         return Err(UsageError(format!("invalid region '{region}'")));
     }
@@ -386,6 +426,7 @@ fn parse_aws_eks(options: &[String], trailing: Option<&[String]>) -> Result<Requ
         account,
         role,
         profile,
+        assume_role,
         region,
         cluster,
     }))
@@ -549,6 +590,7 @@ mod tests {
             account: Some("123456789012".into()),
             role: Some("ReadOnly".into()),
             profile: None,
+            assume_role: None,
             region: "eu-west-1".into(),
             cluster: "prod".into(),
         };
@@ -579,6 +621,17 @@ mod tests {
             parse_str("credential aws-eks --connection=conn1 --region eu-west-1 --cluster=prod"),
             Ok(Request::CredentialAwsEks(keys))
         );
+        let chained = AwsEksArgs {
+            assume_role: Some("arn:aws:iam::210987654321:role/teams/Platform".into()),
+            ..sso.clone()
+        };
+        assert_eq!(
+            parse(aws_eks_args(&chained)),
+            Ok(Request::CredentialAwsEks(chained.clone()))
+        );
+        assert!(aws_eks_args(&chained).join(" ").contains(
+            "--role ReadOnly --assume-role arn:aws:iam::210987654321:role/teams/Platform --region"
+        ));
         for line in [
             "credential aws-eks --region eu-west-1 --cluster prod",
             "credential aws-eks --connection c --cluster prod",
@@ -592,6 +645,8 @@ mod tests {
             "credential aws-eks --connection c --region eu-west-1 --cluster prod --cluster again",
             "credential aws-eks --connection c --region eu-west-1 --cluster prod --id x",
             "credential aws-eks --connection c --region eu-west-1 --cluster prod -- cmd",
+            "credential aws-eks --connection c --region eu-west-1 --cluster prod --assume-role Platform",
+            "credential aws-eks --connection c --region eu-west-1 --cluster prod --assume-role arn:aws:iam::1:role/x",
         ] {
             assert!(parse_str(line).is_err(), "{line:?} should fail");
         }
@@ -667,5 +722,32 @@ mod tests {
                 args,
             })
         );
+    }
+
+    #[test]
+    fn role_arns() {
+        for arn in [
+            "arn:aws:iam::123456789012:role/Platform",
+            "arn:aws:iam::123456789012:role/teams/eks/Platform-Admin",
+            "arn:aws-us-gov:iam::123456789012:role/x@y.z",
+        ] {
+            assert!(valid_role_arn(arn), "{arn}");
+        }
+        for arn in [
+            "",
+            "Platform",
+            "arn:aws:iam::12345:role/Platform",
+            "arn:aws:iam::123456789012:user/jane",
+            "arn:aws:sts::123456789012:assumed-role/Platform/jane",
+            "arn:aws:iam::123456789012:role/",
+            "arn:aws:iam::123456789012:role/a b",
+            "arn:evil:iam::123456789012:role/Platform",
+        ] {
+            assert!(!valid_role_arn(arn), "{arn}");
+        }
+        let arn = "arn:aws:iam::123456789012:role/teams/Platform";
+        assert_eq!(role_arn_account(arn), Some("123456789012"));
+        assert_eq!(role_arn_name(arn), Some("Platform"));
+        assert_eq!(role_arn_account("Platform"), None);
     }
 }

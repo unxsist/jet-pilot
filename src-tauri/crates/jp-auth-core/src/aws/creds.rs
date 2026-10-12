@@ -7,6 +7,9 @@
 //!   with `mfa_serial` use the session [`mfa_sign_in`] created;
 //! - keys: access keys from the vault.
 //!
+//! Any of them can chain an IAM role on top ([`assume_role`]): a team role
+//! the signed-in identity may assume, often in another account.
+//!
 //! Temporary credentials are cached in the vault ([`crate::cache`]) until
 //! five minutes before they expire, shared by the app and the helper.
 
@@ -100,6 +103,10 @@ impl Drop for StoredKeys {
 
 pub fn role_cache_id(conn_id: &str, account_id: &str, role: &str) -> String {
     format!("cache:aws:{conn_id}:{account_id}:{role}")
+}
+
+pub fn assumed_cache_id(conn_id: &str, source: &str, role_arn: &str) -> String {
+    format!("cache:aws:{conn_id}:assume:{source}:{role_arn}")
 }
 
 pub fn profile_cache_id(conn_id: &str, profile: &str) -> String {
@@ -313,7 +320,87 @@ pub async fn for_eks(ctx: &AwsContext, args: &AwsEksArgs) -> Result<AwsCredentia
             .map_err(|e| AwsError::Invalid(e.to_string()))??
     };
     let account_role = args.account.as_deref().zip(args.role.as_deref());
-    for_connection(ctx, &connection, account_role, args.profile.as_deref()).await
+    let credentials =
+        for_connection(ctx, &connection, account_role, args.profile.as_deref()).await?;
+    match &args.assume_role {
+        Some(role_arn) => {
+            let source = match (account_role, args.profile.as_deref()) {
+                (Some((account, role)), _) => format!("{account}:{role}"),
+                (None, Some(profile)) => format!("profile:{profile}"),
+                (None, None) => "keys".to_string(),
+            };
+            assume_role(ctx, &connection, &source, &credentials, role_arn).await
+        }
+        None => Ok(credentials),
+    }
+}
+
+/// The session name of roles assumed for a connection: its signed-in
+/// identity (an email shows up in CloudTrail), else `jetpilot`.
+fn session_name(connection: &CloudConnection) -> String {
+    let name: String = connection
+        .identity
+        .as_deref()
+        .unwrap_or_default()
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || "+=,.@_-".contains(*c))
+        .take(64)
+        .collect();
+    if name.len() >= 2 {
+        name
+    } else {
+        "jetpilot".to_string()
+    }
+}
+
+/// Assumes `role_arn` with `source` credentials (role chaining) and
+/// caches the session. `source_key` names where `source` came from, so
+/// every source caches its own session.
+pub async fn assume_role(
+    ctx: &AwsContext,
+    connection: &CloudConnection,
+    source_key: &str,
+    source: &AwsCredentials,
+    role_arn: &str,
+) -> Result<AwsCredentials, AwsError> {
+    if !crate::request::valid_role_arn(role_arn) {
+        return Err(AwsError::Invalid(format!(
+            "\"{role_arn}\" is not a role ARN"
+        )));
+    }
+    let cache_id = assumed_cache_id(&connection.id, source_key, role_arn);
+    if let Some(credentials) = cached(ctx, cache_id.clone()).await {
+        return Ok(credentials);
+    }
+    let output = sts(ctx, &connection.home_region(), source)
+        .assume_role()
+        .role_arn(role_arn)
+        .role_session_name(session_name(connection))
+        .send()
+        .await
+        .map_err(|e| match sdk_error(e) {
+            AwsError::Service { code, message } if code.as_deref() == Some("AccessDenied") => {
+                AwsError::Service {
+                    code,
+                    message: format!("Not allowed to assume {role_arn}: {message}"),
+                }
+            }
+            other => other,
+        })?;
+    let credentials = output
+        .credentials()
+        .ok_or_else(|| AwsError::Invalid("AWS returned no credentials".to_string()))?;
+    let credentials = AwsCredentials {
+        access_key_id: credentials.access_key_id().to_string(),
+        secret_access_key: credentials.secret_access_key().to_string(),
+        session_token: Some(credentials.session_token().to_string()),
+        expires_at: Some(credentials.expiration().secs()),
+    };
+    remember(ctx, cache_id, &credentials).await;
+    Ok(credentials)
 }
 
 fn sts(ctx: &AwsContext, region: &str, credentials: &AwsCredentials) -> aws_sdk_sts::Client {

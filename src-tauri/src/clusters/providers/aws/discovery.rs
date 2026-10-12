@@ -29,6 +29,7 @@ struct Scope {
     account_name: Option<String>,
     role_name: Option<String>,
     profile: Option<String>,
+    assume_role_arn: Option<String>,
 }
 
 impl Scope {
@@ -219,6 +220,7 @@ pub async fn discover(
         account_name: Some(connection.display_name()),
         role_name: None,
         profile: None,
+        assume_role_arn: None,
     };
 
     // Credentials per scope.
@@ -269,21 +271,42 @@ pub async fn discover(
                 return discovery;
             }
             for target in &connection.targets {
+                let arn = target.assume_role_arn.as_deref();
                 let scope = Scope {
-                    account_id: Some(target.account_id.clone()),
+                    account_id: Some(target.scanned_account().to_string()),
                     account_name: target.account_name.clone(),
-                    role_name: Some(target.role_name.clone()),
+                    role_name: Some(
+                        arn.and_then(jp_auth_core::request::role_arn_name)
+                            .unwrap_or(&target.role_name)
+                            .to_string(),
+                    ),
                     profile: None,
+                    assume_role_arn: target.assume_role_arn.clone(),
                 };
-                match creds::sso_role(ctx, connection, &target.account_id, &target.role_name).await
-                {
+                let credentials =
+                    match creds::sso_role(ctx, connection, &target.account_id, &target.role_name)
+                        .await
+                    {
+                        Ok(source) => match arn {
+                            Some(arn) => {
+                                let key = format!("{}:{}", target.account_id, target.role_name);
+                                creds::assume_role(ctx, connection, &key, &source, arn).await
+                            }
+                            None => Ok(source),
+                        },
+                        Err(error) => Err(error),
+                    };
+                match credentials {
                     Ok(credentials) => scopes.push((scope, credentials)),
                     Err(error) => {
                         if matches!(error, AwsError::SignInRequired(_)) {
                             discovery.needs_sign_in = true;
                         }
-                        let message =
-                            format!("{} as {}: {error}", scope.display(), target.role_name);
+                        let message = format!(
+                            "{} as {}: {error}",
+                            scope.display(),
+                            scope.role_name.as_deref().unwrap_or_default()
+                        );
                         progress(scope.progress(
                             "credentials",
                             None,
@@ -328,6 +351,7 @@ pub async fn discover(
                             account_name: None,
                             role_name: None,
                             profile: connection.profile.clone(),
+                            assume_role_arn: None,
                         },
                         credentials,
                     ));
@@ -396,6 +420,7 @@ pub async fn discover(
                     account_name: scope.account_name.clone(),
                     role_name: scope.role_name.clone(),
                     profile: scope.profile.clone(),
+                    assume_role_arn: scope.assume_role_arn.clone(),
                     regions: Some(vec![region]),
                     complete,
                     clusters,

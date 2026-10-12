@@ -65,6 +65,10 @@ pub struct CatalogCluster {
     pub account_name: Option<String>,
     #[serde(default)]
     pub role_name: Option<String>,
+    /// AWS role chaining: the role assumed to reach this cluster
+    /// (`role_name` is its name).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assume_role_arn: Option<String>,
     /// Region / location / zone.
     pub region: String,
     pub name: String,
@@ -353,6 +357,7 @@ fn merge(
                         account_id: listing.account_id.clone(),
                         account_name: None,
                         role_name: None,
+                        assume_role_arn: None,
                         region: found.region.clone(),
                         name: found.name.clone(),
                         version: None,
@@ -376,6 +381,7 @@ fn merge(
             entry.cluster.account_name = listing.account_name.clone();
         }
         entry.cluster.role_name = listing.role_name.clone();
+        entry.cluster.assume_role_arn = listing.assume_role_arn.clone();
         entry.profile = listing.profile.clone();
         if found.described {
             entry.cluster.name = found.name.clone();
@@ -485,7 +491,7 @@ pub(crate) fn prune_connection_scope(connection: &CloudConnection) -> Result<(),
             || connection
                 .targets
                 .iter()
-                .any(|t| t.account_id == entry.cluster.account_id);
+                .any(|t| t.scanned_account() == entry.cluster.account_id);
         let region_ok = connection.regions.is_empty()
             || connection
                 .regions
@@ -569,25 +575,46 @@ fn prepare_aws(
     )
     .map_err(|e| e.replace("The provider returned", "EKS returned"))?;
     let args = match connection.kind {
-        ConnectionKind::Sso => {
-            let role = cluster
-                .role_name
-                .clone()
-                .ok_or_else(|| format!("No role is known for account {}.", cluster.account_id))?;
-            AwsEksArgs {
-                connection: connection.id.clone(),
-                account: Some(cluster.account_id.clone()),
-                role: Some(role),
-                profile: None,
-                region: cluster.region.clone(),
-                cluster: cluster.name.clone(),
+        ConnectionKind::Sso => match &cluster.assume_role_arn {
+            // Role chaining: sign in as the target's account + role, then
+            // assume the team role.
+            Some(arn) => {
+                let target = connection
+                    .targets
+                    .iter()
+                    .find(|t| t.assume_role_arn.as_ref() == Some(arn))
+                    .ok_or_else(|| format!("The account no longer assumes {arn}."))?;
+                AwsEksArgs {
+                    connection: connection.id.clone(),
+                    account: Some(target.account_id.clone()),
+                    role: Some(target.role_name.clone()),
+                    profile: None,
+                    assume_role: Some(arn.clone()),
+                    region: cluster.region.clone(),
+                    cluster: cluster.name.clone(),
+                }
             }
-        }
+            None => {
+                let role = cluster.role_name.clone().ok_or_else(|| {
+                    format!("No role is known for account {}.", cluster.account_id)
+                })?;
+                AwsEksArgs {
+                    connection: connection.id.clone(),
+                    account: Some(cluster.account_id.clone()),
+                    role: Some(role),
+                    profile: None,
+                    assume_role: None,
+                    region: cluster.region.clone(),
+                    cluster: cluster.name.clone(),
+                }
+            }
+        },
         ConnectionKind::Profile => AwsEksArgs {
             connection: connection.id.clone(),
             account: None,
             role: None,
             profile: entry.profile.clone().or_else(|| connection.profile.clone()),
+            assume_role: None,
             region: cluster.region.clone(),
             cluster: cluster.name.clone(),
         },
@@ -596,6 +623,7 @@ fn prepare_aws(
             account: None,
             role: None,
             profile: None,
+            assume_role: None,
             region: cluster.region.clone(),
             cluster: cluster.name.clone(),
         },
@@ -610,8 +638,9 @@ fn prepare_aws(
             "aws-eks:{}:{}:{}",
             connection.id,
             cluster.account_id,
-            args.role
+            args.assume_role
                 .as_deref()
+                .or(args.role.as_deref())
                 .or(args.profile.as_deref())
                 .unwrap_or("keys")
         ),
@@ -1109,6 +1138,7 @@ mod tests {
             account_name: Some("acme-prod".into()),
             role_name: Some("ReadOnly".into()),
             profile: None,
+            assume_role_arn: None,
             regions: Some(vec![region.into()]),
             complete,
             clusters: clusters
@@ -1285,6 +1315,7 @@ mod tests {
             account_name: None,
             role_name: None,
             profile: None,
+            assume_role_arn: None,
             regions,
             complete: true,
             clusters,

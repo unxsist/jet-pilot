@@ -310,6 +310,7 @@ pub async fn discover(
                         account_name: None,
                         role_name: None,
                         profile: None,
+                        assume_role_arn: None,
                         regions: Some(vec![region]),
                         complete,
                         clusters,

@@ -48,6 +48,8 @@ pub struct ProfileInfo {
     pub sso_session: Option<String>,
     pub sso_start_url: Option<String>,
     pub sso_region: Option<String>,
+    /// The role an assume-role profile assumes.
+    pub role_arn: Option<String>,
     pub mfa: bool,
 }
 
@@ -244,6 +246,7 @@ impl AwsFiles {
                     sso_session: sso.as_ref().and_then(|s| s.session.clone()),
                     sso_start_url: sso.as_ref().map(|s| s.start_url.clone()),
                     sso_region: sso.as_ref().and_then(|s| s.region.clone()),
+                    role_arn: self.get(name, "role_arn").map(str::to_string),
                     mfa: self.get(name, "mfa_serial").is_some(),
                 }
             })

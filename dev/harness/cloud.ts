@@ -11,7 +11,8 @@
  * ?cli=missing|signedout   gcloud / az / doctl aren't installed / signed in
  * ?plugin=missing   gke-gcloud-auth-plugin and kubelogin aren't installed
  * ?ssowait=1        the device-code sign-in waits for __harnessFinishSso()
- * Access keys containing "BAD" are refused.
+ * Access keys containing "BAD" are refused; team roles (role chaining)
+ * whose ARN contains "Denied" can't be assumed.
  */
 import { MANAGED_KUBECONFIG } from "./managed";
 import { OTHER_CLOUDS, type OtherProvider } from "./clouds";
@@ -31,7 +32,7 @@ interface Connection {
   sso: { startUrl: string; region: string } | null;
   profile: string | null;
   regions: string[];
-  targets: { accountId: string; accountName: string | null; roleName: string }[];
+  targets: { accountId: string; accountName: string | null; roleName: string; assumeRoleArn?: string | null }[];
   status: "signedIn" | "expired" | "signedOut" | "error";
   expiresAt: number | null;
   message: string | null;
@@ -99,6 +100,10 @@ const PROFILES = [
   { name: "acme-staging", kind: "sso", region: "eu-west-1", ssoSession: "acme", ssoStartUrl: "https://acme.awsapps.com/start", ssoRegion: "eu-west-1", mfa: false },
   { name: "legacy-ops", kind: "assumeRole", region: "us-east-1", ssoSession: null, ssoStartUrl: null, ssoRegion: null, mfa: true },
   { name: "ci-deployer", kind: "credentialProcess", region: "eu-central-1", ssoSession: null, ssoStartUrl: null, ssoRegion: null, mfa: false },
+  {
+    name: "acme-platform", kind: "assumeRole", region: "eu-west-1", ssoSession: "acme", ssoStartUrl: "https://acme.awsapps.com/start",
+    ssoRegion: "eu-west-1", roleArn: "arn:aws:iam::345678901234:role/teams/PlatformTeam", mfa: false,
+  },
 ];
 
 const STORE = "harness-cloud";
@@ -304,7 +309,10 @@ export function createCloudMocks(scenario: string, send: Send, managed: ManagedH
           ? connection.targets
           : [{ accountId: connection.kind === "keys" ? "789012345678" : "210987654321", accountName: null, roleName: null as unknown as string }];
       const regions = connection.regions.length ? connection.regions : ENABLED;
-      for (const account of accounts) {
+      for (const target of accounts) {
+        // A team role scans its own account, as itself.
+        const team = target.assumeRoleArn?.match(/::(\d{12}):role\/(?:.*\/)?([^/]+)$/);
+        const account = team ? { ...target, accountId: team[1]!, roleName: team[2]! } : target;
         const name = account.accountName ?? accountName(account.accountId) ?? account.accountId;
         for (const region of regions) {
           const scope = `${name} · ${region}`;
@@ -415,6 +423,12 @@ export function createCloudMocks(scenario: string, send: Send, managed: ManagedH
       return ACCOUNTS;
     },
     aws_profiles_list: () => PROFILES,
+    aws_assume_role_check: async (p) => {
+      await sleep(500);
+      if (String(p.roleArn).includes("Denied")) {
+        throw err("forbidden", `Not allowed to assume ${p.roleArn}: User: arn:aws:sts::${p.accountId}:assumed-role/${p.roleName}/dev is not authorized to perform: sts:AssumeRole`);
+      }
+    },
     aws_regions: () => REGIONS,
     catalog_get: () => {
       const state = load();

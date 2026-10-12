@@ -492,3 +492,44 @@ pub async fn aws_sso_accounts(connection_id: String) -> Result<Vec<SsoAccount>, 
     let token = session::access_token(&ctx, Some(&connection.id), &sso.start_url).await?;
     Ok(sso::accounts(&ctx, &sso.region, &token.access_token).await?)
 }
+
+/// Checks that an IAM Identity Center connection can assume `role_arn`
+/// from `account_id` + `role_name` (role chaining), before it's saved as
+/// a target. Renews the session silently; `signInRequired` when it can't.
+#[tauri::command]
+pub async fn aws_assume_role_check(
+    connection_id: String,
+    account_id: String,
+    role_name: String,
+    role_arn: String,
+) -> Result<(), AppError> {
+    use jp_auth_core::request::{valid_account_id, valid_role_arn, valid_role_name};
+    let role_arn = role_arn.trim().to_string();
+    if !valid_role_arn(&role_arn) {
+        return Err(AppError::invalid(
+            "roleArn",
+            "Enter a role ARN, e.g. arn:aws:iam::123456789012:role/Platform",
+        ));
+    }
+    if !valid_account_id(&account_id) || !valid_role_name(&role_name) {
+        return Err(AppError::invalid(
+            "accountId",
+            "Choose the account and role to assume it from.",
+        ));
+    }
+    let ctx = context();
+    let connection = {
+        let (ctx, id) = (ctx.clone(), connection_id);
+        crate::clusters::blocking(move || ctx.connection(&id).map_err(AppError::from)).await?
+    };
+    if connection.kind != ConnectionKind::Sso {
+        return Err(AppError::invalid(
+            "connectionId",
+            "This is not an IAM Identity Center connection.",
+        ));
+    }
+    let source = creds::sso_role(&ctx, &connection, &account_id, &role_name).await?;
+    let key = format!("{account_id}:{role_name}");
+    creds::assume_role(&ctx, &connection, &key, &source, &role_arn).await?;
+    Ok(())
+}

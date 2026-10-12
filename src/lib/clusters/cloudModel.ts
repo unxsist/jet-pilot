@@ -2,7 +2,7 @@
  * Pure helpers for cloud accounts and the catalog: start URL parsing, role
  * defaults, summaries and catalog grouping (unit tested, no IPC).
  */
-import type { AwsProfile, CatalogCluster, CatalogEvent, CloudConnection } from "./cloud";
+import type { AwsProfile, CatalogCluster, CatalogEvent, CloudConnection, ConnectionTarget } from "./cloud";
 import type { HubFilter } from "./hubModel";
 
 /**
@@ -49,6 +49,28 @@ export function knownPortals(profiles: AwsProfile[]): { startUrl: string; region
   return [...portals.values()].sort((a, b) => b.profiles - a.profiles || a.startUrl.localeCompare(b.startUrl));
 }
 
+/** An IAM role ARN's parts: `arn:aws:iam::123456789012:role/teams/Platform`. Null when it isn't one. */
+export function parseRoleArn(input: string): { arn: string; accountId: string; roleName: string } | null {
+  const arn = input.trim();
+  const match = /^arn:(?:aws|aws-cn|aws-us-gov):iam::(\d{12}):role\/(?:[\w+=,.@-]+\/)*([\w+=,.@-]{1,128})$/.exec(arn);
+  return match ? { arn, accountId: match[1]!, roleName: match[2]! } : null;
+}
+
+/** The account a target reaches: the assumed role's, else its own. */
+export const targetAccount = (target: ConnectionTarget): string =>
+  (target.assumeRoleArn ? parseRoleArn(target.assumeRoleArn)?.accountId : null) ?? target.accountId;
+
+/** Role ARNs your ~/.aws/config profiles assume, those signing in at `startUrl` first. */
+export function profileRoleArns(profiles: AwsProfile[], startUrl?: string | null): string[] {
+  const portal = startUrl ? parseStartUrl(startUrl) : null;
+  const viaPortal = (p: AwsProfile) => (portal && p.ssoStartUrl && parseStartUrl(p.ssoStartUrl) === portal ? 0 : 1);
+  const arns = profiles
+    .filter((p) => p.roleArn && parseRoleArn(p.roleArn))
+    .sort((a, b) => viaPortal(a) - viaPortal(b) || a.roleArn!.localeCompare(b.roleArn!))
+    .map((p) => p.roleArn!.trim());
+  return [...new Set(arns)];
+}
+
 const KUBERNETES_ROLE = /eks|kube|k8s|platform|devops/i;
 
 /**
@@ -79,9 +101,9 @@ export function connectionScope(connection: CloudConnection): string {
   if (connection.kind === "token" || connection.kind === "apiKey") return "Whole account";
   if (connection.kind === "cli") return connection.cliAccount ?? connection.identity ?? "Current CLI account";
   if (connection.kind === "sso") {
-    const count = connection.targets.length;
+    const count = new Set(connection.targets.map(targetAccount)).size;
     return count === 1
-      ? (connection.targets[0]!.accountName ?? connection.targets[0]!.accountId)
+      ? (connection.targets[0]!.accountName ?? targetAccount(connection.targets[0]!))
       : `${count} accounts`;
   }
   if (connection.kind === "profile") return `Profile ${connection.profile ?? ""}`.trim();
