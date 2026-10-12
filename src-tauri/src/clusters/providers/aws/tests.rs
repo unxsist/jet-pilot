@@ -165,6 +165,7 @@ async fn connections_catalog_minting_and_status() {
                 account_id: "111111111111".into(),
                 account_name: Some("acme-prod".into()),
                 role_name: "ReadOnly".into(),
+                assume_role_arn: None,
             }]),
             exoscale: None,
         },
@@ -404,6 +405,7 @@ async fn expired_sessions_are_not_signed_in_in_the_background() {
         account: Some("111111111111".into()),
         role: Some("ReadOnly".into()),
         profile: None,
+        assume_role: None,
         region: "us-east-1".into(),
         cluster: "prod".into(),
     };
@@ -465,6 +467,7 @@ async fn helper_contexts_sign_in_with_the_native_device_flow() {
         account: Some("111111111111".into()),
         role: Some("ReadOnly".into()),
         profile: None,
+        assume_role: None,
         region: "eu-west-1".into(),
         cluster: "prod".into(),
     };
@@ -536,6 +539,230 @@ async fn helper_contexts_sign_in_with_the_native_device_flow() {
     assert_eq!(cache.read_dir().unwrap().count(), 1);
     let listed = connections::connections_list().await.unwrap();
     assert_eq!(listed[0].status, ConnectionStatus::SignedIn);
+
+    super::use_test_context(None);
+    catalog::use_test_paths(None);
+}
+
+const ASSUME_ROLE_XML: &str = r#"<AssumeRoleResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
+  <AssumeRoleResult>
+    <Credentials>
+      <AccessKeyId>ASIATEAM</AccessKeyId>
+      <SecretAccessKey>team-secret</SecretAccessKey>
+      <SessionToken>team-session</SessionToken>
+      <Expiration>EXPIRATION</Expiration>
+    </Credentials>
+    <AssumedRoleUser>
+      <Arn>arn:aws:sts::222222222222:assumed-role/Platform/jetpilot</Arn>
+      <AssumedRoleId>AROAEXAMPLE:jetpilot</AssumedRoleId>
+    </AssumedRoleUser>
+  </AssumeRoleResult>
+  <ResponseMetadata><RequestId>1</RequestId></ResponseMetadata>
+</AssumeRoleResponse>"#;
+
+/// `fake_aws`, plus STS AssumeRole (personal role credentials only) and
+/// team role credentials that list the team account's clusters.
+fn fake_aws_with_team_role(req: &FakeRequest) -> FakeResponse {
+    let auth = req.header("authorization").unwrap_or_default();
+    if req.body.contains("Action=AssumeRole") {
+        if !auth.contains("ASIAROLE")
+            || !req
+                .body
+                .contains("RoleArn=arn%3Aaws%3Aiam%3A%3A222222222222%3Arole%2FPlatform")
+        {
+            return FakeResponse::xml(
+                403,
+                "<ErrorResponse><Error><Type>Sender</Type><Code>AccessDenied</Code><Message>not authorized to perform sts:AssumeRole</Message></Error><RequestId>1</RequestId></ErrorResponse>",
+            );
+        }
+        let expiration = jp_auth_core::aws::aws_smithy_types::DateTime::from_secs(
+            jp_auth_core::aws::now() + 3600,
+        )
+        .fmt(jp_auth_core::aws::aws_smithy_types::date_time::Format::DateTime)
+        .unwrap();
+        return FakeResponse::xml(200, &ASSUME_ROLE_XML.replace("EXPIRATION", &expiration));
+    }
+    if auth.contains("ASIATEAM") {
+        let region = signed_region(req);
+        return match (req.method.as_str(), req.path.as_str()) {
+            ("GET", "/clusters") if region == "eu-west-1" => {
+                FakeResponse::json(200, json!({"clusters": ["platform"]}))
+            }
+            ("GET", "/clusters") => FakeResponse::json(200, json!({"clusters": []})),
+            ("GET", path) if path.starts_with("/clusters/") => FakeResponse::json(
+                200,
+                describe(
+                    path.trim_start_matches("/clusters/"),
+                    "222222222222",
+                    &region,
+                ),
+            ),
+            _ => fake_aws(req),
+        };
+    }
+    fake_aws(req)
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn team_roles_are_assumed_for_discovery_and_tokens() {
+    let _guard = lock(&TEST_LOCK);
+    let server = FakeServer::start(fake_aws_with_team_role).await;
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = test_context(dir.path(), &server.url);
+    super::use_test_context(Some(ctx.clone()));
+    let managed_path = dir.path().join("managed").join("config");
+    catalog::use_test_paths(Some((
+        dir.path().join("catalog.json"),
+        managed_path.clone(),
+    )));
+
+    let sso = connections::connection_create(ConnectionSpec::Sso {
+        label: Some("Acme".into()),
+        start_url: "https://acme.awsapps.com/start".into(),
+        region: "eu-west-1".into(),
+    })
+    .await
+    .unwrap();
+    session::save_token(
+        &ctx,
+        Some(&sso.id),
+        &SsoToken {
+            start_url: "https://acme.awsapps.com/start".into(),
+            region: "eu-west-1".into(),
+            access_token: "access".into(),
+            expires_at: jp_auth_core::aws::now() + 4 * 3600,
+            client_id: None,
+            client_secret: None,
+            registration_expires_at: None,
+            refresh_token: None,
+        },
+    )
+    .unwrap();
+
+    // Checked before it's saved.
+    let team = "arn:aws:iam::222222222222:role/Platform";
+    super::aws_assume_role_check(
+        sso.id.clone(),
+        "111111111111".into(),
+        "Personal".into(),
+        team.into(),
+    )
+    .await
+    .unwrap();
+    let err = super::aws_assume_role_check(
+        sso.id.clone(),
+        "111111111111".into(),
+        "Personal".into(),
+        "arn:aws:iam::222222222222:role/Other".into(),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        err.message.contains("Not allowed to assume"),
+        "{}",
+        err.message
+    );
+    let err = super::aws_assume_role_check(
+        sso.id.clone(),
+        "111111111111".into(),
+        "Personal".into(),
+        "Platform".into(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.field.as_deref(), Some("roleArn"));
+
+    // Only the team role: the personal account itself is not scanned.
+    let invalid = connections::connection_update(
+        sso.id.clone(),
+        ConnectionPatch {
+            label: None,
+            regions: None,
+            targets: Some(vec![SsoTarget {
+                account_id: "111111111111".into(),
+                account_name: None,
+                role_name: "Personal".into(),
+                assume_role_arn: Some("arn:aws:iam::2:role/x".into()),
+            }]),
+            exoscale: None,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(invalid.field.as_deref(), Some("targets"));
+    let target = SsoTarget {
+        account_id: "111111111111".into(),
+        account_name: Some("acme-platform".into()),
+        role_name: "Personal".into(),
+        assume_role_arn: Some(team.into()),
+    };
+    let sso = connections::connection_update(
+        sso.id.clone(),
+        ConnectionPatch {
+            label: None,
+            regions: Some(vec!["eu-west-1".into()]),
+            targets: Some(vec![target.clone(), target]),
+            exoscale: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(sso.targets.len(), 1, "a team role is kept once");
+    assert_eq!(sso.targets[0].scanned_account(), "222222222222");
+
+    let (sink, events) = collect();
+    catalog::refresh(Some(vec![sso.id.clone()]), sink)
+        .await
+        .unwrap();
+    let events = events.lock().unwrap().clone();
+    assert!(
+        events.iter().any(|e| matches!(e,
+            CatalogEvent::Progress { scope, account_id: Some(account), state: ProgressState::Done, .. }
+                if scope == "acme-platform (222222222222) · eu-west-1" && account == "222222222222")),
+        "{events:?}"
+    );
+    let snapshot = catalog::catalog_get().await.unwrap();
+    assert_eq!(snapshot.clusters.len(), 1);
+    let cluster = &snapshot.clusters[0];
+    assert_eq!(cluster.account_id, "222222222222");
+    assert_eq!(cluster.role_name.as_deref(), Some("Platform"));
+    assert_eq!(cluster.assume_role_arn.as_deref(), Some(team));
+
+    let added = catalog::catalog_add(vec![cluster.key.clone()], None)
+        .await
+        .unwrap();
+    assert!(added.failed.is_empty(), "{:?}", added.failed);
+    let doc = managed::read(&managed_path).unwrap();
+    let exec = doc.auth_infos[0].auth_info.clone().unwrap().exec.unwrap();
+    let args = exec.args.clone().unwrap_or_default().join(" ");
+    assert!(
+        args.contains("--account 111111111111 --role Personal --assume-role arn:aws:iam::222222222222:role/Platform"),
+        "{args}"
+    );
+    let credential = crate::auth::broker::mint(&exec, Duration::from_secs(10))
+        .await
+        .unwrap();
+    assert!(credential.token.unwrap().starts_with("k8s-aws-v1."));
+
+    // Dropping the team role drops its clusters from the catalog.
+    connections::connection_update(
+        sso.id.clone(),
+        ConnectionPatch {
+            label: None,
+            regions: None,
+            targets: Some(vec![SsoTarget {
+                account_id: "111111111111".into(),
+                account_name: None,
+                role_name: "Personal".into(),
+                assume_role_arn: None,
+            }]),
+            exoscale: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(catalog::catalog_get().await.unwrap().clusters.is_empty());
 
     super::use_test_context(None);
     catalog::use_test_paths(None);

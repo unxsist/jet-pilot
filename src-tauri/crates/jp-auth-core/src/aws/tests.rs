@@ -510,3 +510,69 @@ async fn real_tls_reaches_aws() {
         "{err:?}"
     );
 }
+
+#[tokio::test]
+async fn chained_roles_are_assumed_with_the_source_credentials_and_cached() {
+    let server = FakeServer::start(|req| {
+        assert!(req.body.contains("Action=AssumeRole"));
+        assert!(req
+            .body
+            .contains("RoleArn=arn%3Aaws%3Aiam%3A%3A210987654321%3Arole%2Fteams%2FPlatform"));
+        assert!(req.body.contains("RoleSessionName=jane%40acme.example"));
+        assert!(req
+            .header("authorization")
+            .is_some_and(|a| a.starts_with("AWS4-HMAC-SHA256 Credential=ASIASOURCE/")));
+        FakeResponse::xml(
+            200,
+            &format!(
+                r#"<AssumeRoleResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
+  <AssumeRoleResult>
+    <Credentials>
+      <AccessKeyId>ASIATEAM</AccessKeyId>
+      <SecretAccessKey>team-secret</SecretAccessKey>
+      <SessionToken>team-session</SessionToken>
+      <Expiration>{}</Expiration>
+    </Credentials>
+    <AssumedRoleUser>
+      <Arn>arn:aws:sts::210987654321:assumed-role/Platform/jane@acme.example</Arn>
+      <AssumedRoleId>AROAEXAMPLE:jane@acme.example</AssumedRoleId>
+    </AssumedRoleUser>
+  </AssumeRoleResult>
+  <ResponseMetadata><RequestId>1</RequestId></ResponseMetadata>
+</AssumeRoleResponse>"#,
+                aws_smithy_types::DateTime::from_secs(super::now() + 3600)
+                    .fmt(aws_smithy_types::date_time::Format::DateTime)
+                    .unwrap()
+            ),
+        )
+    })
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = test_context(dir.path(), &server.url);
+    let connection = CloudConnection {
+        identity: Some("jane@acme.example".into()),
+        ..sso_connection()
+    };
+    let source = creds::AwsCredentials {
+        access_key_id: "ASIASOURCE".into(),
+        secret_access_key: "source-secret".into(),
+        session_token: Some("source-session".into()),
+        expires_at: Some(super::now() + 3600),
+    };
+    let arn = "arn:aws:iam::210987654321:role/teams/Platform";
+    let first = creds::assume_role(&ctx, &connection, "111111111111:Personal", &source, arn)
+        .await
+        .unwrap();
+    assert_eq!(first.access_key_id, "ASIATEAM");
+    assert_eq!(first.session_token.as_deref(), Some("team-session"));
+    let second = creds::assume_role(&ctx, &connection, "111111111111:Personal", &source, arn)
+        .await
+        .unwrap();
+    assert_eq!(second, first);
+    assert_eq!(server.requests().len(), 1);
+
+    let err = creds::assume_role(&ctx, &connection, "x", &source, "Platform")
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AwsError::Invalid(_)), "{err:?}");
+}

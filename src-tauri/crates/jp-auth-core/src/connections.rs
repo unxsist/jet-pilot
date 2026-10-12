@@ -88,6 +88,21 @@ pub struct SsoTarget {
     #[serde(default)]
     pub account_name: Option<String>,
     pub role_name: String,
+    /// Role chaining (SSO): the IAM role assumed with the credentials of
+    /// `account_id` + `role_name`. Its account is the one scanned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assume_role_arn: Option<String>,
+}
+
+impl SsoTarget {
+    /// The account whose clusters this target reaches: the assumed role's,
+    /// else `account_id`.
+    pub fn scanned_account(&self) -> &str {
+        self.assume_role_arn
+            .as_deref()
+            .and_then(crate::request::role_arn_account)
+            .unwrap_or(&self.account_id)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -298,6 +313,7 @@ mod tests {
             region: None,
             regions: vec![],
             targets: vec![SsoTarget {
+                assume_role_arn: None,
                 account_id: "123456789012".into(),
                 account_name: Some("acme-prod".into()),
                 role_name: "ReadOnly".into(),

@@ -1002,6 +1002,7 @@ async fn cli_connections_discover_and_add_with_standard_plugins() {
                 account_id: "proj-a".into(),
                 account_name: Some("Project A".into()),
                 role_name: String::new(),
+                assume_role_arn: None,
             }]),
             regions: Some(vec!["europe-west1".into()]),
             ..ConnectionPatch::default()

@@ -12,8 +12,11 @@ import {
   groupCatalog,
   initialDiscovery,
   knownPortals,
+  parseRoleArn,
   parseStartUrl,
   portalName,
+  profileRoleArns,
+  targetAccount,
   reduceDiscovery,
   regionsSummary,
 } from "@/lib/clusters/cloudModel";
@@ -104,6 +107,52 @@ describe("roles", () => {
     expect(defaultRole(["ReadOnlyAccess", "EKSClusterAdmin", "AdministratorAccess"])).toBe("EKSClusterAdmin");
     expect(defaultRole(["ReadOnlyAccess", "AdministratorAccess"])).toBe("AdministratorAccess");
     expect(defaultRole([])).toBeNull();
+  });
+});
+
+describe("team roles", () => {
+  it("reads role ARNs", () => {
+    expect(parseRoleArn(" arn:aws:iam::222222222222:role/teams/Platform ")).toEqual({
+      arn: "arn:aws:iam::222222222222:role/teams/Platform",
+      accountId: "222222222222",
+      roleName: "Platform",
+    });
+    expect(parseRoleArn("arn:aws-us-gov:iam::222222222222:role/x@y")?.roleName).toBe("x@y");
+    for (const text of ["Platform", "arn:aws:iam::2222:role/x", "arn:aws:iam::222222222222:user/jane", "arn:aws:iam::222222222222:role/", "arn:aws:sts::222222222222:assumed-role/x/y"]) {
+      expect(parseRoleArn(text)).toBeNull();
+    }
+  });
+
+  it("scans the assumed role's account", () => {
+    const personal = { accountId: "111111111111", roleName: "Personal" };
+    expect(targetAccount(personal)).toBe("111111111111");
+    expect(targetAccount({ ...personal, assumeRoleArn: "arn:aws:iam::222222222222:role/Platform" })).toBe("222222222222");
+    const team = { ...personal, accountName: "acme-platform", assumeRoleArn: "arn:aws:iam::222222222222:role/Platform" };
+    expect(connectionScope(connection({ targets: [team] }))).toBe("acme-platform");
+    expect(connectionScope(connection({ targets: [{ ...team, accountName: null }] }))).toBe("222222222222");
+    expect(connectionScope(connection({ targets: [personal, team] }))).toBe("2 accounts");
+  });
+
+  it("suggests the roles ~/.aws/config assumes, the portal's first", () => {
+    const profile = (name: string, roleArn: string | null, ssoStartUrl: string | null = null): AwsProfile => ({
+      name,
+      kind: roleArn ? "assumeRole" : "sso",
+      roleArn,
+      ssoStartUrl,
+      mfa: false,
+    });
+    expect(
+      profileRoleArns(
+        [
+          profile("ci", "arn:aws:iam::333333333333:role/Deploy"),
+          profile("platform", "arn:aws:iam::222222222222:role/Platform", "https://acme.awsapps.com/start"),
+          profile("platform-2", "arn:aws:iam::222222222222:role/Platform", "https://acme.awsapps.com/start"),
+          profile("sso", null, "https://acme.awsapps.com/start"),
+          profile("odd", "not-an-arn"),
+        ],
+        "https://acme.awsapps.com/start"
+      )
+    ).toEqual(["arn:aws:iam::222222222222:role/Platform", "arn:aws:iam::333333333333:role/Deploy"]);
   });
 });
 

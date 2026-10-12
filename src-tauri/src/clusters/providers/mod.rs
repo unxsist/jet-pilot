@@ -106,6 +106,8 @@ pub struct Listing {
     pub account_name: Option<String>,
     pub role_name: Option<String>,
     pub profile: Option<String>,
+    /// AWS role chaining: the role assumed for this listing.
+    pub assume_role_arn: Option<String>,
     /// The regions this listing covers; None = every region (listings of
     /// the whole account).
     pub regions: Option<Vec<String>>,
@@ -224,6 +226,7 @@ pub fn filter_regions(connection: &CloudConnection, clusters: Vec<Found>) -> Lis
         account_name: None,
         role_name: None,
         profile: None,
+        assume_role_arn: None,
         regions,
         complete: true,
         clusters,

@@ -15,7 +15,9 @@ use jp_auth_core::connections::{
     self as store, api_key_secret_id, api_token_secret_id, keys_secret_id, CloudConnection,
     ConnectionKind, ConnectionStatus, ExoscaleSettings, SsoSettings, SsoTarget,
 };
-use jp_auth_core::request::{valid_account_id, valid_profile_name, valid_region, valid_role_name};
+use jp_auth_core::request::{
+    valid_account_id, valid_profile_name, valid_region, valid_role_arn, valid_role_name,
+};
 use serde::Deserialize;
 use tracing::info;
 
@@ -782,6 +784,14 @@ fn validate_targets(
                         format!("\"{}\" is not a role name.", target.role_name),
                     ));
                 }
+                if let Some(arn) = target.assume_role_arn.as_deref() {
+                    if !valid_role_arn(arn) {
+                        return Err(AppError::invalid(
+                            "targets",
+                            format!("\"{arn}\" is not a role ARN."),
+                        ));
+                    }
+                }
             }
             (providers::GCP, ConnectionKind::Cli) => {
                 if !gcp::valid_project_id(&account_id) {
@@ -806,19 +816,28 @@ fn validate_targets(
                 ))
             }
         }
-        let role_name = if connection.provider == providers::AWS {
+        let aws = connection.provider == providers::AWS;
+        let role_name = if aws {
             target.role_name.clone()
         } else {
             String::new()
         };
-        if !out
-            .iter()
-            .any(|t| t.account_id == account_id && t.role_name == role_name)
-        {
+        let assume_role_arn = target.assume_role_arn.filter(|_| aws);
+        // A team role is assumed once, whichever account + role it is assumed from.
+        let duplicate = out.iter().any(|t| match &assume_role_arn {
+            Some(arn) => t.assume_role_arn.as_ref() == Some(arn),
+            None => {
+                t.assume_role_arn.is_none()
+                    && t.account_id == account_id
+                    && t.role_name == role_name
+            }
+        });
+        if !duplicate {
             out.push(SsoTarget {
                 account_id,
                 account_name: clean_label(target.account_name),
                 role_name,
+                assume_role_arn,
             });
         }
     }
@@ -1072,6 +1091,7 @@ mod tests {
                 account_id: "my-project-123".into(),
                 account_name: Some("My project".into()),
                 role_name: "ignored".into(),
+                assume_role_arn: None,
             }],
         )
         .unwrap();
@@ -1082,6 +1102,7 @@ mod tests {
                 account_id: "--flag".into(),
                 account_name: None,
                 role_name: String::new(),
+                assume_role_arn: None,
             }]
         )
         .is_err());
@@ -1092,6 +1113,7 @@ mod tests {
                 account_id: "00000000-0000-0000-0000-000000000000".into(),
                 account_name: None,
                 role_name: String::new(),
+                assume_role_arn: None,
             }]
         )
         .is_ok());
@@ -1102,6 +1124,7 @@ mod tests {
                 account_id: "x".into(),
                 account_name: None,
                 role_name: String::new(),
+                assume_role_arn: None,
             }]
         )
         .is_err());

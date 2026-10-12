@@ -214,6 +214,7 @@ fn main() {
             clusters::providers::aws::aws_profiles_list,
             clusters::providers::aws::aws_regions,
             clusters::providers::aws::aws_sso_accounts,
+            clusters::providers::aws::aws_assume_role_check,
             clusters::providers::aws::aws_sso_sign_in,
             clusters::providers::aws::aws_mfa_sign_in,
             clusters::providers::connection_scopes,
