@@ -3,6 +3,7 @@ import {
   findRecord,
   inferEnvironment,
   initialsOf,
+  removeRecords,
   resolveCluster,
   shortName,
   updateRecords,
@@ -70,6 +71,27 @@ describe("cluster metadata", () => {
   it("protection can be turned off for production", () => {
     const next = updateRecords([], "prod", KC, { env: "prod", protected: false });
     expect(resolveCluster(next, "prod", KC).protected).toBe(false);
+  });
+});
+
+describe("removed clusters", () => {
+  const records: ClusterRecord[] = [
+    { kubeConfig: "", context: "prod", namespaces: ["payments"] },
+    { kubeConfig: KC, context: "prod", alias: "Payments prod", protected: false },
+    { kubeConfig: "/other", context: "prod", color: "amber" },
+  ];
+
+  it("forget their own record only", () => {
+    expect(removeRecords(records, [{ context: "prod", kubeConfig: KC }])).toEqual([records[0], records[2]]);
+    expect(removeRecords(records, [])).toEqual(records);
+  });
+
+  it("expose only an alias the user set", () => {
+    expect(resolveCluster(records, "prod", KC).alias).toBe("Payments prod");
+    const arn = "arn:aws:eks:eu-west-1:123456789012:cluster/payments";
+    const resolved = resolveCluster([], arn, KC);
+    expect(resolved.displayName).toBe("payments");
+    expect(resolved.alias).toBeUndefined();
   });
 });
 

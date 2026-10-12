@@ -11,7 +11,7 @@
 use std::sync::Mutex;
 
 use jp_auth_core::credentials::{env_secret_id, static_secret_id, EnvSecrets, StaticCredential};
-use jp_auth_core::vault::{MasterKey, Vault, VaultEnv, VaultError, VaultStatus};
+use jp_auth_core::vault::{Backend, MasterKey, Vault, VaultEnv, VaultError, VaultStatus};
 use jp_auth_core::zeroize::Zeroizing;
 use once_cell::sync::Lazy;
 use tracing::{info, warn};
@@ -104,6 +104,30 @@ pub(crate) fn remove_many(ids: &[String]) -> Result<usize, AppError> {
     vault.remove_many(ids).map_err(map_error)
 }
 
+/// Fails with `vaultLocked` (asking for the passphrase) when a passphrase
+/// vault is locked; any other state is left to the operation itself.
+pub(crate) fn require_unlocked() -> Result<(), AppError> {
+    let status = status_now();
+    if status.initialized && status.locked && status.backend == Backend::Passphrase {
+        return Err(map_error(VaultError::Locked));
+    }
+    Ok(())
+}
+
+/// Fails before an operation that must store a secret where it couldn't:
+/// a locked passphrase vault (`vaultLocked`), or no vault yet and no
+/// keychain (`keychainUnavailable`: set up a passphrase first).
+pub(crate) fn require_writable() -> Result<(), AppError> {
+    require_unlocked()?;
+    let status = status_now();
+    if !status.initialized && !status.keychain_available {
+        return Err(map_error(VaultError::KeychainUnavailable(
+            status.keychain_problem.unwrap_or_default(),
+        )));
+    }
+    Ok(())
+}
+
 /// One secret, if stored.
 pub(crate) fn get(id: &str) -> Result<Option<serde_json::Value>, AppError> {
     Ok(open()?.get(id))
@@ -139,6 +163,19 @@ fn status_now() -> VaultStatus {
     Vault::status(&env, session.as_ref())
 }
 
+/// Clusters whose credentials come from the vault failed while it was
+/// locked: retry them (fresh clients, restarted watches and metrics, the
+/// UI told) now that it's open.
+fn revive_helper_contexts() {
+    if crate::clusters::app().is_none() {
+        return;
+    }
+    let pairs = crate::auth::login::contexts_using_helper();
+    if !pairs.is_empty() {
+        crate::auth::login::resolved(pairs);
+    }
+}
+
 /* ------------------------------------------------------------ commands */
 
 /// Backend, set-up and lock state of the vault. Never prompts.
@@ -156,6 +193,7 @@ pub async fn vault_init_passphrase(passphrase: String) -> Result<VaultStatus, Ap
         let key = Vault::init_passphrase(&env, &passphrase).map_err(AppError::from)?;
         set_session(Some(key));
         info!("Vault set up with a passphrase");
+        revive_helper_contexts();
         Ok(status_now())
     })
     .await
@@ -179,6 +217,7 @@ pub async fn vault_unlock(
         }
         set_session(Some(key));
         info!("Vault unlocked");
+        revive_helper_contexts();
         Ok(status_now())
     })
     .await

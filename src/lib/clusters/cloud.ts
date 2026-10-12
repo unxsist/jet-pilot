@@ -9,6 +9,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { ContextRef } from "@/lib/contextKey";
 import type { LoginEvent } from "@/lib/auth/types";
+import type { RemoveResult } from "./managed";
 
 export type CloudProvider =
   | "aws"
@@ -76,8 +77,9 @@ export const updateConnection = (
   patch: Partial<Pick<CloudConnection, "label" | "regions" | "targets">> & { exoscale?: { user: string; groups: string[] } }
 ) =>
   invoke<CloudConnection>("connection_update", { id, patch });
+/** A locked vault fails with `vaultLocked` before anything changes (use withVault). */
 export const deleteConnection = (id: string, removeClusters: boolean) =>
-  invoke<void>("connection_delete", { id, removeClusters });
+  invoke<RemoveResult>("connection_delete", { id, removeClusters });
 
 /** Starts an IAM Identity Center sign-in (device code), streaming LoginEvents. */
 export const awsSsoSignIn = (connectionId: string, channel: Channel<LoginEvent>) =>

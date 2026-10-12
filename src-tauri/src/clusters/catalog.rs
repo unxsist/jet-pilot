@@ -418,12 +418,16 @@ fn added_contexts(doc: &Kubeconfig) -> HashMap<String, String> {
 }
 
 /// The clusters for the UI: `added` (and `addedContext`) from the managed
-/// kubeconfig.
+/// kubeconfig. Clusters deleted in the cloud only matter while they're
+/// still added (nothing else could dismiss them).
 fn derive(stored: &[StoredCluster], doc: &Kubeconfig, managed_path: &Path) -> Vec<CatalogCluster> {
     let added = added_contexts(doc);
     let path = managed_path.to_string_lossy().into_owned();
     let mut clusters: Vec<CatalogCluster> = stored
         .iter()
+        .filter(|entry| {
+            entry.cluster.state != CatalogState::Removed || added.contains_key(&entry.cluster.key)
+        })
         .map(|entry| {
             let mut cluster = entry.cluster.clone();
             cluster.added_context = added.get(&cluster.key).map(|context| ContextRef {
@@ -478,31 +482,45 @@ fn scoped_by_targets(connection: &CloudConnection) -> bool {
     }
 }
 
+/// Whether `connection` still scans the account and region of its entry.
+fn in_scope(connection: &CloudConnection, entry: &StoredCluster) -> bool {
+    let account_ok = !scoped_by_targets(connection)
+        || connection
+            .targets
+            .iter()
+            .any(|t| t.scanned_account() == entry.cluster.account_id);
+    let region_ok = connection.regions.is_empty()
+        || connection
+            .regions
+            .iter()
+            .any(|r| providers::region_matches(r, &entry.cluster.region));
+    account_ok && region_ok
+}
+
 /// Drops catalog entries a connection no longer scans (accounts removed
 /// from its targets, regions removed from its list).
 pub(crate) fn prune_connection_scope(connection: &CloudConnection) -> Result<(), AppError> {
     let file = read()?;
-    let scoped = scoped_by_targets(connection);
     let keep = |entry: &StoredCluster| {
-        if entry.cluster.connection_id != connection.id {
-            return true;
-        }
-        let account_ok = !scoped
-            || connection
-                .targets
-                .iter()
-                .any(|t| t.scanned_account() == entry.cluster.account_id);
-        let region_ok = connection.regions.is_empty()
-            || connection
-                .regions
-                .iter()
-                .any(|r| providers::region_matches(r, &entry.cluster.region));
-        account_ok && region_ok
+        entry.cluster.connection_id != connection.id || in_scope(connection, entry)
     };
     if file.clusters.iter().all(keep) {
         return Ok(());
     }
     update(|file| file.clusters.retain(keep))
+}
+
+/// Keeps only entries of `connections` within their current scope: a
+/// refresh that started before an account was removed or narrowed must not
+/// bring its clusters back (and entries orphaned that way by older
+/// versions go away).
+fn retain_live(stored: &mut Vec<StoredCluster>, connections: &[CloudConnection]) {
+    stored.retain(|entry| {
+        connections
+            .iter()
+            .find(|c| c.id == entry.cluster.connection_id)
+            .is_some_and(|connection| in_scope(connection, entry))
+    });
 }
 
 /// Forgets the catalog entries of a removed connection.
@@ -985,12 +1003,20 @@ pub(crate) async fn refresh(
             let id = id.clone();
             let provider = connection.provider.clone();
             let found = found.clone();
+            let connections_file = providers::aws::context().connections_file;
             super::blocking(move || {
                 let now = managed::now_ms();
+                // As they are now: the account may have been removed or
+                // narrowed while it was being listed.
+                let live = jp_auth_core::connections::load(&connections_file)
+                    .map_err(|e| AppError::io("The connections can't be read", e))?;
                 let file = update(|file| {
-                    for listing in &found.listings {
-                        merge(&mut file.clusters, &provider, &id, listing, now);
+                    if live.iter().any(|c| c.id == id) {
+                        for listing in &found.listings {
+                            merge(&mut file.clusters, &provider, &id, listing, now);
+                        }
                     }
+                    retain_live(&mut file.clusters, &live);
                     file.refreshed_at = Some(now);
                     CatalogFile {
                         version: 1,
@@ -1577,6 +1603,65 @@ mod tests {
         let prod = clusters.iter().find(|c| c.name == "prod").unwrap();
         assert_eq!(prod.state, CatalogState::Removed);
         assert!(prod.added_context.is_some());
+    }
+
+    #[test]
+    fn refreshes_keep_only_live_connections_in_scope() {
+        let mut stored = Vec::new();
+        merge(
+            &mut stored,
+            "aws",
+            "c1",
+            &listing("eu-west-1", true, vec![found("prod")]),
+            1,
+        );
+        merge(
+            &mut stored,
+            "aws",
+            "c1",
+            &listing("us-east-1", true, vec![found("us")]),
+            1,
+        );
+        merge(
+            &mut stored,
+            "aws",
+            "gone",
+            &listing("eu-west-1", true, vec![found("old")]),
+            1,
+        );
+        let mut c1 = sso_connection();
+        c1.targets = vec![serde_json::from_value(serde_json::json!({
+            "accountId": "123456789012", "roleName": "ReadOnly"
+        }))
+        .unwrap()];
+        c1.regions = vec!["eu-west-1".into()];
+        // "gone" was removed and c1 narrowed to eu-west-1 while listing.
+        retain_live(&mut stored, &[c1]);
+        let names: Vec<&str> = stored.iter().map(|c| c.cluster.name.as_str()).collect();
+        assert_eq!(names, ["prod"]);
+    }
+
+    #[test]
+    fn clusters_deleted_in_the_cloud_only_show_while_added() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config");
+        let mut stored = Vec::new();
+        merge(
+            &mut stored,
+            "aws",
+            "c1",
+            &listing("eu-west-1", true, vec![found("prod")]),
+            1,
+        );
+        merge(
+            &mut stored,
+            "aws",
+            "c1",
+            &listing("eu-west-1", true, vec![]),
+            2,
+        );
+        assert_eq!(state_of(&stored, "prod"), Some(CatalogState::Removed));
+        assert!(derive(&stored, &managed::read(&path).unwrap(), &path).is_empty());
     }
 
     #[test]

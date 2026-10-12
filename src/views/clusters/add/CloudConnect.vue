@@ -309,7 +309,8 @@ const addClusters = () =>
     if (folder.value.trim()) clusters.updateMany(result.added, { folder: folder.value.trim() });
     void discoverKubeconfigs(true);
     if (result.failed.length && !result.added.length) throw new Error(result.failed.map((f) => f.message).join("\n"));
-    emit("done", result.added, result.warnings ?? []);
+    // Some couldn't be added: say so next to the ones that were.
+    emit("done", result.added, [...(result.warnings ?? []), ...result.failed]);
   });
 
 /* ----------------------------------------------------------------- setup -- */

@@ -540,7 +540,17 @@ pub(crate) fn plan_import(
             cluster: internal.clone(),
             user: Some(internal.clone()),
             namespace: source_context.namespace.clone(),
-            extensions: source_context.extensions.clone(),
+            // Not our metadata: a copy of an added cluster is a new one
+            // (and not the cloud catalog's).
+            extensions: source_context.extensions.clone().map(|extensions| {
+                extensions
+                    .into_iter()
+                    .filter(|ext| {
+                        ext.name != managed::EXTENSION_CLUSTER
+                            && ext.name != managed::EXTENSION_CLOUD
+                    })
+                    .collect()
+            }),
             other: source_context.other.clone(),
         };
         managed::set_meta(

@@ -484,7 +484,16 @@ pub async fn mfa_sign_in(
         session_token: Some(credentials.session_token().to_string()),
         expires_at: Some(credentials.expiration().secs()),
     };
-    remember(ctx, mfa_session_secret_id(conn_id), &credentials).await;
+    // Unlike other caches this one must stick: the code can't be used again.
+    let (id, copy, now) = (
+        mfa_session_secret_id(conn_id),
+        credentials.clone(),
+        super::now(),
+    );
+    let expires_at = credentials.expires_at.unwrap_or(now);
+    ctx.with_store(move |store| crate::cache::put(store, &id, &copy, expires_at, now))
+        .await
+        .map_err(AwsError::Vault)?;
     Ok(credentials)
 }
 

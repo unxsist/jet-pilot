@@ -1043,6 +1043,19 @@ pub(crate) fn contexts_of_aws_sign_in(connection_id: &str, start_url: Option<&st
 /// signs in like `plan` (`profiles`: AWS profiles of the same start URL).
 /// Their cached credentials are dropped.
 pub(crate) fn contexts_sharing(plan: &SignInPlan, profiles: &HashSet<String>) -> Vec<(String, String)> {
+    contexts_where(|exec| shares_login(plan, exec, profiles))
+}
+
+/// Every context whose credentials come from the vault through the
+/// `jetpilot-auth` helper (after the vault is unlocked: they failed while
+/// it was locked). Their cached credentials are dropped.
+pub(crate) fn contexts_using_helper() -> Vec<(String, String)> {
+    contexts_where(|exec| crate::clusters::managed_kubeconfig::helper_request(exec).is_some())
+}
+
+/// Contexts of the managed kubeconfig and the kubeconfigs in use whose exec
+/// plugin `matches`; their cached credentials are dropped.
+fn contexts_where(matches: impl Fn(&ExecConfig) -> bool) -> Vec<(String, String)> {
     let mut paths = vec![crate::clusters::managed_kubeconfig::managed_path().to_string_lossy().into_owned()];
     for path in cached_kubeconfig_paths() {
         if !paths.contains(&path) {
@@ -1055,7 +1068,7 @@ pub(crate) fn contexts_sharing(plan: &SignInPlan, profiles: &HashSet<String>) ->
         for named in &config.contexts {
             let Some(found) = status::context_auth(&config, &named.name) else { continue };
             let Some(exec) = found.auth.exec.as_ref().filter(|_| broker::uses_exec(&found.auth)) else { continue };
-            if shares_login(plan, exec, profiles) {
+            if matches(exec) {
                 broker::slot(&CredentialKey::with_server(&path, &found.user, exec, found.server.as_deref())).clear();
                 pairs.push((path.clone(), named.name.clone()));
             }

@@ -26,6 +26,7 @@ import {
   CLUSTER_COLORS,
   ENVIRONMENTS,
   envInfo,
+  shortName,
   type ClusterColor,
   type ClusterMeta,
   type Environment,
@@ -83,7 +84,8 @@ watch(
     if (!isOpen) return;
     touched.clear();
     const record = (c: HubCluster) => c.meta;
-    form.alias = single.value ? (single.value.meta.displayName === single.value.entry.context ? "" : single.value.meta.displayName) : "";
+    // Only an alias the user set: saving must not turn the automatic short name into one.
+    form.alias = single.value?.meta.alias ?? "";
     form.color = shared((c) => record(c).color ?? "") ?? "";
     form.env = shared((c) => (record(c).envInferred ? "" : (record(c).env ?? ""))) ?? "";
     form.protected = shared((c) => record(c).protected) ?? false;
@@ -116,8 +118,11 @@ const save = () => {
   apply("color", form.color || undefined);
   apply("env", form.env || undefined);
   // Protection follows the environment unless it differs from that default.
-  if (single.value || touched.has("protected") || touched.has("env")) {
+  if (single.value) {
     patch.protected = form.protected === (form.env === "prod") ? undefined : form.protected;
+  } else if (touched.has("protected")) {
+    // Several clusters: their environments differ, so say it explicitly.
+    patch.protected = form.protected;
   }
   apply("readOnly", form.readOnly || undefined);
   apply("folder", form.folder.trim() || undefined);
@@ -174,7 +179,7 @@ const SECTION = "space-y-4 border-t pt-5";
             <Input
               id="cluster-alias"
               v-model="form.alias"
-              :placeholder="single.entry.context"
+              :placeholder="shortName(single.entry.context)"
               spellcheck="false"
               @update:model-value="touched.add('alias')"
             />

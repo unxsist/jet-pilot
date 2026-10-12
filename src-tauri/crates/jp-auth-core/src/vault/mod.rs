@@ -562,13 +562,19 @@ impl Vault {
     /// stored secret is lost.
     pub fn reset(env: &VaultEnv) -> Result<(), VaultError> {
         let _lock = take_lock(env)?;
-        if let Ok(Some(KeySpec::Keychain { account })) = peek(env) {
-            let _ = env.keychain.delete(&account);
-        }
+        // The file goes first: if it can't be deleted the vault still opens
+        // (a keychain item without its file is only a leftover).
+        let keychain_account = match peek(env) {
+            Ok(Some(KeySpec::Keychain { account })) => Some(account),
+            _ => None,
+        };
         match std::fs::remove_file(env.file()) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
+        }
+        if let Some(account) = keychain_account {
+            let _ = env.keychain.delete(&account);
         }
         Vault::lock_terminals(env);
         Ok(())

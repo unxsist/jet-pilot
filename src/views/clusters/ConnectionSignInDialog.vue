@@ -69,7 +69,7 @@ const enterMfa = async (code: string) => {
   busy.value = true;
   error.value = null;
   try {
-    await awsMfaSignIn(props.connection.id, code);
+    await withVault(() => awsMfaSignIn(props.connection.id, code));
     await loadCloud();
     emit("close");
   } catch (e) {

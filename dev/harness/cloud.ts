@@ -400,10 +400,16 @@ export function createCloudMocks(scenario: string, send: Send, managed: ManagedH
     connection_delete: (p) => {
       const state = load();
       const own = state.catalog.filter((c) => c.connectionId === p.id);
-      if (p.removeClusters) managed.removeContexts(own.flatMap((c) => (c.addedContext ? [c.addedContext.context] : [])));
+      const added = own.flatMap((c) => (c.addedContext ? [c.addedContext] : []));
+      if (p.removeClusters) managed.removeContexts(added.map((c) => c.context));
       state.connections = state.connections.filter((c) => c.id !== p.id);
       state.catalog = state.catalog.filter((c) => c.connectionId !== p.id);
       save(state);
+      return {
+        kubeConfig: added[0]?.kubeConfig ?? "",
+        removed: p.removeClusters ? added.map((c) => c.context) : [],
+        credentialsKept: null,
+      };
     },
     aws_sso_sign_in: (p) => signIn(p.connectionId, p.onEvent),
     aws_mfa_sign_in: async (p) => {

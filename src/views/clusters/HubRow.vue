@@ -90,7 +90,7 @@ const version = computed(() => minorVersion(props.cluster.status?.serverVersion)
         meta.hidden && 'opacity-60'
       )
     "
-    @focus="emit('focus')"
+    @focusin="emit('focus')"
     @click="(event) => emit('open', event)"
     @dblclick="emit('connect')"
   >

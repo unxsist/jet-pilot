@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Command } from "@/command-palette";
 import { injectStrict } from "@/lib/utils";
-import { error } from "@/lib/logger";
+import { error, warn } from "@/lib/logger";
 import { Kubernetes } from "@/services/Kubernetes";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
@@ -182,12 +182,17 @@ const clearSelection = () => {
 let sourcesModule: Promise<typeof import("@/lib/kubeconfigSources")> | null = null;
 const kubeconfigSources = () => (sourcesModule ??= import("@/lib/kubeconfigSources"));
 
+let fetches = 0;
 const fetchContexts = async () => {
+  const fetch = ++fetches;
   const entries: ContextEntry[] = [];
-  const { resolveKubeconfigPaths } = await kubeconfigSources();
+  /* Kubeconfigs that could be read: their missing contexts are gone. */
+  const listed = new Set<string>();
+  const { resolveKubeconfigPaths, normalizeKubeconfigPath } = await kubeconfigSources();
   for (const kubeConfig of await resolveKubeconfigPaths(settings.value)) {
     try {
       const ctx = await Kubernetes.getContexts(kubeConfig);
+      listed.add(normalizeKubeconfigPath(kubeConfig));
       entries.push(
         ...ctx.map((ctx) => {
           // Keep namespaces / connection state that were already fetched.
@@ -206,8 +211,36 @@ const fetchContexts = async () => {
       error(`Failed to list contexts of kubeconfig ${kubeConfig}: ${e}`);
     }
   }
+  // A newer fetch started meanwhile: its result wins.
+  if (fetch !== fetches) return;
   contexts.value = entries;
+  disconnectRemoved(entries, listed, normalizeKubeconfigPath);
 };
+
+/*
+ * Connected contexts that no longer exist (removed with their cloud
+ * account, deleted with kubectl, gone since the last session) are
+ * disconnected, so views don't keep failing on them.
+ */
+const disconnectRemoved = (entries: ContextEntry[], listed: Set<string>, normalize: (path: string) => string) => {
+  for (const context of [...activeContexts.value.keys()]) {
+    const kubeConfig = activeKubeConfigs.value.get(context) || "";
+    if (!kubeConfig || !listed.has(normalize(kubeConfig))) continue;
+    const exists = entries.some((e) => e.context === context && normalize(e.kubeConfig) === normalize(kubeConfig));
+    if (!exists) {
+      warn(`Disconnecting ${context}: it's no longer in ${kubeConfig}`);
+      setActiveNamespaces(context, kubeConfig, []);
+    }
+  }
+};
+/*
+ * E.g. a workspace that still lists a removed cluster. Judged on a fresh
+ * read: the list may predate a cluster that was just added and connected.
+ */
+watch(
+  () => [...activeContexts.value.keys()].join("\n"),
+  () => void fetchContexts()
+);
 
 /*
  * Namespaces for a context, from the cluster settings when configured.
