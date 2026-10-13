@@ -385,6 +385,53 @@ async function setPodState(page, name, state) {
   );
 }
 
+/* Sizes the bottom panel (a setting, kept for every tab) by opening one. */
+async function presizePanel(page, top, action = "Describe") {
+  await openRowAction(page, "", action);
+  await page.waitForSelector("[data-panel-resize-handle-id]", { timeout: 10000 }).catch(() => {});
+  await panelTopAt(page, top);
+  await page.locator('[aria-label^="Close "]').first().click();
+  await wait(500);
+  await page.mouse.move(W - 5, H - 5);
+}
+
+/* Selects the first capture group of `re` in the visible Monaco editor. */
+async function editorSelect(page, re) {
+  await page.evaluate(
+    ({ source, flags }) => {
+      const re = new RegExp(source, flags);
+      const editor = monaco.editor
+        .getEditors()
+        .find((e) => e.getContainerDomNode().offsetParent && re.test(e.getModel()?.getValue() ?? ""));
+      const model = editor.getModel();
+      const text = model.getValue();
+      const match = re.exec(text);
+      const start = match.index + match[0].indexOf(match[1]);
+      const from = model.getPositionAt(start);
+      const to = model.getPositionAt(start + match[1].length);
+      editor.focus();
+      editor.setSelection({ startLineNumber: from.lineNumber, startColumn: from.column, endLineNumber: to.lineNumber, endColumn: to.column });
+      editor.revealLineInCenterIfOutsideViewport(from.lineNumber);
+    },
+    { source: re.source, flags: re.flags }
+  );
+}
+
+/* Selects the first capture group of `re` in the visible textarea. */
+async function textareaSelect(page, re) {
+  await page.evaluate(
+    ({ source, flags }) => {
+      const re = new RegExp(source, flags);
+      const area = [...document.querySelectorAll("textarea")].find((t) => t.offsetParent && re.test(t.value));
+      const match = re.exec(area.value);
+      const start = match.index + match[0].indexOf(match[1]);
+      area.focus();
+      area.setSelectionRange(start, start + match[1].length);
+    },
+    { source: re.source, flags: re.flags }
+  );
+}
+
 /* ---------------------------------------------------------------- scenes -- */
 
 const DEPLOYMENTS = "/deployments?resource=deployments&kind=Deployment";
@@ -399,24 +446,22 @@ const scenes = [
     async run(rec, page) {
       // Intro card over the hub, then the hub fades in.
       await rec.card(`<img src="${LOGO}" alt=""><h1>JET Pilot</h1><p>The Kubernetes desktop client</p>`);
-      await rec.hold(2000, 2000);
+      await rec.hold(1800, 1800);
       await rec.card(null);
       await rec.caption("Every cluster and cloud account in one place");
       rec.pos = { x: 1160, y: 610 };
       await rec.showCursor();
       rec.fadeNext = 600;
-      await rec.hold(900, 300);
-      await rec.glideTo(page.getByText("Checkout", { exact: true }).first(), 1000, { dx: 40 });
-      await rec.hold(300);
-      await rec.click({ fade: 200 });
-      await rec.hold(1200, 300);
-      // Glance down the list: AKS, EKS, GKE, Scaleway, local.
-      await rec.glideTo(page.getByText("Sandbox", { exact: true }).first(), 1100, { dx: 30 });
       await rec.hold(800, 400);
+      await rec.glideTo(page.getByText("Checkout", { exact: true }).first(), 950, { dx: 40 });
+      await rec.hold(250);
+      await rec.click({ fade: 200 });
+      await rec.hold(1500, 300);
     },
   },
   {
-    name: "pods",
+    // Keyboard only: ⌘K jump, type to filter, L for logs.
+    name: "keyboard",
     url: "/pods?contexts=2",
     ready: "tbody tr td",
     async setup(page) {
@@ -424,74 +469,181 @@ const scenes = [
       await pickNamespaces(page, "prod-eu-west-1", ["payments", "checkout"]);
       await page.locator("thead th", { hasText: /^\s*Name\s*$/ }).first().click();
       await wait(600);
+      await presizePanel(page, 318);
     },
     async run(rec, page) {
-      await rec.caption("Pods across clusters, live");
+      await rec.caption("Pods from every cluster, live");
+      await rec.hold(700, 350);
+      await setPodState(page, "image-resizer-khjm9jqhm-xnh6c", "running");
+      await rec.hold(900, 150);
+      await rec.press("Meta+k", { fade: 180 });
+      await rec.caption("⌘K, then : to jump anywhere, k9s style", 180);
+      await rec.hold(500, 250);
+      await rec.type(":deploy");
+      await rec.hold(450, 225);
+      await rec.press("Enter", { fade: 300, settle: 600 });
+      await rec.caption("Type to filter, ↓ to pick, L for logs");
+      await rec.hold(600, 300);
+      await rec.type("payments");
+      await rec.hold(350, 175);
+      await rec.press("ArrowDown", { settle: 150 });
+      await rec.hold(450, 225);
+      await rec.press("l", { fade: 150, settle: 300 });
+      await rec.hold(650, 325);
+      await rec.press("1", { fade: 250, settle: 400 });
+      await rec.until(() => page.getByRole("button", { name: "Level" }).isVisible());
+      await rec.advance(1200);
+      await wait(800);
+      rec.fadeNext = 250;
+      await rec.caption("Logs from every pod, with JSON fields to filter on");
+      await rec.hold(700, 100);
+      rec.pos = { x: 980, y: 620 };
+      await rec.showCursor();
+      await rec.glideTo(page.getByRole("button", { name: "Level" }), 850, { ax: 0.25 });
+      await rec.hold(150, 75);
+      await rec.click({ fade: 150 });
+      await rec.hold(450, 100);
+      await rec.glideTo(page.locator(`[aria-label='Filter level "error"']`), 600);
+      await rec.hold(150, 75);
+      await rec.click({ fade: 200 });
+      await rec.hold(1300, 100);
+    },
+  },
+  {
+    name: "shell",
+    url: "/pods",
+    ready: "tbody tr td",
+    async setup(page) {
+      await presizePanel(page, 300);
+    },
+    async run(rec, page) {
+      await rec.caption("S opens a shell in any container");
+      await rec.hold(600, 300);
+      await rec.type("checkout-api");
+      await rec.hold(300, 150);
+      await rec.press("ArrowDown", { settle: 150 });
+      await rec.hold(400, 200);
+      await rec.press("s", { fade: 250, settle: 600 });
+      await rec.hold(700, 350);
+      await rec.type("curl -s localhost:8080/healthz", { min: 45, max: 95 });
+      await rec.hold(250, 125);
+      await rec.press("Enter", { settle: 150 });
+      await rec.hold(1700, 425);
+    },
+  },
+  {
+    name: "edit",
+    url: DEPLOYMENTS,
+    ready: "tbody tr td",
+    async setup(page) {
+      await presizePanel(page, 194);
+    },
+    async run(rec, page) {
+      await rec.caption("E edits the YAML, checked against the schema");
+      await rec.hold(500, 250);
+      await rec.type("payments-api");
+      await rec.press("ArrowDown", { settle: 150 });
+      await rec.hold(300, 150);
+      await rec.press("e", { fade: 250, settle: 400 });
+      await rec.until(() =>
+        page.evaluate(() => /·/.test(document.querySelector("[data-testid=schema-status]")?.textContent || ""))
+      );
+      await rec.advance(500);
+      await wait(400);
+      await rec.hold(500, 250);
+      await editorSelect(page, /^  replicas: (4)$/m);
+      await rec.hold(300, 150);
+      await rec.type("6");
+      await rec.hold(350, 175);
+      await editorSelect(page, /image: \S+:(v2\.14\.3)$/m);
+      await rec.hold(300, 150);
+      await rec.type("v2.15.0", { min: 60, max: 110 });
+      await rec.hold(450, 225);
+      await rec.press("Meta+s", { fade: 300, settle: 300 });
+      await rec.until(() =>
+        page.evaluate(() => /passed/.test(document.querySelector("[data-testid=dry-run-status]")?.textContent || ""))
+      );
+      await page.evaluate(() => {
+        for (const diff of monaco.editor.getDiffEditors()) diff.collapseAllUnchangedRegions?.();
+      });
+      await rec.advance(300);
+      await wait(400);
+      await rec.caption("⌘S shows the diff, dry-run on the server first", 250);
+      await rec.hold(2300, 460);
+    },
+  },
+  {
+    name: "helm",
+    url: "/helm-releases?resource=release&kind=Release",
+    ready: "tbody tr td",
+    async setup(page) {
+      await presizePanel(page, 168, "History");
+    },
+    async run(rec, page) {
+      await rec.caption("Helm upgrades: edit the values, preview the diff");
+      rec.pos = { x: 760, y: 360 };
+      await rec.showCursor();
+      await rec.hold(500, 250);
+      const row = page.locator("tbody tr", { hasText: "payments-api" }).first();
+      await rec.glideTo(row.locator("td").nth(1), 750, { ax: 0.3 });
+      await rec.hold(200);
+      await rec.click({ button: "right", fade: 140 });
+      await rec.hold(250);
+      await rec.glideTo(page.locator('[role="menuitem"]', { hasText: /^\s*Upgrade/ }).first(), 550, { ax: 0.3 });
+      await rec.hold(200);
+      await rec.click({ fade: 250, settle: 600 });
+      await rec.until(() => page.locator("#helm-chart-version").isVisible());
+      await rec.advance(600);
+      await wait(500);
+      await rec.hold(500, 250);
+      await rec.glideTo(page.locator("#helm-chart-version"), 750);
+      await rec.hold(150);
+      await rec.click({ fade: 150 });
+      await rec.hold(350, 175);
+      await rec.glideTo(page.getByRole("option", { name: /2\.15\.0/ }).first(), 500, { ax: 0.3 });
+      await rec.hold(150);
+      await rec.click({ fade: 150 });
+      await rec.hold(300, 150);
+      await rec.showCursor(false);
+      await textareaSelect(page, /tag: (v2\.14\.3)$/m);
+      await rec.hold(250, 125);
+      await rec.type("v2.15.0", { min: 60, max: 110 });
+      await rec.hold(350, 175);
+      await rec.showCursor(true);
+      await rec.glideTo(page.getByRole("button", { name: "Preview changes" }), 800);
+      await rec.hold(150);
+      await rec.click({ fade: 250, settle: 500 });
+      await rec.until(() => page.getByText(/deployed \(revision/).first().isVisible());
+      await rec.advance(400);
+      await wait(400);
+      rec.fadeNext = 200;
+      await rec.glide(1200, 300, 700);
+      await rec.hold(1900, 475);
+    },
+  },
+  {
+    name: "graph",
+    url: "/cluster-overview",
+    ready: ".vue-flow__node-k8s",
+    settle: 2500,
+    async run(rec, page) {
+      await rec.caption("See how everything connects");
+      rec.pos = { x: 1150, y: 640 };
       await rec.showCursor();
       await rec.hold(800, 400);
-      const creating = page.locator("tbody tr", { hasText: "image-resizer-khjm9jqhm-xnh6c" }).first();
-      await rec.glideTo(creating.locator("td").nth(1), 950);
-      await rec.hold(500, 100);
-      await setPodState(page, "image-resizer-khjm9jqhm-xnh6c", "running");
-      await rec.hold(1000, 100);
-      await setPodState(page, "image-resizer-khjm9jqhm-dnpr5", "ContainerCreating");
-      await rec.hold(1000, 200);
-      // Command palette: jump to the resource graph. The pointer hides
-      // while typing, like on macOS.
-      await rec.showCursor(false);
-      await rec.press("Meta+k", { fade: 180 });
-      await rec.caption("Jump anywhere with ⌘K", 180);
-      await rec.hold(600, 300);
-      await rec.type("graph");
-      await rec.hold(550, 275);
-      await rec.page.keyboard.press("Enter");
-      await rec.until(() => page.locator(".vue-flow__node-k8s").first().isVisible());
-      await rec.advance(1500);
-      await wait(1200);
-      await rec.caption("See how everything connects");
-      rec.fadeNext = 300;
-      await rec.hold(900, 300);
       await rec.poster(`${rec.dir}/../poster.png`);
       const node = page
         .locator(".vue-flow__node-k8s")
         .filter({ hasText: "checkout-api" })
         .filter({ has: page.locator(".graph-card__meta", { hasText: "Deployment" }) })
         .first();
-      await rec.showCursor(true);
-      await rec.glideTo(node, 1000);
-      await rec.hold(250);
+      await rec.glideTo(node, 900);
+      await rec.hold(200);
       // The graph pans to the selection (350 ms): shoot it frame by frame.
       await rec.click({ fade: 130, settle: 10 });
       await rec.hold(700, 1000 / 30);
-      await rec.glide(1250, 420, 850);
-      await rec.hold(1100, 275);
-    },
-  },
-  {
-    name: "logs",
-    url: DEPLOYMENTS,
-    ready: "tbody tr td",
-    async setup(page) {
-      await openRowAction(page, "payments-api", "Logs", "All pods");
-      await panelTopAt(page, 164);
-      await wait(2500);
-    },
-    async run(rec, page) {
-      await rec.caption("Logs with JSON fields you can filter");
-      await rec.showCursor();
-      await rec.hold(700, 100);
-      await rec.glideTo(page.getByRole("button", { name: "Level" }), 950, { ax: 0.25 });
-      await rec.hold(200, 100);
-      await rec.click({ fade: 150 });
-      await rec.hold(600, 100);
-      await rec.glideTo(page.locator(`[aria-label='Filter level "error"']`), 700);
-      await rec.hold(200, 100);
-      await rec.click({ fade: 200 });
-      await rec.hold(800, 100);
-      await rec.glideTo(page.locator(`[aria-label='Filter level "warn"']`), 550);
-      await rec.hold(150, 75);
-      await rec.click({ fade: 200 });
-      await rec.hold(1300, 100);
+      await rec.glide(1250, 420, 800);
+      await rec.hold(900, 300);
     },
   },
   {
@@ -502,22 +654,22 @@ const scenes = [
       await rec.caption("Guardrails for production");
       rec.pos = { x: 700, y: 250 };
       await rec.showCursor();
-      await rec.hold(800, 400);
+      await rec.hold(600, 300);
       const row = page.locator("tbody tr", { hasText: "payments-api" }).first();
-      await rec.glideTo(row.locator("td").nth(2), 850, { ax: 0.3 });
-      await rec.hold(250);
+      await rec.glideTo(row.locator("td").nth(2), 800, { ax: 0.3 });
+      await rec.hold(200);
       await rec.click({ button: "right", fade: 140 });
-      await rec.hold(300);
-      await rec.glideTo(page.locator('[role="menuitem"]', { hasText: /Delete/ }).first(), 600, { ax: 0.3 });
       await rec.hold(250);
+      await rec.glideTo(page.locator('[role="menuitem"]', { hasText: /Delete/ }).first(), 550, { ax: 0.3 });
+      await rec.hold(200);
       await rec.click({ fade: 220, settle: 500 });
       await rec.showCursor(false);
-      await rec.hold(700, 350);
-      await rec.type("payments-api", { min: 70, max: 130 });
-      await rec.hold(400, 200);
+      await rec.hold(600, 300);
+      await rec.type("payments-api", { min: 60, max: 110 });
+      await rec.hold(350, 175);
       await rec.showCursor(true);
-      await rec.glideTo(page.getByRole("alertdialog").getByRole("button", { name: "Delete" }), 750);
-      await rec.hold(1200, 300);
+      await rec.glideTo(page.getByRole("alertdialog").getByRole("button", { name: "Delete" }), 700);
+      await rec.hold(1000, 250);
       // Outro card.
       await rec.showCursor(false);
       await rec.caption(null);
@@ -525,7 +677,7 @@ const scenes = [
         `<img src="${LOGO}" alt=""><h1>JET Pilot</h1><p>Free and open source · macOS, Windows and Linux</p><div class="url">jet-pilot.app</div>`
       );
       rec.fadeNext = 600;
-      await rec.hold(2800, 2800);
+      await rec.hold(2600, 2600);
     },
   },
 ];
@@ -555,6 +707,15 @@ async function recordScene(browser, scene, theme, dir) {
   if (scene.setup) await scene.setup(page);
   await page.mouse.move(W - 5, H - 5);
   await installOverlays(page, theme);
+  // Under the fake clock, Monaco's input latency tracking finds no
+  // performance entries for its keydown/input/render measures and throws.
+  await page.evaluate(() => {
+    const byName = performance.getEntriesByName.bind(performance);
+    performance.getEntriesByName = (name, type) => {
+      const entries = byName(name, type);
+      return entries.length || !/^(keydown|input|render|inputlatency)$/.test(name) ? entries : [{ name, duration: 0 }];
+    };
+  });
   await wait(400);
   const rec = new Recorder(page, dir, theme);
   await rec.start();

@@ -21,7 +21,7 @@ No account, no telemetry: JET Pilot uses your existing kubeconfig files and `kub
 ## A quick tour
 
 <p align="center">
-  <img alt="A 35-second tour of JET Pilot: the clusters hub, pods from two clusters in one table, the command palette, the resource graph, filtering JSON logs and a protected production cluster asking to type the name before a delete." src="docs/media/demo.webp">
+  <img alt="A short tour of JET Pilot: the clusters hub; jumping to Deployments with ⌘K, filtering by typing and opening logs with L; a shell in a container with S; editing YAML with a diff and server dry run; a Helm upgrade with a manifest diff; the resource graph; and a protected production cluster asking to type the name before a delete." src="docs/media/demo.webp">
 </p>
 
 ## What's new in 2.0
