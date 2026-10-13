@@ -25,6 +25,34 @@ const emits = defineEmits<DialogRootEmits>();
 
 const emitsAsProps = useEmitAsProps(emits);
 
+/*
+ * Closing hands focus back to what had it before opening. After a pick that
+ * changed the view (a jump, a context switch) that element is hidden or
+ * gone, and the focus would stay on the removed input: no key reaches the
+ * app (⌘K included) until a click. Fall back to the content area then.
+ */
+let returnFocus: HTMLElement | null = null;
+watch(
+  () => props.open,
+  (open) => {
+    if (open) returnFocus = document.activeElement as HTMLElement | null;
+  },
+  { immediate: true }
+);
+const restoreFocus = (event: Event) => {
+  event.preventDefault();
+  const previous = returnFocus;
+  returnFocus = null;
+  const target =
+    previous?.isConnected &&
+    previous !== document.body &&
+    previous.getClientRects().length > 0
+      ? previous
+      : document.querySelector<HTMLElement>("[data-focus-fallback]");
+  // After the focus trap lets go (it is torn down right after this event).
+  setTimeout(() => target?.focus({ preventScroll: true }));
+};
+
 const rootProps = computed(() => {
   const { hints: _, filter: __, onHighlight: ___, ...rest } = props;
   return rest;
@@ -59,6 +87,7 @@ const filter = (
       :closeable="false"
       position="top"
       class="max-w-[640px] gap-0 overflow-visible p-0 shadow-xl"
+      @close-auto-focus="restoreFocus"
     >
       <DialogTitle v-show="false" />
       <DialogDescription v-show="false" />

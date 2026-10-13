@@ -45,7 +45,12 @@ const isCached = (r: RouteLocationNormalizedLoaded) =>
 // (useWatchedList / useResourceList) once their first rows are rendered.
 </script>
 <template>
-  <div class="relative flex h-full w-full flex-col bg-background">
+  <!-- Focus lands here when the command palette's return target is gone. -->
+  <div
+    class="relative flex h-full w-full flex-col bg-background outline-none"
+    tabindex="-1"
+    data-focus-fallback
+  >
     <ResizablePanelGroup direction="vertical">
       <ResizablePanel>
         <ClustersHub v-if="route.meta.requiresContext && context == ''" embedded />
