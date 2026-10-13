@@ -782,6 +782,53 @@ function startDebugPty(onEvent: any, argv: string[]) {
   setTimeout(() => sendToChannel(onEvent, encoder.encode(lines.join("\r\n")).buffer), 150);
 }
 
+/*
+ * `kubectl exec` sessions: a fresh shell in the pod that answers a few
+ * commands (see EXEC_REPLIES); anything else just returns a new prompt.
+ */
+const execPrompts = new Map<string, string>();
+const lineBuffers = new Map<string, string>();
+const EXEC_REPLIES: Record<string, string[]> = {
+  "curl -s localhost:8080/healthz": ['{"status":"ok","version":"v2.14.3","db":"ok","queue":"ok"}'],
+  "env | grep DB": ["DB_HOST=postgres.payments.svc.cluster.local", "DB_POOL_SIZE=20"],
+  "ps aux": [
+    "PID   USER     TIME  COMMAND",
+    "    1 app       0:42 /app/server --config /app/config.yaml",
+    "   27 app       0:00 /bin/sh",
+    "   33 app       0:00 ps aux",
+  ],
+};
+
+function startExecPty(id: string, onEvent: any, argv: string[]) {
+  const pod = argv[4] || "pod";
+  const prompt = `\x1b[38;5;111m${pod}\x1b[0m:\x1b[38;5;150m/app\x1b[0m$ `;
+  execPrompts.set(id, prompt);
+  setTimeout(() => sendToChannel(onEvent, encoder.encode(prompt).buffer), 120);
+}
+
+/* Echo of typed input; Enter answers exec sessions (other sessions echo). */
+function ptyInput(id: string, data: string): string {
+  const prompt = execPrompts.get(id);
+  if (!prompt) return data.replace(/\r/g, "\r\n");
+  let out = "";
+  let line = lineBuffers.get(id) ?? "";
+  for (const ch of data) {
+    if (ch === "\r") {
+      const reply = EXEC_REPLIES[line.trim()] ?? [];
+      out += "\r\n" + reply.map((l) => l + "\r\n").join("") + prompt;
+      line = "";
+    } else if (ch === "\x7f") {
+      if (line) out += "\b \b";
+      line = line.slice(0, -1);
+    } else {
+      out += ch;
+      line += ch;
+    }
+  }
+  lineBuffers.set(id, line);
+  return out;
+}
+
 function startPty(onEvent: any, banner: string[]) {
   setTimeout(() => {
     const text = [
@@ -1719,12 +1766,13 @@ mockIPC(
         ptyChannels.set(id, p.onEvent);
         const argv: string[] = p.initCommand || [];
         if (argv[1] === "debug") startDebugPty(p.onEvent, argv);
+        else if (argv[1] === "exec") startExecPty(id, p.onEvent, argv);
         else startPty(p.onEvent, []);
         return id;
       }
       case "write_to_pty": {
         const channel = ptyChannels.get(p.sessionId);
-        if (channel) sendToChannel(channel, encoder.encode(String(p.data).replace(/\r/g, "\r\n")).buffer);
+        if (channel) sendToChannel(channel, encoder.encode(ptyInput(p.sessionId, String(p.data))).buffer);
         return null;
       }
       case "resize_pty":
