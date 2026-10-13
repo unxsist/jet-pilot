@@ -10,7 +10,11 @@
 
 <p align="center">
   <b>The open-source Kubernetes IDE that focuses on less clutter, speed and good looks.</b><br/>
-  Free · MIT licensed · macOS, Windows &amp; Linux (x64 and ARM64) · <a href="https://www.jet-pilot.app">jet-pilot.app</a>
+  Free · MIT licensed · macOS (Apple Silicon and Intel), Windows (x64) and Linux (x64 and ARM64) · <a href="https://www.jet-pilot.app">jet-pilot.app</a>
+</p>
+
+<p align="center">
+  <img alt="A 35-second tour of JET Pilot: the clusters hub, pods from two clusters in one table, the command palette, the resource graph, filtering JSON logs and a protected production cluster asking to type the name before a delete." src="docs/media/demo.webp" width="100%">
 </p>
 
 ## Introduction
