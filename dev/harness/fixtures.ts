@@ -77,6 +77,10 @@ interface WorkloadSpec {
   age: number;
 }
 
+/* A Prometheus port (a named second port: "metrics · 9090") on payments-api. */
+const metricsPorts = (w: WorkloadSpec) =>
+  w.name === "payments-api" ? [{ name: "metrics", containerPort: 9090, protocol: "TCP" }] : [];
+
 const WORKLOADS: WorkloadSpec[] = [
   { name: "payments-api", namespace: "payments", image: "ghcr.io/acme/payments-api:v2.14.3", replicas: 4, port: 8080, cpu: ["250m", "1"], memory: ["256Mi", "512Mi"], age: 12 * DAY },
   { name: "payments-worker", namespace: "payments", image: "ghcr.io/acme/payments-worker:v2.14.3", replicas: 3, states: ["running", "running", "oom"], cpu: ["100m", "500m"], memory: ["128Mi", "256Mi"], age: 12 * DAY },
@@ -164,7 +168,7 @@ function makePod(
   const container = {
     name: w.name.replace(/-controller$/, ""),
     image: w.image,
-    ports: w.port ? [{ name: "http", containerPort: w.port, protocol: "TCP" }] : [],
+    ports: w.port ? [{ name: "http", containerPort: w.port, protocol: "TCP" }, ...metricsPorts(w)] : [],
     resources: {
       requests: { cpu: w.cpu[0], memory: w.memory[0] },
       limits: { cpu: w.cpu[1], memory: w.memory[1] },
@@ -329,7 +333,10 @@ function buildCluster(context: string, scale = 1): Cluster {
         spec: {
           type: w.name.startsWith("ingress-nginx") ? "LoadBalancer" : "ClusterIP",
           clusterIP: `172.20.${(w.name.length * 11) % 255}.${(w.port % 200) + 10}`,
-          ports: [{ name: "http", port: w.port === 8080 ? 80 : w.port, targetPort: w.port, protocol: "TCP" }],
+          ports: [
+            { name: "http", port: w.port === 8080 ? 80 : w.port, targetPort: w.port, protocol: "TCP" },
+            ...metricsPorts(w).map((m) => ({ name: m.name, port: m.containerPort, targetPort: m.name, protocol: "TCP" })),
+          ],
           selector: { "app.kubernetes.io/name": w.name },
         },
         status: w.name.startsWith("ingress-nginx")

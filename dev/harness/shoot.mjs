@@ -275,8 +275,62 @@ const screens = {
     url: "/pods",
     ready: "tbody tr td",
     run: async (page) => {
-      await page.getByRole("button", { name: /Port forwarding/ }).click();
+      await openForwards(page);
+    },
+  },
+  // Port forwards (dev/harness/portForwards.ts): the manager, a forward
+  // healing itself, named ports, the HTTP tester and saved profiles.
+  "pf-manager": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openForwards(page);
+      await page.locator("[data-forward-id]").first().hover();
+      await wait(400);
+    },
+  },
+  "pf-reconnecting": {
+    url: "/pods?pf=reconnecting",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openForwards(page);
+    },
+  },
+  "pf-dialog-named-ports": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Port Forward");
       await wait(700);
+      await page.getByRole("combobox", { name: "Port" }).click();
+      await wait(500);
+    },
+  },
+  "pf-http-tester": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openForwards(page);
+      const row = page.locator("[data-forward-id]").first();
+      await row.hover();
+      await row.getByRole("button", { name: /Send a request/ }).click();
+      await wait(500);
+      const path = page.getByRole("textbox", { name: "Path" });
+      for (const value of ["/healthz", "/metrics", "/api/orders?limit=2"]) {
+        await path.fill(value);
+        await path.press("Enter");
+        await wait(450);
+      }
+      await page.getByRole("button", { name: /Headers · / }).click();
+      await wait(400);
+    },
+  },
+  "pf-profiles": {
+    url: "/pods?pf=profiles",
+    ready: "tbody tr td",
+    settle: 1800,
+    run: async (page) => {
+      await openForwards(page);
     },
   },
   macos: { url: "/deployments?resource=deployments&kind=Deployment&os=macos", ready: "tbody tr td" },
@@ -1024,6 +1078,11 @@ async function enlargePanel(page, dy = -330) {
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + dy, { steps: 8 });
   await page.mouse.up();
   await wait(300);
+}
+
+async function openForwards(page) {
+  await page.getByRole("button", { name: /^Port forwards:/ }).click();
+  await wait(700);
 }
 
 async function openRowAction(page, rowText, action, sub) {
