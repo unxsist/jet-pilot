@@ -13,6 +13,7 @@ mod app_log;
 mod auth;
 mod clusters;
 mod env_import;
+mod kube_api;
 mod kubeconfig_discovery;
 mod kubernetes;
 mod logs;
@@ -148,6 +149,7 @@ fn main() {
             kubernetes::client::trigger_cronjob,
             kubernetes::client::run_kubectl,
             kubernetes::client::apply_manifest,
+            kube_api::kube_request,
             port_forward::start_port_forward,
             port_forward::stop_port_forward,
             port_forward::list_port_forwards,
