@@ -22,6 +22,7 @@
  *   ?scenario=cloud          AWS accounts with added / available clusters (cloud.ts)
  *   ?scenario=clouds         accounts in AWS, Google Cloud, Azure, DigitalOcean and Exoscale (clouds.ts)
  *   ?scenario=no-gitops      no Flux / Argo CD API groups (gitops.ts)
+ *   ?scenario=metrics-none|metrics-error   no Prometheus / a failing one (metrics.ts)
  *
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views; `large-graph` swaps the
@@ -73,6 +74,7 @@ import { createCloudMocks } from "./cloud";
 import { installAuthMocks } from "./auth";
 import { handleKubeRequest } from "./kubeApi";
 import { createGitopsMocks } from "./gitops";
+import { nodeHistory } from "./metrics";
 
 const params = new URLSearchParams(location.search);
 if (params.get("fresh")) {
@@ -1092,7 +1094,7 @@ function metricsSubscribe(request: any, channel: any) {
     });
     sendToChannel(channel, { type: "status", state: "ready" });
     sendToChannel(channel, { type: "sample", timestamp: now, pods, nodes: [] });
-    sendToChannel(channel, { type: "history", pods: history, nodes: {} });
+    sendToChannel(channel, { type: "history", pods: history, nodes: nodeHistory(context, now) });
   }, 80);
   return ++watchIds;
 }

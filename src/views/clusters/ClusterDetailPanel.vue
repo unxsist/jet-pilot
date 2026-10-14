@@ -26,6 +26,8 @@ import { envInfo } from "@/lib/clusters/meta";
 import { ORIGIN_LABELS } from "@/lib/kubeconfigSources";
 import type { CatalogCluster } from "@/lib/clusters/cloud";
 import { providerInfo } from "@/lib/clusters/providers";
+import { discoverCached, type Discovery } from "@/lib/metrics/discovery";
+import { KIND_LABELS, describeSource } from "@/lib/metrics/prometheus";
 
 const SCOPE_LABELS: Partial<Record<CatalogCluster["provider"], string>> = { aws: "Account", gcp: "Project", azure: "Subscription" };
 
@@ -91,6 +93,35 @@ const inferred = computed(() => (meta.value.envInferred ? envInfo(meta.value.env
 
 const copy = (text: string, what: string) =>
   writeText(text).then(() => toast({ title: `${what} copied` }), () => undefined);
+
+/* Metrics history: the setting, and what "Automatic" found for connected clusters. */
+const discovery = shallowRef<Discovery | null>(null);
+watch(
+  () => [entry.value.context, entry.value.kubeConfig, props.cluster.active, meta.value.metrics] as const,
+  ([context, kubeConfig, active, setting]) => {
+    discovery.value = null;
+    if (!active || setting) return;
+    discoverCached({ context, kubeConfig }).then(
+      (result) => {
+        if (entry.value.context === context && entry.value.kubeConfig === kubeConfig) discovery.value = result;
+      },
+      () => undefined
+    );
+  },
+  { immediate: true }
+);
+const metrics = computed(() => {
+  const setting = meta.value.metrics;
+  if (setting?.mode === "off") return { title: "Off", detail: "Only the last 15 minutes, from metrics-server" };
+  if (setting?.mode === "service") return { title: describeSource(setting), detail: null };
+  const found = discovery.value?.found;
+  if (found) return { title: "Automatic", detail: `${KIND_LABELS[found.kind]} · ${describeSource(found.source)}` };
+  return { title: "Automatic", detail: discovery.value ? "None found; the last 15 minutes from metrics-server" : null };
+});
+const metricsOpen = ref(false);
+const metricsUsed = ref(false);
+watch(metricsOpen, (isOpen) => isOpen && (metricsUsed.value = true));
+const MetricsSourceDialog = defineAsyncComponent(() => import("@/components/metrics/MetricsSourceDialog.vue"));
 </script>
 
 <template>
@@ -206,7 +237,25 @@ const copy = (text: string, what: string) =>
         <dd class="truncate text-xs leading-5 text-muted-foreground" :title="entry.kubeConfig">
           {{ file }}<template v-if="entry.origin !== 'managed' && ORIGIN_LABELS[entry.origin as keyof typeof ORIGIN_LABELS]"> · {{ ORIGIN_LABELS[entry.origin as keyof typeof ORIGIN_LABELS] }}</template>
         </dd>
+        <dt class="text-muted-foreground">Metrics</dt>
+        <dd class="min-w-0">
+          <span class="flex items-baseline gap-2">
+            {{ metrics.title }}
+            <button
+              type="button"
+              class="rounded text-xs text-link hover:underline focus-ring"
+              aria-label="Change metrics history"
+              @click="metricsOpen = true"
+            >
+              Change
+            </button>
+          </span>
+          <span v-if="metrics.detail" class="block truncate text-xs text-muted-foreground" :title="metrics.detail">
+            {{ metrics.detail }}
+          </span>
+        </dd>
       </dl>
+      <MetricsSourceDialog v-if="metricsUsed" v-model:open="metricsOpen" :context="entry.context" :kube-config="entry.kubeConfig" />
 
       <dl
         v-if="meta.folder || meta.tags.length || meta.protected || meta.readOnly"

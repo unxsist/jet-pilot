@@ -7,6 +7,7 @@ import Events from "@/components/generic/Events.vue";
 import Conditions from "@/components/generic/Conditions.vue";
 import Containers from "@/components/generic/Containers.vue";
 import { KubernetesObject } from "@kubernetes/client-node";
+import { hasUsage, type Subject } from "@/lib/metrics/usage";
 import {
   Boxes,
   CalendarSearch,
@@ -45,6 +46,12 @@ const getResourceSpecificComponent = (
   return sectionCache.get(kind) ?? null;
 };
 
+/* Usage over time (its own chunk; only kinds with pods or a node). */
+const UsageSection = defineAsyncComponent(
+  () => import("@/components/metrics/UsageSection.vue")
+);
+const showUsage = computed(() => hasUsage(props.resource.kind));
+
 /* Generic, read-only views on common spec / status shapes. */
 const anyResource = computed(() => props.resource as any);
 
@@ -77,6 +84,7 @@ const annotationCount = computed(
       type="multiple"
       collapsible
       :default-value="[
+        'usage',
         'status',
         'data',
         'containers',
@@ -85,6 +93,7 @@ const annotationCount = computed(
         'annotations',
       ]"
     >
+      <UsageSection v-if="showUsage" :resource="resource as Subject" />
       <component
         v-if="getResourceSpecificComponent(resource)"
         :is="getResourceSpecificComponent(resource)"
