@@ -80,6 +80,12 @@ import { createGitopsMocks } from "./gitops";
 import { nodeHistory } from "./metrics";
 import "./rbac";
 import { actionHandlers, seedActionFiles, startActionPty } from "./actions";
+import {
+  createOperatorMocks,
+  OPERATOR_API_VERSIONS,
+  OPERATOR_CLUSTER_SCOPED,
+  QUALIFIED_KEYS,
+} from "./operators";
 
 const params = new URLSearchParams(location.search);
 if (params.get("fresh")) {
@@ -270,8 +276,11 @@ const argValue = (args: string[], flag: string) => {
   return joined ? joined.slice(flag.length + 1) : undefined;
 };
 
+/* `plural.group` keys for plurals that several groups serve (operators.ts). */
 const resourceKey = (resource: string) =>
-  resource.split(".")[0].toLowerCase();
+  QUALIFIED_KEYS.has(resource.toLowerCase())
+    ? resource.toLowerCase()
+    : resource.split(".")[0].toLowerCase();
 
 function kubectlGet(args: string[]): string {
   const context = argValue(args, "--context") || CONTEXTS[0].name;
@@ -894,8 +903,10 @@ const CLUSTER_SCOPED = new Set([
   "apiservices",
   "mutatingwebhookconfigurations",
   "validatingwebhookconfigurations",
+  ...OPERATOR_CLUSTER_SCOPED,
 ]);
 const API_VERSIONS: Record<string, string> = {
+  ...OPERATOR_API_VERSIONS,
   deployments: "apps/v1",
   statefulsets: "apps/v1",
   daemonsets: "apps/v1",
@@ -1264,6 +1275,8 @@ const installTool = async (id: string, channel: any) => {
 /* ------------------------------------------------------------- dispatch -- */
 
 const ptyChannels = new Map<string, any>();
+/* Operator fixtures, CRDs and patch routes (dev/harness/operators.ts). */
+createOperatorMocks(emitWatchChange);
 /* Clusters added in JET Pilot + the vault (dev/harness/managed.ts). */
 const managed = createManagedMocks(scenario, () =>
   scenario === "hub" ? Object.values(HUB_FILES).flatMap((f) => f.contexts.map((c) => c.name)) : CONTEXTS.map((c) => c.name)
