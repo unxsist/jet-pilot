@@ -23,6 +23,7 @@
  *   ?scenario=clouds         accounts in AWS, Google Cloud, Azure, DigitalOcean and Exoscale (clouds.ts)
  *   ?scenario=no-gitops      no Flux / Argo CD API groups (gitops.ts)
  *   ?scenario=metrics-none|metrics-error   no Prometheus / a failing one (metrics.ts)
+ *   ?scenario=rbac-forbidden listing RBAC objects is forbidden (rbac.ts)
  *
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views; `large-graph` swaps the
@@ -76,6 +77,7 @@ import { installAuthMocks } from "./auth";
 import { handleKubeRequest } from "./kubeApi";
 import { createGitopsMocks } from "./gitops";
 import { nodeHistory } from "./metrics";
+import "./rbac";
 
 const params = new URLSearchParams(location.search);
 if (params.get("fresh")) {

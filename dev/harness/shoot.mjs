@@ -733,7 +733,66 @@ const screens = {
       await wait(500);
     },
   },
+  // Access review (dev/harness/rbac.ts): you are maria@acme.dev.
+  "access-can-i": {
+    url: "/access-review?verb=delete&resource=deployments.apps&namespace=payments",
+    ready: "text=you can",
+    settle: 1200,
+    run: openAccessControl,
+  },
+  "access-can-i-denied": {
+    url: "/access-review?verb=get&resource=secrets&namespace=kube-system",
+    ready: "text=you can't",
+    settle: 1200,
+  },
+  "access-who-can": {
+    url: "/access-review?tab=who&verb=delete&resource=deployments.apps&namespace=@all",
+    ready: "text=subjects can",
+    settle: 1000,
+    run: openAccessControl,
+  },
+  "access-subject": {
+    url: "/access-review?tab=subjects&subject=ServiceAccount:payments:payments-api",
+    ready: "text=How it gets access",
+    settle: 1200,
+  },
+  "access-role-panel": {
+    url: "/clusterroles?resource=clusterroles&kind=ClusterRole",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr td").filter({ hasText: /^\s*admin\s*$/ }).first().click();
+      await wait(2500);
+    },
+  },
+  "access-binding-panel": {
+    url: "/rolebindings?resource=rolebindings&kind=RoleBinding",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "payments-team-admin" }).first().click();
+      await wait(2500);
+    },
+  },
+  "access-sa-panel": {
+    url: "/serviceaccounts?resource=serviceaccounts&kind=ServiceAccount",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "ci-deployer" }).first().click();
+      await wait(2500);
+    },
+  },
+  "access-forbidden": {
+    url: "/access-review?tab=who&scenario=rbac-forbidden",
+    ready: "text=can't read this cluster's RBAC",
+    settle: 1000,
+  },
 };
+
+/* Opens the sidebar's Access Control group (collapsed in the fixture settings). */
+async function openAccessControl(page) {
+  await page.locator("nav button", { hasText: /^Access control$/i }).first().click().catch(() => {});
+  await page.mouse.move(700, 880);
+  await wait(400);
+}
 
 /* Opens a row's side panel, widened, with the usage charts loaded. */
 async function openUsage(page, row) {
