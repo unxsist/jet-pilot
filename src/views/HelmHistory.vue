@@ -6,49 +6,53 @@ import { EmptyState } from "@/components/ui/empty-state";
 import KindIcon from "@/components/KindIcon.vue";
 import DiffView from "@/components/workloads/DiffView.vue";
 import { formatAge } from "@/components/tables/age";
-import { cliErrorMessage, cliSucceeded, runCli, runCliForEach } from "@/actions/command";
 import { formatDateTime, injectStrict } from "@/lib/utils";
+import { errorText } from "@/lib/auth/classify";
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
-import { helmClusterArgs } from "@/lib/workloads";
-import { confirmDialog, guard } from "@/lib/guardrails/guard";
+import { rollbackRelease } from "@/actions/helm-release";
+import { releaseDetail, releaseHistory } from "@/lib/helmApi";
 import {
   HelmRevision,
   helmStatusTone,
-  normalizeValues,
+  releaseStatus,
   sortRevisionsDesc,
+  valuesYaml,
 } from "@/lib/helm";
 
 /*
- * Revision history of a Helm release: status, chart, app version and
- * description per revision, the values / manifest of a revision compared
- * with the deployed one (or its predecessor), and rollback with
- * confirmation.
+ * Revision history of a Helm release (read natively): status, chart, app
+ * version and description per revision, the values / manifest of a
+ * revision compared with the deployed one, its predecessor or a revision
+ * picked in the release panel, and rollback with confirmation.
  */
 const props = defineProps<{
   context: string;
   namespace: string;
   kubeConfig: string;
-  release: { name: string; namespace: string };
+  release: {
+    name: string;
+    namespace: string;
+    chart: string;
+    chartVersion: string;
+    appVersion: string;
+    revision: number;
+    status: string;
+  };
+  /** Two revisions to open on (from the release panel). */
+  compare?: { revision: number; base: number; show?: "values" | "manifest" };
   tabId?: string;
 }>();
 
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
-
-const cluster = computed(() =>
-  helmClusterArgs({
-    context: props.context,
-    namespace: props.release.namespace,
-    kubeConfig: props.kubeConfig,
-  })
-);
-const helm = (args: string[]) => runCli("helm", [...args, ...cluster.value]);
+const target = computed(() => ({ context: props.context, kubeConfig: props.kubeConfig }));
 
 const revisions = shallowRef<HelmRevision[]>([]);
 const loading = ref(true);
 const loadError = ref("");
-const selected = ref<number | null>(null);
-const compareWith = ref<"deployed" | "previous">("deployed");
-const show = ref<"values" | "manifest">("values");
+const selected = ref<number | null>(props.compare?.revision ?? null);
+const compareWith = ref<"deployed" | "previous" | "picked">(props.compare ? "picked" : "deployed");
+const pickedBase = ref<number | null>(props.compare?.base ?? null);
+const show = ref<"values" | "manifest">(props.compare?.show ?? "values");
 const rollingBack = ref(false);
 
 const deployed = computed(
@@ -57,18 +61,16 @@ const deployed = computed(
 );
 
 const load = async () => {
-  const result = await helm(["history", props.release.name, "--max=50", "--output=json"]);
-  loading.value = false;
-  if (!cliSucceeded(result)) {
-    loadError.value = cliErrorMessage(result);
-    return;
-  }
   try {
-    revisions.value = sortRevisionsDesc(JSON.parse(result.stdout));
+    revisions.value = sortRevisionsDesc(
+      await releaseHistory(target.value, props.release.namespace, props.release.name)
+    );
     loadError.value = "";
   } catch (e) {
-    loadError.value = String(e);
+    loadError.value = errorText(e);
     return;
+  } finally {
+    loading.value = false;
   }
   if (selected.value === null || !revisions.value.some((r) => r.revision === selected.value)) {
     selected.value =
@@ -78,26 +80,23 @@ const load = async () => {
   }
 };
 
-/* values / manifests per revision, fetched on demand */
+/* values and manifest per revision, read on demand */
 const cache = reactive(new Map<string, string | { error: string }>());
+const pending = new Set<number>();
 const fetchRevision = async (revision: number, what: "values" | "manifest") => {
-  const key = `${what}:${revision}`;
-  if (cache.has(key)) return;
-  const result = await helm([
-    "get",
-    what,
-    props.release.name,
-    `--revision=${revision}`,
-    ...(what === "values" ? ["--output=yaml"] : []),
-  ]);
-  cache.set(
-    key,
-    cliSucceeded(result)
-      ? what === "values"
-        ? normalizeValues(result.stdout)
-        : result.stdout
-      : { error: cliErrorMessage(result) }
-  );
+  if (cache.has(`${what}:${revision}`) || pending.has(revision)) return;
+  pending.add(revision);
+  try {
+    const detail = await releaseDetail(target.value, props.release.namespace, props.release.name, revision);
+    cache.set(`values:${revision}`, valuesYaml(detail.values));
+    cache.set(`manifest:${revision}`, detail.manifest);
+  } catch (e) {
+    const failure = { error: errorText(e) };
+    cache.set(`values:${revision}`, failure);
+    cache.set(`manifest:${revision}`, failure);
+  } finally {
+    pending.delete(revision);
+  }
 };
 
 const selectedRevision = computed(
@@ -106,6 +105,9 @@ const selectedRevision = computed(
 const baseRevision = computed(() => {
   const sel = selectedRevision.value;
   if (!sel) return null;
+  if (compareWith.value === "picked") {
+    return revisions.value.find((r) => r.revision === pickedBase.value && r.revision !== sel.revision) ?? null;
+  }
   if (compareWith.value === "deployed" && deployed.value && sel.revision !== deployed.value.revision) {
     return deployed.value;
   }
@@ -140,38 +142,25 @@ const ready = computed(() =>
   )
 );
 
+const compareOptions = computed(() =>
+  pickedBase.value !== null
+    ? (["deployed", "previous", "picked"] as const)
+    : (["deployed", "previous"] as const)
+);
+
 const label = (r: HelmRevision | null) =>
   r ? `#${r.revision}${r.revision === deployed.value?.revision ? " (deployed)" : ""}` : "(nothing)";
 
 const confirmRollback = async () => {
   const revision = selectedRevision.value;
   if (!revision || revision.revision === deployed.value?.revision) return;
-  const release = {
-    context: props.context,
-    kubeConfig: props.kubeConfig,
-    name: props.release.name,
-    kind: "release",
-    namespace: props.release.namespace,
-  };
-  const confirmed = await guard("helm-rollback", [release], {
-    confirm: () =>
-      confirmDialog(spawnDialog, {
-        title: `Roll back ${props.release.name} to revision ${revision.revision}?`,
-        message: `Re-deploys ${revision.chart} (app ${revision.app_version || "–"}) with the values of revision ${revision.revision} as a new revision.`,
-        confirmLabel: `Roll back to #${revision.revision}`,
-      }),
-  });
-  if (!confirmed) return;
   rollingBack.value = true;
-  await runCliForEach("helm", [revision], {
-    args: (r) => ["rollback", props.release.name, String(r.revision), ...cluster.value],
-    label: (r) => `${props.release.name} to revision ${r.revision}`,
-    successVerb: "Rolled back",
-    failureVerb: "roll back",
-    guarded: true,
-  });
+  const row = {
+    ...props.release,
+    metadata: { context: props.context, kubeConfig: props.kubeConfig, name: props.release.name, namespace: props.release.namespace },
+  };
+  if (await rollbackRelease(spawnDialog, row, revision)) await load();
   rollingBack.value = false;
-  await load();
 };
 
 const onListKeydown = (event: KeyboardEvent) => {
@@ -248,15 +237,15 @@ onMounted(load);
           >
             <div class="flex items-center gap-2">
               <span class="font-mono text-sm font-semibold tabular-nums">#{{ revision.revision }}</span>
-              <Badge :variant="helmStatusTone(revision.status)" size="sm">{{ revision.status }}</Badge>
+              <Badge :variant="helmStatusTone(revision.status)" size="sm">{{ releaseStatus(revision.status).label }}</Badge>
               <span
                 class="ml-auto text-xs tabular-nums text-muted-foreground"
-                :title="formatDateTime(new Date(revision.updated))"
+                :title="revision.updated ? formatDateTime(new Date(revision.updated)) : undefined"
                 >{{ formatAge(revision.updated) }}</span
               >
             </div>
-            <p class="mt-1 truncate font-mono text-2xs text-muted-foreground">
-              {{ revision.chart }} · app {{ revision.app_version || "–" }}
+            <p class="mt-1 truncate text-2xs text-muted-foreground">
+              {{ revision.chart }} {{ revision.chartVersion }} · app {{ revision.appVersion || "–" }}
             </p>
             <p class="mt-0.5 line-clamp-2 text-xs">{{ revision.description }}</p>
           </button>
@@ -281,7 +270,7 @@ onMounted(load);
           <span class="text-xs text-muted-foreground">compared with</span>
           <div class="inline-flex h-7 items-center rounded-md bg-muted p-0.5" role="group" aria-label="Compare with">
             <button
-              v-for="option in (['deployed', 'previous'] as const)"
+              v-for="option in compareOptions"
               :key="option"
               type="button"
               class="h-6 rounded-[5px] px-2 text-xs font-medium transition-colors duration-fast focus-ring"
@@ -289,7 +278,7 @@ onMounted(load);
               :aria-pressed="compareWith === option"
               @click="compareWith = option"
             >
-              {{ option === "deployed" ? "Deployed revision" : "Previous revision" }}
+              {{ option === "deployed" ? "Deployed revision" : option === "previous" ? "Previous revision" : `#${pickedBase}` }}
             </button>
           </div>
           <Button

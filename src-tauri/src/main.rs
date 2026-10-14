@@ -13,6 +13,7 @@ mod app_log;
 mod auth;
 mod clusters;
 mod env_import;
+mod helm;
 mod kube_api;
 mod kubeconfig_discovery;
 mod kubernetes;
@@ -188,6 +189,15 @@ fn main() {
             logs::streaming::stop_log_stream,
             logs::streaming::log_stream_reset,
             workloads::run_helm_with_values,
+            helm::helm_releases,
+            helm::helm_history,
+            helm::helm_release_detail,
+            helm::chart::helm_chart_inspect,
+            helm::artifacthub::artifacthub_search,
+            helm::artifacthub::artifacthub_package,
+            helm::artifacthub::artifacthub_values,
+            helm::artifacthub::artifacthub_values_schema,
+            helm::artifacthub::artifacthub_logo,
             env_import::env_import_report,
             kubeconfig_discovery::kubeconfig_discover,
             kubeconfig_discovery::kubeconfig_describe,

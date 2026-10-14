@@ -20,7 +20,6 @@ import {
 import {
   chartVersionsByRepo,
   hasDiffPlugin,
-  normalizeValues,
   parseChartField,
   stripAnsi,
 } from "../../src/lib/helm";
@@ -220,10 +219,9 @@ describe("helm", () => {
     assert.equal(byRepo.get("bitnami/redis")?.length, 2);
   });
 
-  test("diff plugin detection and values", () => {
+  test("diff plugin detection and ANSI codes", () => {
     assert.isTrue(hasDiffPlugin("NAME\tVERSION\tDESCRIPTION\ndiff\t3.9.4\tPreview helm upgrade changes as a diff\n"));
     assert.isFalse(hasDiffPlugin("NAME\tVERSION\tDESCRIPTION\nsecrets\t4.1.1\tdiff for secrets\n"));
-    assert.equal(normalizeValues("null\n"), "");
     assert.equal(stripAnsi("\x1b[32m+ added\x1b[0m"), "+ added");
   });
 });

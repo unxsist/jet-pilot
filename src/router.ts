@@ -69,12 +69,27 @@ const routes: Array<RouteRecordRaw> = [
     },
   },
   {
-    path: "/helm-:pathMatch(.*)*",
-    name: "HelmCharts",
+    path: "/helm-releases",
+    name: "HelmReleases",
     component: () => import("./views/HelmResource.vue"),
     meta: {
       requiresContext: true,
     },
+  },
+  {
+    // Search charts (your repositories and Artifact Hub), install them,
+    // manage repositories.
+    path: "/helm-charts",
+    name: "HelmChartsPage",
+    component: () => import("./views/helm/HelmCharts.vue"),
+    meta: {
+      requiresContext: true,
+    },
+  },
+  {
+    // Links of earlier releases.
+    path: "/helm-:pathMatch(.*)*",
+    redirect: { name: "HelmReleases" },
   },
   {
     path: "/:pathMatch(.*)*",

@@ -92,6 +92,8 @@ export interface SidePanel {
   props: any;
   icon: string;
   title: string;
+  /** Small line above the title for panels of things that aren't Kubernetes objects ("Helm release"). */
+  overline?: string;
 }
 
 export interface PanelProviderState {

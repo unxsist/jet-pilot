@@ -1,6 +1,7 @@
 //! Workload operations that need more than the shell plugin offers.
 //!
-//! `helm upgrade` / `helm template` / `helm diff upgrade` with edited values:
+//! `helm install` / `helm upgrade` / `helm template` / `helm diff upgrade`
+//! with edited values:
 //! the values (which may contain secrets) are written to an owner-only
 //! temporary file that is removed as soon as helm exits, instead of going
 //! through a world-readable file picked by the frontend.
@@ -21,7 +22,7 @@ const HELM_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const VALUES_PREFIX: &str = "jet-pilot-values-";
 
 /// Helm subcommands accepted with a values file.
-const ALLOWED: &[&[&str]] = &[&["upgrade"], &["template"], &["diff", "upgrade"]];
+const ALLOWED: &[&[&str]] = &[&["install"], &["upgrade"], &["template"], &["diff", "upgrade"]];
 
 #[derive(Debug, Serialize, PartialEq)]
 pub struct CliOutput {
@@ -112,8 +113,8 @@ pub(crate) async fn run_with_values(
 }
 
 /// Runs `helm <args> --values <tmp>` with `values` in an owner-only
-/// temporary file. Only `upgrade`, `template` and `diff upgrade` are
-/// accepted. Returns exit code and output (a non-zero exit is not an error,
+/// temporary file. Only `install`, `upgrade`, `template` and
+/// `diff upgrade` are accepted. Returns exit code and output (a non-zero exit is not an error,
 /// the frontend shows helm's stderr).
 #[tauri::command]
 pub async fn run_helm_with_values(args: Vec<String>, values: String) -> Result<CliOutput, String> {
@@ -130,6 +131,7 @@ mod tests {
 
     #[test]
     fn only_value_taking_subcommands_are_allowed() {
+        assert!(validate_args(&s(&["install", "web", "repo/web", "--dry-run"])).is_ok());
         assert!(validate_args(&s(&["upgrade", "web", "repo/web"])).is_ok());
         assert!(validate_args(&s(&["template", "web", "repo/web"])).is_ok());
         assert!(validate_args(&s(&["diff", "upgrade", "web", "repo/web"])).is_ok());

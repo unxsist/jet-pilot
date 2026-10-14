@@ -154,7 +154,7 @@ pub mod client {
 
     /// An API error of `context`: `SerializableKubeError::from` plus the auth
     /// context of 401s.
-    fn api_error(err: Error, kube_config: Option<&str>, context: &str) -> SerializableKubeError {
+    pub(crate) fn api_error(err: Error, kube_config: Option<&str>, context: &str) -> SerializableKubeError {
         with_auth_context(SerializableKubeError::from(err), &resolve_kubeconfig_path(kube_config), context)
     }
 

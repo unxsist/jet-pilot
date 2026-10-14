@@ -36,7 +36,7 @@ export function useIsActiveView(): Readonly<Ref<boolean>> {
 }
 
 /** Routes whose views are kept alive (route names, see router.ts). */
-export const KEEP_ALIVE_ROUTES = ["Pods", "GenericResource", "HelmCharts"];
+export const KEEP_ALIVE_ROUTES = ["Pods", "GenericResource", "HelmReleases", "HelmChartsPage"];
 
 /** Maximum number of hidden views kept alive (least recently used dropped). */
 export const KEEP_ALIVE_MAX = 6;

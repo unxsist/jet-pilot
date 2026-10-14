@@ -1,235 +1,135 @@
 <script setup lang="ts">
-import { useRoute, useRouter, onBeforeRouteUpdate } from "vue-router";
-import { Command } from "@tauri-apps/plugin-shell";
+import { useRoute, useRouter } from "vue-router";
+import { Plus } from "lucide-vue-next";
+import type { ColumnDef } from "@tanstack/vue-table";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { injectStrict } from "@/lib/utils";
-import { onMounted } from "vue";
 import DataTable from "@/components/ui/VirtualDataTable.vue";
-import { ColumnDef } from "@tanstack/vue-table";
-import { columns as defaultGenericColumns } from "@/components/tables/generic";
+import { Button } from "@/components/ui/button";
 import { multiContextColumns } from "@/components/tables/multicontext";
+import { columns } from "@/components/tables/helm-release";
+import { actions } from "@/actions/helm-release";
 import {
   useResourceList,
   ContextFailure,
   ResourceListResult,
 } from "@/composables/useResourceList";
-
-const route = useRoute();
-const router = useRouter();
-const { context, kubeConfig, contexts, contextKubeConfigMapping } =
-  injectStrict(KubeContextStateKey);
-
-const actions = ref<any>(null);
-const currentResource = ref(route.query.resource as string);
-
-import { RowAction } from "@/components/tables/types";
-import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
-const addTab = injectStrict(PanelProviderAddTabKey);
-
+import { PanelProviderAddTabKey, PanelProviderSetSidePanelComponentKey } from "@/providers/PanelProvider";
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 import { error } from "@/lib/logger";
-const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
-
-import { PanelProviderSetSidePanelComponentKey } from "@/providers/PanelProvider";
-const setSidePanelComponent = injectStrict(
-  PanelProviderSetSidePanelComponentKey
-);
-
-const columns = ref<ColumnDef<any>[]>([]);
-const rowActions = ref<RowAction<any>[]>([]);
-
-const tableColumns = computed<ColumnDef<any>[]>(() => {
-  // Helm releases carry their own Namespace column; only add the Context one.
-  const multiColumns =
-    route.query.resource === "release"
-      ? multiContextColumns.slice(0, 1)
-      : multiContextColumns;
-
-  return [...multiColumns, ...columns.value];
-});
-
-const initColumns = async (resource: string) => {
-  try {
-    columns.value = defaultGenericColumns;
-
-    const customColumns = await import(
-      `@/components/tables/helm-${resource}.ts`
-    );
-    columns.value = customColumns.columns;
-  } catch (e) {
-    error(`Error initializing columns for ${resource}: ${e}`);
-  }
-};
-
-const initRowActions = async (resource: string) => {
-  try {
-    rowActions.value = [];
-
-    actions.value = null;
-    actions.value = await import(`@/actions/helm-${resource}.ts`);
-
-    rowActions.value = [
-      ...rowActions.value,
-      ...(actions.value
-        ? actions.value.actions(
-            addTab,
-            spawnDialog,
-            setSidePanelComponent,
-            router
-          )
-        : []),
-    ];
-  } catch (e) {
-    error(`Error initializing row actions for ${resource}: ${e}`);
-  }
-};
-
-const rowClasses = (row: any) => {
-  if (route.query.uid) {
-    return row.metadata.uid === route.query.uid
-      ? "animate-pulse-highlight-once"
-      : "";
-  }
-
-  return "";
-};
-
-const tagRows = (rows: any[], ctx: string, kc: string) => {
-  return rows.map((row: any) => ({
-    ...row,
-    metadata: {
-      context: ctx,
-      kubeConfig: kc,
-    },
-  }));
-};
-
-/* Runs helm and parses its JSON output; non-zero exits throw with stderr. */
-const helmJson = async (args: string[]): Promise<any[]> => {
-  const { stdout, stderr, code } = await Command.create("helm", args).execute();
-  if (code !== 0) {
-    throw new Error(stderr.trim() || `helm ${args[0]} exited with code ${code}`);
-  }
-
-  const parsed = JSON.parse(stdout || "[]");
-  return Array.isArray(parsed) ? parsed : [];
-};
+import { listReleases } from "@/lib/helmApi";
+import { releaseRow, sortReleases, type HelmReleaseRow } from "@/lib/helm";
+import { openHelmReleasePanel } from "@/views/helm/panel";
 
 /*
- * `helm list` for one context; namespace scopes are fetched in parallel. Each
- * row carries the context + kubeconfig it was fetched with so rollback /
- * delete target the right cluster.
+ * Helm releases of every active context, read natively from helm's
+ * storage objects (no helm binary). A refresh only decodes releases that
+ * changed, so the list polls often enough to feel live. Clicking a
+ * release opens its story in the side panel.
  */
-const fetchHelmReleasesForContext = async (
-  ctx: string,
-  namespaces: string[]
-): Promise<object[]> => {
-  const kubeConfig = contextKubeConfigMapping.value.get(ctx) || "";
-  const baseArgs = ["list", "--kube-context", ctx, "-o", "json"];
-  if (kubeConfig) {
-    baseArgs.push("--kubeconfig", kubeConfig);
-  }
+const route = useRoute();
+const router = useRouter();
+const { contexts, contextKubeConfigMapping } = injectStrict(KubeContextStateKey);
+const addTab = injectStrict(PanelProviderAddTabKey);
+const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
+const setSidePanelComponent = injectStrict(PanelProviderSetSidePanelComponentKey);
 
-  const scopes: (string | null)[] = namespaces.includes("all")
-    ? [null]
-    : namespaces;
+const rowActions = actions(addTab, spawnDialog, setSidePanelComponent, router);
+const tableColumns: ColumnDef<any>[] = [...multiContextColumns, ...(columns as ColumnDef<any>[])];
 
-  const results = await Promise.all(
-    scopes.map((nsScope) =>
-      helmJson([
-        ...baseArgs,
-        ...(nsScope ? ["--namespace", nsScope] : ["--all-namespaces"]),
-      ])
-    )
+const loadReleases = async (): Promise<ResourceListResult<HelmReleaseRow>> => {
+  const activeContexts = [...contexts.value.entries()];
+  const results = await Promise.allSettled(
+    activeContexts.map(([ctx, namespaces]) => {
+      const kubeConfig = contextKubeConfigMapping.value.get(ctx) || "";
+      return listReleases({ context: ctx, kubeConfig }, namespaces).then((list) =>
+        list.map((release) => releaseRow(release, ctx, kubeConfig))
+      );
+    })
   );
 
-  return tagRows(results.flat(), ctx, kubeConfig);
-};
+  const items: HelmReleaseRow[] = [];
+  const failures: ContextFailure[] = [];
+  results.forEach((result, i) => {
+    const ctx = activeContexts[i][0];
+    if (result.status === "fulfilled") {
+      items.push(...result.value);
+    } else {
+      failures.push({
+        context: ctx,
+        kubeConfig: contextKubeConfigMapping.value.get(ctx) || "",
+        reason: result.reason,
+      });
+      error(`Failed to read Helm releases of ${ctx}: ${result.reason}`);
+    }
+  });
 
-/*
- * Releases are aggregated per active context (in parallel). `helm search
- * repo` searches the local repository cache - it is not cluster-scoped, so it
- * runs once using the primary context. Superseded fetches (resource or
- * context switches mid-fetch) are dropped by useResourceList.
- */
-const loadHelmResource = async (): Promise<ResourceListResult<object>> => {
-  const resource = currentResource.value;
-
-  if (resource === "release") {
-    const activeContexts = [...contexts.value.entries()];
-    const results = await Promise.allSettled(
-      activeContexts.map(([ctx, namespaces]) =>
-        fetchHelmReleasesForContext(ctx, namespaces)
-      )
-    );
-
-    const items: object[] = [];
-    const failures: ContextFailure[] = [];
-    results.forEach((result, i) => {
-      if (result.status === "fulfilled") {
-        items.push(...result.value);
-      } else {
-        const ctx = activeContexts[i][0];
-        failures.push({
-          context: ctx,
-          kubeConfig: contextKubeConfigMapping.value.get(ctx) || "",
-          reason: result.reason,
-        });
-        error(`Failed to fetch helm releases for context ${ctx}: ${result.reason}`);
-      }
-    });
-
-    return { items, failures, attempted: activeContexts.length };
-  }
-
-  const args = ["search", "repo", "-o", "json"];
-  const rows = await helmJson(args);
-  return { items: tagRows(rows, context.value, kubeConfig.value) };
+  return { items: sortReleases(items), failures, attempted: activeContexts.length };
 };
 
 const {
-  items: resourceData,
+  items: releases,
   loading,
   error: loadError,
   lastUpdated,
   retry,
-} = useResourceList(loadHelmResource, {
-  // helm is comparatively slow (it decodes release secrets, and every run
-  // re-runs exec credential plugins), poll gently. Polling pauses while the
-  // window is hidden (useDataRefresher).
-  interval: 15000,
-  dependencies: [contexts.value, currentResource],
+} = useResourceList(loadReleases, {
+  // Reads metadata and decodes only what changed: cheap enough to poll.
+  // Polling pauses while the window is hidden (useDataRefresher).
+  interval: 8000,
+  dependencies: [contexts.value],
 });
 
-const resourceName = computed(() =>
-  currentResource.value === "release" ? "releases" : "charts"
-);
+const rowClasses = (row: HelmReleaseRow) =>
+  route.query.release && row.name === route.query.release && row.namespace === route.query.namespace
+    ? "animate-pulse-highlight-once"
+    : "";
 
-onBeforeRouteUpdate(async (to) => {
-  currentResource.value = to.query.resource as string;
+const showRelease = (row: HelmReleaseRow) => openHelmReleasePanel(setSidePanelComponent, row);
 
-  await initColumns(to.query.resource as string);
-  await initRowActions(to.query.resource as string);
+/* `?release=&namespace=` (e.g. after an install): open it once it's listed. */
+let opened = "";
+watch([releases, () => route.query.release], () => {
+  const wanted = `${route.query.release ?? ""}/${route.query.namespace ?? ""}`;
+  if (!route.query.release || opened === wanted) return;
+  const row = releases.value.find(
+    (r) => r.name === route.query.release && r.namespace === route.query.namespace
+  );
+  if (row) {
+    opened = wanted;
+    showRelease(row);
+  }
 });
 
-onMounted(() => {
-  initColumns(route.query.resource as string);
-  initRowActions(route.query.resource as string);
-});
+const installChart = () => router.push({ name: "HelmChartsPage" });
 </script>
 <template>
   <DataTable
-    :key="currentResource"
-    :data="resourceData"
+    :data="releases"
     :loading="loading"
     :error="loadError"
     :last-updated="lastUpdated"
-    :resource-name="resourceName"
+    resource-name="releases"
     :columns="tableColumns"
     :allow-filter="true"
     :sticky-headers="true"
     :row-actions="rowActions"
     :row-classes="rowClasses"
+    empty-description="Releases you install with Helm show up here."
+    @row-clicked="showRelease"
     @retry="retry"
-  />
+  >
+    <template #action-buttons>
+      <Button size="sm" variant="outline" title="Find a chart and install it" @click="installChart">
+        <Plus class="h-3.5 w-3.5" />
+        Install
+      </Button>
+    </template>
+    <template #empty-action>
+      <Button size="sm" variant="outline" @click="installChart">
+        <Plus class="h-3.5 w-3.5" />
+        Install a chart
+      </Button>
+    </template>
+  </DataTable>
 </template>

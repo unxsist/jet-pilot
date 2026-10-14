@@ -133,6 +133,8 @@ const props = withDefaults(
     lastUpdated?: Date | null;
     /** Plural resource name for the empty state, e.g. "pods". */
     resourceName?: string;
+    /** What the empty state says (an `empty-action` slot adds a button). */
+    emptyDescription?: string;
     /**
      * Key for persisted column order / widths / visibility / grouping
      * (localStorage `jet.table.<key>`). Defaults to `resourceName` for
@@ -1987,10 +1989,13 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
                     <EmptyState
                       v-else
                       :title="`No ${emptyResourceName}`"
-                      description="Nothing to show for the selected contexts and namespaces."
+                      :description="emptyDescription ?? 'Nothing to show for the selected contexts and namespaces.'"
                     >
                       <template #icon>
                         <KindIcon :name="emptyResourceName" />
+                      </template>
+                      <template v-if="$slots['empty-action']" #action>
+                        <slot name="empty-action" />
                       </template>
                     </EmptyState>
                   </td>
