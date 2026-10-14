@@ -340,6 +340,124 @@ const screens = {
       await wait(1500);
     },
   },
+  /* --------------------------------------------------------- helm -- */
+  "helm-releases": { url: "/helm-releases?resource=release&kind=Release", ready: "tbody tr td", settle: 1200 },
+  "helm-release-panel": {
+    url: "/helm-releases?resource=release&kind=Release",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "payments-api" }).first().click();
+      await page.waitForSelector("text=Resources", { timeout: 8000 }).catch(() => {});
+      await wait(1500);
+    },
+  },
+  "helm-release-failed": {
+    url: "/helm-releases?resource=release&kind=Release",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "checkout" }).first().click();
+      await page.waitForSelector("text=Resources", { timeout: 8000 }).catch(() => {});
+      await wait(1500);
+    },
+  },
+  "helm-release-history": {
+    url: "/helm-releases?resource=release&kind=Release",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "payments-api" }).first().click();
+      await page.waitForSelector("[aria-label=Revisions] button", { timeout: 8000 }).catch(() => {});
+      await page.getByRole("button", { name: /^Notes/ }).click().catch(() => {});
+      await page.getByRole("button", { name: /^Resources/ }).click().catch(() => {});
+      await page.getByRole("button", { name: /^Values/ }).click().catch(() => {});
+      await wait(300);
+      const revisions = page.locator("[aria-label=Revisions] button");
+      await revisions.nth(0).click();
+      await revisions.nth(2).click();
+      await wait(600);
+    },
+  },
+  "helm-charts-search": {
+    url: "/helm-charts",
+    ready: "main, h1",
+    run: async (page) => {
+      await page.getByLabel("Search charts").fill("redis");
+      await page.waitForSelector("text=Artifact Hub", { timeout: 8000 }).catch(() => {});
+      await wait(1500);
+    },
+  },
+  "helm-charts": { url: "/helm-charts", ready: "h1", settle: 1500 },
+  "helm-install": {
+    url: "/helm-charts",
+    ready: "h1",
+    run: async (page) => {
+      await page.getByLabel("Search charts").fill("redis");
+      await wait(1200);
+      await page.locator("[data-chart]", { hasText: "redis" }).first().click();
+      await wait(700);
+      await enlargePanel(page, -420);
+      await page.waitForSelector(".monaco-editor", { timeout: 20000 }).catch(() => {});
+      await wait(1500);
+    },
+  },
+  "helm-install-preview": {
+    url: "/helm-charts",
+    ready: "h1",
+    run: async (page) => {
+      await page.getByLabel("Search charts").fill("redis");
+      await wait(1200);
+      await page.locator("[data-chart]", { hasText: "redis" }).first().click();
+      await wait(700);
+      await enlargePanel(page, -420);
+      await page.waitForSelector(".monaco-editor", { timeout: 20000 }).catch(() => {});
+      await wait(800);
+      await page.getByRole("button", { name: /^Preview/ }).click();
+      await page.waitForSelector("text=objects", { timeout: 10000 }).catch(() => {});
+      await wait(1200);
+    },
+  },
+  "helm-install-done": {
+    url: "/helm-charts",
+    ready: "h1",
+    run: async (page) => {
+      await page.getByLabel("Search charts").fill("redis");
+      await wait(1200);
+      await page.locator("[data-chart]", { hasText: "redis" }).first().click();
+      await wait(700);
+      await enlargePanel(page, -420);
+      await page.waitForSelector(".monaco-editor", { timeout: 20000 }).catch(() => {});
+      await wait(800);
+      await page.getByRole("button", { name: /^Preview/ }).click();
+      await page.waitForSelector("text=objects", { timeout: 10000 }).catch(() => {});
+      await page.getByRole("button", { name: /^Install/ }).last().click();
+      await wait(600);
+      await page.getByRole("button", { name: /^Install$/ }).last().click().catch(() => {});
+      await page.waitForSelector("text=Installed", { timeout: 10000 }).catch(() => {});
+      await wait(1000);
+    },
+  },
+  "helm-repos": {
+    url: "/helm-charts",
+    ready: "h1",
+    run: async (page) => {
+      await page.getByRole("tab", { name: /Repositories/ }).click();
+      await wait(900);
+    },
+  },
+  "helm-repo-add": {
+    url: "/helm-charts",
+    ready: "h1",
+    run: async (page) => {
+      await page.getByRole("tab", { name: /Repositories/ }).click();
+      await wait(600);
+      await page.getByRole("button", { name: /Add repository/ }).first().click();
+      await wait(300);
+      await page.locator("#helm-repo-name").fill("bitnami");
+      await page.locator("#helm-repo-url").fill("grafana.github.io/helm-charts");
+      await page.locator("#helm-repo-url").blur();
+      await wait(500);
+    },
+  },
+  "helm-charts-norepos": { url: "/helm-charts?scenario=helm-norepos", ready: "h1", settle: 1500 },
   "debug-dialog": {
     url: "/pods",
     ready: "tbody tr td",

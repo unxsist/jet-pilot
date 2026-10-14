@@ -31,6 +31,7 @@ import {
   MoveVertical,
   Network,
   Package,
+  PackageSearch,
   Plug,
   Puzzle,
   Rocket,
@@ -132,6 +133,8 @@ const ICONS: Record<string, Component> = {
 
   // App surfaces
   helm: Ship,
+  releases: Ship,
+  "helm-charts": PackageSearch,
   diagram: Workflow,
   gitops: GitMerge,
   clustershub: Cloud,

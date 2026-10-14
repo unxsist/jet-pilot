@@ -6,7 +6,7 @@
  *   destructive actions). Viewing, describe, logs, port forwards, shells and
  *   copying files out of a container keep working.
  * - Protected clusters (production): destructive actions, scaling to zero,
- *   Helm upgrades / rollbacks / uninstalls and applying YAML need a typed
+ *   Helm installs / upgrades / rollbacks / uninstalls and applying YAML need a typed
  *   confirmation (the resource name, or a count like "3 pods" for several).
  *   Applied YAML always passes a server-side dry run first.
  * - Other clusters: unchanged (the app's own confirmations, where it has
@@ -29,6 +29,7 @@ export type ActionKind =
   | "create"
   | "replace"
   | "edit-secret"
+  | "helm-install"
   | "helm-upgrade"
   | "helm-rollback"
   | "helm-uninstall"
@@ -74,6 +75,7 @@ const EFFECTS: Record<ActionKind, ActionEffect> = {
   create: "mutate",
   replace: "mutate",
   "edit-secret": "mutate",
+  "helm-install": "mutate",
   "helm-upgrade": "mutate",
   "helm-rollback": "mutate",
   "cronjob-trigger": "mutate",
@@ -108,6 +110,7 @@ const TYPED = new Set<ActionKind>([
   ...(Object.keys(EFFECTS) as ActionKind[]).filter(
     (kind) => EFFECTS[kind] === "destructive"
   ),
+  "helm-install",
   "helm-upgrade",
   "helm-rollback",
   ...APPLIES,
@@ -125,6 +128,7 @@ const CONFIRMED = new Set<ActionKind>([
   "pause",
   "resume",
   "rollback",
+  "helm-install",
   "helm-upgrade",
   "helm-rollback",
   "helm-uninstall",
@@ -245,6 +249,7 @@ const VERBS: Partial<Record<ActionKind, string>> = {
   "scale-to-zero": "Scale to 0",
   "edit-secret": "Apply",
   replace: "Apply",
+  "helm-install": "Install",
   "helm-upgrade": "Upgrade",
   "helm-rollback": "Roll back",
   "helm-uninstall": "Uninstall",

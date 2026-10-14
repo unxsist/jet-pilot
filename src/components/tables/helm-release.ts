@@ -1,47 +1,68 @@
+import { h } from "vue";
 import { ColumnDef } from "@tanstack/vue-table";
 import { ageColumn } from "./age";
-import { statusTone } from "@/components/ui/status";
-import { monoCell, mutedCell, statusCell } from "./cells";
-import { parseJSON } from "date-fns";
+import { StatusDot } from "@/components/ui/status";
+import { monoCell, mutedCell } from "./cells";
+import { releaseStatus, type HelmReleaseRow } from "@/lib/helm";
 
-export const columns: ColumnDef<any>[] = [
+/*
+ * Releases read calm: name, chart and how it's doing. Healthy releases
+ * stay quiet (a green dot), failed and pending ones say so in colour;
+ * pending ones pulse while helm is still at work. Revision and app
+ * version are a View › Columns away.
+ */
+const statusLabelClass = {
+  success: "text-foreground",
+  warning: "text-warning",
+  destructive: "text-destructive",
+  muted: "text-muted-foreground",
+  info: "text-foreground",
+  primary: "text-foreground",
+} as const;
+
+export const columns: ColumnDef<HelmReleaseRow>[] = [
   {
     accessorKey: "name",
     header: "Name",
+    size: 260,
   },
   {
-    accessorKey: "namespace",
-    header: "Namespace",
-    meta: { class: () => mutedCell },
-  },
-  {
-    accessorKey: "chart",
+    id: "chart",
     header: "Chart",
-    meta: { class: () => monoCell },
+    size: 280,
+    accessorFn: (row) => `${row.chart} ${row.chartVersion}`,
+    cell: ({ row }) =>
+      h("span", { class: "inline-flex min-w-0 max-w-full items-baseline gap-1.5" }, [
+        h("span", { class: "truncate" }, row.original.chart || "–"),
+        row.original.chartVersion
+          ? h("span", { class: "shrink-0 text-xs tabular-nums text-muted-foreground" }, row.original.chartVersion)
+          : null,
+      ]),
+  },
+  {
+    accessorKey: "appVersion",
+    header: "App version",
+    meta: { class: () => monoCell, defaultHidden: true },
   },
   {
     accessorKey: "revision",
     header: "Revision",
-    meta: { numeric: true },
-  },
-  {
-    accessorKey: "app_version",
-    header: "App Version",
-    meta: { class: () => monoCell },
+    meta: { numeric: true, class: () => mutedCell, defaultHidden: true },
   },
   {
     accessorKey: "status",
     header: "Status",
+    size: 150,
+    // Sorted by the words people read.
+    accessorFn: (row) => releaseStatus(row.status).label,
     cell: ({ row }) => {
-      const status: string = row.original.status || "";
-      // uninstalled releases are history, not failures.
-      const tone = status === "uninstalled" ? "muted" : statusTone(status);
-      return statusCell(status, tone === "info" || tone === "primary" ? "none" : tone);
+      const status = releaseStatus(row.original.status);
+      return h("span", { class: "inline-flex max-w-full items-center gap-2" }, [
+        h(StatusDot, { tone: status.tone, pulse: status.busy }),
+        h("span", { class: ["truncate", statusLabelClass[status.tone]] }, status.label),
+      ]);
     },
-    enableGlobalFilter: false,
+    meta: { title: (row) => row.description || undefined },
   },
-  ageColumn<any>(
-    (row) => (row.updated ? parseJSON(row.updated) : undefined),
-    "Updated"
-  ),
+  ageColumn<HelmReleaseRow>((row) => row.updated ?? undefined, "Updated"),
 ];

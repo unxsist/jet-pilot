@@ -26,7 +26,6 @@ import KindIcon from "@/components/KindIcon.vue";
 import DiffView from "@/components/workloads/DiffView.vue";
 import ValuesEditor from "@/components/workloads/ValuesEditor.vue";
 import {
-  CliResult,
   cliErrorMessage,
   cliSucceeded,
   runCli,
@@ -38,14 +37,15 @@ import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 import { helmClusterArgs } from "@/lib/workloads";
 import { confirmDialog, guard } from "@/lib/guardrails/guard";
 import { diffLines, diffSummary } from "@/lib/diff";
+import { asError, releaseDetail } from "@/lib/helmApi";
 import {
   ChartSearchResult,
   chartVersionsByRepo,
   hasDiffPlugin,
   helmStatusTone,
-  normalizeValues,
-  parseChartField,
+  releaseStatus,
   stripAnsi,
+  valuesYaml,
 } from "@/lib/helm";
 
 /*
@@ -61,9 +61,11 @@ const props = defineProps<{
   release: {
     name: string;
     namespace: string;
+    /** Chart name. */
     chart: string;
-    app_version?: string;
-    revision: number | string;
+    chartVersion: string;
+    appVersion?: string;
+    revision: number;
     status: string;
   };
   tabId?: string;
@@ -79,11 +81,16 @@ const cluster = computed(() =>
   })
 );
 
-const installed = computed(() => parseChartField(props.release.chart));
+const installed = computed(() => ({
+  name: props.release.chart,
+  version: props.release.chartVersion,
+}));
 
 const loading = ref(true);
 const loadError = ref("");
 const currentValues = ref("");
+/* The deployed manifest, compared with the rendered upgrade. */
+const deployedManifest = ref("");
 const values = ref("");
 
 /* chart reference (repo/chart, oci://..., path) -> versions */
@@ -98,24 +105,27 @@ const wait = ref(false);
 
 const tab = ref("values");
 
-const helm = (args: string[]) => runCli("helm", [...args, ...cluster.value]);
-
 const load = async () => {
   loading.value = true;
   loadError.value = "";
 
-  const [valuesResult, searchResult, pluginResult] = await Promise.all([
-    helm(["get", "values", props.release.name, "--output=yaml"]),
+  const [detailResult, searchResult, pluginResult] = await Promise.all([
+    releaseDetail(
+      { context: props.context, kubeConfig: props.kubeConfig },
+      props.release.namespace,
+      props.release.name
+    ).catch((e) => asError(e)),
     runCli("helm", ["search", "repo", installed.value.name, "--versions", "--output=json"]),
     runCli("helm", ["plugin", "list"]),
   ]);
 
-  if (!cliSucceeded(valuesResult)) {
-    loadError.value = cliErrorMessage(valuesResult);
+  if (detailResult instanceof Error) {
+    loadError.value = detailResult.message;
     loading.value = false;
     return;
   }
-  currentValues.value = normalizeValues(valuesResult.stdout);
+  currentValues.value = valuesYaml(detailResult.values);
+  deployedManifest.value = detailResult.manifest;
   values.value = currentValues.value;
   diffPlugin.value = cliSucceeded(pluginResult) && hasDiffPlugin(pluginResult.stdout);
 
@@ -216,14 +226,10 @@ const runPreview = async () => {
       return;
     }
 
-    const [deployed, rendered] = await Promise.all([
-      helm(["get", "manifest", props.release.name]),
-      runHelmWithValues(["template", ...chartArgs(), ...cluster.value], values.value),
-    ]);
-    const failed = [deployed, rendered].find((r) => !cliSucceeded(r)) as CliResult | undefined;
-    preview.value = failed
-      ? { kind: "error", message: cliErrorMessage(failed) }
-      : { kind: "manifest", old: deployed.stdout, new: rendered.stdout };
+    const rendered = await runHelmWithValues(["template", ...chartArgs(), ...cluster.value], values.value);
+    preview.value = cliSucceeded(rendered)
+      ? { kind: "manifest", old: deployedManifest.value, new: rendered.stdout }
+      : { kind: "error", message: cliErrorMessage(rendered) };
   } finally {
     previewing.value = false;
   }
@@ -345,8 +351,8 @@ onMounted(load);
       <span class="hidden truncate text-xs text-muted-foreground md:inline"
         >{{ context }} › {{ release.namespace }}</span
       >
-      <Badge variant="outline" size="sm" class="font-mono">{{ release.chart }}</Badge>
-      <Badge :variant="helmStatusTone(release.status)" size="sm">{{ release.status }}</Badge>
+      <Badge variant="outline" size="sm">{{ release.chart }} {{ release.chartVersion }}</Badge>
+      <Badge :variant="helmStatusTone(release.status)" size="sm">{{ releaseStatus(release.status).label }}</Badge>
       <span class="ml-auto text-xs tabular-nums text-muted-foreground"
         >revision {{ release.revision }}</span
       >
@@ -448,8 +454,8 @@ onMounted(load);
             />
             <p class="text-xs text-muted-foreground">
               Installed: <span class="font-mono">{{ installed.version || "unknown" }}</span>
-              <template v-if="release.app_version">
-                (app <span class="font-mono">{{ release.app_version }}</span>)</template
+              <template v-if="release.appVersion">
+                (app <span class="font-mono">{{ release.appVersion }}</span>)</template
               >
             </p>
           </div>

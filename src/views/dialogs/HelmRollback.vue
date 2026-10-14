@@ -18,18 +18,22 @@ import { runCli, cliSucceeded, cliErrorMessage } from "@/actions/command";
 import { useToast } from "@/components/ui/toast";
 const { toast } = useToast();
 
-import { parseJSON } from "date-fns";
-import { formatDateTime } from "@/lib/utils";
+import { formatAge } from "@/components/tables/age";
+import { errorText } from "@/lib/auth/classify";
+import { releaseHistory } from "@/lib/helmApi";
+import type { HelmRevision } from "@/lib/helm";
 import { error } from "@/lib/logger";
 import { guard } from "@/lib/guardrails/guard";
 
 const rollbackRevision = ref<string>("");
-const revisions = ref<any[]>([]);
+const revisions = ref<HelmRevision[]>([]);
 
-const sortedRevisions = computed(() => {
-  // Sort the revisions in descending order
-  return revisions.value.slice().sort((a, b) => b.revision - a.revision);
-});
+/* Every revision but the current one, newest first. */
+const sortedRevisions = computed(() =>
+  revisions.value
+    .filter((r) => r.revision !== Number(props.release.revision))
+    .sort((a, b) => b.revision - a.revision)
+);
 
 const props = defineProps<{
   context: string;
@@ -50,7 +54,7 @@ const rollback = async () => {
   const args = [
     "rollback",
     props.release.name,
-    rollbackRevision.value.toString(),
+    rollbackRevision.value,
     "--kube-context",
     props.context,
     "--namespace",
@@ -77,8 +81,8 @@ const rollback = async () => {
 
   if (cliSucceeded(result)) {
     toast({
-      title: "Rollback successful",
-      description: `Rolled back ${props.release.name} to revision ${rollbackRevision.value}`,
+      title: `Rolled back ${props.release.name}`,
+      description: `Now running revision ${rollbackRevision.value} again, as a new revision`,
       autoDismiss: true,
     });
     emit("closeDialog");
@@ -90,7 +94,7 @@ const rollback = async () => {
     `Error rolling back release ${props.release.name} to revision ${rollbackRevision.value}: ${message}`
   );
   toast({
-    title: `Rollback of ${props.release.name} failed`,
+    title: `Couldn't roll back ${props.release.name}`,
     description: message,
     variant: "destructive",
     duration: 15000,
@@ -98,30 +102,14 @@ const rollback = async () => {
 };
 
 const fetchRevisions = async () => {
-  const args = [
-    "history",
-    props.release.name,
-    "--output",
-    "json",
-    "--kube-context",
-    props.context,
-    "--namespace",
-    props.release.namespace,
-  ];
-  if (props.kubeConfig) {
-    args.push("--kubeconfig", props.kubeConfig);
-  }
-
-  const result = await runCli("helm", args);
-  if (!cliSucceeded(result)) {
-    error(`Error fetching Helm release history: ${cliErrorMessage(result)}`);
-    return;
-  }
-
   try {
-    revisions.value = JSON.parse(result.stdout);
+    revisions.value = await releaseHistory(
+      { context: props.context, kubeConfig: props.kubeConfig },
+      props.release.namespace,
+      props.release.name
+    );
   } catch (e) {
-    error(`Error parsing Helm release history: ${e}`);
+    error(`Error reading the Helm release history: ${errorText(e)}`);
   }
 };
 
@@ -131,22 +119,20 @@ onMounted(() => {
 </script>
 <template>
   <div class="grid gap-1.5">
-    <Label for="helm-rollback-revision" class="text-muted-foreground"
-      >Roll back {{ release.name }} to</Label
-    >
+    <Label for="helm-rollback-revision" class="text-muted-foreground">Revision</Label>
     <Select v-model="rollbackRevision">
       <SelectTrigger id="helm-rollback-revision">
-        <SelectValue placeholder="Select a revision" />
+        <SelectValue placeholder="Pick a revision" />
       </SelectTrigger>
       <SelectContent>
         <SelectGroup>
           <SelectLabel>Revisions</SelectLabel>
           <template v-for="revision in sortedRevisions" :key="revision.revision">
-            <SelectItem :value="revision.revision">
-              <span class="font-mono tabular-nums">#{{ revision.revision }}</span>
-              · {{ revision.chart }} · {{ revision.app_version }}
+            <SelectItem :value="String(revision.revision)">
+              <span class="tabular-nums">#{{ revision.revision }}</span>
+              · {{ revision.chartVersion }}
               <span class="text-muted-foreground">
-                · {{ formatDateTime(parseJSON(revision.updated)) }}</span
+                · {{ revision.description }} · {{ formatAge(revision.updated) }} ago</span
               >
             </SelectItem>
           </template>
@@ -163,7 +149,7 @@ onMounted(() => {
     >
       <Loader2 v-if="rollingBack" class="h-3.5 w-3.5 animate-spin" />
       <Undo2 v-else class="h-3.5 w-3.5" />
-      Rollback
+      Roll back
     </Button>
   </AlertDialogFooter>
 </template>

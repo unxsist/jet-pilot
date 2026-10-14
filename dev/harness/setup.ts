@@ -71,6 +71,7 @@ import {
 import { HUB_CLUSTER_RECORDS, HUB_FILES, hubStatus } from "./clusters";
 import { createManagedMocks } from "./managed";
 import { createCloudMocks } from "./cloud";
+import { createHelmMocks } from "./helm";
 import { installAuthMocks } from "./auth";
 import { handleKubeRequest } from "./kubeApi";
 import { createGitopsMocks } from "./gitops";
@@ -679,6 +680,8 @@ async function shellExecute(program: string, args: string[]) {
   const context = argValue(args, "--context") || argValue(args, "--kube-context") || CONTEXTS[0].name;
 
   if (program === "helm") {
+    const handled = await helm.shell(args);
+    if (handled) return handled;
     if (args[0] === "list") {
       const ns = argValue(args, "--namespace");
       const releases = clusters[context].helmReleases.filter((r) => !ns || r.namespace === ns);
@@ -1264,6 +1267,8 @@ const managed = createManagedMocks(scenario, () =>
 const cloud = createCloudMocks(scenario, sendToChannel, managed);
 /* Flux / Argo CD fixtures, patch routes, ?scenario=no-gitops (dev/harness/gitops.ts). */
 const gitops = createGitopsMocks(scenario, emitWatchChange);
+/* Helm releases, charts, repositories and Artifact Hub (dev/harness/helm.ts). */
+const helm = createHelmMocks(scenario);
 let probeBatches = 0;
 
 /* ------------------------------------------------------------------ fs -- */
@@ -1432,6 +1437,7 @@ mockIPC(
     if (cmd in managed.handlers) return managed.handlers[cmd]!(p);
     if (cmd in cloud.handlers) return cloud.handlers[cmd]!(p);
     if (cmd in gitops.handlers) return gitops.handlers[cmd]!(p);
+    if (cmd in helm.handlers) return helm.handlers[cmd]!(p);
     switch (cmd) {
       // fs / path / app / os / updater / window / clipboard
       case "plugin:fs|exists":
@@ -1712,6 +1718,7 @@ mockIPC(
         return null;
       }
       case "run_helm_with_values":
+        if (p.args[0] === "install") return helm.install(p.args, p.values);
         await sleep(300);
         return helmWithValues(p.args, p.values);
       case "start_log_stream":

@@ -1,0 +1,114 @@
+{
+  "name": "payments-api",
+  "info": {
+    "first_deployed": "2026-01-03T10:00:00.000000000+01:00",
+    "last_deployed": "2026-10-12T10:15:30.123456789+02:00",
+    "deleted": "",
+    "description": "Upgrade complete",
+    "status": "deployed",
+    "notes": "1. Get the application URL by running these commands:\n  export POD_NAME=$(kubectl get pods --namespace payments -l \"app.kubernetes.io/name=payments-api\" -o jsonpath=\"{.items[0].metadata.name}\")\n  kubectl --namespace payments port-forward $POD_NAME 8080:8080\n"
+  },
+  "chart": {
+    "metadata": {
+      "name": "payments-api",
+      "home": "https://github.com/acme/payments-api",
+      "sources": [
+        "https://github.com/acme/charts"
+      ],
+      "version": "2.14.3",
+      "description": "Payments API for the Acme storefront",
+      "keywords": [
+        "payments"
+      ],
+      "maintainers": [
+        {
+          "name": "Platform team",
+          "email": "platform@acme.dev"
+        }
+      ],
+      "icon": "https://acme.dev/payments.svg",
+      "apiVersion": "v2",
+      "appVersion": "2.14.3",
+      "type": "application"
+    },
+    "lock": null,
+    "templates": [
+      {
+        "name": "templates/deployment.yaml",
+        "data": "YXBpVmVyc2lvbjogYXBwcy92MQpraW5kOiBEZXBsb3ltZW50Cm1ldGFkYXRhOgogIG5hbWU6IHt7IGluY2x1ZGUgInBheW1lbnRzLWFwaS5mdWxsbmFtZSIgLiB9fQo="
+      }
+    ],
+    "values": {
+      "replicaCount": 2,
+      "image": {
+        "repository": "ghcr.io/acme/payments-api",
+        "tag": "",
+        "pullPolicy": "IfNotPresent"
+      },
+      "podAnnotations": {},
+      "resources": {
+        "requests": {
+          "cpu": "250m",
+          "memory": "256Mi"
+        }
+      }
+    },
+    "schema": "eyIkc2NoZW1hIjogImh0dHA6Ly9qc29uLXNjaGVtYS5vcmcvZHJhZnQtMDcvc2NoZW1hIyIsICJ0eXBlIjogIm9iamVjdCIsICJwcm9wZXJ0aWVzIjogeyJyZXBsaWNhQ291bnQiOiB7InR5cGUiOiAiaW50ZWdlciIsICJtaW5pbXVtIjogMX0sICJpbWFnZSI6IHsidHlwZSI6ICJvYmplY3QiLCAicHJvcGVydGllcyI6IHsicmVwb3NpdG9yeSI6IHsidHlwZSI6ICJzdHJpbmcifSwgInRhZyI6IHsidHlwZSI6ICJzdHJpbmcifX19fX0=",
+    "files": [
+      {
+        "name": ".helmignore",
+        "data": "LmdpdC8K"
+      }
+    ]
+  },
+  "config": {
+    "replicaCount": 4,
+    "image": {
+      "tag": "v2.14.3"
+    },
+    "podAnnotations": null
+  },
+  "manifest": "---\n# Source: payments-api/templates/serviceaccount.yaml\napiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: payments-api\n  labels:\n    app.kubernetes.io/name: payments-api\n---\n# Source: payments-api/templates/service.yaml\napiVersion: v1\nkind: Service\nmetadata:\n  name: payments-api\nspec:\n  ports:\n    - port: 80\n      targetPort: 8080\n---\n# Source: payments-api/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: payments-api\nspec:\n  replicas: 4\n  template:\n    spec:\n      containers:\n        - name: payments-api\n          image: ghcr.io/acme/payments-api:v2.14.3\n",
+  "hooks": [
+    {
+      "name": "payments-api-test-connection",
+      "kind": "Pod",
+      "path": "payments-api/templates/tests/test-connection.yaml",
+      "manifest": "apiVersion: v1\nkind: Pod\nmetadata:\n  name: payments-api-test-connection\n",
+      "events": [
+        "test"
+      ],
+      "last_run": {
+        "started_at": "",
+        "completed_at": "",
+        "phase": ""
+      },
+      "weight": 0,
+      "delete_policies": [
+        "before-hook-creation"
+      ]
+    },
+    {
+      "name": "payments-api-migrate",
+      "kind": "Job",
+      "path": "payments-api/templates/migrate-job.yaml",
+      "manifest": "apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: payments-api-migrate\n",
+      "events": [
+        "pre-upgrade",
+        "pre-install"
+      ],
+      "last_run": {
+        "started_at": "2026-10-12T08:14:02.5Z",
+        "completed_at": "2026-10-12T08:15:01.1Z",
+        "phase": "Succeeded"
+      },
+      "weight": -5,
+      "delete_policies": [
+        "hook-succeeded"
+      ]
+    }
+  ],
+  "version": 42,
+  "namespace": "payments",
+  "labels": null
+}

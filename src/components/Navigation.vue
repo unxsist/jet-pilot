@@ -396,22 +396,19 @@ onUnmounted(stopRecovered);
             <NavigationGroup title="Helm">
               <NavigationItem
                 icon="helm"
-                title="Charts"
-                custom-command-title="Helm Charts"
-                :to="{
-                  path: '/helm-charts',
-                  query: { resource: 'chart', kind: 'Chart' },
-                }"
-                :can-pin="false"
-              />
-              <NavigationItem
-                icon="helm"
                 title="Releases"
                 custom-command-title="Helm Releases"
                 :to="{
                   path: '/helm-releases',
                   query: { resource: 'release', kind: 'Release' },
                 }"
+                :can-pin="false"
+              />
+              <NavigationItem
+                icon="helm-charts"
+                title="Charts"
+                custom-command-title="Helm Charts"
+                :to="{ path: '/helm-charts' }"
                 :can-pin="false"
               />
             </NavigationGroup>
