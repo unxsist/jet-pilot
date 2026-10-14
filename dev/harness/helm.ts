@@ -318,6 +318,10 @@ interface CatalogChart {
   notes: string;
 }
 
+/* A dark mark on a transparent background (checks logo tiles in the dark theme). */
+const svgMark = (path: string) =>
+  `data:image/svg+xml;base64,${btoa(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">${path}</svg>`)}`;
+
 const svgLogo = (fill: string, path: string) =>
   `data:image/svg+xml;base64,${btoa(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="${fill}"/>${path}</svg>`)}`;
 
@@ -552,6 +556,7 @@ To connect to your Redis® server, run a client pod:
     name: "redis-ha",
     description: "This Helm chart provides a highly available Redis implementation with a master/slave configuration and uses Sentinel sidecars for failover management",
     versions: [{ version: "4.27.6", appVersion: "7.2.4", daysAgo: 160 }],
+    logo: "d1d2d3d4-2222-4c4c-9e9e-7f7f7f7f7f7f",
     stars: 40,
     home: "https://redis.io",
     values: "replicas: 3\n",
@@ -564,6 +569,9 @@ const LOGOS: Record<string, string> = {
   "e3f8a3f6-1d55-4a3f-8a52-3c1a9c1e0b11": svgLogo("#dc382d", '<path d="M14 26l18-8 18 8-18 8z" fill="#fff"/><path d="M14 34l18 8 18-8" stroke="#fff" stroke-width="4" fill="none"/>'),
   "371d5e57-34c4-46ef-909e-658c1502ced8": svgLogo("#336791", '<circle cx="32" cy="30" r="14" fill="#fff"/><circle cx="27" cy="27" r="3" fill="#336791"/>'),
   "6d75ecff-a328-495b-a7fc-12cd84499974": svgLogo("#326ce5", '<path d="M20 34l8 8 16-18" stroke="#fff" stroke-width="6" fill="none" stroke-linecap="round"/>'),
+  "d1d2d3d4-2222-4c4c-9e9e-7f7f7f7f7f7f": svgMark(
+    '<path d="M10 40 L32 14 L54 40 Z" fill="#1b1f2a"/><rect x="18" y="42" width="28" height="8" rx="2" fill="#1b1f2a"/>'
+  ),
   "b8a3c1d2-1111-4c4c-9e9e-6f6f6f6f6f6f": svgLogo("#ef7b4d", '<circle cx="32" cy="30" r="13" fill="#fff"/><circle cx="32" cy="30" r="6" fill="#ef7b4d"/>'),
 };
 

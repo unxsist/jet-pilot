@@ -31,17 +31,27 @@ const blocks = computed(() =>
       >{{ block.text }}</p>
       <div
         v-else
-        class="group/copy relative rounded-lg border border-border-subtle bg-surface-1"
+        class="flex items-start rounded-lg border border-border-subtle bg-surface-1"
       >
         <pre
-          class="whitespace-pre-wrap py-2 pl-3 pr-9 font-mono text-xs leading-5 text-foreground break-all select-text"
+          class="notes-command min-w-0 flex-1 overflow-x-auto whitespace-pre py-2 pl-3 pr-2 font-mono text-xs leading-5 text-foreground select-text"
         >{{ block.text }}</pre>
-        <CopyButton
-          :text="block.text"
-          label="Copy command"
-          class="absolute right-1.5 top-1.5 opacity-60 group-hover/copy:opacity-100 focus-visible:opacity-100"
-        />
+        <CopyButton :text="block.text" label="Copy command" class="m-1" />
       </div>
     </template>
   </div>
 </template>
+
+<style scoped>
+/* Commands stay on their lines (never broken inside a word): they scroll
+   sideways, with a thin scrollbar that only shows on hover. */
+.notes-command::-webkit-scrollbar {
+  height: 6px;
+}
+.notes-command::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+.notes-command:hover::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--scrollbar));
+}
+</style>

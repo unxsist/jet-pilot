@@ -6,7 +6,9 @@ import { artifactHubLogo } from "@/lib/helmApi";
 /*
  * A chart's mark: its Artifact Hub logo (fetched and cached by the
  * backend, never loaded remotely by the webview) or, without one, its
- * initial on a hue derived from the name, like cluster monograms.
+ * initial on a hue derived from the name, like cluster monograms. Logos
+ * are third-party artwork made for light backgrounds: they sit on a soft
+ * white tile in every theme (the only hard-coded colour here).
  */
 const props = withDefaults(
   defineProps<{
@@ -46,7 +48,7 @@ const sizeClass = computed(() =>
 <template>
   <span
     v-if="logo"
-    :class="cn('inline-flex shrink-0 items-center justify-center overflow-hidden bg-card p-1 ring-1 ring-inset ring-border-subtle dark:bg-foreground/90', sizeClass, props.class)"
+    :class="cn('inline-flex shrink-0 items-center justify-center overflow-hidden bg-white/90 p-1 ring-1 ring-inset ring-border-subtle', sizeClass, props.class)"
     aria-hidden="true"
   >
     <img :src="logo" alt="" class="h-full w-full object-contain" draggable="false" />
