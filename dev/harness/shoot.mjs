@@ -493,7 +493,116 @@ const screens = {
       await wait(2000);
     },
   },
+  /* ------------------------------------------- usage charts (metrics.ts) -- */
+  "metrics-pod": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openUsage(page, page.locator("tbody tr", { hasText: "OOMKilled" }).first());
+      await hoverChart(page, 1, 0.93);
+    },
+  },
+  "metrics-deployment": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openUsage(page, page.locator("tbody tr", { hasText: "payments-api" }).first());
+      await hoverChart(page, 0, 0.87);
+    },
+  },
+  "metrics-deployment-pods": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openUsage(page, page.locator("tbody tr", { hasText: "payments-worker" }).first());
+      await page.getByRole("switch", { name: "Per pod" }).click();
+      await hoverChart(page, 1, 0.6);
+    },
+  },
+  "metrics-node": {
+    url: "/nodes?resource=nodes&kind=Node",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openUsage(page, page.locator("tbody tr", { hasText: "ip-10-0-45-118" }).first());
+      await page.getByRole("tab", { name: "24h" }).click();
+      await wait(900);
+    },
+  },
+  "metrics-fallback": {
+    url: "/pods?scenario=metrics-none",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openUsage(page, page.locator("tbody tr", { hasText: "payments-api" }).first());
+      await hoverChart(page, 0, 0.7);
+    },
+  },
+  "metrics-error": {
+    url: "/pods?scenario=metrics-error",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openUsage(page, page.locator("tbody tr", { hasText: "payments-api" }).first());
+      await page.getByRole("button", { name: "Details" }).click();
+      await wait(300);
+    },
+  },
+  "metrics-cluster": {
+    url: "/clusters",
+    ready: "[role=grid]",
+    settle: 1500,
+    run: async (page) => {
+      await page.locator("[role=grid] [role=row]", { hasText: "prod-eu-west-1" }).first().click();
+      await wait(1200);
+    },
+  },
+  "metrics-namespace": {
+    url: "/namespaces?resource=namespaces&kind=Namespace",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openUsage(page, page.locator("tbody tr", { hasText: "checkout" }).first());
+      await page.getByRole("tab", { name: "7d" }).click();
+      await wait(900);
+    },
+  },
+  "metrics-settings": {
+    url: "/clusters",
+    ready: "[role=grid]",
+    settle: 1500,
+    run: async (page) => {
+      await page.locator("[role=grid] [role=row]", { hasText: "prod-eu-west-1" }).first().click();
+      await wait(1200);
+      await page.getByRole("button", { name: "Change metrics history" }).click();
+      await wait(900);
+      await page.getByRole("radio", { name: /A service I choose/ }).click();
+      await wait(500);
+    },
+  },
 };
+
+/* Opens a row's side panel, widened, with the usage charts loaded. */
+async function openUsage(page, row) {
+  await row.click();
+  await page.waitForSelector("[aria-label='Loading usage']", { state: "detached", timeout: 10000 }).catch(() => {});
+  const handles = page.locator("[data-panel-resize-handle-id]");
+  for (let i = 0; i < (await handles.count()); i++) {
+    const box = await handles.nth(i).boundingBox();
+    if (!box || box.height < box.width || box.x < 600) continue;
+    await page.mouse.move(box.x + box.width / 2, box.y + 200);
+    await page.mouse.down();
+    await page.mouse.move(box.x - 150, box.y + 200, { steps: 8 });
+    await page.mouse.up();
+    break;
+  }
+  await wait(1200);
+}
+
+/* Hovers the n-th usage chart at a fraction of its width. */
+async function hoverChart(page, n, at) {
+  const chart = page.locator("svg[role=img][tabindex='0']").nth(n);
+  const box = await chart.boundingBox().catch(() => null);
+  if (!box) return;
+  await page.mouse.move(box.x + (box.width - 46) * at, box.y + box.height * 0.4);
+  await wait(400);
+}
 
 /* Editor helpers: drive Monaco through window.monaco (harness globalAPI). */
 async function openEditor(page, rowText = "payments-api") {

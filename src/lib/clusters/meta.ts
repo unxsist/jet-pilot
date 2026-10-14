@@ -7,6 +7,7 @@
  * to that context name in every kubeconfig.
  */
 import { contextKey } from "@/lib/contextKey";
+import type { PromSource } from "@/lib/metrics/prometheus";
 
 export type Environment = "prod" | "staging" | "dev" | "test";
 
@@ -57,7 +58,12 @@ export interface ClusterMeta {
   readOnly?: boolean;
   /** Namespaces to offer when listing them isn't allowed. */
   namespaces?: string[];
+  /** Where usage history comes from; unset: a Prometheus found automatically. */
+  metrics?: MetricsSetting;
 }
+
+/** Off: only metrics-server's last minutes. Service: this Prometheus-compatible API. */
+export type MetricsSetting = { mode: "off" } | ({ mode: "service" } & PromSource);
 
 export interface ClusterRecord extends ClusterMeta {
   /** "" = this context name in any kubeconfig. */
@@ -87,6 +93,7 @@ export interface ResolvedCluster {
   folder?: string;
   tags: string[];
   namespaces: string[];
+  metrics?: MetricsSetting;
 }
 
 /**
@@ -194,6 +201,7 @@ export function resolveCluster(
     folder: record?.folder?.trim() || undefined,
     tags: record?.tags ?? [],
     namespaces: record?.namespaces ?? [],
+    metrics: record?.metrics,
   };
 }
 
