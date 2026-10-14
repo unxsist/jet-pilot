@@ -411,7 +411,7 @@ const summary = computed(() => {
           :stroke-dasharray="d.series.tone === 'neutral' ? '3 2.5' : undefined"
           stroke-linejoin="round"
           stroke-linecap="round"
-          class="transition-[stroke-opacity] duration-fast motion-reduce:transition-none"
+          class="transition-all duration-fast motion-reduce:transition-none"
         />
 
         <!-- Reference labels, over the lines (with a halo) -->
@@ -479,22 +479,22 @@ const summary = computed(() => {
 
     <div
       v-if="tooltip"
-      class="pointer-events-none absolute top-0 z-10 min-w-[7rem] max-w-[15rem] rounded-md border border-border-strong/60 bg-popover/95 px-2.5 py-1.5 text-xs shadow-md backdrop-blur-sm"
+      class="pointer-events-none absolute top-0 z-10 min-w-28 max-w-xs rounded-md border border-border-strong/60 bg-popover/95 px-2.5 py-1.5 text-xs shadow-md backdrop-blur-sm"
       :style="tooltipStyle"
       aria-live="polite"
     >
       <div class="mb-0.5 whitespace-nowrap text-2xs tabular-nums text-muted-foreground">{{ tooltip.time }}</div>
       <div v-for="row in tooltip.rows" :key="row.id" class="flex items-center gap-2 whitespace-nowrap">
-        <span class="h-0.5 w-2.5 shrink-0 rounded-full" :style="{ background: row.color }" />
+        <span class="h-0.5 w-2 shrink-0 rounded-full" :style="{ background: row.color }" />
         <span class="font-medium tabular-nums text-foreground">{{ row.text }}</span>
         <span v-if="row.label" class="min-w-0 truncate text-muted-foreground">{{ row.label }}</span>
       </div>
-      <div v-if="tooltip.more" class="pl-[18px] text-2xs text-muted-foreground">{{ tooltip.more }} more</div>
-      <div v-for="note in tooltip.notes" :key="note" class="whitespace-nowrap pl-[18px] text-2xs tabular-nums text-muted-foreground">
+      <div v-if="tooltip.more" class="pl-4 text-2xs text-muted-foreground">{{ tooltip.more }} more</div>
+      <div v-for="note in tooltip.notes" :key="note" class="whitespace-nowrap pl-4 text-2xs tabular-nums text-muted-foreground">
         {{ note }}
       </div>
       <div v-for="marker in tooltip.markers" :key="marker.index" class="mt-1 flex items-start gap-2 border-t border-border-subtle pt-1">
-        <span class="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-destructive" />
+        <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-destructive" />
         <span class="min-w-0">
           <span class="block font-medium text-destructive">{{ marker.label }}</span>
           <span v-if="marker.detail" class="block truncate text-2xs text-muted-foreground">{{ marker.detail }}</span>

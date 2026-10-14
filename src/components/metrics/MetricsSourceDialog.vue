@@ -99,6 +99,8 @@ const customSource = computed<PromSource | null>(() => {
     namespace: custom.namespace.trim(),
     service: custom.service.trim(),
     port: /^\d+$/.test(port) ? Number(port) : port,
+    // The proxy speaks TLS to the service only when told to; a port named https or 443 needs it.
+    ...(/https/.test(port) || port === "443" ? { scheme: "https" as const } : {}),
     ...(prefix ? { pathPrefix: prefix.startsWith("/") ? prefix : `/${prefix}` } : {}),
   };
 });
@@ -145,7 +147,7 @@ const LABEL = "text-xs text-muted-foreground";
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent :class="[WIZARD_DIALOG, 'max-w-[32rem]']">
+    <DialogContent :class="[WIZARD_DIALOG, 'max-w-lg']">
       <WizardHeader title="Metrics history">
         <template #icon><ChartSpline class="h-[18px] w-[18px]" /></template>
         <template #description>
@@ -173,9 +175,9 @@ const LABEL = "text-xs text-muted-foreground";
               <span class="block text-sm font-medium">{{ option.title }}</span>
               <span class="block text-xs text-muted-foreground">
                 <template v-if="option.value === 'auto'">
-                  <template v-if="discovering">
-                    <Loader2 class="mr-1 inline h-3 w-3 animate-spin align-[-2px]" />Looking for Prometheus…
-                  </template>
+                  <span v-if="discovering" class="flex items-center gap-1.5">
+                    <Loader2 class="h-3 w-3 animate-spin" /> Looking for Prometheus…
+                  </span>
                   <span v-else-if="found" class="flex min-w-0 items-center gap-1.5">
                     <StatusDot tone="success" size="sm" />
                     <span class="truncate">Uses {{ KIND_LABELS[found.kind] }}: {{ describeSource(found.source) }}</span>

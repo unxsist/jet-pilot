@@ -319,5 +319,6 @@ describe("errors", () => {
     const timeout = toPrometheusError({ code: 503, message: JSON.stringify({ status: "error", error: "query timed out" }) });
     expect(timeout.summary).toBe("Prometheus took too long to answer");
     expect(timeout.detail).toBe("query timed out");
+    expect(toPrometheusError(new SyntaxError("Unexpected token '<'")).summary).toBe("No Prometheus API at this address");
   });
 });

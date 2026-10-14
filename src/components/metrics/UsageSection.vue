@@ -168,7 +168,7 @@ const sessionRange = ref<RangeId>("6h");
             <Skeleton class="h-3 w-12" />
             <Skeleton class="h-3 w-20" />
           </div>
-          <Skeleton class="h-[112px] w-full rounded-md" />
+          <Skeleton class="h-28 w-full rounded-md" />
         </div>
       </div>
 
@@ -205,7 +205,7 @@ const sessionRange = ref<RangeId>("6h");
             <div v-if="chart.series.length > 1" class="flex items-baseline gap-3 text-xs tabular-nums">
               <span v-for="series in chart.series" :key="series.id" class="flex items-center gap-1.5">
                 <span
-                  class="h-0.5 w-2.5 self-center rounded-full"
+                  class="h-0.5 w-2 self-center rounded-full"
                   :style="{ background: TONE_COLORS[series.tone] }"
                 />
                 <span class="text-muted-foreground">{{ series.label }}</span>

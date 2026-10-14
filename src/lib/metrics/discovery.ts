@@ -8,7 +8,7 @@
  * again after a failure.
  */
 import { kubeGet, type KubeTarget } from "@/lib/kubeApi";
-import { ping, sameSource, toPrometheusError, type PromSource, type SourceKind } from "./prometheus";
+import { ping, toPrometheusError, type PromSource, type SourceKind } from "./prometheus";
 
 interface ServicePort {
   name?: string;
@@ -234,10 +234,4 @@ export function discoverCached(target: KubeTarget): Promise<Discovery> {
 /** Forgets a cluster's discovery (its API stopped answering, or the user asked to look again). */
 export function forgetDiscovery(target: KubeTarget): void {
   cache.delete(keyOf(target));
-}
-
-/** Whether `source` is what discovery found for the cluster (the "Automatic" choice). */
-export async function isDiscovered(target: KubeTarget, source: PromSource): Promise<boolean> {
-  const discovery = await discoverCached(target);
-  return sameSource(discovery.found?.source, source);
 }

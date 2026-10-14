@@ -573,6 +573,7 @@ const screens = {
       await page.getByRole("button", { name: "Change metrics history" }).click();
       await wait(900);
       await page.getByRole("radio", { name: /A service I choose/ }).click();
+      await page.mouse.move(5, 5);
       await wait(500);
     },
   },

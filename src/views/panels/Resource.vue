@@ -7,7 +7,7 @@ import Events from "@/components/generic/Events.vue";
 import Conditions from "@/components/generic/Conditions.vue";
 import Containers from "@/components/generic/Containers.vue";
 import { KubernetesObject } from "@kubernetes/client-node";
-import { hasUsage } from "@/lib/metrics/usage";
+import { hasUsage, type Subject } from "@/lib/metrics/usage";
 import {
   Boxes,
   CalendarSearch,
@@ -93,7 +93,7 @@ const annotationCount = computed(
         'annotations',
       ]"
     >
-      <UsageSection v-if="showUsage" :resource="resource as any" />
+      <UsageSection v-if="showUsage" :resource="resource as Subject" />
       <component
         v-if="getResourceSpecificComponent(resource)"
         :is="getResourceSpecificComponent(resource)"

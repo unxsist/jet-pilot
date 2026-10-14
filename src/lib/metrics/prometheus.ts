@@ -58,6 +58,10 @@ function bodyError(message: string): string | null {
 /** A thrown `kube_request` error (or a Prometheus `status: error`) as a PrometheusError. */
 export function toPrometheusError(error: unknown, source?: PromSource): PrometheusError {
   if (error instanceof PrometheusError) return error;
+  // An answer that isn't JSON: a web page, a login proxy, another API.
+  if (error instanceof SyntaxError) {
+    return new PrometheusError("No Prometheus API at this address", `The service didn't answer with JSON: ${error.message}`);
+  }
   const raw = error as { message?: string; code?: number } | string | undefined;
   const message = (typeof raw === "string" ? raw : raw?.message) || String(error);
   const code = typeof raw === "object" ? raw?.code : undefined;
