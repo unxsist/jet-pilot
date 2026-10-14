@@ -93,7 +93,7 @@ const labelClass = (health: ObjectHealth) =>
 
 <template>
   <div>
-    <div class="flex h-7 items-center gap-2 px-2 text-xs text-muted-foreground">
+    <div class="flex h-6 items-center gap-2 px-2 text-xs text-muted-foreground">
       <KindIcon :name="formatResourceKind(kind).toLowerCase()" class="h-3.5 w-3.5" />
       <span class="font-medium text-foreground/80">{{ pluralKindLabel(kind, objects.length) }}</span>
       <span class="tabular-nums">{{ objects.length }}</span>
@@ -103,7 +103,7 @@ const labelClass = (health: ObjectHealth) =>
       <li v-for="object in visible" :key="`${object.namespace}/${object.name}`">
         <button
           type="button"
-          class="group/obj flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-sm transition-colors duration-fast ease-out hover:bg-accent focus-ring"
+          class="group/row flex h-7 w-full items-center gap-2.5 rounded-md px-2 pl-8 text-left text-sm transition-colors duration-fast ease-out hover:bg-accent focus-ring"
           :title="object.source ? `From ${object.source}` : undefined"
           @click="emit('open', object, byName.get(object.name) ?? null)"
         >
@@ -123,7 +123,7 @@ const labelClass = (health: ObjectHealth) =>
             <StatusDot :tone="healthOf(object)!.tone" size="sm" :label="healthOf(object)!.label" />
           </template>
           <ChevronRight
-            class="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity duration-fast group-hover/obj:opacity-100"
+            class="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity duration-fast group-hover/row:opacity-100"
           />
         </button>
       </li>
@@ -131,7 +131,7 @@ const labelClass = (health: ObjectHealth) =>
     <button
       v-if="visible.length < ordered.length"
       type="button"
-      class="ml-2 mt-0.5 rounded-sm text-xs text-link hover:underline focus-ring"
+      class="ml-8 mt-0.5 rounded-sm text-xs text-link hover:underline focus-ring"
       @click="expanded = true"
     >
       Show {{ ordered.length - visible.length }} more

@@ -163,6 +163,9 @@ pub async fn helm_releases(
     kube_config: Option<String>,
     namespaces: Vec<String>,
 ) -> Result<Vec<HelmRelease>, SerializableKubeError> {
+    if let Some(bad) = namespaces.iter().find(|n| *n != "all" && !valid_namespace(n)) {
+        return Err(bad_request(format!("'{bad}' is not a namespace")));
+    }
     let client = client_with_context(context, kube_config.as_deref()).await?;
     let cache_key = (kube_config.clone().unwrap_or_default(), context.to_string());
 
@@ -221,7 +224,7 @@ async fn release_objects(
 ) -> Result<Vec<StoredRevision>, kube::Error> {
     let selector = format!("{HELM_SELECTOR},name={name}");
     let mut stored = list_stored(client, &[namespace.to_string()], &selector).await?;
-    stored.sort_by(|a, b| b.revision.cmp(&a.revision));
+    stored.sort_by_key(|s| std::cmp::Reverse(s.revision));
     Ok(stored)
 }
 
@@ -229,9 +232,16 @@ fn valid_release_name(name: &str) -> bool {
     !name.is_empty() && name.len() <= 53 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
 }
 
-fn invalid_name(name: &str) -> SerializableKubeError {
+/// A namespace name (it becomes part of the request path).
+fn valid_namespace(namespace: &str) -> bool {
+    !namespace.is_empty()
+        && namespace.len() <= 63
+        && namespace.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+fn bad_request(message: String) -> SerializableKubeError {
     SerializableKubeError {
-        message: format!("'{name}' is not a Helm release name"),
+        message,
         code: Some(400),
         reason: Some("BadRequest".into()),
         details: None,
@@ -247,8 +257,8 @@ pub async fn helm_history(
     namespace: &str,
     name: &str,
 ) -> Result<Vec<HelmRevision>, SerializableKubeError> {
-    if !valid_release_name(name) {
-        return Err(invalid_name(name));
+    if !valid_release_name(name) || !valid_namespace(namespace) {
+        return Err(bad_request(format!("'{name}' in '{namespace}' is not a Helm release")));
     }
     let client = client_with_context(context, kube_config.as_deref()).await?;
     let work = async {
@@ -298,8 +308,8 @@ pub async fn helm_release_detail(
     name: &str,
     revision: Option<u32>,
 ) -> Result<HelmReleaseDetail, SerializableKubeError> {
-    if !valid_release_name(name) {
-        return Err(invalid_name(name));
+    if !valid_release_name(name) || !valid_namespace(namespace) {
+        return Err(bad_request(format!("'{name}' in '{namespace}' is not a Helm release")));
     }
     let client = client_with_context(context, kube_config.as_deref()).await?;
     let work = async {
@@ -344,6 +354,14 @@ mod tests {
         assert!(!valid_release_name("a,b"));
         assert!(!valid_release_name("x=y"));
         assert!(!valid_release_name(&"a".repeat(54)));
+    }
+
+    #[test]
+    fn namespaces_are_validated() {
+        assert!(valid_namespace("kube-system"));
+        assert!(!valid_namespace(""));
+        assert!(!valid_namespace("../secrets"));
+        assert!(!valid_namespace("Payments"));
     }
 
     #[test]

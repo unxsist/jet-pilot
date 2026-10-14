@@ -87,6 +87,20 @@ const rowClasses = (row: HelmReleaseRow) =>
 
 const showRelease = (row: HelmReleaseRow) => openHelmReleasePanel(setSidePanelComponent, row);
 
+/* `?release=&namespace=` (e.g. after an install): open it once it's listed. */
+let opened = "";
+watch([releases, () => route.query.release], () => {
+  const wanted = `${route.query.release ?? ""}/${route.query.namespace ?? ""}`;
+  if (!route.query.release || opened === wanted) return;
+  const row = releases.value.find(
+    (r) => r.name === route.query.release && r.namespace === route.query.namespace
+  );
+  if (row) {
+    opened = wanted;
+    showRelease(row);
+  }
+});
+
 const installChart = () => router.push({ name: "HelmChartsPage" });
 </script>
 <template>

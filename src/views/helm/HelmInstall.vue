@@ -157,10 +157,9 @@ const loadVersion = async () => {
   try {
     let next: { values: string; schema: Record<string, unknown> | null; readme?: string; home?: string };
     if (fromHub.value) {
-      const hasSchema = (await artifactHubPackage(props.chart.repo, props.chart.name, version.value)).hasValuesSchema;
       const [text, valuesSchema] = await Promise.all([
         artifactHubValues(props.chart.packageId!, version.value),
-        hasSchema ? artifactHubValuesSchema(props.chart.packageId!, version.value).catch(() => null) : null,
+        artifactHubValuesSchema(props.chart.packageId!, version.value).catch(() => null),
       ]);
       next = { values: text, schema: valuesSchema };
     } else {
@@ -193,10 +192,14 @@ watch(version, () => {
   loadVersion();
 });
 
-onMounted(async () => {
+/* Versions, then the chosen one (a different version loads through the watch above). */
+const loadChart = async () => {
+  const before = version.value;
   await loadVersions();
-  if (!chartError.value) await loadVersion();
-});
+  if (!chartError.value && version.value === before) await loadVersion();
+};
+
+onMounted(loadChart);
 
 /* ----------------------------------------------------------- release -- */
 
@@ -219,8 +222,8 @@ watch(
       const list = await Kubernetes.getNamespaces(cluster.value, clusterKubeConfig.value);
       namespaces.value = list.map((n) => n.metadata?.name ?? "").filter(Boolean).sort();
     } catch (e) {
+      // Unknown: --create-namespace covers both cases.
       logError(`Unable to list namespaces of ${cluster.value}: ${e}`);
-      namespaces.value = [];
     }
   },
   { immediate: true }
@@ -433,11 +436,11 @@ const mark = computed(() =>
             <p class="text-sm text-muted-foreground">
               {{ chart.name }} {{ version }} is running in {{ namespace }} on {{ cluster }}.
             </p>
+            <div class="flex items-center gap-2 pt-3">
+              <Button size="sm" @click="showRelease">Show the release</Button>
+              <Button variant="ghost" size="sm" @click="tabId && closeTab(tabId)">Close</Button>
+            </div>
           </div>
-        </div>
-        <div class="flex items-center gap-2 pl-[60px]">
-          <Button size="sm" @click="showRelease">Show the release</Button>
-          <Button variant="ghost" size="sm" @click="tabId && closeTab(tabId)">Close</Button>
         </div>
         <div v-if="installed.notes.trim()" class="space-y-2 border-t pt-6">
           <h3 class="text-xs font-medium text-muted-foreground">Notes from the chart</h3>
@@ -554,7 +557,7 @@ const mark = computed(() =>
           <p
             v-if="installError"
             role="alert"
-            class="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-destructive/25 bg-destructive/5 px-2.5 py-2 text-xs text-destructive select-text"
+            class="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-destructive/20 bg-destructive/5 px-2.5 py-2 text-xs text-destructive select-text"
           >{{ installError }}</p>
           <Button
             type="button"
@@ -625,7 +628,7 @@ const mark = computed(() =>
             <EmptyState :icon="TriangleAlert" title="Can't read this chart" class="max-w-xl">
               <pre class="whitespace-pre-wrap break-words font-mono text-xs select-text">{{ chartError }}</pre>
               <template #action>
-                <Button variant="outline" size="sm" @click="loadVersions().then(loadVersion)">Retry</Button>
+                <Button variant="outline" size="sm" @click="loadChart">Retry</Button>
               </template>
             </EmptyState>
           </div>
@@ -699,7 +702,7 @@ const mark = computed(() =>
                     <span class="tabular-nums">{{ group.objects.length }}</span>
                   </p>
                   <ul class="space-y-0.5 text-sm">
-                    <li v-for="object in group.objects" :key="object.name" class="truncate pl-[22px]" :title="object.source">
+                    <li v-for="object in group.objects" :key="object.name" class="truncate" :title="object.source">
                       {{ object.name }}
                     </li>
                   </ul>

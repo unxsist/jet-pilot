@@ -16,7 +16,7 @@ defineEmits<{ open: [] }>();
   <button
     type="button"
     :data-chart="chart.reference"
-    class="group/row flex w-full items-center gap-3.5 rounded-xl px-3 py-2.5 text-left transition-colors duration-fast ease-out hover:bg-accent/70 focus-ring"
+    class="group/row flex w-full items-center gap-3.5 rounded-xl px-3 py-2.5 text-left transition-colors duration-fast ease-out hover:bg-accent focus-ring"
     @click="$emit('open')"
   >
     <ChartAvatar :name="chart.name" :logo-image-id="chart.logoImageId" />
@@ -41,7 +41,7 @@ defineEmits<{ open: [] }>();
       </span>
     </span>
     <span
-      class="flex shrink-0 items-center gap-1 text-xs font-medium text-link opacity-0 transition-opacity duration-fast group-hover/row:opacity-100 group-focus-visible/row:opacity-100"
+      class="flex shrink-0 items-center gap-1 text-xs font-medium text-link opacity-0 transition-opacity duration-fast group-hover/row:opacity-100 group-focus-within/row:opacity-100"
     >
       Install <ChevronRight class="h-3.5 w-3.5" />
     </span>

@@ -53,7 +53,7 @@ const open = async (object: ManifestObject, live: any | null) => {
 </script>
 
 <template>
-  <div class="-mx-2 space-y-3">
+  <div class="-mx-2 space-y-2.5">
     <ReleaseKindGroup
       v-for="group in groups"
       :key="group.kind"

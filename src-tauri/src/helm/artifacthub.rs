@@ -7,7 +7,7 @@
 //! cached on disk, so the webview never loads remote images.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -160,7 +160,7 @@ pub(crate) fn parse_package(body: &Value) -> Option<ArtifactHubPackage> {
                 .collect()
         })
         .unwrap_or_default();
-    versions.sort_by(|a, b| b.updated.cmp(&a.updated));
+    versions.sort_by_key(|v| std::cmp::Reverse(v.updated));
     Some(ArtifactHubPackage {
         home_url: opt_text(body, "home_url"),
         readme: text(body, "readme"),
@@ -358,7 +358,7 @@ fn logo_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     app.path().app_cache_dir().ok().map(|dir| dir.join("artifacthub-logos"))
 }
 
-fn read_cached_logo(dir: &PathBuf, id: &str) -> Option<String> {
+fn read_cached_logo(dir: &Path, id: &str) -> Option<String> {
     IMAGE_TYPES.iter().find_map(|(content_type, ext)| {
         let bytes = std::fs::read(dir.join(format!("{id}.{ext}"))).ok()?;
         Some(data_url(content_type, &bytes))

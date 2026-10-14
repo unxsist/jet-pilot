@@ -231,7 +231,7 @@ defineExpose({ startAdding });
       <li
         v-for="repo in repos"
         :key="repo.name"
-        class="group/repo flex items-center gap-3.5 rounded-xl px-3 py-2.5 transition-colors duration-fast hover:bg-accent/70"
+        class="group/row flex items-center gap-3.5 rounded-xl px-3 py-2.5 transition-colors duration-fast hover:bg-accent"
       >
         <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-surface-1 text-muted-foreground">
           <Warehouse class="h-4 w-4" />
@@ -241,7 +241,7 @@ defineExpose({ startAdding });
           <span class="block truncate font-mono text-xs text-muted-foreground select-text">{{ repo.url }}</span>
         </span>
         <span
-          class="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-fast group-focus-within/repo:opacity-100 group-hover/repo:opacity-100"
+          class="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-fast group-focus-within/row:opacity-100 group-hover/row:opacity-100"
         >
           <Button
             variant="ghost"

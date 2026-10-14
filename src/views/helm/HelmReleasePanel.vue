@@ -211,8 +211,8 @@ const sections = ["notes", "resources", "values", "history"];
 <template>
   <div class="bg-card">
     <!-- How it's doing -->
-    <div class="space-y-3.5 border-b px-4 pb-4 pt-3">
-      <div class="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-xs text-muted-foreground">
+    <div class="space-y-3 border-b px-4 pb-4 pt-3">
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground">
         <StatusBadge :tone="status.tone" :pulse="status.busy">{{ status.label }}</StatusBadge>
         <span class="tabular-nums">Revision {{ revision }}</span>
         <span
@@ -237,14 +237,14 @@ const sections = ["notes", "resources", "values", "history"];
       </dl>
 
       <!-- The chart -->
-      <div class="flex gap-3 rounded-lg border border-border-subtle bg-surface-1/60 p-3">
+      <div class="flex gap-3 rounded-lg border border-border-subtle bg-surface-1 p-3">
         <ChartAvatar :name="row.chart || release.name" />
         <div class="min-w-0 flex-1 space-y-1">
           <p class="flex min-w-0 items-baseline gap-1.5 text-sm">
             <span class="truncate font-medium">{{ row.chart || "Unknown chart" }}</span>
             <span class="shrink-0 text-xs tabular-nums text-muted-foreground">{{ row.chartVersion }}</span>
           </p>
-          <p class="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted-foreground">
+          <p class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
             <span v-if="row.appVersion">App <span class="select-text font-mono">{{ row.appVersion }}</span></span>
             <button
               v-for="link in links"
@@ -270,8 +270,8 @@ const sections = ["notes", "resources", "values", "history"];
         class="rounded-lg border px-3 py-2.5"
         :class="
           status.tone === 'destructive'
-            ? 'border-destructive/25 bg-destructive/5'
-            : 'border-warning/25 bg-warning/5'
+            ? 'border-destructive/20 bg-destructive/5'
+            : 'border-warning/20 bg-warning/5'
         "
       >
         <p
@@ -279,7 +279,7 @@ const sections = ["notes", "resources", "values", "history"];
           :class="status.tone === 'destructive' ? 'text-destructive' : 'text-warning'"
         >
           <TriangleAlert v-if="status.tone === 'destructive'" class="h-3.5 w-3.5" />
-          <Loader2 v-else class="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+          <Loader2 v-else class="h-3.5 w-3.5 animate-spin" />
           {{ problemTitle }}
         </p>
         <p v-if="latest?.description" class="mt-1 break-words text-xs text-foreground/90 select-text">

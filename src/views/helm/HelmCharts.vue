@@ -183,7 +183,7 @@ onMounted(() => {
 
 <template>
   <div class="h-full overflow-auto bg-background">
-    <div class="mx-auto max-w-4xl space-y-6 px-10 pb-16 pt-10">
+    <div class="mx-auto max-w-5xl space-y-6 px-10 pb-16 pt-10">
       <PageHeader title="Charts" :description="subtitle">
         <template #tabs>
           <PageTabs

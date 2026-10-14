@@ -95,10 +95,10 @@ const single = computed(() =>
         <!-- the line -->
         <span
           v-if="index < revisions.length - 1"
-          class="absolute bottom-0 left-[7px] top-4 w-px bg-border"
+          class="absolute left-2 top-4 h-full w-px bg-border-strong"
           aria-hidden="true"
         />
-        <span class="absolute left-[4px] top-[13px]">
+        <span class="absolute left-1 top-3">
           <StatusDot
             :tone="releaseStatus(revision.status).tone"
             :pulse="releaseStatus(revision.status).busy"

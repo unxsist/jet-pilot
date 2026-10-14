@@ -376,6 +376,44 @@ const screens = {
       await wait(600);
     },
   },
+  "helm-release-values": {
+    url: "/helm-releases?resource=release&kind=Release",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "payments-api" }).first().click();
+      await page.waitForSelector("[aria-label=Revisions] button", { timeout: 8000 }).catch(() => {});
+      await page.getByRole("button", { name: /^Notes/ }).click().catch(() => {});
+      await page.getByRole("button", { name: /^Resources/ }).click().catch(() => {});
+      await page.getByRole("button", { name: /^History/ }).click().catch(() => {});
+      await wait(500);
+    },
+  },
+  "helm-release-pending": {
+    url: "/helm-releases?resource=release&kind=Release",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "feature-flags" }).first().click();
+      await page.waitForSelector("text=Resources", { timeout: 8000 }).catch(() => {});
+      await wait(1500);
+    },
+  },
+  "helm-releases-empty": { url: "/helm-releases?resource=release&kind=Release&scenario=empty", ready: "table", settle: 1500 },
+  "helm-install-hub": {
+    url: "/helm-charts",
+    ready: "h1",
+    run: async (page) => {
+      await page.getByLabel("Search charts").fill("argo");
+      await page.waitForSelector("[data-chart]", { timeout: 8000 }).catch(() => {});
+      await wait(1200);
+      await page.locator("[data-chart]", { hasText: "argo-cd" }).first().click();
+      await wait(700);
+      await enlargePanel(page, -420);
+      await page.waitForSelector(".monaco-editor", { timeout: 20000 }).catch(() => {});
+      await wait(800);
+      await page.getByRole("button", { name: /^Preview/ }).click();
+      await wait(800);
+    },
+  },
   "helm-charts-search": {
     url: "/helm-charts",
     ready: "main, h1",
