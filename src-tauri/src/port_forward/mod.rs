@@ -270,20 +270,28 @@ fn terminate_later(app: &tauri::AppHandle, id: &str, reason: &'static str) {
 
 /// Runs a forward: native first, kubectl if the cluster refuses WebSocket
 /// port-forwarding. Ends when the forward fails (stopping aborts it).
+/// A new forward that fails to start is removed (the dialog says why); a
+/// restarted one stays listed with its error.
 async fn run_forward(
     app: tauri::AppHandle,
     spec: PortForwardSpec,
     info: Arc<Mutex<PortForwardInfo>>,
     traffic: Arc<Traffic>,
     child: Arc<Mutex<Option<Child>>>,
+    restarted: bool,
 ) {
     let id = lock(&info).id.clone();
+    let give_up = |app: &tauri::AppHandle| {
+        if !restarted {
+            terminate_later(app, &id, "error");
+        }
+    };
     let local_port = lock(&info).local_port;
     let listeners = match native::bind(&spec.address, local_port).await {
         Ok(listeners) => listeners,
         Err(message) => {
             fail(&app, &info, &message);
-            terminate_later(&app, &id, "error");
+            give_up(&app);
             return;
         }
     };
@@ -297,7 +305,7 @@ async fn run_forward(
         Err(err) => {
             let err = with_auth_context(err, &resolve_kubeconfig_path(Some(&spec.kube_config)), &spec.context);
             fail(&app, &info, &err.message);
-            terminate_later(&app, &id, "error");
+            give_up(&app);
             return;
         }
     };
@@ -321,7 +329,7 @@ async fn run_forward(
     };
 
     match native::run(forward, listeners, STARTUP_TIMEOUT).await {
-        Outcome::Failed { started: false } => terminate_later(&app, &id, "error"),
+        Outcome::Failed { started: false } => give_up(&app),
         // It worked before: it stays listed with its error until it's
         // restarted or removed.
         Outcome::Failed { started: true } => {}
@@ -335,14 +343,14 @@ async fn run_forward(
             };
             let _ = app.emit(machine::EVENT_UPDATED, payload);
             match kubectl::run(app.clone(), spec, info, child).await {
-                kubectl::End::Failed => terminate_later(&app, &id, "error"),
+                kubectl::End::Failed => give_up(&app),
                 kubectl::End::Exited => terminate_later(&app, &id, "exited"),
             }
         }
     }
 }
 
-fn spawn_forward(app: &tauri::AppHandle, forward: &ManagedForward) -> JoinHandle<()> {
+fn spawn_forward(app: &tauri::AppHandle, forward: &ManagedForward, restarted: bool) -> JoinHandle<()> {
     tokio::spawn(center::with_source(
         IssueSource::PortForward,
         run_forward(
@@ -351,6 +359,7 @@ fn spawn_forward(app: &tauri::AppHandle, forward: &ManagedForward) -> JoinHandle
             forward.info.clone(),
             forward.traffic.clone(),
             forward.child.clone(),
+            restarted,
         ),
     ))
 }
@@ -379,7 +388,7 @@ pub async fn start_port_forward(app: tauri::AppHandle, spec: PortForwardSpec) ->
         id, spec.context, spec.namespace, spec.object_type, spec.object_name, spec.object_port, spec.address, spec.local_port
     );
     let _ = app.emit("port_forward_started", info.clone());
-    forward.task = Some(spawn_forward(&app, &forward));
+    forward.task = Some(spawn_forward(&app, &forward, false));
     lock(&FORWARDS).insert(id.clone(), forward);
 
     if let Some(ttl) = spec.ttl_seconds {
@@ -436,7 +445,7 @@ pub async fn restart_port_forward(app: tauri::AppHandle, id: String) -> Result<P
     forward.traffic = Arc::new(Traffic::default());
     info!("Restarting port forward {}", id);
     let _ = app.emit("port_forward_started", info.clone());
-    forward.task = Some(spawn_forward(&app, forward));
+    forward.task = Some(spawn_forward(&app, forward, true));
     Ok(info)
 }
 

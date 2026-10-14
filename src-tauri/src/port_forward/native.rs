@@ -468,13 +468,15 @@ impl Backends for KubeBackends {
                 .ok_or_else(|| Failure::new(FailureKind::Unreachable, "The pod didn't open a stream"))?;
             let error = forwarder.take_error(port);
             let done = async move {
-                // The forwarder's task ends once our stream is closed; its
-                // error channel has then either a message or nothing.
-                let _ = tokio::time::timeout(Duration::from_secs(2), forwarder.join()).await;
-                match error {
-                    Some(error) => error.now_or_never().flatten(),
+                // Once our stream is closed the pod may still report an
+                // error; then the stream's task goes, whether or not it
+                // wound down on its own.
+                let message = match error {
+                    Some(error) => tokio::time::timeout(Duration::from_secs(1), error).await.ok().flatten(),
                     None => None,
-                }
+                };
+                forwarder.abort();
+                message
             }
             .boxed();
             Ok(Upstream { io: Box::new(io), done })
