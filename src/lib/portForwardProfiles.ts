@@ -13,6 +13,8 @@ export interface PortForwardSpec {
   objectPort: number;
   localPort: number;
   address: string;
+  /** The remote port's name ("http"), for display; not part of the id. */
+  portName?: string;
 }
 
 export interface PortForwardProfile {
@@ -36,7 +38,9 @@ export function profileId(spec: PortForwardSpec): string {
 }
 
 export function defaultProfileName(spec: PortForwardSpec): string {
-  return `${spec.objectName}:${spec.objectPort} → ${spec.localPort}`;
+  return spec.portName
+    ? `${spec.objectName} · ${spec.portName}`
+    : `${spec.objectName}:${spec.objectPort}`;
 }
 
 /** The spec part of a (running) port forward. */
@@ -50,6 +54,7 @@ export function toSpec(forward: PortForwardSpec): PortForwardSpec {
     objectPort: forward.objectPort,
     localPort: forward.localPort,
     address: forward.address,
+    ...(forward.portName ? { portName: forward.portName } : {}),
   };
 }
 
@@ -121,7 +126,9 @@ export function parseProfiles(value: unknown): PortForwardProfile[] {
     ) {
       continue;
     }
-    const profile = createProfile(spec, {
+    const portName =
+      typeof spec.portName === "string" ? spec.portName : undefined;
+    const profile = createProfile({ ...spec, portName }, {
       name: typeof raw.name === "string" ? raw.name : undefined,
       autoStart: raw.autoStart === true,
     });

@@ -25,6 +25,13 @@ import {
   upsertProfile,
   type PortForwardProfile,
 } from "@/lib/portForwardProfiles";
+import {
+  forwardUrl,
+  parsePortMemory,
+  rememberPort,
+  targetKey,
+  type ForwardTarget,
+} from "@/lib/portForwardLocal";
 
 export const PortForwardingStateKey: InjectionKey<
   ToRefs<PortForwardingState>
@@ -39,6 +46,19 @@ export const PortForwardingAddPortForwarding: InjectionKey<
 export const PortForwardingRemovePortForwarding: InjectionKey<
   (portForwarding: ActivePortForwarding) => void
 > = Symbol("PortForwardingRemovePortForwarding");
+
+export interface PortForwardActions {
+  /** Starts a forward again (same local port), e.g. after an error. */
+  restart(portForwarding: ActivePortForwarding): Promise<void>;
+  /** Re-reads every forward from the back end (fresh traffic counters). */
+  refresh(): Promise<void>;
+  openInBrowser(portForwarding: ActivePortForwarding): void;
+  /** The local port last used for a target. */
+  rememberedPort(target: ForwardTarget): number | undefined;
+  rememberPort(target: ForwardTarget, port: number): void;
+}
+export const PortForwardingActionsKey: InjectionKey<PortForwardActions> =
+  Symbol("PortForwardingActions");
 
 export interface PortForwardProfiles {
   profiles: ComputedRef<PortForwardProfile[]>;
@@ -63,21 +83,39 @@ export interface PortForwarding {
   objectType: "pod" | "deployment" | "service";
   objectName: string;
   objectPort: number;
+  /** The remote port's name ("http"), shown next to the number. */
+  portName?: string;
   localPort: number;
   address: string;
   /** Auto-stop the forward after this many seconds. `null`/`undefined` = keep running. */
   ttlSeconds?: number | null;
 }
 
-export type ForwardStatus = "starting" | "ready" | "error";
+export type ForwardStatus = "starting" | "ready" | "reconnecting" | "error";
+
+export interface ForwardTraffic {
+  openConnections: number;
+  connections: number;
+  bytesSent: number;
+  bytesReceived: number;
+}
 
 /** A forward as tracked by the Rust side (id + lifecycle status). */
 export interface ActivePortForwarding extends PortForwarding {
   id: string;
   status: ForwardStatus;
   error: string | null;
+  /** What a starting or reconnecting forward waits for. */
+  reason: string | null;
+  /** The pod the forward currently talks to. */
+  pod: string | null;
+  /** `kubectl` when the cluster refused native (WebSocket) forwarding. */
+  engine: "native" | "kubectl";
+  reconnects: number;
+  lastReconnect: { atMs: number; reason: string } | null;
   startedAtMs: number;
   expiresAtMs: number | null;
+  traffic: ForwardTraffic;
 }
 
 export interface PortForwardingState {
@@ -104,6 +142,10 @@ export default {
     const pendingForwards = new Map<string, PendingForward>();
 
     provide(PortForwardingStateKey, toRefs(state));
+
+    const openInBrowser = (pf: ActivePortForwarding) => {
+      open(forwardUrl(pf)).catch((e) => logError(e));
+    };
 
     const upsertForward = (portForwarding: ActivePortForwarding) => {
       const index = state.activePortForwardings.findIndex(
@@ -133,11 +175,7 @@ export default {
           new Error(portForwarding.error ?? "Port forwarding failed")
         );
       } else {
-        if (pending.openInBrowser) {
-          open(
-            `http://${portForwarding.address}:${portForwarding.localPort}`
-          ).catch((e) => logError(e));
-        }
+        if (pending.openInBrowser) openInBrowser(portForwarding);
         pending.resolve(portForwarding);
       }
     };
@@ -152,6 +190,14 @@ export default {
       listen<ActivePortForwarding>("port_forward_ready", (event) => {
         upsertForward(event.payload);
         settleForward(event.payload);
+      }),
+      // A pod went away; the forward heals itself (the port stays open).
+      listen<ActivePortForwarding>("port_forward_reconnecting", (event) => {
+        upsertForward(event.payload);
+      }),
+      // What it waits for, its pod, or kubectl taking over.
+      listen<ActivePortForwarding>("port_forward_updated", (event) => {
+        upsertForward(event.payload);
       }),
       listen<ActivePortForwarding>("port_forward_error", (event) => {
         upsertForward(event.payload);
@@ -181,12 +227,16 @@ export default {
       }),
     ]).then((unlisten) => unlisteners.push(...unlisten));
 
+    const refresh = () =>
+      invoke<ActivePortForwarding[]>("list_port_forwards").then(
+        (portForwardings) => {
+          state.activePortForwardings = portForwardings;
+        }
+      );
+
     // Re-sync with the Rust side in case the webview reloaded while forwards
     // were still running (e.g. Vite dev HMR).
-    invoke<ActivePortForwarding[]>("list_port_forwards")
-      .then((portForwardings) => {
-        state.activePortForwardings = portForwardings;
-      })
+    refresh()
       .catch((e) => logError(`Failed to list port forwards: ${e}`))
       .finally(() => {
         // Profiles marked "start automatically" (not already running).
@@ -202,22 +252,12 @@ export default {
         }
       });
 
-    const addPortForwarding = async (
-      portForwarding: PortForwarding,
-      openInBrowser: boolean
+    /** Waits for a started (or restarted) forward to become ready. */
+    const whenReady = (
+      info: ActivePortForwarding,
+      openWhenReady: boolean
     ): Promise<ActivePortForwarding> => {
-      let info: ActivePortForwarding;
-      try {
-        info = await invoke<ActivePortForwarding>("start_port_forward", {
-          spec: portForwarding,
-        });
-      } catch (e) {
-        throw new Error(
-          typeof e === "string" ? e : e instanceof Error ? e.message : String(e)
-        );
-      }
       upsertForward(info);
-
       return new Promise<ActivePortForwarding>((resolve, reject) => {
         // The back-end may have emitted ready/error before we stored the
         // resolver (events and the invoke reply are independent IPC messages).
@@ -229,18 +269,49 @@ export default {
           if (current.status === "error") {
             reject(new Error(current.error ?? "Port forwarding failed"));
           } else {
-            if (openInBrowser) {
-              open(`http://${current.address}:${current.localPort}`).catch(
-                (e) => logError(e)
-              );
-            }
+            if (openWhenReady) openInBrowser(current);
             resolve(current);
           }
           return;
         }
-
-        pendingForwards.set(info.id, { resolve, reject, openInBrowser });
+        pendingForwards.set(info.id, {
+          resolve,
+          reject,
+          openInBrowser: openWhenReady,
+        });
       });
+    };
+
+    const errorOf = (e: unknown) =>
+      new Error(
+        typeof e === "string" ? e : e instanceof Error ? e.message : String(e)
+      );
+
+    const addPortForwarding = async (
+      portForwarding: PortForwarding,
+      openWhenReady: boolean
+    ): Promise<ActivePortForwarding> => {
+      let info: ActivePortForwarding;
+      try {
+        info = await invoke<ActivePortForwarding>("start_port_forward", {
+          spec: portForwarding,
+        });
+      } catch (e) {
+        throw errorOf(e);
+      }
+      return whenReady(info, openWhenReady);
+    };
+
+    const restart = async (portForwarding: ActivePortForwarding) => {
+      let info: ActivePortForwarding;
+      try {
+        info = await invoke<ActivePortForwarding>("restart_port_forward", {
+          id: portForwarding.id,
+        });
+      } catch (e) {
+        throw errorOf(e);
+      }
+      await whenReady(info, false);
     };
 
     /*
@@ -259,8 +330,14 @@ export default {
       for (const [id, spec] of failedOnAuth) {
         if (!isSameContext(spec, target)) continue;
         failedOnAuth.delete(id);
+        // Still listed (it had worked before): restart it in place.
         const errored = state.activePortForwardings.find((pf) => pf.id === id);
-        if (errored) removePortForwarding(errored);
+        if (errored) {
+          restart(errored).catch((e) =>
+            logError(`Failed to restart port forward ${spec.objectName}: ${e}`)
+          );
+          continue;
+        }
         // Started again by hand meanwhile.
         const key = profileId(toSpec(spec));
         if (
@@ -286,6 +363,29 @@ export default {
         )
       );
     };
+
+    /* -------------------------------------------------- port memory -- */
+
+    const portMemory = computed(() =>
+      parsePortMemory(settings.value.portForwardPorts)
+    );
+    const actions: PortForwardActions = {
+      restart,
+      refresh: () =>
+        refresh().catch((e) => logError(`Failed to list port forwards: ${e}`)),
+      openInBrowser,
+      rememberedPort: (target) => portMemory.value[targetKey(target)],
+      rememberPort: (target, port) => {
+        const key = targetKey(target);
+        if (portMemory.value[key] === port) return;
+        settings.value.portForwardPorts = rememberPort(
+          portMemory.value,
+          key,
+          port
+        );
+      },
+    };
+    provide(PortForwardingActionsKey, actions);
 
     /* ------------------------------------------------------ profiles -- */
 
@@ -316,10 +416,10 @@ export default {
         ),
       isRunning: (profile) =>
         isProfileRunning(profile, state.activePortForwardings),
-      start: async (id, openInBrowser = false) => {
+      start: async (id, openWhenReady = false) => {
         const profile = profiles.value.find((p) => p.id === id);
         if (!profile || profileApi.isRunning(profile)) return;
-        await addPortForwarding({ ...profile.spec }, openInBrowser);
+        await addPortForwarding({ ...profile.spec }, openWhenReady);
       },
     };
     provide(PortForwardingProfilesKey, profileApi);

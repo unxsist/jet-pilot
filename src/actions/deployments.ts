@@ -25,8 +25,9 @@ export function actions<
       label: "Port Forward",
       handler: (row: T) => {
         spawnDialog({
-          title: "Port Forward",
-          message: "Forward ports from the pod to your local machine",
+          title: "Port forward",
+          message:
+            "Reach a ready pod of this deployment from your computer. The forward follows rollouts.",
           component: defineAsyncComponent(
             () => import("@/views/dialogs/PortForward.vue")
           ),
