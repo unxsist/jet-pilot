@@ -633,7 +633,8 @@ export function describeStrings(doc: DescribeDoc): [string, string][] {
       strings.push([`${s}.r${i}.l`, r.label]);
       r.values.forEach((value, j) => strings.push([`${s}.r${i}.v${j}`, value.text]));
     });
-    if (section.table) {
+    // Tables without rows aren't rendered (the empty text is): nothing to find in them.
+    if (section.table?.rows.length) {
       section.table.columns.forEach((c, i) => strings.push([`${s}.h${i}`, c]));
       section.table.rows.forEach((r, i) => r.forEach((cell, j) => strings.push([`${s}.c${i}.${j}`, cell.text])));
     }

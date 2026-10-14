@@ -15,7 +15,7 @@ import CodeValue from "@/components/generic/CodeValue.vue";
 import { usePanelTarget } from "@/composables/usePanelObject";
 import { kubePatch } from "@/lib/kubeApi";
 import { guard, rowTargets } from "@/lib/guardrails/guard";
-import { pathOf } from "@/lib/resources/open";
+import { fetchRef, pathOf } from "@/lib/resources/open";
 import { detectFormat, sizeWords } from "@/lib/resources/highlight";
 import {
   ANNOTATIONS_LIMIT,
@@ -23,6 +23,7 @@ import {
   diffEntries,
   editErrorMessage,
   isEditConflict,
+  rebaseEntries,
   metadataPatch,
   validateKey,
   validateLabelValue,
@@ -83,9 +84,13 @@ const noun = computed(() => (props.type === "labels" ? "label" : "annotation"));
  * else adds meanwhile are left alone (and changed keys are tested).
  */
 const base = shallowRef<Record<string, string>>({});
+const toRows = (from: Record<string, string>) =>
+  Object.entries(from)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => ({ id: nextId++, key, value }));
 const start = () => {
   base.value = { ...source.value };
-  rows.value = entries.value.map(([key, value]) => ({ id: nextId++, key, value }));
+  rows.value = toRows(source.value);
   error.value = null;
 };
 watch(
@@ -140,6 +145,15 @@ const cancel = () => {
   error.value = null;
 };
 
+const objectRef = () => ({
+  kind: props.object.kind ?? "",
+  name: props.object.metadata?.name ?? "",
+  namespace: props.object.metadata?.namespace,
+  apiVersion: props.object.apiVersion,
+});
+const entriesOf = (object: any): Record<string, string> =>
+  (props.type === "labels" ? object?.metadata?.labels : object?.metadata?.annotations) ?? {};
+
 const save = async () => {
   if (!valid.value || changes.value.length === 0 || saving.value) return;
   const patch = metadataPatch(props.type, changes.value);
@@ -148,30 +162,28 @@ const save = async () => {
   if (!(await guard(kind, rowTargets([props.object])))) return;
   saving.value = true;
   error.value = null;
+  const over = props.object.metadata?.resourceVersion;
   try {
-    const path = await pathOf(target.value, {
-      kind: props.object.kind ?? "",
-      name: props.object.metadata?.name ?? "",
-      namespace: props.object.metadata?.namespace,
-      apiVersion: props.object.apiVersion,
-    });
+    const path = await pathOf(target.value, objectRef());
     if (!path) throw new Error(`JET Pilot doesn't know where ${props.object.kind} objects live in this cluster.`);
-    const over = props.object.metadata?.resourceVersion;
     const result = await kubePatch<any>(
       { context: target.value.context, kubeConfig: target.value.kubeConfig || undefined },
       path,
       patch.body,
       patch.type
     );
-    saved.value = {
-      over,
-      entries: (props.type === "labels" ? result?.metadata?.labels : result?.metadata?.annotations) ?? {},
-    };
+    saved.value = { over, entries: entriesOf(result) };
     editing.value = false;
   } catch (e) {
     error.value = editErrorMessage(e, `${noun.value}s`);
-    // Changed meanwhile: the edit continues from the current entries.
-    if (isEditConflict(e)) base.value = { ...source.value };
+    // Changed meanwhile: the edit continues from the current entries, with the user's changes.
+    if (isEditConflict(e)) {
+      const fresh = await fetchRef(target.value, objectRef()).catch(() => null);
+      const now = fresh ? entriesOf(fresh) : { ...source.value };
+      if (fresh) saved.value = { over, entries: now };
+      rows.value = toRows(rebaseEntries(base.value, after.value, now));
+      base.value = now;
+    }
   } finally {
     saving.value = false;
   }

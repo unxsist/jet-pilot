@@ -18,13 +18,14 @@ import {
 import { kubePatch } from "@/lib/kubeApi";
 import { guard, rowTargets } from "@/lib/guardrails/guard";
 import { refPath } from "@/lib/resources/kinds";
-import type { PanelTarget } from "@/lib/resources/open";
+import { fetchRef, type PanelTarget } from "@/lib/resources/open";
 import {
   TAINT_EFFECTS,
   TAINT_EFFECT_WORDS,
   diffTaints,
   editErrorMessage,
   isEditConflict,
+  rebaseTaints,
   formatTaint,
   isSystemTaint,
   taintsPatch,
@@ -53,13 +54,15 @@ const keyInputs = ref<InstanceType<typeof Input>[]>([]);
  * Kubernetes (or someone) adds meanwhile is never dropped silently.
  */
 const base = shallowRef<Taint[] | undefined>(undefined);
-const current = () => (props.node.spec?.taints ? structuredClone(toRaw(props.node.spec.taints)) : undefined);
+const copy = (list: Taint[] | undefined) => (list ? structuredClone(toRaw(list)) : undefined);
+const toRows = (list: Taint[]) =>
+  list.map((t) => ({ ...t, value: t.value ?? "", id: nextId++, system: isSystemTaint(t) }));
 watch(
   editing,
   (now) => {
     if (!now) return;
-    base.value = current();
-    rows.value = taints.value.map((t) => ({ ...t, value: t.value ?? "", id: nextId++, system: isSystemTaint(t) }));
+    base.value = copy(props.node.spec?.taints);
+    rows.value = toRows(taints.value);
     error.value = null;
   },
   { immediate: true }
@@ -123,8 +126,13 @@ const save = async () => {
     editing.value = false;
   } catch (e) {
     error.value = editErrorMessage(e, "taints");
-    // Changed meanwhile: the edit continues from the current taints.
-    if (isEditConflict(e)) base.value = current();
+    // Changed meanwhile: the edit continues from the current taints, with the user's changes.
+    if (isEditConflict(e)) {
+      const fresh = await fetchRef(props.target, { kind: "Node", name: props.node.metadata?.name ?? "" }).catch(() => null);
+      const now = copy(fresh ? fresh.spec?.taints : props.node.spec?.taints);
+      rows.value = toRows(rebaseTaints(base.value ?? [], after.value, now ?? []));
+      base.value = now;
+    }
   } finally {
     saving.value = false;
   }

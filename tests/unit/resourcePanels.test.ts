@@ -6,6 +6,8 @@ import {
   editErrorMessage,
   metadataPatch,
   pointerSegment,
+  rebaseEntries,
+  rebaseTaints,
   taintsPatch,
   validateKey,
   validateLabelValue,
@@ -29,6 +31,7 @@ import { detectFormat, highlight, prettyJson, sizeWords } from "../../src/lib/re
 import { objectState } from "../../src/lib/resources/state";
 import { describeObject, describeStrings, describeText, matchStarts } from "../../src/lib/resources/describe";
 import { accessModeWords, podsUsingClaim } from "../../src/lib/resources/storage";
+import { eventsPath } from "../../src/lib/resources/events";
 import { refPath, watchResource, KINDS } from "../../src/lib/resources/kinds";
 import { conditionHealthy } from "../../src/lib/resources/conditions";
 import { durationWords } from "../../src/lib/resources/format";
@@ -128,15 +131,15 @@ describe("label, annotation and taint edits", () => {
     expect(validateLabelValue("x".repeat(64))).toMatch(/63/);
   });
 
-  test("diffs entries and builds a merge patch for additions and changes", () => {
+  test("diffs entries and builds a merge patch for additions", () => {
     const changes = diffEntries({ app: "web", tier: "backend" }, { app: "web", tier: "api", team: "payments" });
     expect(changes).toEqual([
       { type: "add", key: "team", after: "payments" },
       { type: "change", key: "tier", before: "backend", after: "api" },
     ]);
-    expect(metadataPatch("labels", changes)).toEqual({
+    expect(metadataPatch("labels", diffEntries({ app: "web" }, { app: "web", team: "payments", "acme.dev/owner": "x" }))).toEqual({
       type: "merge",
-      body: { metadata: { labels: { team: "payments", tier: "api" } } },
+      body: { metadata: { labels: { "acme.dev/owner": "x", team: "payments" } } },
     });
     expect(metadataPatch("labels", [])).toBeNull();
   });
@@ -689,6 +692,62 @@ describe("states and the native describe", () => {
       "tags=a, b",
       "nested.on=true",
     ]);
+  });
+});
+
+describe("conflicts and edge cases", () => {
+  test("only additions are a merge patch; a changed key is tested", () => {
+    expect(metadataPatch("labels", [{ type: "change", key: "tier", before: "a", after: "b" }])).toEqual({
+      type: "json",
+      body: [
+        { op: "test", path: "/metadata/labels/tier", value: "a" },
+        { op: "replace", path: "/metadata/labels/tier", value: "b" },
+      ],
+    });
+  });
+
+  test("an edit is replayed on the current entries after a conflict", () => {
+    const base = { tier: "backend", old: "x" };
+    const edited = { tier: "api", team: "payments" };
+    const current = { tier: "backend", old: "x", added: "by-someone-else" };
+    expect(rebaseEntries(base, edited, current)).toEqual({ tier: "api", team: "payments", added: "by-someone-else" });
+  });
+
+  test("taint edits are replayed on the current taints; managed taints come from the current list", () => {
+    const notReady = { key: "node.kubernetes.io/not-ready", effect: "NoExecute" };
+    const unreachable = { key: "node.kubernetes.io/unreachable", effect: "NoExecute" };
+    const base = [notReady, { key: "workload", value: "batch", effect: "NoSchedule" }];
+    const edited = [notReady, { key: "dedicated", value: "gpu", effect: "NoSchedule" }];
+    // Meanwhile the controller removed not-ready and added unreachable.
+    const current = [{ key: "workload", value: "batch", effect: "NoSchedule" }, unreachable];
+    expect(rebaseTaints(base, edited, current)).toEqual([unreachable, { key: "dedicated", value: "gpu", effect: "NoSchedule" }]);
+  });
+
+  test("node events are matched by name, others by uid too", () => {
+    expect(decodeURIComponent(eventsPath({ kind: "Node", metadata: { name: "n1", uid: "u1" } }))).toBe(
+      "/api/v1/events?fieldSelector=involvedObject.kind=Node,involvedObject.name=n1"
+    );
+    expect(decodeURIComponent(eventsPath({ kind: "Pod", metadata: { name: "p", namespace: "shop", uid: "u2" } }))).toBe(
+      "/api/v1/namespaces/shop/events?fieldSelector=involvedObject.kind=Pod,involvedObject.name=p,involvedObject.uid=u2"
+    );
+  });
+
+  test("a sidecar stopped with a finished job pod doesn't make it fail", () => {
+    const pod = {
+      spec: { restartPolicy: "Never", initContainers: [{ name: "proxy", restartPolicy: "Always" }], containers: [{ name: "job" }] },
+      status: {
+        phase: "Succeeded",
+        startTime: ago(100),
+        initContainerStatuses: [{ name: "proxy", state: { terminated: { exitCode: 143, reason: "Error", finishedAt: ago(59) } } }],
+        containerStatuses: [{ name: "job", state: { terminated: { exitCode: 0, reason: "Completed", finishedAt: ago(60) } } }],
+      },
+    };
+    expect(podState(pod, NOW).label).toBe("Completed");
+  });
+
+  test("empty tables aren't searched", () => {
+    const doc = describeObject({ kind: "ConfigMap", metadata: { name: "c" } }, { now: NOW, events: [] });
+    expect(describeStrings(doc).some(([, text]) => text === "Reason")).toBe(false);
   });
 });
 

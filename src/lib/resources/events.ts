@@ -13,7 +13,8 @@ export function eventsPath(object: { kind?: string; metadata?: { name?: string; 
   const selector = [
     `involvedObject.kind=${object.kind ?? ""}`,
     `involvedObject.name=${object.metadata?.name ?? ""}`,
-    ...(object.metadata?.uid ? [`involvedObject.uid=${object.metadata.uid}`] : []),
+    // The kubelet records node events with the node's name as uid (kubectl describe works around it too).
+    ...(object.metadata?.uid && object.kind !== "Node" ? [`involvedObject.uid=${object.metadata.uid}`] : []),
   ].join(",");
   return apiPath({
     apiVersion: "v1",

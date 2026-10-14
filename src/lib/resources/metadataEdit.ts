@@ -3,10 +3,11 @@
  * validation in the API server's own terms, said plainly, the change as a
  * reviewable list, and the patch that applies it.
  *
- * Adding and changing keys is a JSON merge patch. Removing keys is a JSON
- * patch (keys with `/` escaped as `~1`) that first tests the values it
+ * Only adding keys is a JSON merge patch. Changing or removing keys is a
+ * JSON patch (keys with `/` escaped as `~1`) that first tests the values it
  * read, so an edit never overwrites someone else's change to the same key:
- * the server rejects it and the panel shows the fresh state.
+ * the server rejects it, and the edit continues from the fresh state
+ * (`rebaseEntries` / `rebaseTaints`) with the user's changes kept.
  */
 
 export type MetadataField = "labels" | "annotations";
@@ -93,13 +94,13 @@ export type Patch =
   | { type: "json"; body: JsonPatchOp[] };
 
 /**
- * The patch for label / annotation changes: a merge patch for additions
- * and changes, a JSON patch (testing the values it read) once a key is
- * removed. Null when nothing changed.
+ * The patch for label / annotation changes: a merge patch when keys are
+ * only added, a JSON patch (testing the values it read) once an existing
+ * key changes or goes. Null when nothing changed.
  */
 export function metadataPatch(field: MetadataField, changes: EntryChange[]): Patch | null {
   if (changes.length === 0) return null;
-  if (!changes.some((change) => change.type === "remove")) {
+  if (changes.every((change) => change.type === "add")) {
     const entries = Object.fromEntries(changes.map((change) => [change.key, change.after ?? ""]));
     return { type: "merge", body: { metadata: { [field]: entries } } };
   }
@@ -107,7 +108,7 @@ export function metadataPatch(field: MetadataField, changes: EntryChange[]): Pat
   const ops: JsonPatchOp[] = [];
   for (const change of changes) {
     const path = `${base}/${pointerSegment(change.key)}`;
-    // A removal means the field exists: additions can go straight in.
+    // A changed or removed key means the field exists: additions can go straight in.
     if (change.type === "add") {
       ops.push({ op: "add", path, value: change.after ?? "" });
     } else {
@@ -118,6 +119,23 @@ export function metadataPatch(field: MetadataField, changes: EntryChange[]): Pat
     }
   }
   return { type: "json", body: ops };
+}
+
+/**
+ * After a conflict: the user's changes (from `base` to `edited`) replayed
+ * on the current entries, so others' changes to other keys stay.
+ */
+export function rebaseEntries(
+  base: Record<string, string>,
+  edited: Record<string, string>,
+  current: Record<string, string>
+): Record<string, string> {
+  const result = { ...current };
+  for (const change of diffEntries(base, edited)) {
+    if (change.type === "remove") delete result[change.key];
+    else result[change.key] = change.after ?? "";
+  }
+  return result;
 }
 
 /* ----------------------------------------------------------- taints -- */
@@ -166,6 +184,22 @@ export const formatTaint = (taint: Taint) =>
 export function diffTaints(before: Taint[], after: Taint[]): EntryChange[] {
   const map = (list: Taint[]) => Object.fromEntries(list.map((t) => [taintId(t), t.value ?? ""]));
   return diffEntries(map(before), map(after));
+}
+
+/**
+ * After a conflict: the user's taint changes (from `base` to `edited`,
+ * by key + effect) replayed on the current taints. Taints Kubernetes
+ * manages come from the current list only.
+ */
+export function rebaseTaints(base: Taint[], edited: Taint[], current: Taint[]): Taint[] {
+  const own = (list: Taint[]) => list.filter((t) => !isSystemTaint(t));
+  const result = new Map(current.map((t) => [taintId(t), t]));
+  const editedById = new Map(own(edited).map((t) => [taintId(t), t]));
+  for (const change of diffTaints(own(base), own(edited))) {
+    if (change.type === "remove") result.delete(change.key);
+    else result.set(change.key, editedById.get(change.key)!);
+  }
+  return [...result.values()];
 }
 
 /**
