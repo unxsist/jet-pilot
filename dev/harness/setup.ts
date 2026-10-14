@@ -21,6 +21,7 @@
  *   ?scenario=auth-expired   the first cluster needs a sign-in (auth.ts)
  *   ?scenario=cloud          AWS accounts with added / available clusters (cloud.ts)
  *   ?scenario=clouds         accounts in AWS, Google Cloud, Azure, DigitalOcean and Exoscale (clouds.ts)
+ *   ?scenario=no-gitops      no Flux / Argo CD API groups (gitops.ts)
  *
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views; `large-graph` swaps the
@@ -71,6 +72,7 @@ import { createManagedMocks } from "./managed";
 import { createCloudMocks } from "./cloud";
 import { installAuthMocks } from "./auth";
 import { handleKubeRequest } from "./kubeApi";
+import { createGitopsMocks } from "./gitops";
 
 const params = new URLSearchParams(location.search);
 if (params.get("fresh")) {
@@ -956,8 +958,11 @@ function watchSubscribe(request: any, channel: any) {
  *   __harnessAdd("configmaps", { kind: "ConfigMap", metadata: {...} })
  *   __harnessRemove("pods", "orders-api-abc")
  */
-function emitWatchChange(key: string, change: { added?: any[]; modified?: any[]; deleted?: any[] }) {
-  const context = CONTEXTS[0].name;
+function emitWatchChange(
+  key: string,
+  change: { added?: any[]; modified?: any[]; deleted?: any[] },
+  context = CONTEXTS[0].name
+) {
   for (const sub of watchSubscriptions.values()) {
     if (sub.key !== key || sub.context !== context) continue;
     for (const scope of sub.scopes) {
@@ -1255,6 +1260,8 @@ const managed = createManagedMocks(scenario, () =>
 );
 /* Cloud accounts and the cluster catalog (dev/harness/cloud.ts). */
 const cloud = createCloudMocks(scenario, sendToChannel, managed);
+/* Flux / Argo CD fixtures, patch routes, ?scenario=no-gitops (dev/harness/gitops.ts). */
+const gitops = createGitopsMocks(scenario, emitWatchChange);
 let probeBatches = 0;
 
 /* ------------------------------------------------------------------ fs -- */
@@ -1422,6 +1429,7 @@ mockIPC(
     const p = payload || {};
     if (cmd in managed.handlers) return managed.handlers[cmd]!(p);
     if (cmd in cloud.handlers) return cloud.handlers[cmd]!(p);
+    if (cmd in gitops.handlers) return gitops.handlers[cmd]!(p);
     switch (cmd) {
       // fs / path / app / os / updater / window / clipboard
       case "plugin:fs|exists":

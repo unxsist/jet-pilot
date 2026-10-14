@@ -33,6 +33,11 @@ export type ActionKind =
   | "helm-rollback"
   | "helm-uninstall"
   | "cronjob-trigger"
+  | "reconcile"
+  | "suspend"
+  | "sync"
+  | "sync-prune"
+  | "refresh"
   | "copy-to-pod"
   | "debug"
   | "node-shell"
@@ -56,6 +61,8 @@ const EFFECTS: Record<ActionKind, ActionEffect> = {
   drain: "destructive",
   "scale-to-zero": "destructive",
   "helm-uninstall": "destructive",
+  // Argo CD deletes what is no longer in Git.
+  "sync-prune": "destructive",
   cordon: "mutate",
   uncordon: "mutate",
   scale: "mutate",
@@ -70,6 +77,11 @@ const EFFECTS: Record<ActionKind, ActionEffect> = {
   "helm-upgrade": "mutate",
   "helm-rollback": "mutate",
   "cronjob-trigger": "mutate",
+  // GitOps: Flux / Argo CD apply what is in Git.
+  reconcile: "mutate",
+  suspend: "mutate",
+  sync: "mutate",
+  refresh: "mutate",
   "copy-to-pod": "mutate",
   // An ephemeral container is added to the pod spec.
   debug: "mutate",
@@ -238,6 +250,7 @@ const VERBS: Partial<Record<ActionKind, string>> = {
   "helm-uninstall": "Uninstall",
   rollback: "Roll back",
   "cronjob-trigger": "Trigger",
+  "sync-prune": "Sync and prune",
   "copy-to-pod": "Upload",
   "node-shell": "Open node shell",
   "port-forward": "Port forward",

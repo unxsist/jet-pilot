@@ -226,6 +226,27 @@ const screens = {
   "settings-json": { url: "/settings/json?key=terminal.fontSize", ready: ".monaco-editor", settle: 1800 },
   "clusters-hub": { url: "/clusters?scenario=hub", ready: "[role=grid]", settle: 3500 },
   "clusters-embedded": { url: "/pods?scenario=nocontext", ready: "[role=grid]", settle: 2000 },
+  // GitOps (dev/harness/gitops.ts): both contexts, Flux and Argo CD.
+  gitops: { url: "/gitops?contexts=2", ready: "[data-delivery-key]", settle: 1500 },
+  "gitops-panel": {
+    url: "/gitops",
+    ready: "[data-delivery-key]",
+    settle: 1200,
+    run: async (page) => {
+      await page.locator("[data-delivery-key]", { hasText: "payments" }).first().click();
+      await wait(1500);
+    },
+  },
+  "gitops-argo-panel": {
+    url: "/gitops",
+    ready: "[data-delivery-key]",
+    settle: 1200,
+    run: async (page) => {
+      await page.locator("[data-delivery-key]", { hasText: "checkout-web" }).first().click();
+      await wait(1500);
+    },
+  },
+  "gitops-empty": { url: "/gitops?scenario=no-gitops", ready: "main, h1", settle: 2500 },
   "setup-guide": { url: "/pods?scenario=fresh", ready: "[aria-label='Set up JET Pilot']", settle: 1500 },
   empty: { url: "/pods?scenario=empty", ready: "table", settle: 1500 },
   error: { url: "/pods?scenario=error", ready: "[role=alert]", settle: 800 },
