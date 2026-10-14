@@ -14,7 +14,7 @@ interface Condition {
 defineProps<{ conditions: Condition[] }>();
 
 /* Conditions where "True" is bad news (node pressure, ...). */
-const INVERTED = /(Pressure|Unavailable|Failed|Degraded)$/;
+const INVERTED = /(Pressure|Unavailable|Failed|Degraded|Stalled)$/;
 
 const toneOf = (condition: Condition): StatusTone => {
   const healthy = INVERTED.test(condition.type)

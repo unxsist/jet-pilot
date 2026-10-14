@@ -937,6 +937,12 @@ export const API_GROUPS: { name: string; version: string; resources: any[] }[] =
   { name: "metrics.k8s.io", version: "metrics.k8s.io/v1beta1", resources: [r("pods", "PodMetrics"), r("nodes", "NodeMetrics", false)] },
   { name: "gateway.networking.k8s.io", version: "gateway.networking.k8s.io/v1", resources: [r("gateways", "Gateway"), r("httproutes", "HTTPRoute"), r("gatewayclasses", "GatewayClass", false)] },
   { name: "cert-manager.io", version: "cert-manager.io/v1", resources: [r("certificates", "Certificate"), r("clusterissuers", "ClusterIssuer", false), r("issuers", "Issuer")] },
+  // GitOps: Flux and Argo CD (fixtures and mocks in gitops.ts)
+  { name: "kustomize.toolkit.fluxcd.io", version: "kustomize.toolkit.fluxcd.io/v1", resources: [r("kustomizations", "Kustomization")] },
+  { name: "helm.toolkit.fluxcd.io", version: "helm.toolkit.fluxcd.io/v2", resources: [r("helmreleases", "HelmRelease")] },
+  { name: "source.toolkit.fluxcd.io", version: "source.toolkit.fluxcd.io/v1", resources: [r("gitrepositories", "GitRepository"), r("ocirepositories", "OCIRepository"), r("helmrepositories", "HelmRepository"), r("helmcharts", "HelmChart"), r("buckets", "Bucket")] },
+  { name: "notification.toolkit.fluxcd.io", version: "notification.toolkit.fluxcd.io/v1beta3", resources: [r("alerts", "Alert"), r("providers", "Provider")] },
+  { name: "argoproj.io", version: "argoproj.io/v1alpha1", resources: [r("applications", "Application"), r("applicationsets", "ApplicationSet"), r("appprojects", "AppProject")] },
 ];
 
 /* ----------------------------------------------------------------- logs -- */

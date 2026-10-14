@@ -16,8 +16,13 @@ import {
 } from "lucide-vue-next";
 
 import type { Component } from "vue";
+import { deliveryKindOf } from "@/lib/gitops/kinds";
 
 const props = defineProps<{ resource: KubernetesObject }>();
+
+/* GitOps deliveries (Flux, Argo CD) have a panel of their own. */
+const Delivery = defineAsyncComponent(() => import("@/views/panels/Delivery.vue"));
+const isDelivery = computed(() => deliveryKindOf(props.resource) !== null);
 
 /*
  * Kind-specific sections (resource/<Kind>.vue). Async components are created
@@ -65,7 +70,8 @@ const annotationCount = computed(
 );
 </script>
 <template>
-  <div class="bg-card">
+  <Delivery v-if="isDelivery" :key="`${resource.metadata?.uid}`" :resource="resource" />
+  <div v-else class="bg-card">
     <Accordion
       class="w-full"
       type="multiple"

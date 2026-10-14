@@ -53,6 +53,14 @@ const routes: Array<RouteRecordRaw> = [
     },
   },
   {
+    path: "/gitops",
+    name: "GitOps",
+    component: () => import("./views/gitops/GitOps.vue"),
+    meta: {
+      requiresContext: true,
+    },
+  },
+  {
     path: "/pods",
     name: "Pods",
     component: () => import("./views/Pods.vue"),

@@ -21,6 +21,7 @@ import { OpenCommandPaletteKey } from "@/providers/CommandPaletteProvider";
 import { Minus, Search, Square, X } from "lucide-vue-next";
 import { injectStrict } from "@/lib/utils";
 import { useDiscovery, type DiscoveredResource } from "@/lib/discovery";
+import { useGitOpsDetection } from "@/lib/gitops/detect";
 import { isSameContext } from "@/lib/contextKey";
 import { onRecovered, report } from "@/lib/auth/center";
 import { perfMark } from "@/lib/perf";
@@ -47,11 +48,13 @@ interface NavigationGroup {
   apiGroupResources: string[];
 }
 
-/* App destinations above the resource groups. */
-const appLinks = [
+/* App destinations above the resource groups; GitOps once Flux or Argo CD runs in an active cluster. */
+const gitops = useGitOpsDetection();
+const appLinks = computed(() => [
   { title: "Clusters", to: { name: "ClustersHub" }, icon: "clustershub" },
   { title: "Resource Graph", to: { name: "ClusterOverview" }, icon: "diagram" },
-];
+  ...(gitops.installed.value ? [{ title: "GitOps", to: { name: "GitOps" }, icon: "gitops" }] : []),
+]);
 
 const navigationGroups: NavigationGroup[] = [
   {
