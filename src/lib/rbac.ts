@@ -292,6 +292,12 @@ export function subjectDescription(subject: RbacSubject): string {
   return "Group";
 }
 
+/** subjectDescription(), but only when it says more than the icon does ("User", "Group"). */
+export function subjectHint(subject: RbacSubject): string {
+  const description = subjectDescription(subject);
+  return description === "User" || description === "Group" ? "" : description;
+}
+
 /* --------------------------------------------------------------- index -- */
 
 export interface RbacIndex {

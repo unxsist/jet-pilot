@@ -26,7 +26,7 @@ import {
 import {
   danglingBindings,
   indexRbac,
-  subjectDescription,
+  subjectHint,
   whoCan,
   wildcardSummary,
   type Scope,
@@ -71,10 +71,8 @@ const dangling = computed(() => (index.value ? danglingBindings(index.value) : [
 const opened = ref(new Set<string>());
 watch(results, () => opened.value.clear());
 
-const askedText = computed(() => {
-  const text = questionText(question.value, namespaced.value);
-  return question.value.namespace === EVERY_NAMESPACE ? text.replace(/ in every namespace$/, " somewhere") : text;
-});
+/* "in any namespace" goes without saying: each subject says where. */
+const askedText = computed(() => questionText(question.value, namespaced.value).replace(/ in every namespace$/, ""));
 
 const summary = computed(() => {
   const count = visible.value.length;
@@ -143,7 +141,7 @@ const whereTitle = (access: SubjectAccess) =>
                 >
                   {{ access.subject.name }}
                 </button>
-                <span class="truncate text-xs text-muted-foreground">{{ subjectDescription(access.subject) }}</span>
+                <span v-if="subjectHint(access.subject)" class="truncate text-xs text-muted-foreground">{{ subjectHint(access.subject) }}</span>
                 <StatusBadge
                   v-if="access.grants.some((g) => g.fullAccess)"
                   tone="warning"

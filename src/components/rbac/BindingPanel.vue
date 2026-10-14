@@ -11,7 +11,7 @@ import ObjectLink from "./ObjectLink.vue";
 import SubjectIcon from "./SubjectIcon.vue";
 import { useRbacLinks } from "./useRbacLinks";
 import { useRbacData } from "@/lib/accessReview";
-import { bindingScope, indexRbac, normalizeSubject, subjectDescription, type BindingObject } from "@/lib/rbac";
+import { bindingScope, indexRbac, normalizeSubject, subjectHint, type BindingObject } from "@/lib/rbac";
 
 const props = defineProps<{ resource: BindingObject }>();
 const { openObject, openSubject } = useRbacLinks();
@@ -70,7 +70,7 @@ const subjects = computed(() => (props.resource.subjects ?? []).map((s) => norma
             <SubjectIcon :kind="subject.kind" size="sm" />
             <span class="min-w-0">
               <span class="block truncate text-sm">{{ subject.name }}</span>
-              <span class="block truncate text-xs text-muted-foreground">{{ subjectDescription(subject) }}</span>
+              <span v-if="subjectHint(subject)" class="block truncate text-xs text-muted-foreground">{{ subjectHint(subject) }}</span>
             </span>
           </button>
         </li>
