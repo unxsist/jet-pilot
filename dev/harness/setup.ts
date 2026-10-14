@@ -70,6 +70,7 @@ import { HUB_CLUSTER_RECORDS, HUB_FILES, hubStatus } from "./clusters";
 import { createManagedMocks } from "./managed";
 import { createCloudMocks } from "./cloud";
 import { installAuthMocks } from "./auth";
+import { handleKubeRequest } from "./kubeApi";
 
 const params = new URLSearchParams(location.search);
 if (params.get("fresh")) {
@@ -1636,6 +1637,10 @@ mockIPC(
         return openapiDocument(p.apiVersion);
 
       // live watches + metrics (src-tauri/src/watch, metrics.rs)
+      // raw API requests (kube_api.rs): routes registered per feature (kubeApi.ts)
+      case "kube_request":
+        return handleKubeRequest(p);
+
       case "watch_subscribe":
         await sleep(20);
         return watchSubscribe(p.request, p.onEvent);
