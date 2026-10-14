@@ -192,15 +192,24 @@ export function taintsPatch(before: Taint[] | undefined, after: Taint[]): JsonPa
  * An API error in a sentence: a failed test (someone else changed it), a
  * conflict, forbidden, or the server's message without its noise.
  */
+const errorParts = (error: unknown) => {
+  const e = error as { code?: number; message?: string } | string;
+  return {
+    message: typeof e === "string" ? e : (e?.message ?? String(error)),
+    code: typeof e === "object" ? e?.code : undefined,
+  };
+};
+
+/** Someone else changed the object meanwhile (a conflict or a failed `test`). */
+export function isEditConflict(error: unknown): boolean {
+  const { message, code } = errorParts(error);
+  return code === 409 || /the object has been modified/i.test(message) || (code === 422 && /test/i.test(message));
+}
+
 export function editErrorMessage(error: unknown, what: string): string {
-  const e = error as { code?: number; message?: string; reason?: string } | string;
-  const message = typeof e === "string" ? e : (e?.message ?? String(error));
-  const code = typeof e === "object" ? e?.code : undefined;
-  if (code === 409 || /the object has been modified/i.test(message)) {
-    return `The ${what} changed while you were editing. They're up to date now: check and save again.`;
-  }
-  if (code === 422 && /test/i.test(message)) {
-    return `The ${what} changed while you were editing. They're up to date now: check and save again.`;
+  const { message, code } = errorParts(error);
+  if (isEditConflict(error)) {
+    return `The ${what} changed while you were editing. Check the changes below against the current ${what} and save again.`;
   }
   if (code === 403 || /forbidden/i.test(message)) {
     return `You don't have permission to change the ${what} of this object.`;

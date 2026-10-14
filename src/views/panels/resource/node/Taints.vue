@@ -24,6 +24,7 @@ import {
   TAINT_EFFECT_WORDS,
   diffTaints,
   editErrorMessage,
+  isEditConflict,
   formatTaint,
   isSystemTaint,
   taintsPatch,
@@ -47,10 +48,17 @@ const saving = ref(false);
 const error = ref<string | null>(null);
 const keyInputs = ref<InstanceType<typeof Input>[]>([]);
 
+/*
+ * The taints the edit started from: the patch tests them, so a taint
+ * Kubernetes (or someone) adds meanwhile is never dropped silently.
+ */
+const base = shallowRef<Taint[] | undefined>(undefined);
+const current = () => (props.node.spec?.taints ? structuredClone(toRaw(props.node.spec.taints)) : undefined);
 watch(
   editing,
   (now) => {
     if (!now) return;
+    base.value = current();
     rows.value = taints.value.map((t) => ({ ...t, value: t.value ?? "", id: nextId++, system: isSystemTaint(t) }));
     error.value = null;
   },
@@ -83,7 +91,7 @@ const problems = computed(
       ])
     )
 );
-const changes = computed(() => diffTaints(taints.value, after.value));
+const changes = computed(() => diffTaints(base.value ?? [], after.value));
 const valid = computed(() => [...problems.value.values()].every((p) => !p));
 const evicts = computed(() =>
   changes.value.some((c) => c.type !== "remove" && c.key.endsWith(":NoExecute"))
@@ -100,7 +108,7 @@ const cancel = () => {
 };
 
 const save = async () => {
-  const patch = taintsPatch(props.node.spec?.taints, after.value);
+  const patch = taintsPatch(base.value, after.value);
   if (!patch || !valid.value || saving.value) return;
   if (!(await guard("edit-taints", rowTargets([props.node], "Node")))) return;
   saving.value = true;
@@ -115,6 +123,8 @@ const save = async () => {
     editing.value = false;
   } catch (e) {
     error.value = editErrorMessage(e, "taints");
+    // Changed meanwhile: the edit continues from the current taints.
+    if (isEditConflict(e)) base.value = current();
   } finally {
     saving.value = false;
   }

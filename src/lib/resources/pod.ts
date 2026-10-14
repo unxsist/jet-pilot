@@ -99,9 +99,11 @@ export function podState(pod: PodLike, now = Date.now()): ObjectState {
   // Init containers run first, one at a time.
   const initStatuses: any[] = status.initContainerStatuses ?? [];
   for (const [index, init] of initStatuses.entries()) {
-    const terminated = init.state?.terminated;
-    if (terminated?.exitCode === 0) continue;
-    const problem = containerProblem(init, spec.initContainers?.find((c: any) => c.name === init.name), `${who(init.name)}`, now);
+    if (init.state?.terminated?.exitCode === 0) continue;
+    const initSpec = spec.initContainers?.find((c: any) => c.name === init.name);
+    // Sidecars (restartPolicy Always) keep running next to the app.
+    if (initSpec?.restartPolicy === "Always" && init.state?.running) continue;
+    const problem = containerProblem(init, initSpec, who(init.name), now);
     if (problem) return { ...problem, label: problem.label === "Restarting" ? "Init container failing" : problem.label };
     if (init.state?.running || init.state?.waiting) {
       return {

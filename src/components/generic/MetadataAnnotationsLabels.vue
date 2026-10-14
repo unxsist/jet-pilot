@@ -22,6 +22,7 @@ import {
   annotationsSize,
   diffEntries,
   editErrorMessage,
+  isEditConflict,
   metadataPatch,
   validateKey,
   validateLabelValue,
@@ -36,14 +37,13 @@ const editing = defineModel<boolean>("editing", { default: false });
 const target = usePanelTarget(() => props.object);
 
 /*
- * The entries as last saved here, until the object itself catches up
- * (kinds that aren't watched show the patch response).
+ * The entries as saved here, while the object is still the version from
+ * before the save (kinds that aren't watched only have the patch response).
  */
-const saved = shallowRef<{ version: string | undefined; entries: Record<string, string> } | null>(null);
+const saved = shallowRef<{ over: string | undefined; entries: Record<string, string> } | null>(null);
 const source = computed<Record<string, string>>(() => {
-  const own = (props.type === "annotations" ? props.object.metadata?.annotations : props.object.metadata?.labels) ?? {};
-  if (saved.value && saved.value.version === props.object.metadata?.resourceVersion) return saved.value.entries;
-  return own;
+  if (saved.value && saved.value.over === props.object.metadata?.resourceVersion) return saved.value.entries;
+  return (props.type === "annotations" ? props.object.metadata?.annotations : props.object.metadata?.labels) ?? {};
 });
 
 /* ------------------------------------------------------------- view -- */
@@ -78,7 +78,13 @@ const keyInputs = ref<InstanceType<typeof Input>[]>([]);
 
 const noun = computed(() => (props.type === "labels" ? "label" : "annotation"));
 
+/*
+ * What the edit started from: changes are relative to it, so keys someone
+ * else adds meanwhile are left alone (and changed keys are tested).
+ */
+const base = shallowRef<Record<string, string>>({});
 const start = () => {
+  base.value = { ...source.value };
   rows.value = entries.value.map(([key, value]) => ({ id: nextId++, key, value }));
   error.value = null;
 };
@@ -117,7 +123,7 @@ const shownProblem = (row: Row) => (row.key === "" && row.value === "" ? null : 
 const after = computed(() =>
   Object.fromEntries(rows.value.filter((r) => !(r.key === "" && r.value === "")).map((r) => [r.key.trim(), r.value]))
 );
-const changes = computed(() => diffEntries(source.value, after.value));
+const changes = computed(() => diffEntries(base.value, after.value));
 const tooLarge = computed(() => props.type === "annotations" && annotationsSize(after.value) > ANNOTATIONS_LIMIT);
 const valid = computed(
   () => rows.value.every((row) => (row.key === "" && row.value === "") || !problems.value.get(row.id)) && !tooLarge.value
@@ -150,6 +156,7 @@ const save = async () => {
       apiVersion: props.object.apiVersion,
     });
     if (!path) throw new Error(`JET Pilot doesn't know where ${props.object.kind} objects live in this cluster.`);
+    const over = props.object.metadata?.resourceVersion;
     const result = await kubePatch<any>(
       { context: target.value.context, kubeConfig: target.value.kubeConfig || undefined },
       path,
@@ -157,12 +164,14 @@ const save = async () => {
       patch.type
     );
     saved.value = {
-      version: result?.metadata?.resourceVersion,
+      over,
       entries: (props.type === "labels" ? result?.metadata?.labels : result?.metadata?.annotations) ?? {},
     };
     editing.value = false;
   } catch (e) {
     error.value = editErrorMessage(e, `${noun.value}s`);
+    // Changed meanwhile: the edit continues from the current entries.
+    if (isEditConflict(e)) base.value = { ...source.value };
   } finally {
     saving.value = false;
   }

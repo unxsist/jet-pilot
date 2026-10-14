@@ -691,3 +691,20 @@ describe("states and the native describe", () => {
     ]);
   });
 });
+
+describe("init containers", () => {
+  test("a running sidecar doesn't hold the pod in Initializing; a running init container does", () => {
+    const pod = (restartPolicy?: string) => ({
+      spec: { initContainers: [{ name: "proxy", restartPolicy }], containers: [{ name: "api" }] },
+      status: {
+        phase: restartPolicy ? "Running" : "Pending",
+        initContainerStatuses: [{ name: "proxy", state: { running: {} } }],
+        containerStatuses: [
+          { name: "api", ready: !!restartPolicy, state: restartPolicy ? { running: {} } : { waiting: { reason: "PodInitializing" } } },
+        ],
+      },
+    });
+    expect(podState(pod("Always"), NOW).label).toBe("Running");
+    expect(podState(pod(), NOW)).toMatchObject({ label: "Initializing", detail: "Running init container proxy (1 of 1)." });
+  });
+});
