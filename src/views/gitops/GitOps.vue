@@ -21,6 +21,7 @@ import {
   PanelProviderStateKey,
 } from "@/providers/PanelProvider";
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
+import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { useGitOps } from "@/lib/gitops/useGitOps";
 import { reconcile, refresh, setSuspended } from "@/lib/gitops/actions";
 import { openDeliveryPanel, openSyncDialog } from "@/lib/gitops/ui";
@@ -40,6 +41,7 @@ const { sidePanel } = injectStrict(PanelProviderStateKey);
 const addTab = injectStrict(PanelProviderAddTabKey);
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
+const { context: primaryContext } = injectStrict(KubeContextStateKey);
 const gitops = useGitOps();
 const { deliveries, errors, loading } = gitops;
 
@@ -235,7 +237,7 @@ const emptyFilter = computed(() => noResults.value && !query.value.trim() && fil
       <!-- Discovery / first snapshot -->
       <div v-if="loading && !deliveries.length" class="space-y-px" aria-label="Loading deliveries">
         <div v-for="index in 6" :key="index" class="flex h-14 items-center gap-3 px-3">
-          <Skeleton class="h-8 w-8 rounded-lg" />
+          <Skeleton class="h-6 w-6 rounded-full" />
           <div class="flex-1 space-y-1.5">
             <Skeleton class="h-3.5 w-40" />
             <Skeleton class="h-3 w-64" />
@@ -331,7 +333,7 @@ const emptyFilter = computed(() => noResults.value && !query.value.trim() && fil
                 :delivery="delivery"
                 :focused="focusedKey ? focusedKey === delivery.key : delivery === rows[0]"
                 :open="openKey === delivery.key"
-                :show-context="multiContext"
+                :show-context="multiContext && delivery.context !== primaryContext"
                 :now="now"
                 @open="open(delivery)"
                 @focus="focusedKey = delivery.key"

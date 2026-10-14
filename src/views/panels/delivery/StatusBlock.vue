@@ -31,6 +31,8 @@ const busy = computed(() => state.value.category === "progressing");
 const flux = computed(() => props.delivery.tool === "flux");
 
 const when = computed(() => {
+  // Argo CD's last sync is in its own line.
+  if (!flux.value && state.value.since === props.delivery.lastApplied) return null;
   const at = state.value.since ? new Date(state.value.since).getTime() : NaN;
   if (Number.isNaN(at)) return null;
   const relative = relativeTime(at, props.now);
@@ -40,17 +42,32 @@ const when = computed(() => {
   };
 });
 
-/* Argo CD: sync status and health side by side, as words. */
-const argoFacts = computed(() => {
-  if (flux.value) return [];
-  const status = props.delivery.object.status ?? {};
-  const sync = status.sync?.status ?? "Unknown";
-  const health = status.health?.status ?? "Unknown";
-  // What the state's label already says isn't repeated.
-  return [
-    { label: "Sync", value: sync === "OutOfSync" ? "Out of sync" : sync, warn: sync !== "Synced" },
-    { label: "Health", value: health, warn: health !== "Healthy" },
-  ].filter((fact) => fact.value !== state.value.label);
+/*
+ * Argo CD: one quiet line in words, e.g. "Healthy · manual sync · last
+ * synced 3d ago": the health (or the sync status, when the state is about
+ * health), the sync policy and the last sync.
+ */
+const HEALTH_STATES = ["Degraded", "Missing", "Progressing", "Suspended"];
+const argoLine = computed(() => {
+  if (flux.value) return "";
+  const object = props.delivery.object;
+  const sync = object.status?.sync?.status ?? "Unknown";
+  const health = object.status?.health?.status ?? "Unknown";
+  const parts = [
+    HEALTH_STATES.includes(state.value.label)
+      ? sync === "OutOfSync"
+        ? "Out of sync"
+        : sync === "Synced"
+          ? "Synced"
+          : "Sync status unknown"
+      : health === "Unknown"
+        ? "Health unknown"
+        : health,
+    object.spec?.syncPolicy?.automated ? "auto-sync" : "manual sync",
+  ];
+  const at = props.delivery.lastApplied ? new Date(props.delivery.lastApplied).getTime() : NaN;
+  if (!Number.isNaN(at)) parts.push(`last synced ${relativeTime(at, props.now)}`);
+  return parts.join(" · ");
 });
 
 const LONG = 220;
@@ -87,12 +104,7 @@ const object = computed(() => props.delivery.object);
       <span v-if="when" class="text-xs tabular-nums text-muted-foreground" :title="when.title">{{ when.text }}</span>
     </div>
 
-    <dl v-if="argoFacts.length" class="flex gap-5 text-xs">
-      <div v-for="fact in argoFacts" :key="fact.label" class="flex gap-1.5">
-        <dt class="text-muted-foreground">{{ fact.label }}</dt>
-        <dd class="font-medium" :class="fact.warn ? 'text-foreground' : 'text-muted-foreground'">{{ fact.value }}</dd>
-      </div>
-    </dl>
+    <p v-if="argoLine" class="-mt-1.5 text-xs text-muted-foreground">{{ argoLine }}</p>
 
     <div v-if="message" :class="boxClass" class="text-xs leading-relaxed">
       <p class="select-text whitespace-pre-wrap break-words" :class="!expanded && long ? 'line-clamp-4' : ''">{{ message }}</p>

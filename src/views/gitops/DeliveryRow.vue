@@ -16,7 +16,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { StatusDot, statusTextClass } from "@/components/ui/status";
 import ToolMark from "@/components/gitops/ToolMark.vue";
-import ContextAvatar from "@/components/ContextAvatar.vue";
 import { cn } from "@/lib/utils";
 import { relativeTime } from "@/lib/clusters/status";
 import { formatDateTime } from "@/lib/utils";
@@ -29,7 +28,7 @@ const props = defineProps<{
   focused: boolean;
   /** Its details are open. */
   open: boolean;
-  /** Several contexts are active: say which one. */
+  /** Several contexts are active and this one isn't the primary: say which it is. */
   showContext: boolean;
   now: number;
 }>();
@@ -87,11 +86,12 @@ const primary = () => (flux.value ? emit("reconcile", false) : emit("sync"));
     @focusin="emit('focus')"
     @click="emit('open')"
   >
+    <!-- The bare mark: crisper than a small glyph in a tile. -->
     <span
-      class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-surface-1 text-muted-foreground"
+      class="flex h-8 w-8 shrink-0 items-center justify-center text-muted-foreground/80"
       :title="TOOL_LABELS[delivery.tool]"
     >
-      <ToolMark :tool="delivery.tool" :size="16" />
+      <ToolMark :tool="delivery.tool" :size="22" />
     </span>
 
     <div class="min-w-0 flex-1">
@@ -99,10 +99,10 @@ const primary = () => (flux.value ? emit("reconcile", false) : emit("sync"));
         <span class="truncate text-sm font-medium text-foreground">{{ delivery.name }}</span>
       </div>
       <p class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-        <span v-if="showContext" class="inline-flex shrink-0" :title="delivery.context">
-          <ContextAvatar :name="delivery.context" :kube-config="delivery.kubeConfig" size="sm" class="h-3.5 w-3.5 rounded text-[7px]" />
-          <span class="sr-only">{{ delivery.context }}</span>
-        </span>
+        <template v-if="showContext">
+          <span class="shrink-0">{{ delivery.context }}</span>
+          <span aria-hidden="true" class="text-muted-foreground/60">·</span>
+        </template>
         <span class="truncate" :title="detail">{{ detail }}</span>
       </p>
     </div>
