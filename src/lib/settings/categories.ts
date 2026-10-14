@@ -13,6 +13,7 @@ import {
   SquareTerminal,
   Table2,
   Wrench,
+  Zap,
 } from "lucide-vue-next";
 import { SETTINGS } from "./registry";
 import type { SettingCategoryId, SettingDefinition } from "./types";
@@ -121,6 +122,28 @@ export const CATEGORIES: readonly SettingCategory[] = [
         description: "Names, colours, environments, guardrails, folders, tags and namespaces",
         keywords: ["alias", "color", "colour", "production", "protected", "read-only", "folder", "tags", "namespaces", "hub"],
         component: () => import("@/components/settings/sections/ClusterDetailsSection.vue"),
+      },
+    ],
+  },
+  {
+    id: "actions",
+    title: "Actions",
+    description: "Your own one-click actions for objects",
+    icon: Zap,
+    sections: [
+      {
+        id: "actions",
+        title: "Your actions",
+        description: "One action per file in the actions folder",
+        keywords: ["custom actions", "plugins", "commands", "scripts", "open url", "grafana", "stern", "kubectl", "yaml"],
+        component: () => import("@/components/settings/sections/ActionsSection.vue"),
+      },
+      {
+        id: "examples",
+        title: "Examples",
+        description: "Add one to start from, then make it yours",
+        keywords: ["custom actions", "examples", "grafana", "stern", "psql", "argo cd", "port-forward"],
+        component: () => import("@/components/settings/sections/ActionExamplesSection.vue"),
       },
     ],
   },

@@ -365,6 +365,18 @@ export const SETTINGS: readonly SettingDefinition[] = [
     section: "switcher",
   }),
 
+  /* ------------------------------------------------------------ actions -- */
+  list({
+    key: "actions.disabled",
+    default: [],
+    label: "Turned-off actions",
+    description: "Custom actions you turned off, by file name. They stay in the actions folder.",
+    keywords: ["custom actions", "plugins", "disabled", "enabled"],
+    category: "actions",
+    section: "actions",
+    hidden: true,
+  }),
+
   /* ----------------------------------------------------------- advanced -- */
   number({
     key: "network.requestTimeout",

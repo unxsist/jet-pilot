@@ -22,7 +22,9 @@
         "$APPCONFIG/",
         "$APPCONFIG/*",
         "$APPCONFIG/themes",
-        "$APPCONFIG/themes/*"
+        "$APPCONFIG/themes/*",
+        "$APPCONFIG/actions",
+        "$APPCONFIG/actions/*"
       ]
     },
     "core:window:allow-create",

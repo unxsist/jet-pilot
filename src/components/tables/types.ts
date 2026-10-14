@@ -1,3 +1,4 @@
+import type { Component } from "vue";
 import { BaseDialogInterface } from "@/providers/DialogProvider";
 import { VirtualService } from "@kubernetes-models/istio/networking.istio.io/v1beta1";
 import { KubernetesObject } from "@kubernetes/client-node";
@@ -36,6 +37,12 @@ export interface BaseRowAction<T> {
    * read-only clusters). Inferred from the label when unset.
    */
   kind?: ActionKind;
+  /** Leading menu icon; by default looked up by label (@/lib/actionIcons). */
+  icon?: Component;
+  /** Menu group: a new group starts with a separator and this heading. */
+  group?: string;
+  /** Shortcut hint shown next to the action, e.g. ["Ctrl", "Shift", "G"]. */
+  shortcut?: string[];
 }
 
 export interface WithOptions<T> extends BaseRowAction<T> {
@@ -53,6 +60,8 @@ export interface WithHandler<T> extends BaseRowAction<T> {
 export interface MassWithHandler<T> extends BaseRowAction<T> {
   massAction: true;
   options?: never;
+  /** Offered for the selection when it applies to at least one selected row. */
+  isAvailable?: (row: T) => boolean;
   handler: (rows: T[]) => void;
 }
 

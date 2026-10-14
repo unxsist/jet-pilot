@@ -719,6 +719,65 @@ const screens = {
       await wait(900);
     },
   },
+  // Custom actions (dev/harness/actions.ts): files in the actions folder, one broken.
+  "actions-settings": { url: "/settings/actions", ready: "[aria-label='Your actions']", settle: 1200 },
+  "actions-empty": { url: "/settings/actions?scenario=no-actions", ready: "[aria-label='Example actions']", settle: 1200 },
+  "actions-editor": {
+    url: "/settings/actions/edit/logs-since.yaml",
+    ready: "#action-name",
+    settle: 1000,
+    run: async (page) => {
+      await page.locator("main").evaluate((main) => main.closest("[data-settings-scroll]")?.scrollTo({ top: 330 }));
+      await wait(400);
+    },
+  },
+  "actions-yaml": {
+    url: "/settings/actions/yaml/restart-deployment.yaml",
+    ready: ".monaco-editor",
+    settle: 1800,
+    run: async (page) => {
+      await cursorAt(page, "kubectl:", 5);
+      await editorTrigger(page, "editor.action.showHover");
+      await wait(1200);
+    },
+  },
+  "actions-error": { url: "/settings/actions/yaml/preview-environment.yaml", ready: ".monaco-editor", settle: 1800 },
+  "actions-row-menu": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "payments-api" }).first().click({ button: "right" });
+      await wait(600);
+    },
+  },
+  "actions-palette": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "payments-api" }).first().click();
+      await wait(800);
+      await page.keyboard.press("Control+k");
+      await wait(400);
+      await page.keyboard.type("run");
+      await wait(600);
+    },
+  },
+  "actions-input-prompt": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Logs since");
+      await wait(700);
+    },
+  },
+  "actions-panel": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "payments-api" }).first().click();
+      await wait(1200);
+    },
+  },
   "metrics-settings": {
     url: "/clusters",
     ready: "[role=grid]",
