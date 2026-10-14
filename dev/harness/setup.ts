@@ -24,6 +24,7 @@
  *   ?scenario=no-gitops      no Flux / Argo CD API groups (gitops.ts)
  *   ?scenario=metrics-none|metrics-error   no Prometheus / a failing one (metrics.ts)
  *   ?scenario=rbac-forbidden listing RBAC objects is forbidden (rbac.ts)
+ *   ?scenario=no-actions     an empty custom actions folder (actions.ts)
  *
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views; `large-graph` swaps the
@@ -78,6 +79,7 @@ import { handleKubeRequest } from "./kubeApi";
 import { createGitopsMocks } from "./gitops";
 import { nodeHistory } from "./metrics";
 import "./rbac";
+import { actionHandlers, seedActionFiles, startActionPty } from "./actions";
 
 const params = new URLSearchParams(location.search);
 if (params.get("fresh")) {
@@ -159,6 +161,7 @@ const settings = {
     whatsNew: scenario === "whatsnew" ? "1.0.0" : VERSION,
   },
   logLevel: "error",
+  actions: { disabled: ["copy-image"] },
   ...(polling ? { experimental: { useKubectlPolling: true } } : {}),
   ...(scenario === "hub"
     ? {
@@ -1276,6 +1279,8 @@ let probeBatches = 0;
 /* ------------------------------------------------------------------ fs -- */
 
 const fsKey = (path: string) => `harness-fs:${path}`;
+/* Custom actions: files in the actions folder (dev/harness/actions.ts). */
+seedActionFiles(scenario, fsKey);
 
 /*
  * Files the theme import dialog picks (Settings › Appearance › Import
@@ -1440,6 +1445,7 @@ mockIPC(
     if (cmd in cloud.handlers) return cloud.handlers[cmd]!(p);
     if (cmd in gitops.handlers) return gitops.handlers[cmd]!(p);
     if (cmd in helm.handlers) return helm.handlers[cmd]!(p);
+    if (cmd in actionHandlers) return actionHandlers[cmd]!(p);
     switch (cmd) {
       // fs / path / app / os / updater / window / clipboard
       case "plugin:fs|exists":
@@ -1789,6 +1795,7 @@ mockIPC(
         const id = `pty-${Math.random().toString(36).slice(2)}`;
         ptyChannels.set(id, p.onEvent);
         const argv: string[] = p.initCommand || [];
+        if (startActionPty(p.onEvent, argv, sendToChannel, (kind, name) => findObject(CONTEXTS[0].name, `${kind.toLowerCase()}/${name}`))) return id;
         if (argv[1] === "debug") startDebugPty(p.onEvent, argv);
         else if (argv[1] === "exec") startExecPty(id, p.onEvent, argv);
         else startPty(p.onEvent, []);

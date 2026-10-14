@@ -46,12 +46,20 @@ import { resolveCreateTarget } from "@/components/tables/identity";
 import { allowed } from "@/lib/guardrails/guard";
 import { guardedCluster } from "@/lib/guardrails/backstop";
 import { readOnlyReason } from "@/lib/guardrails/policy";
+import { useCustomRowActions } from "@/lib/customActions/rowActions";
 const setSidePanelComponent = injectStrict(
   PanelProviderSetSidePanelComponentKey
 );
 
 const columns = ref<ColumnDef<any>[]>([]);
 const rowActions = ref<RowAction<any>[]>([]);
+/* Custom actions (Settings › Actions) whose scope matches, after the built-in ones. */
+const customRowActions = useCustomRowActions<any>(() => ({
+  addTab,
+  spawnDialog,
+  primary: { context: context.value, kubeConfig: kubeConfig.value },
+}));
+const allRowActions = computed(() => [...rowActions.value, ...customRowActions.value]);
 const refreshKey = ref<number>(0);
 
 // The VirtualDataTable toggles the Context/Namespace columns based on the
@@ -205,7 +213,7 @@ onMounted(async () => {
     :columns="tableColumns"
     :allow-filter="true"
     :sticky-headers="true"
-    :row-actions="rowActions"
+    :row-actions="allRowActions"
     :row-classes="rowClasses"
     @row-clicked="showDetails"
     @retry="retry"

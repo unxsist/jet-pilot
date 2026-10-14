@@ -84,7 +84,8 @@ const showModified = () => {
   nextTick(() => searchInput.value?.focus());
 };
 
-const activeCategory = computed(() => String(route.params.category ?? ""));
+/* Pages below a category (the action editor) name it in their route meta. */
+const activeCategory = computed(() => String(route.meta.category ?? route.params.category ?? ""));
 
 const openCategory = () => {
   query.value = "";

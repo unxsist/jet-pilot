@@ -28,9 +28,15 @@ import {
 } from "@/components/tables/identity";
 import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
 import { allowed, rowTargets } from "@/lib/guardrails/guard";
+import { useCustomRowActions } from "@/lib/customActions/rowActions";
 
-const { namespace, contexts, contextKubeConfigMapping } =
-  injectStrict(KubeContextStateKey);
+const {
+  namespace,
+  contexts,
+  contextKubeConfigMapping,
+  context: primaryContext,
+  kubeConfig: primaryKubeConfig,
+} = injectStrict(KubeContextStateKey);
 
 const addTab = injectStrict(PanelProviderAddTabKey);
 const { settings } = injectStrict(SettingsContextStateKey);
@@ -209,6 +215,14 @@ const rowActions: RowAction<ContextAwarePod>[] = [
   },
 ];
 
+/* Custom actions (Settings › Actions) whose scope matches, after the built-in ones. */
+const customRowActions = useCustomRowActions<ContextAwarePod>(() => ({
+  addTab,
+  spawnDialog,
+  primary: { context: primaryContext.value, kubeConfig: primaryKubeConfig.value },
+}));
+const allRowActions = computed(() => [...rowActions, ...customRowActions.value]);
+
 const showDetails = (row: any) => {
   setSidePanelComponent({
     title: `${row.kind}: ${row.metadata?.name}` || "Resource",
@@ -351,7 +365,7 @@ const rowClasses = (row: V1Pod) => {
     :columns="tableColumns"
     :allow-filter="true"
     :sticky-headers="true"
-    :row-actions="rowActions"
+    :row-actions="allRowActions"
     :row-classes="rowClasses"
     @row-clicked="showDetails"
     @retry="retry"

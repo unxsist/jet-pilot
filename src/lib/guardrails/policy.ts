@@ -42,6 +42,7 @@ export type ActionKind =
   | "copy-to-pod"
   | "debug"
   | "node-shell"
+  | "custom-action"
   | "exec"
   | "port-forward"
   | "logs"
@@ -89,6 +90,8 @@ const EFFECTS: Record<ActionKind, ActionEffect> = {
   debug: "mutate",
   // Creates a privileged pod on the node.
   "node-shell": "mutate",
+  // A custom action the user marked as changing the cluster (Settings › Actions).
+  "custom-action": "mutate",
   exec: "interactive",
   "port-forward": "interactive",
   logs: "read",
@@ -113,6 +116,8 @@ const TYPED = new Set<ActionKind>([
   "helm-install",
   "helm-upgrade",
   "helm-rollback",
+  // Custom actions do whatever their file says: worth typing the name.
+  "custom-action",
   ...APPLIES,
 ]);
 
@@ -259,6 +264,7 @@ const VERBS: Partial<Record<ActionKind, string>> = {
   "copy-to-pod": "Upload",
   "node-shell": "Open node shell",
   "port-forward": "Port forward",
+  "custom-action": "Run",
 };
 
 export const verbOf = (kind: ActionKind): string =>

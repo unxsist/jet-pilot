@@ -20,6 +20,7 @@ import {
   ContextMenuSubContent,
   ContextMenuSeparator,
   ContextMenuShortcut,
+  ContextMenuLabel,
 } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
@@ -43,6 +44,7 @@ import { toast } from "@/components/ui/toast";
 import KindIcon from "@/components/KindIcon.vue";
 import { actionIcon, isDestructiveAction } from "@/lib/actionIcons";
 import { blockedReason, type ClusterRef } from "@/lib/guardrails/menu";
+import { publishFocus, withdrawFocus } from "@/lib/customActions/focus";
 import { guardedCluster } from "@/lib/guardrails/backstop";
 import {
   ArrowDown,
@@ -1337,7 +1339,21 @@ const actionLabel = (rowAction: RowAction<TData>): string =>
       null
   );
 
+/* The action's own icon, else the one for its label. */
+const iconOf = (rowAction: RowAction<TData>) =>
+  rowAction.icon ?? actionIcon(actionLabel(rowAction));
+
+/* The first available action of its group: the group's heading goes above it. */
+const startsGroup = (index: number) => {
+  const rowAction = props.rowActions?.[index];
+  if (!rowAction?.group || !isRowActionAvailable(rowAction)) return false;
+  return !props.rowActions!.slice(0, index).some(
+    (previous) => previous.group === rowAction.group && isRowActionAvailable(previous)
+  );
+};
+
 const actionShortcut = (rowAction: RowAction<TData>) => {
+  if (rowAction.shortcut) return rowAction.shortcut;
   if (!keyboardEnabled.value) return null;
   const id = actionIdForLabel(actionLabel(rowAction));
   if (!id || (id === "details" && hasRowClickListener.value)) return null;
@@ -1391,7 +1407,10 @@ const isRowActionAvailable = (rowAction: RowAction<TData>) =>
 const massActions = computed(() =>
   (props.rowActions || []).filter(
     (rowAction): rowAction is MassWithHandler<TData> =>
-      "massAction" in rowAction && rowAction.massAction === true
+      "massAction" in rowAction &&
+      rowAction.massAction === true &&
+      (!rowAction.isAvailable ||
+        selectedRows.value.some((row) => rowAction.isAvailable!(row.original)))
   )
 );
 
@@ -1422,6 +1441,22 @@ onMounted(() => {
   listen();
   startClock();
 });
+
+/*
+ * Custom actions from the palette / their shortcuts run on the selected
+ * rows, else the cursor row, of the visible table.
+ */
+const focusOwner = Symbol("table");
+const focusVisible = ref(true);
+watchEffect(() => {
+  if (!keyboardEnabled.value || !focusVisible.value) return withdrawFocus(focusOwner);
+  const selected = selectedRows.value.map((row) => row.original as Record<string, any>);
+  const cursor = cursorRow()?.original as Record<string, any> | undefined;
+  publishFocus(focusOwner, selected.length ? selected : cursor ? [cursor] : []);
+});
+onActivated(() => (focusVisible.value = true));
+onDeactivated(() => (focusVisible.value = false));
+onBeforeUnmount(() => withdrawFocus(focusOwner));
 
 onActivated(() => {
   isActive = true;
@@ -2008,6 +2043,10 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
             class="min-w-[13rem]"
           >
             <template v-for="(rowAction, index) in rowActions" :key="index">
+              <template v-if="startsGroup(index)">
+                <ContextMenuSeparator />
+                <ContextMenuLabel>{{ rowAction.group }}</ContextMenuLabel>
+              </template>
               <template v-if="!rowAction.options">
                 <ContextMenuSeparator
                   v-if="
@@ -2027,8 +2066,8 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
                   @select="handleRowAction(rowAction, true)"
                 >
                   <component
-                    :is="actionIcon(actionLabel(rowAction))"
-                    v-if="actionIcon(actionLabel(rowAction))"
+                    :is="iconOf(rowAction)"
+                    v-if="iconOf(rowAction)"
                     class="h-3.5 w-3.5"
                     :class="
                       isDestructiveAction(actionLabel(rowAction))
@@ -2061,8 +2100,8 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
                 <ContextMenuSub>
                   <ContextMenuSubTrigger>
                     <component
-                      :is="actionIcon(actionLabel(rowAction))"
-                      v-if="actionIcon(actionLabel(rowAction))"
+                      :is="iconOf(rowAction)"
+                      v-if="iconOf(rowAction)"
                       class="h-3.5 w-3.5 text-muted-foreground"
                     />
                     <span v-else class="w-3.5" aria-hidden="true" />
@@ -2126,9 +2165,14 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
         <span
           v-for="(rowAction, index) in massActions"
           :key="index"
-          class="inline-flex"
+          class="inline-flex items-center"
           :title="massActionBlocks.get(rowAction) ?? undefined"
         >
+          <span
+            v-if="rowAction.group && index > 0 && massActions[index - 1].group !== rowAction.group"
+            class="mx-1 h-4 w-px bg-border"
+            aria-hidden="true"
+          />
           <Button
             size="xs"
             :variant="
@@ -2140,8 +2184,8 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
             @click="handleRowAction(rowAction)"
           >
             <component
-              :is="actionIcon(actionLabel(rowAction))"
-              v-if="actionIcon(actionLabel(rowAction))"
+              :is="iconOf(rowAction)"
+              v-if="iconOf(rowAction)"
               class="h-3 w-3"
             />
             {{ actionLabel(rowAction) }}

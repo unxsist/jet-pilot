@@ -27,6 +27,11 @@ import { error } from "@/lib/logger";
 
 const route = useRoute();
 
+/* Custom actions (Settings › Actions) for the object: lazy, off the startup path. */
+const PanelActions = defineAsyncComponent(
+  () => import("@/components/customActions/PanelActions.vue")
+);
+
 const { sidePanel } = injectStrict(PanelProviderStateKey);
 const setSidePanelComponent = injectStrict(
   PanelProviderSetSidePanelComponentKey
@@ -277,6 +282,12 @@ const showLogs = () => {
           >
             <ScrollText class="h-3 w-3" /> Logs
           </Button>
+          <PanelActions
+            v-if="resource"
+            :resource="resource"
+            :context="target.context"
+            :kube-config="target.kubeConfig"
+          />
         </div>
       </template>
     </div>

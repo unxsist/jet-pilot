@@ -184,6 +184,7 @@ fn main() {
             openvsx::openvsx_search,
             openvsx::openvsx_install,
             themes::open_themes_folder,
+            themes::open_actions_folder,
             logs::structured_logging::export_structured_logging_session,
             logs::streaming::start_log_stream,
             logs::streaming::stop_log_stream,

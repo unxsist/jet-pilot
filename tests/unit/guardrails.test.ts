@@ -53,6 +53,7 @@ const ALL: ActionKind[] = [
   "copy-to-pod",
   "debug",
   "node-shell",
+  "custom-action",
   "exec",
   "port-forward",
   "logs",
@@ -114,6 +115,7 @@ describe("decide", () => {
       "create",
       "replace",
       "edit-secret",
+      "custom-action",
     ];
     for (const kind of ALL) {
       expect(decide(kind, prod, { resourceName: "web" }).confirm === "typed").toBe(

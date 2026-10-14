@@ -57,6 +57,10 @@ const ThemeCommands = defineAsyncComponent(
 const SettingsCommands = defineAsyncComponent(
   () => import("./components/settings/SettingsCommands.vue")
 );
+/* Custom actions in the palette and on their shortcuts (Settings › Actions). */
+const ActionCommands = defineAsyncComponent(
+  () => import("./components/customActions/ActionCommands.vue")
+);
 const idle = ref(false);
 onMounted(() => whenIdle(() => (idle.value = true), 2000));
 </script>
@@ -112,6 +116,7 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
                         <WhatsNew />
                         <ThemeCommands />
                         <SettingsCommands />
+                        <ActionCommands />
                       </template>
                       <TerminalLauncher />
                     </WorkspaceProvider>

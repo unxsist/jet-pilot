@@ -156,7 +156,11 @@ const LIST_LIMIT = 10;
 export async function guard(
   kind: ActionKind,
   targets: GuardTarget[],
-  options: { confirm?: () => boolean | Promise<boolean> } = {}
+  options: {
+    confirm?: () => boolean | Promise<boolean>;
+    /** Title of the typed confirmation for `subject` ("payments-api", "3 pods"). */
+    title?: (subject: string) => string;
+  } = {}
 ): Promise<boolean> {
   const clusters = new Map<string, ResolvedCluster>();
   for (const target of targets) {
@@ -183,8 +187,9 @@ export async function guard(
       clusters.size > 1 || new Set(targets.map((target) => target.namespace)).size > 1;
     const lines = targets.slice(0, LIST_LIMIT).map((target) => targetLine(target, scoped));
     if (targets.length > LIST_LIMIT) lines.push(`… and ${targets.length - LIST_LIMIT} more`);
+    const subject = targets.length > 1 ? decision.phrase : lines[0] ?? decision.phrase;
     return typedConfirm({
-      title: `${verb} ${targets.length > 1 ? decision.phrase : lines[0] ?? decision.phrase}?`,
+      title: options.title ? options.title(subject) : `${verb} ${subject}?`,
       // Protected clusters first.
       clusters: [...resolved].sort((a, b) => Number(b.protected) - Number(a.protected)),
       targets: lines,

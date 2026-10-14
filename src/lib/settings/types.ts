@@ -88,6 +88,10 @@ export interface Preferences {
     /** Run exec sign-in plugins through JET Pilot's broker (timeouts, no hidden prompts). */
     credentialBroker: boolean;
   };
+  actions: {
+    /** Ids (file names without extension) of custom actions turned off. */
+    disabled: string[];
+  };
 }
 
 /** Per-context namespace lists of releases before 1.41 (now part of `clusters`). */
@@ -137,6 +141,7 @@ export type SettingCategoryId =
   | "terminal"
   | "tables"
   | "clusters"
+  | "actions"
   | "advanced";
 
 export type Platform = "macos" | "linux" | "windows";

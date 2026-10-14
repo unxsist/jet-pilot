@@ -27,6 +27,20 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import("./views/settings/ThemeEditorRoute.vue"),
         meta: { fullBleed: true },
       },
+      {
+        // A custom action in the form editor; no file: a new action.
+        path: "actions/edit/:file?",
+        name: "SettingsActionEditor",
+        component: () => import("./views/settings/ActionEditor.vue"),
+        meta: { category: "actions" },
+      },
+      {
+        // A custom action file in the YAML editor.
+        path: "actions/yaml/:file",
+        name: "SettingsActionYaml",
+        component: () => import("./views/settings/ActionYamlEditor.vue"),
+        meta: { fullBleed: true },
+      },
       // Pages of earlier releases.
       {
         path: "logs",
