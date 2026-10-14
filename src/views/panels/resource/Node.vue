@@ -22,7 +22,7 @@ import { allowed, rowTargets } from "@/lib/guardrails/guard";
 import { guardedCluster } from "@/lib/guardrails/backstop";
 import { readOnlyReason } from "@/lib/guardrails/policy";
 import { formatBytes, formatCores } from "@/lib/metrics/units";
-import { listWords, plural } from "@/lib/resources/format";
+import { listWords } from "@/lib/resources/format";
 import { isActivePod, nodeAllocation, nodeHealth, nodePlacement, nodeRoles } from "@/lib/resources/node";
 import { podState } from "@/lib/resources/pod";
 import { actions as nodeActions } from "@/actions/nodes";

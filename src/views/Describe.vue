@@ -73,7 +73,8 @@ const runKubectl = async (args: string[]) => {
 
 /* The object as `kubectl get -o yaml` shows it: without managed fields (and the app's tags). */
 const objectYaml = (object: any) => {
-  const { context: _context, kubeConfig: _kubeConfig, managedFields: _managed, ...metadata } = object.metadata ?? {};
+  const metadata = { ...object.metadata };
+  for (const key of ["context", "kubeConfig", "managedFields"]) delete metadata[key];
   return yaml.dump({ ...object, metadata }, { lineWidth: 120, noArrayIndent: true });
 };
 

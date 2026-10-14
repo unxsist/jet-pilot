@@ -1078,6 +1078,48 @@ const screens = {
       await openPanel(page, page.locator("tbody tr", { hasText: "checkout-api" }).first(), { foldUsage: true });
     },
   },
+  "panel-statefulset": {
+    url: "/statefulsets?resource=statefulsets&kind=StatefulSet",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "postgres" }).first(), { foldUsage: true });
+    },
+  },
+  "panel-daemonset": {
+    url: "/daemonsets?resource=daemonsets&kind=DaemonSet",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "node-exporter" }).first(), { foldUsage: true });
+    },
+  },
+  "panel-job": {
+    url: "/jobs?resource=jobs&kind=Job",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "report-generator" }).first(), { foldUsage: true });
+    },
+  },
+  "panel-pv": {
+    url: "/persistentvolumes?resource=persistentvolumes&kind=PersistentVolume",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr").first());
+    },
+  },
+  "panel-storageclass": {
+    url: "/storageclasses?resource=storageclasses&kind=StorageClass",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "gp3" }).first());
+    },
+  },
+  "panel-event": {
+    url: "/events?resource=events&kind=Event",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "Back-off restarting" }).first());
+    },
+  },
   "panel-labels-edit": {
     url: "/deployments?resource=deployments&kind=Deployment",
     ready: "tbody tr td",
@@ -1099,8 +1141,10 @@ const screens = {
     url: "/pods",
     ready: "tbody tr td",
     run: async (page) => {
+      await page.getByPlaceholder("Filter pods…").fill("postgres-0");
+      await wait(400);
       await openPanel(page, page.locator("tbody tr", { hasText: "postgres-0" }).first(), { foldUsage: true });
-      await page.getByRole("button", { name: "Open PersistentVolumeClaim data-postgres-0" }).click();
+      await page.getByRole("button", { name: "data-postgres-0", exact: true }).click();
       await wait(1200);
     },
   },
@@ -1108,7 +1152,7 @@ const screens = {
     url: "/pods",
     ready: "tbody tr td",
     run: async (page) => {
-      await openRowAction(page, "checkout-api-", "Describe");
+      await openRowAction(page, "CrashLoopBackOff", "Describe");
       await page.waitForSelector("[data-testid=describe-native]", { timeout: 10000 }).catch(() => {});
       await enlargePanel(page);
       await wait(1000);

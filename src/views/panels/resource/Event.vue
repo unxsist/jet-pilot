@@ -39,9 +39,7 @@ const when = (value: unknown) => {
         <div class="text-base font-semibold" :class="warning ? 'text-warning' : 'text-foreground'">
           {{ resource.reason ?? "Event" }}
         </div>
-        <p class="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed select-text">
-          {{ resource.message ?? resource.note }}
-        </p>
+        <p class="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed select-text">{{ resource.message ?? resource.note }}</p>
       </div>
       <FactList>
         <Fact label="About">

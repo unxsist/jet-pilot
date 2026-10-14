@@ -21,7 +21,8 @@ function workloadState(object: any): ObjectState {
   const daemon = kind === "DaemonSet";
   const desired = daemon ? (status.desiredNumberScheduled ?? 0) : (object.spec?.replicas ?? 1);
   const ready = daemon ? (status.numberReady ?? 0) : (status.readyReplicas ?? 0);
-  const updated = daemon ? (status.updatedNumberScheduled ?? desired) : (status.updatedReplicas ?? (kind === "ReplicaSet" ? desired : 0));
+  // Controllers leave the count out until a rollout touches it.
+  const updated = daemon ? (status.updatedNumberScheduled ?? desired) : (status.updatedReplicas ?? desired);
   const progressing = condition(object, "Progressing");
 
   if (object.spec?.paused) return { label: "Paused", tone: "muted", detail: "Rollouts are paused until it is resumed." };
@@ -36,7 +37,9 @@ function workloadState(object: any): ObjectState {
   if (desired === 0) {
     return { label: daemon ? "No nodes" : "Scaled to zero", tone: "muted", detail: daemon ? "No node matches its node selector." : undefined };
   }
-  const stale = (object.metadata?.generation ?? 0) > (status.observedGeneration ?? object.metadata?.generation ?? 0);
+  const stale =
+    (object.metadata?.generation ?? 0) > (status.observedGeneration ?? object.metadata?.generation ?? 0) ||
+    (kind === "StatefulSet" && !!status.updateRevision && status.currentRevision !== status.updateRevision);
   if (kind !== "ReplicaSet" && (stale || updated < desired)) {
     return {
       label: "Rolling out",

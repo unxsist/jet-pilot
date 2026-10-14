@@ -165,11 +165,8 @@ const onKeydown = (event: KeyboardEvent) => {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem v-for="effect in TAINT_EFFECTS" :key="effect" :value="effect">
-                <span class="grid gap-0.5">
-                  <span>{{ effect }}</span>
-                  <span class="text-xs text-muted-foreground">{{ TAINT_EFFECT_WORDS[effect] }}</span>
-                </span>
+              <SelectItem v-for="effect in TAINT_EFFECTS" :key="effect" :value="effect" class="text-xs">
+                {{ effect }}
               </SelectItem>
             </SelectContent>
           </Select>
@@ -185,6 +182,9 @@ const onKeydown = (event: KeyboardEvent) => {
           </Button>
         </div>
         <p v-if="problems.get(row.id)" class="mt-1 text-xs text-destructive" role="alert">{{ problems.get(row.id) }}</p>
+        <p v-else-if="!row.system" class="mt-1 text-xs text-muted-foreground">
+          {{ TAINT_EFFECT_WORDS[row.effect as TaintEffect] }}
+        </p>
       </li>
     </ul>
 

@@ -11,7 +11,6 @@ import NavigationItemIcon from "@/components/NavigationItemIcon.vue";
 import ContextAvatar from "@/components/ContextAvatar.vue";
 import { Button } from "@/components/ui/button";
 import {
-  ArrowLeft,
   Check,
   Clock,
   Copy,
@@ -25,7 +24,6 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useRoute } from "vue-router";
 import type { KubernetesObject } from "@kubernetes/client-node";
 import { error } from "@/lib/logger";
-import { notePanelChange, panelBack, panelTrail } from "@/lib/resources/panelTrail";
 
 const route = useRoute();
 
@@ -48,13 +46,8 @@ watch(route, () => {
   setSidePanelComponent(null);
 });
 
-/* Back to the object a link in the panel came from. */
-watch(sidePanel, (panel) => notePanelChange(panel));
-const previous = computed(() => {
-  const panel = panelTrail.value[panelTrail.value.length - 1];
-  const object = panel?.props?.resource;
-  return panel ? (object?.metadata?.name ? `${object.kind} ${object.metadata.name}` : panel.title) : null;
-});
+/* Back to where a link in the panel came from (its own chunk). */
+const PanelBack = defineAsyncComponent(() => import("@/components/PanelBack.vue"));
 
 /* Kinds whose logs `kubectl logs <kind>/<name>` can show. */
 const LOGGABLE_KINDS = [
@@ -193,16 +186,7 @@ const showLogs = () => {
     <div
       class="sticky top-0 z-10 space-y-3 border-b bg-card/95 px-4 pb-3 pt-3.5 backdrop-blur-sm supports-[backdrop-filter]:bg-card/85"
     >
-      <button
-        v-if="previous"
-        type="button"
-        class="-mb-1 -ml-1 flex max-w-full items-center gap-1 rounded px-1 text-xs text-muted-foreground transition-colors duration-fast hover:text-foreground focus-ring focus-visible:ring-offset-card"
-        :title="`Back to ${previous}`"
-        @click="panelBack(setSidePanelComponent)"
-      >
-        <ArrowLeft class="h-3 w-3 shrink-0" />
-        <span class="truncate">{{ previous }}</span>
-      </button>
+      <PanelBack />
       <div class="flex items-start gap-3">
         <span
           class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-surface-1 text-muted-foreground shadow-xs"

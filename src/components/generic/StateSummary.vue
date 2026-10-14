@@ -2,7 +2,7 @@
 /**
  * The top of a side panel: the object's state in a word, since when, and
  * (for problems) what is wrong in a sentence. Healthy states stay a quiet
- * line. `#actions` holds the kind's primary actions (Cordon, Trigger now).
+ * line.
  */
 import { StatusDot, statusTextClass } from "@/components/ui/status";
 import { formatDateTime } from "@/lib/utils";
@@ -27,8 +27,8 @@ watch(() => props.state?.detail, () => (expanded.value = false));
 </script>
 
 <template>
-  <div v-if="state || $slots.actions" class="space-y-2.5 border-b px-4 pb-3.5 pt-3">
-    <div v-if="state" class="flex items-center gap-2.5">
+  <div v-if="state" class="space-y-2.5 border-b px-4 pb-3.5 pt-3">
+    <div class="flex items-center gap-2.5">
       <StatusDot :tone="state.tone" :pulse="state.tone === 'info'" />
       <span
         class="text-sm font-semibold"
@@ -38,7 +38,7 @@ watch(() => props.state?.detail, () => (expanded.value = false));
       <span v-if="since" class="text-xs tabular-nums text-muted-foreground" :title="since.title">{{ since.text }}</span>
     </div>
     <div
-      v-if="state?.detail"
+      v-if="state.detail"
       class="text-xs leading-relaxed"
       :class="
         problem
@@ -48,15 +48,10 @@ watch(() => props.state?.detail, () => (expanded.value = false));
           : '-mt-1 pl-[18px] text-muted-foreground'
       "
     >
-      <p class="select-text whitespace-pre-wrap break-words" :class="!expanded && long ? 'line-clamp-3' : ''">
-        {{ state.detail }}
-      </p>
+      <p class="select-text whitespace-pre-wrap break-words" :class="!expanded && long ? 'line-clamp-3' : ''">{{ state.detail }}</p>
       <button v-if="long" type="button" class="mt-1 font-medium text-link hover:underline" @click="expanded = !expanded">
         {{ expanded ? "Show less" : "Show all" }}
       </button>
-    </div>
-    <div v-if="$slots.actions" class="flex flex-wrap items-center gap-1.5">
-      <slot name="actions" />
     </div>
   </div>
 </template>
