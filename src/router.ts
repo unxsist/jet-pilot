@@ -69,6 +69,14 @@ const routes: Array<RouteRecordRaw> = [
     },
   },
   {
+    path: "/access-review",
+    name: "AccessReview",
+    component: () => import("./views/access-review/AccessReview.vue"),
+    meta: {
+      requiresContext: true,
+    },
+  },
+  {
     path: "/helm-releases",
     name: "HelmReleases",
     component: () => import("./views/HelmResource.vue"),

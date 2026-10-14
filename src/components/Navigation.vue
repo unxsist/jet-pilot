@@ -385,6 +385,13 @@ onUnmounted(stopRecovered);
               :title="section.title"
             >
               <NavigationItem
+                v-if="section.title === 'Access Control'"
+                icon="accessreview"
+                title="Access Review"
+                :to="{ name: 'AccessReview' }"
+                :can-pin="false"
+              />
+              <NavigationItem
                 v-for="resource in section.items"
                 :key="resource.name"
                 :icon="formatResourceKind(resource.kind).toLowerCase()"

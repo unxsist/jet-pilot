@@ -45,6 +45,7 @@ import {
   Shapes,
   Shield,
   ShieldAlert,
+  ShieldCheck,
   ShieldHalf,
   Ship,
   SquareTerminal,
@@ -112,6 +113,7 @@ const ICONS: Record<string, Component> = {
   clusterroles: Shield,
   rolebindings: Link,
   clusterrolebindings: Link,
+  accessreview: ShieldCheck,
 
   // Common CRDs
   certificates: BadgeCheck,
