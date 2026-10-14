@@ -198,7 +198,7 @@ const subtitle = computed(() => {
         </div>
       </header>
 
-      <div class="grid min-h-0 flex-1 grid-cols-[14rem_1fr]">
+      <div class="grid min-h-0 flex-1 grid-cols-[15rem_1fr]">
         <aside class="flex min-h-0 flex-col border-r border-border-subtle bg-surface-1/60">
           <h3 class="px-4 pb-1.5 pt-4 text-xs font-medium text-muted-foreground">Recent</h3>
           <ul v-if="entries.length" class="min-h-0 flex-1 space-y-px overflow-y-auto px-2 pb-3">
