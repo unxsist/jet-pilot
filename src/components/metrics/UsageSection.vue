@@ -97,14 +97,16 @@ const headline = (chart: UsageChart) => {
 
 const TONE_CLASS = { normal: "text-muted-foreground", warning: "text-warning", destructive: "text-destructive" };
 
+/* Short ("Prometheus in monitoring"); the service's full name on hover. */
 const sourceLine = computed(() => {
   const s = source.value;
-  if (!s) return "";
+  if (!s) return { text: "", title: "" };
   if (s.type === "prometheus") {
-    const kind = s.kind ? KIND_LABELS[s.kind] : null;
-    return kind ? `${kind} · ${describeSource(s.source)}` : describeSource(s.source);
+    const kind = s.kind ? KIND_LABELS[s.kind] : "Prometheus";
+    return { text: `${kind} in ${s.source.namespace}`, title: `${kind} · ${describeSource(s.source)}` };
   }
-  return s.reason === "off" ? "metrics-server · history is off for this cluster" : "metrics-server";
+  const text = s.reason === "off" ? "metrics-server · history is off for this cluster" : "metrics-server";
+  return { text, title: text };
 });
 
 const fallbackEmpty = computed(
@@ -168,7 +170,7 @@ const sessionRange = ref<RangeId>("6h");
             <Skeleton class="h-3 w-12" />
             <Skeleton class="h-3 w-20" />
           </div>
-          <Skeleton class="h-28 w-full rounded-md" />
+          <Skeleton class="h-36 w-full rounded-md" />
         </div>
       </div>
 
@@ -240,7 +242,7 @@ const sessionRange = ref<RangeId>("6h");
 
       <!-- Where the data comes from -->
       <div v-if="source" class="flex items-center justify-between gap-3 text-2xs text-muted-foreground">
-        <span class="min-w-0 truncate" :title="sourceLine">{{ sourceLine }}</span>
+        <span class="min-w-0 truncate" :title="sourceLine.title">{{ sourceLine.text }}</span>
         <button
           type="button"
           class="shrink-0 rounded transition-colors duration-fast hover:text-foreground focus-ring"

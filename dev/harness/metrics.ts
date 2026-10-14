@@ -149,7 +149,7 @@ const nearLimit = (pod: PodModel, pods: PodModel[]) =>
 function cpuAt(pod: PodModel, t: number): number {
   const level = pod.requests.cpu * 0.5 + pod.cpu * 0.35;
   const wave = (0.45 + 0.75 * daily(t)) * (1 + 0.12 * noise(pod.seed, t));
-  const burst = pod.app === "payments-api" ? 1.9 * spike(t) : 0;
+  const burst = pod.app === "payments-api" ? 1.4 * spike(t) : 0;
   return Math.max(1, level * (wave + burst));
 }
 

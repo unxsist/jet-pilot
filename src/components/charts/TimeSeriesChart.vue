@@ -37,7 +37,7 @@ const props = withDefaults(
     pods: null,
     references: () => [],
     markers: () => [],
-    height: 112,
+    height: 144,
     busy: false,
     emptyText: "No data in this range",
   }
@@ -50,17 +50,16 @@ const uid = useId();
 const root = ref<HTMLElement | null>(null);
 const { width } = useElementSize(root);
 
-/* Plot area: y labels in a right gutter, time labels underneath. */
-const GUTTER = 46;
+/* Plot area: y labels and reference tags in a right gutter, time labels underneath. */
 const TOP = 8;
 const BOTTOM = 20;
+/* Tag text is 10px Inter: about 5.6px per character, plus padding. */
+const tagWidth = (label: string) => Math.ceil(label.length * 5.6) + 8;
+const TAG_HEIGHT = 13;
 
-const plotWidth = computed(() => Math.max(0, Math.floor(width.value) - GUTTER));
+const count = computed(() => props.times.length);
 const plotHeight = computed(() => props.height - TOP - BOTTOM);
 const baseline = computed(() => TOP + plotHeight.value);
-const count = computed(() => props.times.length);
-
-const x = (index: number) => (count.value > 1 ? (index / (count.value - 1)) * plotWidth.value : plotWidth.value / 2);
 
 const podMode = computed(() => !!props.pods?.length);
 const visible = computed(() => (podMode.value ? props.pods! : props.series));
@@ -71,24 +70,33 @@ const hasData = computed(() => visible.value.some((s) => s.values.some((v) => v 
 
 const referenceMax = (ref: ChartReference) => (typeof ref.values === "number" ? ref.values : maxOf(ref.values));
 
+/* The axis fits the data with some headroom. */
+const dataScale = computed(() => niceScale(dataMax.value * 1.1, props.unit, plotHeight.value < 64 ? 2 : 3));
+
 /*
- * References far above the data (a limit 10× the usage) would flatten the
- * line into the floor: those are left out (the header says the percentage).
- * Per-pod lines are per pod, the references are totals: none then.
+ * References inside the data's axis, or just above it, are drawn (the axis
+ * grows a little for them). One well above (a limit 5× the usage) would
+ * squash the line into the floor: it is left out, the header says the
+ * percentage. Per-pod lines are per pod, the references totals: none then.
  */
 const drawnReferences = computed(() =>
   podMode.value || !hasData.value
     ? []
     : props.references.filter((ref) => {
         const max = referenceMax(ref);
-        return max > 0 && max <= Math.max(dataMax.value * 1.6, dataMax.value + 1e-9);
+        return max > 0 && (max <= dataScale.value.max || max <= dataMax.value * 1.3);
       })
 );
 
 const scale = computed(() => {
-  const top = Math.max(dataMax.value * 1.08, ...drawnReferences.value.map(referenceMax));
-  return niceScale(top, props.unit, plotHeight.value < 64 ? 2 : 3);
+  const top = Math.max(...drawnReferences.value.map(referenceMax));
+  return top > dataScale.value.max ? niceScale(top, props.unit, plotHeight.value < 64 ? 2 : 3) : dataScale.value;
 });
+
+const gutter = computed(() => Math.max(46, ...drawnReferences.value.map((ref) => tagWidth(ref.label) + 6)));
+const plotWidth = computed(() => Math.max(0, Math.floor(width.value) - gutter.value));
+
+const x = (index: number) => (count.value > 1 ? (index / (count.value - 1)) * plotWidth.value : plotWidth.value / 2);
 
 const y = (value: number) => TOP + plotHeight.value - (Math.min(Math.max(value, 0), scale.value.max) / scale.value.max) * plotHeight.value;
 
@@ -124,19 +132,28 @@ const referenceLines = computed(() => {
       typeof ref.values === "number"
         ? `M0,${y(ref.values)}H${plotWidth.value}`
         : stepPath(runsOf(ref.values));
-    const first = typeof ref.values === "number" ? ref.values : ref.values.find((v) => v !== null) ?? 0;
-    const lineY = y(first);
-    // Above the line, unless that runs into the top: then under it.
-    return { ref, path, labelY: lineY - 4 < TOP + 8 ? lineY + 11 : lineY - 4 };
+    // The tag sits at the line's right end, in the gutter.
+    const last = typeof ref.values === "number" ? ref.values : [...ref.values].reverse().find((v) => v !== null) ?? 0;
+    return { ref, path, tagY: Math.min(baseline.value - 6, Math.max(TOP + 6, y(last))) };
   });
-  // Two labels on top of each other: keep the higher one (the limit).
-  return list.map((item, i) => ({
-    ...item,
-    showLabel: !list.some((other, j) => j !== i && Math.abs(other.labelY - item.labelY) < 11 && referenceMax(other.ref) > referenceMax(item.ref)),
-  }));
+  // Tags too close to each other are nudged apart (the lower one moves down).
+  const sorted = [...list].sort((a, b) => a.tagY - b.tagY);
+  for (let i = 1; i < sorted.length; i++) {
+    sorted[i]!.tagY = Math.max(sorted[i]!.tagY, sorted[i - 1]!.tagY + TAG_HEIGHT + 1);
+  }
+  // Pushed past the floor: move the stack up instead.
+  const overflow = (sorted[sorted.length - 1]?.tagY ?? 0) - (baseline.value - 6);
+  if (overflow > 0) for (const item of sorted) item.tagY -= overflow;
+  return list;
 });
 
-const gridlines = computed(() => scale.value.ticks.map((tick) => ({ value: tick, y: Math.round(y(tick)) + 0.5 })));
+/* Axis labels make way for the reference tags next to them. */
+const gridlines = computed(() =>
+  scale.value.ticks.map((tick) => {
+    const lineY = Math.round(y(tick)) + 0.5;
+    return { value: tick, y: lineY, label: !referenceLines.value.some((r) => Math.abs(r.tagY - lineY) < TAG_HEIGHT + 3) };
+  })
+);
 
 const span = computed(() => (count.value > 1 ? props.times[count.value - 1]! - props.times[0]! : 0));
 
@@ -312,9 +329,9 @@ const summary = computed(() => {
   <div ref="root" class="relative select-none" :style="{ height: `${height}px` }">
     <svg
       v-if="plotWidth > 0"
-      :width="plotWidth + GUTTER"
+      :width="plotWidth + gutter"
       :height="height"
-      :viewBox="`0 0 ${plotWidth + GUTTER} ${height}`"
+      :viewBox="`0 0 ${plotWidth + gutter} ${height}`"
       class="block overflow-visible outline-none transition-opacity duration-fast ease-out focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-4 focus-visible:ring-offset-card motion-reduce:transition-none rounded-sm"
       :class="busy ? 'opacity-50' : 'opacity-100'"
       role="img"
@@ -356,7 +373,7 @@ const summary = computed(() => {
           shape-rendering="crispEdges"
         />
         <text
-          v-for="line in gridlines"
+          v-for="line in gridlines.filter((l) => l.label)"
           :key="`label-${line.value}`"
           :x="plotWidth + 8"
           :y="line.y"
@@ -414,30 +431,40 @@ const summary = computed(() => {
           class="transition-all duration-fast motion-reduce:transition-none"
         />
 
-        <!-- Reference labels, over the lines (with a halo) -->
-        <text
-          v-for="item in referenceLines.filter((r) => r.showLabel)"
-          :key="`ref-${item.ref.id}`"
-          x="2"
-          :y="item.labelY"
-          class="chart-halo fill-muted-foreground text-2xs"
-        >
-          {{ item.ref.label }}
-        </text>
+        <!-- Reference tags, in the gutter at their line -->
+        <g v-for="item in referenceLines" :key="`tag-${item.ref.id}`">
+          <rect
+            :x="plotWidth + 4"
+            :y="item.tagY - TAG_HEIGHT / 2"
+            :width="tagWidth(item.ref.label)"
+            :height="TAG_HEIGHT"
+            rx="3"
+            fill="hsl(var(--muted))"
+          />
+          <text
+            :x="plotWidth + 8"
+            :y="item.tagY"
+            dominant-baseline="central"
+            class="fill-muted-foreground text-2xs"
+          >
+            {{ item.ref.label }}
+          </text>
+        </g>
 
-        <!-- Restarts -->
+        <!-- Restarts: a dot on the axis; its line only while hovered -->
         <g v-for="marker in markers" :key="`marker-${marker.index}`">
           <line
+            v-if="activeIndex !== null && Math.abs(marker.index - activeIndex) <= 1"
             :x1="marker.x"
             :x2="marker.x"
             :y1="TOP"
             :y2="baseline"
             stroke="hsl(var(--destructive))"
-            stroke-opacity="0.45"
+            stroke-opacity="0.35"
             stroke-width="1"
             stroke-dasharray="2 3"
           />
-          <circle :cx="marker.x" :cy="baseline" r="3.5" fill="hsl(var(--destructive))" stroke="hsl(var(--card))" stroke-width="2" />
+          <circle :cx="marker.x" :cy="baseline" r="3" fill="hsl(var(--destructive))" stroke="hsl(var(--card))" stroke-width="2" />
         </g>
 
         <!-- Crosshair -->
@@ -503,13 +530,3 @@ const summary = computed(() => {
     </div>
   </div>
 </template>
-
-<style scoped>
-/* Labels over lines stay legible: a halo in the card colour behind the glyphs. */
-.chart-halo {
-  paint-order: stroke;
-  stroke: hsl(var(--card));
-  stroke-width: 3px;
-  stroke-linejoin: round;
-}
-</style>
