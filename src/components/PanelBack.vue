@@ -27,6 +27,7 @@ const previous = computed(() => {
     type="button"
     class="-mb-1 -ml-1 flex max-w-full items-center gap-1 rounded px-1 text-xs text-muted-foreground transition-colors duration-fast hover:text-foreground focus-ring focus-visible:ring-offset-card"
     :title="`Back to ${previous}`"
+    :aria-label="`Back to ${previous}`"
     @click="panelBack(setSidePanel)"
   >
     <ArrowLeft class="h-3 w-3 shrink-0" />

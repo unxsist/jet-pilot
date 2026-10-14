@@ -35,7 +35,7 @@ const props = defineProps<{ resource: KubernetesObject }>();
 const Delivery = defineAsyncComponent(() => import("@/views/panels/Delivery.vue"));
 const isDelivery = computed(() => deliveryKindOf(props.resource) !== null);
 
-const { live } = useLiveObject(() => props.resource);
+const { live, gone } = useLiveObject(() => props.resource);
 const now = useNow();
 
 /*
@@ -67,7 +67,11 @@ const showUsage = computed(() => hasUsage(props.resource.kind));
 
 /* Generic, read-only views on common spec / status shapes. */
 const anyResource = computed(() => live.value as any);
-const state = computed(() => objectState(live.value, now.value));
+const state = computed(() =>
+  gone.value
+    ? { label: "Deleted", tone: "muted" as const, detail: "It no longer exists in the cluster. This is how it last looked." }
+    : objectState(live.value, now.value)
+);
 
 /* Kinds whose section shows their conditions its own way. */
 const OWN_CONDITIONS = new Set(["Node", "HorizontalPodAutoscaler"]);
@@ -120,7 +124,8 @@ const conditionsHint = computed(() =>
 </script>
 <template>
   <Delivery v-if="isDelivery" :key="`${resource.metadata?.uid}`" :resource="resource" />
-  <div v-else class="bg-card">
+  <!-- Keyed: following a link reuses this component for another object. -->
+  <div v-else :key="`${live.metadata?.context}/${live.metadata?.uid}`" class="bg-card">
     <StateSummary :state="state" :now="now" />
     <Accordion v-model="open" class="w-full" type="multiple" collapsible>
       <UsageSection v-if="showUsage" :resource="live as Subject" />

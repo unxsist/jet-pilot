@@ -75,13 +75,15 @@ export function useRelatedList<T = any>(
     if (!wanted || !info.value?.namespaced || wanted.includes("all")) return list.items.value as T[];
     return list.items.value.filter((item: any) => wanted.includes(item.metadata?.namespace)) as T[];
   });
-  return { items, loading: list.loading };
+  /* A first complete list arrived (so a missing object is really gone). */
+  const ready = computed(() => list.lastUpdated.value !== null && !list.loading.value && !list.error.value);
+  return { items, loading: list.loading, ready };
 }
 
 /**
  * The panel's object, live: the watched version of it (matched by uid),
  * or the object the panel was opened with until that arrives / for kinds
- * that aren't watched here.
+ * that aren't watched here. `gone`: it was deleted meanwhile.
  */
 export function useLiveObject(resource: () => any) {
   const target = usePanelTarget(resource);
@@ -90,18 +92,19 @@ export function useLiveObject(resource: () => any) {
     // Events change all the time and aren't edited here.
     return object?.kind && object.kind !== "Event" && kindInfo(object.kind) ? object.kind : null;
   });
-  const { items } = useRelatedList(
+  const { items, ready } = useRelatedList(
     () => watched.value,
     () => target.value,
     () => (resource()?.metadata?.namespace ? [resource().metadata.namespace] : ["all"])
   );
-  const live = computed(() => {
-    const object = resource();
-    const uid = object?.metadata?.uid;
-    const found = uid ? items.value.find((item: any) => item.metadata?.uid === uid) : undefined;
-    return found ?? object;
+  const found = computed(() => {
+    const uid = resource()?.metadata?.uid;
+    return uid ? items.value.find((item: any) => item.metadata?.uid === uid) : undefined;
   });
-  return { live, target };
+  const live = computed(() => found.value ?? resource());
+  /* Deleted while the panel is open (the panel keeps showing how it last looked). */
+  const gone = computed(() => !!watched.value && ready.value && !!resource()?.metadata?.uid && !found.value);
+  return { live, target, gone };
 }
 
 /** The current time, ticking (for "3m ago" and next runs). */

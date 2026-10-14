@@ -1137,6 +1137,21 @@ const screens = {
       await wait(500);
     },
   },
+  "panel-labels-error": {
+    url: "/deployments?resource=deployments&kind=Deployment&scenario=edit-forbidden",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "payments-api" }).first(), { foldUsage: true });
+      await page.getByRole("button", { name: "Edit labels" }).click();
+      await page.getByRole("button", { name: "Add label" }).click();
+      await page.keyboard.type("team");
+      await page.getByRole("textbox", { name: "Value of team" }).fill("payments");
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await wait(600);
+      await scrollPanelTo(page, "Labels");
+      await wait(400);
+    },
+  },
   "panel-follow": {
     url: "/pods",
     ready: "tbody tr td",
@@ -1156,6 +1171,17 @@ const screens = {
       await page.waitForSelector("[data-testid=describe-native]", { timeout: 10000 }).catch(() => {});
       await enlargePanel(page);
       await wait(1000);
+    },
+  },
+  "describe-kubectl": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Describe");
+      await page.waitForSelector("[data-testid=describe-native]", { timeout: 10000 }).catch(() => {});
+      await page.getByRole("button", { name: "kubectl describe", exact: true }).click();
+      await page.waitForSelector("[data-testid=describe-output]", { timeout: 10000 }).catch(() => {});
+      await wait(800);
     },
   },
   "describe-native-search": {

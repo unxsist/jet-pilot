@@ -17,8 +17,9 @@
  * - CSI details on the volumes, gp3 parameters, the nginx IngressClass
  *
  * Routes: PATCH of any built-in object (JSON merge patch and JSON patch
- * with `test`, applied to the fixture and pushed to the watchers) and the
- * events of one object (`fieldSelector=involvedObject...`).
+ * with `test`, applied to the fixture and pushed to the watchers; refused
+ * with `?scenario=edit-forbidden`), lists with a field / label selector and
+ * the events of one object (`fieldSelector=involvedObject...`).
  */
 import { CLUSTERS, CONTEXTS, API_GROUPS } from "./fixtures";
 import { kubeError, registerKubeRoutes } from "./kubeApi";
@@ -376,7 +377,7 @@ function jsonPatch(target: any, ops: any[]): any {
 
 let resourceVersion = 70_000;
 
-export function createPanelsMocks(emit: Emit) {
+export function createPanelsMocks(scenario: string, emit: Emit) {
   const listOf = (context: string, plural: string): any[] => (CLUSTERS[context]?.[plural] ?? []) as any[];
 
   registerKubeRoutes([
@@ -432,6 +433,13 @@ export function createPanelsMocks(emit: Emit) {
           (o) => o.metadata?.name === decodeURIComponent(name!) && (!namespace || o.metadata?.namespace === decodeURIComponent(namespace))
         );
         if (index < 0) throw kubeError(404, `${plural} "${name}" not found`, "NotFound");
+        if (scenario === "edit-forbidden") {
+          throw kubeError(
+            403,
+            `${plural}.apps "${name}" is forbidden: User "maria@acme.dev" cannot patch resource "${plural}" in API group "apps" in the namespace "${namespace}"`,
+            "Forbidden"
+          );
+        }
         const before = list[index];
         const json = String(request.contentType ?? "").includes("json-patch");
         const next = json ? jsonPatch(before, request.body) : mergePatch(structuredClone(before), request.body);
