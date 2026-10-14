@@ -86,6 +86,8 @@ const annotationCount = computed(
       :default-value="[
         'usage',
         'status',
+        'spec',
+        'flow',
         'data',
         'rules',
         'aggregation',

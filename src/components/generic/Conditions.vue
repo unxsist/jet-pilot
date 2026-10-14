@@ -13,13 +13,17 @@ interface Condition {
 
 defineProps<{ conditions: Condition[] }>();
 
+/* Operator conditions that are normally False (KEDA, Karpenter, cert-manager). */
+const NORMALLY_FALSE = /^(Fallback|Paused|Drifted|Denied|InvalidRequest|Issuing)$/;
+
 /* Conditions where "True" is bad news (node pressure, ...). */
 const INVERTED = /(Pressure|Unavailable|Failed|Degraded|Stalled)$/;
 
 const toneOf = (condition: Condition): StatusTone => {
-  const healthy = INVERTED.test(condition.type)
-    ? condition.status === "False"
-    : condition.status === "True";
+  const healthy =
+    INVERTED.test(condition.type) || NORMALLY_FALSE.test(condition.type)
+      ? condition.status === "False"
+      : condition.status === "True";
 
   if (condition.status !== "True" && condition.status !== "False") {
     return "muted";
