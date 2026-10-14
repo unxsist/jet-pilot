@@ -30,6 +30,9 @@ export type ActionKind =
   | "replace"
   | "edit-secret"
   | "helm-install"
+  | "edit-labels"
+  | "edit-annotations"
+  | "edit-taints"
   | "helm-upgrade"
   | "helm-rollback"
   | "helm-uninstall"
@@ -79,6 +82,10 @@ const EFFECTS: Record<ActionKind, ActionEffect> = {
   replace: "mutate",
   "edit-secret": "mutate",
   "helm-install": "mutate",
+  // Inline edits in the side panel (their own preview is the confirmation).
+  "edit-labels": "mutate",
+  "edit-annotations": "mutate",
+  "edit-taints": "mutate",
   "helm-upgrade": "mutate",
   "helm-rollback": "mutate",
   "cronjob-trigger": "mutate",
@@ -259,6 +266,9 @@ export function decideMany(
 const VERBS: Partial<Record<ActionKind, string>> = {
   "scale-to-zero": "Scale to 0",
   "edit-secret": "Apply",
+  "edit-labels": "Save labels",
+  "edit-annotations": "Save annotations",
+  "edit-taints": "Save taints",
   replace: "Apply",
   "helm-install": "Install",
   "helm-upgrade": "Upgrade",

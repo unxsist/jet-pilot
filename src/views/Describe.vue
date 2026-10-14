@@ -1,4 +1,11 @@
 <script setup lang="ts">
+/**
+ * Describe tab: the native describe (a structured document from the API,
+ * no kubectl needed) by default, `kubectl describe` output for those used
+ * to it, and the object's YAML. Cmd/Ctrl+F searches the document or the
+ * kubectl output in place; the YAML view uses the editor's own search.
+ */
+import yaml from "js-yaml";
 import { clusterArgs } from "@/lib/workloads";
 import Loading from "@/components/Loading.vue";
 import MonacoView from "@/components/monaco/MonacoView.vue";
@@ -19,6 +26,10 @@ import { error } from "@/lib/logger";
 import { Command } from "@tauri-apps/plugin-shell";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { type as getOsType } from "@tauri-apps/plugin-os";
+import NativeDescribe from "@/views/describe/NativeDescribe.vue";
+import { describeStrings, describeText, matchStarts, type DescribeDoc } from "@/lib/resources/describe";
+import { loadDescribe } from "@/lib/resources/describeLoad";
+import { preferredDescribeView } from "@/views/describe/preference";
 
 const props = defineProps<{
   context: string;
@@ -29,10 +40,18 @@ const props = defineProps<{
 }>();
 
 const mod = getOsType() === "macos" ? "⌘" : "Ctrl+";
-type View = "describe" | "yaml";
-const view = ref<View>("describe");
-const contents = reactive<Record<View, string>>({ describe: "", yaml: "" });
-const loaded = reactive<Record<View, boolean>>({ describe: false, yaml: false });
+/* "native": the structured describe; "describe": kubectl's text. */
+type View = "native" | "describe" | "yaml";
+const VIEWS: { id: View; label: string }[] = [
+  { id: "native", label: "Describe" },
+  { id: "describe", label: "kubectl describe" },
+  { id: "yaml", label: "YAML" },
+];
+const view = ref<View>(preferredDescribeView.value);
+const contents = reactive<Record<View, string>>({ native: "", describe: "", yaml: "" });
+const loaded = reactive<Record<View, boolean>>({ native: false, describe: false, yaml: false });
+const doc = shallowRef<DescribeDoc | null>(null);
+const target = computed(() => ({ context: props.context, kubeConfig: props.kubeConfig }));
 const loading = ref(true);
 const describeError = ref<string | null>(null);
 
@@ -52,16 +71,31 @@ const runKubectl = async (args: string[]) => {
   return stdout;
 };
 
+/* The object as `kubectl get -o yaml` shows it: without managed fields (and the app's tags). */
+const objectYaml = (object: any) => {
+  const { context: _context, kubeConfig: _kubeConfig, managedFields: _managed, ...metadata } = object.metadata ?? {};
+  return yaml.dump({ ...object, metadata }, { lineWidth: 120, noArrayIndent: true });
+};
+
+/* The native describe and the YAML come from the same request. */
+const loadNative = async () => {
+  const result = await loadDescribe(target.value, props.type, props.name, props.namespace || undefined);
+  doc.value = result.doc;
+  contents.native = describeText(result.doc);
+  contents.yaml = objectYaml(result.object);
+  loaded.native = loaded.yaml = true;
+};
+
 const fetchView = async (which: View) => {
   loading.value = true;
   describeError.value = null;
   try {
-    contents[which] = await runKubectl(
-      which === "describe"
-        ? ["describe", `${props.type}/${props.name}`]
-        : ["get", `${props.type}/${props.name}`, "-o", "yaml"]
-    );
-    loaded[which] = true;
+    if (which === "describe") {
+      contents.describe = await runKubectl(["describe", `${props.type}/${props.name}`]);
+      loaded.describe = true;
+    } else {
+      await loadNative();
+    }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     error(`Error loading ${which} for ${props.type}/${props.name}: ${message}`);
@@ -73,16 +107,26 @@ const fetchView = async (which: View) => {
 
 const refresh = () => fetchView(view.value);
 
+/* kubectl can't be started (not installed, not found): not an error of the object. */
+const kubectlMissing = computed(
+  () =>
+    view.value === "describe" &&
+    /no such file|program not found|cannot find the file|failed to spawn|program not allowed|os error 2/i.test(describeError.value ?? "")
+);
+
 const setView = (which: View) => {
   view.value = which;
+  // The choice between the two describes sticks for the session.
+  if (which !== "yaml") preferredDescribeView.value = which;
   if (!loaded[which]) fetchView(which);
+  else describeError.value = null;
 };
 
 const root = ref<HTMLElement | null>(null);
 onMounted(() => {
   // Take focus so Cmd/Ctrl+F searches this output, not the table behind.
   root.value?.focus({ preventScroll: true });
-  fetchView("describe");
+  fetchView(view.value);
 });
 
 /* --------------------------------------------------------------- copy -- */
@@ -157,7 +201,24 @@ const matchesByLine = computed(() => {
   return byLine;
 });
 
-watch(query, () => {
+/* The native document: each text's first match number, in reading order. */
+const nativeMatches = computed(() => {
+  const starts = new Map<string, number>();
+  let total = 0;
+  if (doc.value && query.value) {
+    for (const [key, text] of describeStrings(doc.value)) {
+      starts.set(key, total);
+      total += matchStarts(text, query.value).length;
+    }
+  }
+  return { starts, total };
+});
+const matchCount = computed(() =>
+  view.value === "native" ? nativeMatches.value.total : matches.value.length
+);
+const searchable = computed(() => view.value !== "yaml");
+
+watch([query, view], () => {
   activeMatch.value = 0;
   nextTick(scrollToActive);
 });
@@ -194,13 +255,13 @@ const segmentsFor = (index: number) => {
 
 
 const scrollToActive = () => {
-  document
-    .querySelector(`[data-describe-match="${activeMatch.value}"]`)
+  root.value
+    ?.querySelector(`[data-describe-match="${activeMatch.value}"]`)
     ?.scrollIntoView({ block: "center" });
 };
 
 const step = (delta: number) => {
-  const total = matches.value.length;
+  const total = matchCount.value;
   if (!total) return;
   activeMatch.value = (activeMatch.value + delta + total) % total;
   nextTick(scrollToActive);
@@ -251,28 +312,27 @@ const onKeydown = (event: KeyboardEvent) => {
         aria-label="View"
       >
         <button
-          v-for="option in (['describe', 'yaml'] as const)"
-          :key="option"
+          v-for="option in VIEWS"
+          :key="option.id"
           type="button"
           class="h-5 rounded-[5px] px-2 text-2xs font-medium transition-colors duration-fast focus-ring"
           :class="
-            view === option
+            view === option.id
               ? 'bg-background text-foreground shadow-sm dark:bg-accent'
               : 'text-muted-foreground hover:text-foreground'
           "
-          :aria-pressed="view === option"
-          @click="setView(option)"
+          :aria-pressed="view === option.id"
+          @click="setView(option.id)"
         >
-          {{ option === "describe" ? "Describe" : "YAML" }}
+          {{ option.label }}
         </button>
       </div>
-      <span class="truncate font-mono text-xs text-muted-foreground">
-        {{ view === "describe" ? "kubectl describe" : "kubectl get -o yaml" }}
-        {{ type }}/{{ name }}
+      <span v-if="view === 'describe'" class="truncate font-mono text-xs text-muted-foreground">
+        kubectl describe {{ type }}/{{ name }}
       </span>
 
       <div class="ml-auto flex items-center gap-1">
-        <div v-if="view === 'describe'" class="relative flex w-56 items-center">
+        <div v-if="searchable" class="relative flex w-56 items-center">
           <Search
             class="pointer-events-none absolute left-2 h-3.5 w-3.5 text-muted-foreground"
             aria-hidden="true"
@@ -291,17 +351,17 @@ const onKeydown = (event: KeyboardEvent) => {
             class="pointer-events-none absolute right-2 text-2xs text-muted-foreground tnum"
             aria-live="polite"
           >
-            {{ matches.length ? `${activeMatch + 1}/${matches.length}` : "0/0" }}
+            {{ matchCount ? `${activeMatch + 1}/${matchCount}` : "0/0" }}
           </span>
         </div>
-        <template v-if="view === 'describe' && query">
+        <template v-if="searchable && query">
           <Button
             variant="ghost"
             size="icon-xs"
             class="text-muted-foreground"
             aria-label="Previous match"
             title="Previous match (Shift+Enter)"
-            :disabled="!matches.length"
+            :disabled="!matchCount"
             @click="step(-1)"
           >
             <ChevronUp class="h-3.5 w-3.5" />
@@ -312,7 +372,7 @@ const onKeydown = (event: KeyboardEvent) => {
             class="text-muted-foreground"
             aria-label="Next match"
             title="Next match (Enter)"
-            :disabled="!matches.length"
+            :disabled="!matchCount"
             @click="step(1)"
           >
             <ChevronDown class="h-3.5 w-3.5" />
@@ -356,7 +416,7 @@ const onKeydown = (event: KeyboardEvent) => {
 
     <Loading
       v-if="loading && !loaded[view]"
-      :label="view === 'describe' ? `Describing ${type}/${name}…` : `Loading ${type}/${name}…`"
+      :label="view === 'yaml' ? `Loading ${type}/${name}…` : `Describing ${type}/${name}…`"
     />
     <div
       v-else-if="describeError && !loaded[view]"
@@ -365,20 +425,32 @@ const onKeydown = (event: KeyboardEvent) => {
     >
       <EmptyState
         :icon="TriangleAlert"
-        :title="`Failed to ${view === 'describe' ? 'describe' : 'load'} ${type}/${name}`"
+        :title="kubectlMissing ? `kubectl isn't available` : `Couldn't ${view === 'yaml' ? 'load' : 'describe'} ${type}/${name}`"
         class="max-w-xl"
       >
-        <pre class="whitespace-pre-wrap break-words font-mono text-xs select-text">{{
+        <p v-if="kubectlMissing" class="text-sm text-muted-foreground">
+          JET Pilot can't run kubectl here. The Describe view shows the same and more without it.
+        </p>
+        <pre v-else class="whitespace-pre-wrap break-words font-mono text-xs select-text">{{
           describeError
         }}</pre>
         <template #action>
-          <Button variant="outline" size="sm" @click="refresh">
+          <Button v-if="kubectlMissing" variant="outline" size="sm" @click="setView('native')">Show Describe</Button>
+          <Button v-else variant="outline" size="sm" @click="refresh">
             <RefreshCw class="h-3.5 w-3.5" />
             Retry
           </Button>
         </template>
       </EmptyState>
     </div>
+    <NativeDescribe
+      v-else-if="view === 'native' && doc"
+      :doc="doc"
+      :target="target"
+      :query="query"
+      :active="activeMatch"
+      :starts="nativeMatches.starts"
+    />
     <pre
       v-else-if="view === 'describe'"
       class="min-h-0 flex-1 cursor-text overflow-auto px-4 py-3 font-mono text-xs leading-5 text-foreground select-text"
