@@ -29,9 +29,6 @@ import {
 import PageHeader from "@/components/page/PageHeader.vue";
 import PageTabs from "@/components/page/PageTabs.vue";
 import ContextAvatar from "@/components/ContextAvatar.vue";
-import CanITab from "./CanITab.vue";
-import WhoCanTab from "./WhoCanTab.vue";
-import SubjectsTab from "./SubjectsTab.vue";
 import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
@@ -39,9 +36,14 @@ import { useDiscovery } from "@/lib/discovery";
 import { resolveCluster } from "@/lib/clusters/meta";
 import { Kubernetes } from "@/services/Kubernetes";
 import { useRbacData, whoAmI } from "@/lib/accessReview";
-import { indexRbac, subjectsOf, type Identity } from "@/lib/rbac";
+import type { Identity, NamespacedLookup } from "@/lib/rbac";
 import type { KubeTarget } from "@/lib/kubeApi";
 import type { Question } from "@/components/rbac/question";
+
+/* Each tab loads on its first visit (and keeps the startup bundle lean). */
+const CanITab = defineAsyncComponent(() => import("./CanITab.vue"));
+const WhoCanTab = defineAsyncComponent(() => import("./WhoCanTab.vue"));
+const SubjectsTab = defineAsyncComponent(() => import("./SubjectsTab.vue"));
 
 type Tab = "can" | "who" | "subjects";
 const TABS = ["can", "who", "subjects"] as const;
@@ -92,8 +94,12 @@ watch(subject, (value) => {
 /* --------------------------------------------------------------- data -- */
 
 const discovery = useDiscovery(targetContext, targetKubeConfig);
+/* Which resources are namespaced: RoleBindings can't grant the others. */
+const namespacedLookup = computed<NamespacedLookup>(() => {
+  const scopes = new Map(discovery.resources.value.map((r) => [`${r.group}/${r.name}`, r.namespaced]));
+  return (group, resource) => scopes.get(`${group}/${resource}`);
+});
 const rbac = useRbacData(target);
-const index = computed(() => (rbac.data.value ? indexRbac(rbac.data.value.snapshot) : null));
 
 const identity = ref<Identity | null>(null);
 /* Still asking who I am (Subjects waits for it to pick "You" first). */
@@ -173,9 +179,6 @@ watch(
   { immediate: true }
 );
 
-const subjectCount = computed(() =>
-  index.value ? subjectsOf(index.value).filter((s) => !s.system).length : null
-);
 
 const subtitle = computed(() => {
   const name = contextName.value ? displayName(contextName.value) : "";
@@ -188,7 +191,7 @@ const refresh = () => rbac.refresh();
 
 <template>
   <div class="h-full overflow-auto bg-background">
-    <div class="mx-auto space-y-6 px-10 pb-16 pt-10" :class="tab === 'subjects' ? 'max-w-6xl' : 'max-w-5xl'">
+    <div class="mx-auto max-w-5xl space-y-6 px-10 pb-16 pt-10">
       <PageHeader title="Access review" :description="subtitle">
         <template #actions>
           <DropdownMenu v-if="contexts.size > 1">
@@ -228,7 +231,7 @@ const refresh = () => rbac.refresh();
             :tabs="[
               { id: 'can', label: 'Can I…' },
               { id: 'who', label: 'Who can…' },
-              { id: 'subjects', label: 'Subjects', count: subjectCount },
+              { id: 'subjects', label: 'Subjects' },
             ]"
           />
         </template>
@@ -264,6 +267,7 @@ const refresh = () => rbac.refresh();
           :loading="rbac.loading.value"
           :identity="identity"
           :identity-pending="identityPending"
+          :namespaced="namespacedLookup"
           @ask-me="tab = 'can'"
           @retry="refresh"
         />

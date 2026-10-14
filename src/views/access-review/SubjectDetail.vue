@@ -23,6 +23,7 @@ import {
   type Grant,
   type SourcedRule,
   type Identity,
+  type NamespacedLookup,
   type RbacIndex,
   type RbacSubject,
 } from "@/lib/rbac";
@@ -33,6 +34,8 @@ const props = defineProps<{
   identity: Identity | null;
   index: RbacIndex;
   target: KubeTarget;
+  /** Which resources are namespaced (discovery). */
+  namespaced?: NamespacedLookup;
 }>();
 
 const { openObject } = useRbacLinks();
@@ -46,7 +49,7 @@ const description = computed(() => {
 });
 const kind = computed(() => props.subject?.kind ?? "User");
 
-const permissions = computed(() => effectivePermissions(props.index, identity.value));
+const permissions = computed(() => effectivePermissions(props.index, identity.value, props.namespaced));
 
 /*
  * What every signed-in user gets (discovery, health checks, self reviews)
@@ -163,8 +166,8 @@ const openServiceAccount = async () => {
     </dl>
 
     <p v-if="subject?.kind === 'User'" class="text-xs text-muted-foreground">
-      Which groups a user is in is up to your identity provider, so this shows what's granted to {{ subject.name }}
-      by name and to everyone who's signed in.
+      Your identity provider decides which groups {{ subject.name }} is in, so this only shows what's granted to
+      {{ subject.name }} by name and to every signed-in user.
     </p>
 
     <section class="space-y-2">
@@ -173,7 +176,7 @@ const openServiceAccount = async () => {
         No binding applies to {{ me ? "you" : title }}, so {{ me ? "you" : "it" }} can't do anything through RBAC.
       </p>
       <p v-else-if="!own.length && !showCommon" class="text-sm text-muted-foreground">
-        Nothing beyond what everyone who's signed in may do.
+        Nothing beyond what every signed-in user has.
       </p>
       <ul v-if="grants.length" class="divide-y divide-border-subtle overflow-hidden rounded-xl border bg-card">
         <li v-for="grant in grants" :key="`${grant.binding.kind}/${grant.binding.metadata.namespace}/${grant.binding.metadata.name}`" class="flex items-center gap-4 px-4 py-2.5">
@@ -191,9 +194,9 @@ const openServiceAccount = async () => {
         :aria-pressed="showCommon"
         @click="showCommon = !showCommon"
       >
-        <template v-if="showCommon">Leave out what everyone who's signed in gets</template>
+        <template v-if="showCommon">Hide what every signed-in user has</template>
         <template v-else>
-          Include {{ common.length }} {{ common.length === 1 ? "grant" : "grants" }} everyone who's signed in gets
+          Show the {{ common.length }} {{ common.length === 1 ? "permission" : "permissions" }} every signed-in user has
         </template>
       </button>
     </section>

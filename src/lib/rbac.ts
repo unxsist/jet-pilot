@@ -508,6 +508,30 @@ export interface SourcedRule<S> {
   source: S;
 }
 
+/**
+ * Whether a resource of an API group is namespaced (API discovery);
+ * undefined when it isn't known.
+ */
+export type NamespacedLookup = (group: string, resource: string) => boolean | undefined;
+
+/**
+ * A rule as granted inside a namespace: resources discovery knows to be
+ * cluster-scoped (nodes, namespaces, PVs, CRDs, ...) are dropped, since a
+ * RoleBinding can't grant them. Unknown resources and `*` stay. null when
+ * nothing is left.
+ */
+export function namespacedPart(rule: PolicyRule, namespaced: NamespacedLookup): PolicyRule | null {
+  const groups = list(rule.apiGroups);
+  const clusterScoped = (resource: string) => {
+    if (resource === "*" || resource.startsWith("*/") || groups.includes("*")) return false;
+    const base = resource.split("/")[0];
+    return groups.length > 0 && groups.every((group) => namespaced(group, base) === false);
+  };
+  const resources = list(rule.resources).filter((resource) => !clusterScoped(resource));
+  if (resources.length === list(rule.resources).length) return rule;
+  return resources.length ? { ...rule, resources } : null;
+}
+
 export interface EffectivePermissions {
   /** Rules that apply everywhere (ClusterRoleBindings). */
   everywhere: SourcedRule<Grant>[];
@@ -518,7 +542,11 @@ export interface EffectivePermissions {
   grants: Grant[];
 }
 
-export function effectivePermissions(index: RbacIndex, identity: Identity): EffectivePermissions {
+export function effectivePermissions(
+  index: RbacIndex,
+  identity: Identity,
+  namespaced?: NamespacedLookup
+): EffectivePermissions {
   const grants = grantsFor(index, identity);
   const result: EffectivePermissions = { everywhere: [], namespaces: new Map(), dangling: [], grants };
   for (const grant of grants) {
@@ -526,10 +554,17 @@ export function effectivePermissions(index: RbacIndex, identity: Identity): Effe
       result.dangling.push(grant);
       continue;
     }
-    const rules = (grant.role.rules ?? [])
-      // RoleBindings never grant non-resource URLs.
-      .filter((rule) => grant.namespace === null || !isNonResourceRule(rule))
-      .map((rule) => ({ rule, source: grant }));
+    const rules: SourcedRule<Grant>[] = [];
+    for (const rule of grant.role.rules ?? []) {
+      if (grant.namespace === null) {
+        rules.push({ rule, source: grant });
+        continue;
+      }
+      // RoleBindings never grant non-resource URLs, nor cluster-scoped resources.
+      if (isNonResourceRule(rule)) continue;
+      const inNamespace = namespaced ? namespacedPart(rule, namespaced) : rule;
+      if (inNamespace) rules.push({ rule: inNamespace, source: grant });
+    }
     if (grant.namespace === null) {
       result.everywhere.push(...rules);
     } else {

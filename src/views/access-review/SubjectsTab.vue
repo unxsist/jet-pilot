@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import SubjectIcon from "@/components/rbac/SubjectIcon.vue";
 import RbacNotice from "@/components/rbac/RbacNotice.vue";
 import SubjectDetail from "./SubjectDetail.vue";
-import { indexRbac, parseSubjectKey, subjectsOf, type Identity, type RbacSubject } from "@/lib/rbac";
+import { indexRbac, parseSubjectKey, subjectsOf, type Identity, type NamespacedLookup, type RbacSubject } from "@/lib/rbac";
 import type { RbacData } from "@/lib/accessReview";
 import type { KubeTarget } from "@/lib/kubeApi";
 
@@ -21,6 +21,7 @@ const props = defineProps<{
   loading: boolean;
   identity: Identity | null;
   identityPending: boolean;
+  namespaced: NamespacedLookup;
 }>();
 const selected = defineModel<string | null>("selected", { required: true });
 const emit = defineEmits<{ askMe: []; retry: [] }>();
@@ -155,7 +156,7 @@ const rowClass = (key: string) =>
         <p v-if="!sections.length && !showMe" class="px-2 text-sm text-muted-foreground">Nothing matches.</p>
 
         <label v-if="hiddenCount" class="flex cursor-pointer items-center justify-between gap-2 border-t px-2 pt-3 text-xs text-muted-foreground">
-          Show {{ hiddenCount }} built-in
+          Show {{ hiddenCount }} built-in {{ hiddenCount === 1 ? "subject" : "subjects" }}
           <Switch v-model:checked="showSystem" />
         </label>
       </nav>
@@ -168,6 +169,7 @@ const rowClass = (key: string) =>
           :identity="identity"
           :index="index"
           :target="target"
+          :namespaced="namespaced"
         />
         <p v-else class="py-24 text-center text-sm text-muted-foreground">Pick a subject to see what it can do.</p>
       </div>

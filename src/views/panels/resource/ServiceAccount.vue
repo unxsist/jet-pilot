@@ -32,7 +32,7 @@ const unknown = computed(() => (data.value?.unavailable.length ?? 0) > 0);
 const permissions = computed(() =>
   data.value ? effectivePermissions(indexRbac(data.value.snapshot), identityOf(subject.value)) : null
 );
-/* What everyone who's signed in gets says nothing about this account: left out. */
+/* What every signed-in user has says nothing about this account: left out. */
 const grants = computed(() =>
   (permissions.value?.grants ?? []).filter((g) => g.viaGroup !== "system:authenticated")
 );
@@ -47,7 +47,7 @@ const summary = computed(() => {
   if (everywhere && namespaces.length) return `Has permissions everywhere, and more in ${joinWords(namespaces as string[])}.`;
   if (everywhere) return "Has permissions everywhere.";
   if (namespaces.length) return `Has permissions in ${joinWords(namespaces as string[])}.`;
-  return "Only what everyone who's signed in may do.";
+  return "Nothing beyond what every signed-in user has.";
 });
 
 const workloads = ref<WorkloadRef[] | null>(null);

@@ -30,7 +30,6 @@ import { getCurrentWebviewWindow as getWindow } from "@tauri-apps/api/webviewWin
 import { exit } from "@tauri-apps/plugin-process";
 import { formatResourceKind } from "@/lib/utils";
 import { ref } from "vue";
-import type { RouteLocationRaw } from "vue-router";
 
 const targetOs = ref<string>(getOsType());
 const { context, kubeConfig } = injectStrict(KubeContextStateKey);
@@ -47,8 +46,6 @@ interface NavigationGroup {
   title: string;
   coreResourceKinds: string[];
   apiGroupResources: string[];
-  /** App pages listed first in the group. */
-  links?: { title: string; to: RouteLocationRaw; icon: string }[];
 }
 
 /* App destinations above the resource groups; GitOps once Flux or Argo CD runs in an active cluster. */
@@ -102,7 +99,6 @@ const navigationGroups: NavigationGroup[] = [
   },
   {
     title: "Access Control",
-    links: [{ title: "Access Review", to: { name: "AccessReview" }, icon: "accessreview" }],
     coreResourceKinds: [
       "ServiceAccount",
       "Role",
@@ -193,7 +189,6 @@ const sections = computed(() => {
   const all = groups.flatMap(([, resources]) => resources);
   const builtIn = navigationGroups.map((group) => ({
     title: group.title,
-    links: group.links ?? [],
     items: visible([
       ...all.filter((r) => group.coreResourceKinds.includes(r.kind)),
       ...groups
@@ -213,10 +208,9 @@ const sections = computed(() => {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, resources]) => ({
       title: key,
-      links: [],
       items: visible(resources.filter((r) => !coreKinds.includes(r.kind))),
     }));
-  const filled = (list: typeof builtIn) => list.filter((s) => s.items.length || s.links.length);
+  const filled = (list: typeof builtIn) => list.filter((s) => s.items.length);
   return { builtIn: filled(builtIn), other: filled(other) };
 });
 
@@ -391,11 +385,10 @@ onUnmounted(stopRecovered);
               :title="section.title"
             >
               <NavigationItem
-                v-for="link in section.links"
-                :key="link.title"
-                :icon="link.icon"
-                :title="link.title"
-                :to="link.to"
+                v-if="section.title === 'Access Control'"
+                icon="accessreview"
+                title="Access Review"
+                :to="{ name: 'AccessReview' }"
                 :can-pin="false"
               />
               <NavigationItem

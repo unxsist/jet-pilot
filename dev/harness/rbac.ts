@@ -157,6 +157,8 @@ function buildRbac(full: boolean): RbacSnapshot {
       rule([...READ, "create", "update", "patch"], [""], ["configmaps", "services"]),
       rule(["get"], [""], ["secrets"], ["registry-credentials"]),
       rule(["create", "delete", "get", "list"], ["batch"], ["jobs"]),
+      // Cluster-scoped: granted through its RoleBindings, this does nothing.
+      rule(["get"], [""], ["namespaces"]),
     ], { age: 30 }),
     clusterRole("prometheus", [
       rule(READ, [""], ["nodes", "nodes/metrics", "services", "endpoints", "pods"]),

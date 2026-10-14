@@ -56,7 +56,7 @@ const firstError = computed(() => props.unavailable.find((u) => !u.forbidden)?.m
     <CircleAlert class="mt-px h-3.5 w-3.5 shrink-0 text-warning" />
     <span>
       <template v-if="forbidden">
-        You can't list {{ kinds }}, so answers may be missing people and permissions they grant.
+        You can't list {{ kinds }}, so some people and permissions may be missing here.
       </template>
       <template v-else>Couldn't load {{ kinds }}: {{ firstError }}</template>
     </span>

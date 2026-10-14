@@ -176,8 +176,8 @@ const whereTitle = (access: SubjectAccess) =>
       <div class="space-y-3 px-1">
         <DanglingBindings v-if="dangling.length" :bindings="dangling" />
         <p class="text-xs text-muted-foreground/80">
-          Members of system:masters can always do everything: RBAC isn't consulted for them. Who's in a group is
-          decided by your identity provider, so groups are listed, not their members.
+          Members of system:masters can always do everything; RBAC doesn't apply to them. Groups are listed rather
+          than their members: your identity provider decides who's in them.
         </p>
       </div>
     </template>

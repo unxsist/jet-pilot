@@ -268,6 +268,37 @@ describe("what a subject can do", () => {
     expect(effectivePermissions(local, identityOf(sa)).namespaces.get("ns")).toEqual([]);
   });
 
+  test("RoleBindings don't grant cluster-scoped resources (when discovery knows them)", () => {
+    const sa = { kind: "ServiceAccount" as const, name: "x", namespace: "ns" };
+    const local = indexRbac({
+      ...snapshot,
+      clusterRoles: [
+        clusterRole("mixed", [
+          { verbs: ["get"], apiGroups: [""], resources: ["nodes", "pods", "nodes/proxy", "widgets"] },
+          { verbs: ["list"], apiGroups: ["apiextensions.k8s.io"], resources: ["customresourcedefinitions"] },
+          { verbs: ["get"], apiGroups: ["*"], resources: ["nodes"] },
+          { verbs: ["*"], apiGroups: [""], resources: ["*"] },
+        ]),
+      ],
+      clusterRoleBindings: [crb("everywhere", "mixed", [{ kind: "User", name: "admin" }])],
+      roleBindings: [rb("ns", "local", { kind: "ClusterRole", name: "mixed" }, [sa])],
+    });
+    const CLUSTER_SCOPED = new Set(["/nodes", "apiextensions.k8s.io/customresourcedefinitions"]);
+    const NAMESPACED = new Set(["/pods"]);
+    const namespaced = (group: string, resource: string) =>
+      CLUSTER_SCOPED.has(`${group}/${resource}`) ? false : NAMESPACED.has(`${group}/${resource}`) ? true : undefined;
+
+    expect(effectivePermissions(local, identityOf(sa), namespaced).namespaces.get("ns")!.map((r) => r.rule)).toEqual([
+      // Unknown (widgets), wildcard groups and `*` resources stay.
+      { verbs: ["get"], apiGroups: [""], resources: ["pods", "widgets"] },
+      { verbs: ["get"], apiGroups: ["*"], resources: ["nodes"] },
+      { verbs: ["*"], apiGroups: [""], resources: ["*"] },
+    ]);
+    // Without discovery nothing is dropped; ClusterRoleBindings keep everything.
+    expect(effectivePermissions(local, identityOf(sa)).namespaces.get("ns")).toHaveLength(4);
+    expect(effectivePermissions(local, identityOf({ kind: "User", name: "admin" }), namespaced).everywhere).toHaveLength(4);
+  });
+
   test("bindings of a role", () => {
     const admin = index.clusterRole("admin")!;
     expect(bindingsOfRole(index, admin).map((b) => b.metadata.name)).toEqual(["payments-admins", "all-sa"]);
