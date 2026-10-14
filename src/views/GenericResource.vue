@@ -40,13 +40,17 @@ import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
 import { error } from "@/lib/logger";
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
-import { PanelProviderSetSidePanelComponentKey } from "@/providers/PanelProvider";
+import {
+  PanelProviderSetSidePanelComponentKey,
+  PanelProviderStateKey,
+} from "@/providers/PanelProvider";
 import { useWatchedList } from "@/composables/useWatchedList";
 import { resolveCreateTarget } from "@/components/tables/identity";
 import { allowed } from "@/lib/guardrails/guard";
 import { guardedCluster } from "@/lib/guardrails/backstop";
 import { readOnlyReason } from "@/lib/guardrails/policy";
 import { useCustomRowActions } from "@/lib/customActions/rowActions";
+import { usePrinterColumns } from "@/lib/crds";
 const setSidePanelComponent = injectStrict(
   PanelProviderSetSidePanelComponentKey
 );
@@ -69,16 +73,31 @@ const tableColumns = computed<ColumnDef<any>[]>(() => [
   ...columns.value,
 ]);
 
+/* null while the kind's own column definitions load. */
+const hasOwnColumns = ref<boolean | null>(null);
+
 const initColumns = async (resource: string) => {
   try {
     columns.value = defaultGenericColumns;
+    hasOwnColumns.value = null;
 
     const customColumns = await import(`@/components/tables/${resource}.ts`);
     columns.value = customColumns.columns;
+    hasOwnColumns.value = true;
   } catch (e) {
+    hasOwnColumns.value = false;
     error(`Error initializing columns for ${resource}: ${e}`);
   }
 };
+
+/* Custom resources without their own columns: the CRD's printer columns. */
+const printerColumns = usePrinterColumns({
+  resource: () => currentResource.value,
+  kind: () => currentKind.value,
+  enabled: () => hasOwnColumns.value === false,
+  context,
+  kubeConfig,
+});
 
 const initRowActions = async (resource: string) => {
   try {
@@ -115,13 +134,15 @@ const rowClasses = (row: any) => {
   return "";
 };
 
+const ResourcePanel = defineAsyncComponent(
+  () => import("@/views/panels/Resource.vue")
+);
+
 const showDetails = (row: any) => {
   setSidePanelComponent({
     title: `${row.kind}: ${row.metadata?.name}` || "Resource",
     icon: formatResourceKind(row.kind).toLowerCase(),
-    component: defineAsyncComponent(
-      () => import("@/views/panels/Resource.vue")
-    ),
+    component: ResourcePanel,
     props: {
       resource: row,
     },
@@ -189,6 +210,23 @@ const {
   forcePolling: () => kubectlPollingForced(settings.value),
 });
 
+/*
+ * The details panel follows the watch: it gets the row again whenever the
+ * object changes (unchanged rows keep their identity), so its state and
+ * actions stay current.
+ */
+const { sidePanel } = injectStrict(PanelProviderStateKey);
+watch(resourceData, (rows) => {
+  const panel = sidePanel.value;
+  const shown = panel && toRaw(panel.component) === ResourcePanel ? panel.props?.resource : null;
+  const uid = shown?.metadata?.uid;
+  if (!uid) return;
+  const row = rows.find((r: any) => r.metadata?.uid === uid);
+  if (row && row !== shown) {
+    setSidePanelComponent({ ...panel!, props: { ...panel!.props, resource: row } });
+  }
+});
+
 onBeforeRouteUpdate(async (to) => {
   currentKind.value = (to.query.kind as string) || undefined;
   currentResource.value = to.query.resource as string;
@@ -209,8 +247,10 @@ onMounted(async () => {
     :loading="loading"
     :error="loadError"
     :last-updated="lastUpdated"
-    :resource-name="currentResource"
+    :resource-name="currentResource?.split('.')[0]"
+    :persist-key="currentResource"
     :columns="tableColumns"
+    :printer-columns="printerColumns"
     :allow-filter="true"
     :sticky-headers="true"
     :row-actions="allRowActions"

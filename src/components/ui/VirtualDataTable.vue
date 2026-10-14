@@ -103,6 +103,7 @@ import {
   collectPrinterColumns,
   printerColumnDefs,
   printerColumnsSignature,
+  type PrinterColumn,
 } from "../tables/printerColumns";
 import TableShortcutsDialog from "../tables/TableShortcutsDialog.vue";
 import RowOptionPicker from "../tables/RowOptionPicker.vue";
@@ -148,6 +149,8 @@ const props = withDefaults(
      * Defaults to on for filterable tables with row actions or a row click.
      */
     keyboard?: boolean;
+    /** Printer columns of the kind (a CRD's additionalPrinterColumns). */
+    printerColumns?: PrinterColumn[];
   }>(),
   // undefined (not false): the keyboard default depends on the other props
   { keyboard: undefined, persistKey: undefined }
@@ -294,9 +297,10 @@ const selectColumn: ColumnDef<TData, any> = {
 };
 
 /*
- * Printer columns (row.__printerColumns, see tables/printerColumns.ts) for
- * kinds without their own column definitions. Same array identity while the
- * set of columns is unchanged, so refreshes don't rebuild the table columns.
+ * Printer columns (the `printerColumns` prop and row.__printerColumns, see
+ * tables/printerColumns.ts) for kinds without their own column definitions.
+ * Same array identity while the set of columns is unchanged, so refreshes
+ * don't rebuild the table columns.
  */
 const headerName = (column: ColumnDef<TData, any>) =>
   typeof column.header === "string"
@@ -307,8 +311,8 @@ let printerCache: { signature: string; defs: ColumnDef<TData, any>[] } = {
   signature: "",
   defs: [],
 };
-const printerColumns = computed(() => {
-  const collected = collectPrinterColumns(props.data);
+const printerDefs = computed(() => {
+  const collected = collectPrinterColumns(props.data, 50, props.printerColumns);
   if (collected.length === 0) {
     printerCache = { signature: "", defs: [] };
     return printerCache.defs;
@@ -329,13 +333,13 @@ const printerColumns = computed(() => {
 const allColumns = computed<ColumnDef<TData, any>[]>(() => {
   const own = props.columns as ColumnDef<TData, any>[];
   let middle = own;
-  if (printerColumns.value.length > 0) {
+  if (printerDefs.value.length > 0) {
     // printer columns go before a trailing Age column
     const ageIndex = own.findIndex(
       (column) => (column as { id?: string }).id === "Age"
     );
     const at = ageIndex < 0 ? own.length : ageIndex;
-    middle = [...own.slice(0, at), ...printerColumns.value, ...own.slice(at)];
+    middle = [...own.slice(0, at), ...printerDefs.value, ...own.slice(at)];
   }
   return [
     selectColumn,

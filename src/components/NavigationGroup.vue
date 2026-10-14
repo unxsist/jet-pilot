@@ -6,29 +6,38 @@ import { injectStrict } from "@/lib/utils";
 
 /*
  * A collapsible section of the navigation. The title is also the key of
- * the persisted collapsed state; it is shown in sentence case.
+ * the persisted collapsed state; it is shown in sentence case, or as is
+ * (`verbatim`) for names like "Gateway API" or "cert-manager".
  */
-const props = defineProps<{ title: string }>();
-const label = computed(
-  () => props.title.charAt(0) + props.title.slice(1).toLowerCase()
+const props = defineProps<{
+  title: string;
+  verbatim?: boolean;
+  /** Folded until opened (e.g. the long tail of API groups). */
+  defaultCollapsed?: boolean;
+}>();
+const label = computed(() =>
+  props.verbatim
+    ? props.title
+    : props.title.charAt(0) + props.title.slice(1).toLowerCase()
 );
 
+/*
+ * The setting lists collapsed sections by title; sections folded by default
+ * are listed (as "+title") once opened instead.
+ */
 const { settings } = injectStrict(SettingsContextStateKey);
-const collapsed = ref(
-  settings.value.collapsedNavigationGroups.includes(props.title)
-);
+const key = props.defaultCollapsed ? `+${props.title}` : props.title;
+const listed = settings.value.collapsedNavigationGroups.includes(key);
+const collapsed = ref(props.defaultCollapsed ? !listed : listed);
 
 watch(
   () => collapsed.value,
   (collapsed) => {
-    if (collapsed) {
-      settings.value.collapsedNavigationGroups.push(props.title);
-    } else {
-      settings.value.collapsedNavigationGroups =
-        settings.value.collapsedNavigationGroups.filter(
-          (title) => title !== props.title
-        );
-    }
+    const list = settings.value.collapsedNavigationGroups.filter(
+      (title) => title !== key
+    );
+    if (collapsed !== !!props.defaultCollapsed) list.push(key);
+    settings.value.collapsedNavigationGroups = list;
   }
 );
 </script>

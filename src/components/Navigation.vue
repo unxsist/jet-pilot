@@ -22,6 +22,7 @@ import { Minus, Search, Square, X } from "lucide-vue-next";
 import { injectStrict } from "@/lib/utils";
 import { useDiscovery, type DiscoveredResource } from "@/lib/discovery";
 import { useGitOpsDetection } from "@/lib/gitops/detect";
+import type { NavSection } from "@/lib/apiGroups";
 import { isSameContext } from "@/lib/contextKey";
 import { onRecovered, report } from "@/lib/auth/center";
 import { perfMark } from "@/lib/perf";
@@ -124,16 +125,23 @@ const clusterResources = computed(
     )
 );
 
+/*
+ * Friendly sections for API groups (@/lib/apiGroups): loaded next to
+ * discovery, out of the startup bundle.
+ */
+const apiGroups = shallowRef<typeof import("@/lib/apiGroups") | null>(null);
+import("@/lib/apiGroups").then((module) => (apiGroups.value = module));
+
 /* Nothing to show yet: first discovery of this context is running. */
 const discovering = computed(
   () =>
-    clusterResources.value.size === 0 &&
     context.value !== "" &&
-    discovery.status.value === "loading"
+    (!apiGroups.value ||
+      (clusterResources.value.size === 0 && discovery.status.value === "loading"))
 );
 
 watch(
-  () => clusterResources.value.size > 0,
+  () => clusterResources.value.size > 0 && !!apiGroups.value,
   (ready) => ready && perfMark("nav:ready"),
   { immediate: true }
 );
@@ -170,55 +178,73 @@ const byUsefulness = (a: DiscoveredResource, b: DiscoveredResource) =>
   rank(a.kind) - rank(b.kind) || a.kind.localeCompare(b.kind);
 
 /* Top-level resources, one entry per kind, pinned ones left out. */
-const visible = (resources: DiscoveredResource[]) => {
+const listable = (resources: DiscoveredResource[]) => {
   const kinds = new Set<string>();
   return resources
     .filter((r) => !r.name.includes("/"))
     .filter((r) => !kinds.has(r.kind) && !!kinds.add(r.kind))
-    .filter((r) => !isPinned(r.name))
-    .sort(byUsefulness);
+    .filter((r) => !isPinned(r.name));
 };
-
-const matches = (key: string, patterns: string[]) =>
-  patterns.some((pattern) => key.match(pattern));
+const visible = (resources: DiscoveredResource[]) =>
+  listable(resources).sort(byUsefulness);
 
 const coreKinds = navigationGroups.flatMap((group) => group.coreResourceKinds);
 
 const sections = computed(() => {
+  const mapping = apiGroups.value;
+  if (!mapping) return { builtIn: [], other: [] };
+  /* Well-known projects (Gateway API, Istio, ...) have sections of their own. */
+  const matches = (key: string, patterns: string[]) =>
+    !mapping.projectOf(key) && patterns.some((pattern) => key.match(pattern));
+
   const groups = [...clusterResources.value];
   const all = groups.flatMap(([, resources]) => resources);
   const builtIn = navigationGroups.map((group) => ({
     title: group.title,
     items: visible([
-      ...all.filter((r) => group.coreResourceKinds.includes(r.kind)),
+      ...all.filter(
+        (r) => group.coreResourceKinds.includes(r.kind) && mapping.isBuiltInGroup(r.group)
+      ),
       ...groups
         .filter(([key]) => matches(key, group.apiGroupResources))
         .flatMap(([, resources]) => resources)
         .filter((r) => !coreKinds.includes(r.kind)),
     ]),
   }));
-  /* Every other API group (CRDs, metrics, ...) gets a section of its own. */
-  const other = groups
-    .filter(
+  /* Every other API group (CRDs, metrics, ...): see @/lib/apiGroups. */
+  const other = mapping.groupSections(
+    groups.filter(
       ([key]) =>
         key !== "v1" &&
         key !== "apps" &&
         !navigationGroups.some((group) => matches(key, group.apiGroupResources))
-    )
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, resources]) => ({
-      title: key,
-      items: visible(resources.filter((r) => !coreKinds.includes(r.kind))),
-    }));
-  const filled = (list: typeof builtIn) => list.filter((s) => s.items.length);
-  return { builtIn: filled(builtIn), other: filled(other) };
+    ),
+    {
+      // Kubernetes' own kinds (CustomResourceDefinitions) are in the sections above.
+      visible: (resources) =>
+        listable(
+          resources.filter(
+            (r) => !(coreKinds.includes(r.kind) && mapping.isBuiltInGroup(r.group))
+          )
+        ),
+      sort: byUsefulness,
+    }
+  );
+  return { builtIn: builtIn.filter((s) => s.items.length), other };
 });
 
-/* Route of a resource list. */
+const allResources = computed(() => [...clusterResources.value.values()].flat());
+
+/* Route of a resource list (`plural.group` where another group has the plural). */
 const listRoute = (resource: DiscoveredResource) => {
   const plural = formatResourceKind(resource.kind).toLowerCase();
-  return { path: `/${plural}`, query: { resource: plural, kind: resource.kind } };
+  const name = apiGroups.value?.listResourceName(resource, allResources.value, plural) ?? plural;
+  return { path: `/${name}`, query: { resource: name, kind: resource.kind } };
 };
+
+/* Command palette title: "Velero Backups", "Backups (velero.io)". */
+const commandTitle = (section: NavSection, resource: DiscoveredResource) =>
+  apiGroups.value?.commandTitle(section, resource, formatResourceKind(resource.kind));
 
 const maxOrUnmaximize = () => {
   const window = getWindow();
@@ -423,12 +449,16 @@ onUnmounted(stopRecovered);
               v-for="section in sections.other"
               :key="section.title"
               :title="section.title"
+              :verbatim="!section.tail"
+              :default-collapsed="section.tail"
             >
               <NavigationItem
                 v-for="resource in section.items"
-                :key="resource.name"
-                :icon="formatResourceKind(resource.kind).toLowerCase()"
+                :key="`${resource.name}.${resource.group}`"
+                :icon="`${formatResourceKind(resource.kind).toLowerCase()}.${resource.group}`"
                 :title="formatResourceKind(resource.kind)"
+                :hint="section.tail ? resource.group : undefined"
+                :custom-command-title="commandTitle(section, resource)"
                 :to="listRoute(resource)"
                 @pinned="pinResource(resource)"
               />

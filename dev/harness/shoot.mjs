@@ -173,6 +173,85 @@ const screens = {
   },
   events: { url: "/events?resource=events&kind=Event", ready: "tbody tr td" },
   nodes: { url: "/nodes?resource=nodes&kind=Node", ready: "tbody tr td" },
+  // Operators and CRDs (dev/harness/operators.ts).
+  // The sidebar from Helm down: every CRD group (a tall window, the sidebar only).
+  "nav-crds": {
+    url: "/certificates?resource=certificates&kind=Certificate",
+    ready: "tbody tr td",
+    viewport: { width: 1440, height: 2380 },
+    clip: { x: 0, y: 0, width: 228, height: 2380 },
+    run: async (page) => {
+      await page.locator("nav button", { hasText: /^\s*Helm\s*$/ }).first().evaluate((el) => el.scrollIntoView({ block: "start" }));
+      await wait(500);
+    },
+  },
+  // The long tail of unknown groups, opened.
+  "nav-more": {
+    url: "/certificates?resource=certificates&kind=Certificate",
+    ready: "tbody tr td",
+    clip: { x: 0, y: 0, width: 228, height: 900 },
+    run: async (page) => {
+      const more = page.locator("nav button", { hasText: "More resources" }).first();
+      await more.click();
+      await more.evaluate((el) => el.scrollIntoView({ block: "start" }));
+      await wait(500);
+    },
+  },
+  "crd-printer-columns": { url: "/backups?resource=backups&kind=Backup", ready: "tbody tr td", settle: 1500 },
+  certificates: { url: "/certificates?resource=certificates&kind=Certificate", ready: "tbody tr td" },
+  "certificate-panel": {
+    url: "/certificates?resource=certificates&kind=Certificate",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "checkout-tls" }).first().click();
+      await wait(1500);
+    },
+  },
+  challenges: { url: "/challenges?resource=challenges&kind=Challenge", ready: "tbody tr td" },
+  "httproute-panel": {
+    url: "/httproutes?resource=httproutes&kind=HTTPRoute",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "checkout" }).first().click();
+      await wait(1500);
+    },
+  },
+  "gateway-panel": {
+    url: "/gateways?resource=gateways&kind=Gateway",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "public-gateway" }).first().click();
+      await wait(1500);
+    },
+  },
+  nodepools: { url: "/nodepools?resource=nodepools&kind=NodePool", ready: "tbody tr td" },
+  nodeclaims: { url: "/nodeclaims?resource=nodeclaims&kind=NodeClaim", ready: "tbody tr td" },
+  "nodepool-panel": {
+    url: "/nodepools?resource=nodepools&kind=NodePool",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "general-purpose" }).first().click();
+      await wait(1500);
+    },
+  },
+  scaledobjects: { url: "/scaledobjects?resource=scaledobjects&kind=ScaledObject", ready: "tbody tr td" },
+  "scaledobject-panel": {
+    url: "/scaledobjects?resource=scaledobjects&kind=ScaledObject",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "checkout-api" }).first().click();
+      await wait(1500);
+    },
+  },
+  externalsecrets: { url: "/externalsecrets?resource=externalsecrets&kind=ExternalSecret", ready: "tbody tr td" },
+  "externalsecret-panel": {
+    url: "/externalsecrets?resource=externalsecrets&kind=ExternalSecret",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "ledger-signing-key" }).first().click();
+      await wait(1500);
+    },
+  },
   "row-menu": {
     url: "/pods",
     ready: "tbody tr td",
@@ -977,7 +1056,7 @@ for (const theme of ["dark", "light"]) {
   for (const [name, screen] of Object.entries(screens)) {
     if (only.length && !only.includes(name)) continue;
     const context = await browser.newContext({
-      viewport: { width: 1440, height: 900 },
+      viewport: screen.viewport ?? { width: 1440, height: 900 },
       deviceScaleFactor: 1,
       colorScheme: theme,
       reducedMotion: "reduce",
@@ -999,7 +1078,7 @@ for (const theme of ["dark", "light"]) {
       await wait(screen.settle ?? 900);
       if (screen.run) await screen.run(page);
       const file = `${OUT}/${prefix}-${name}-${theme}${themeId ? `-${themeId}` : ""}.png`;
-      await page.screenshot({ path: file });
+      await page.screenshot({ path: file, clip: screen.clip });
       results.push(file);
     } catch (e) {
       console.error(`[${name}/${theme}] failed`, e.message);

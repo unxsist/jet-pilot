@@ -47,7 +47,9 @@ export type ActionKind =
   | "port-forward"
   | "logs"
   | "describe"
-  | "view";
+  | "view"
+  | "renew"
+  | "force-sync";
 
 /**
  * - read: only looks (logs, describe, YAML)
@@ -97,6 +99,10 @@ const EFFECTS: Record<ActionKind, ActionEffect> = {
   logs: "read",
   describe: "read",
   view: "read",
+  // Operators: cert-manager issues a certificate again, External Secrets
+  // refreshes a secret from its store.
+  renew: "mutate",
+  "force-sync": "mutate",
 };
 
 export const effectOf = (kind: ActionKind): ActionEffect => EFFECTS[kind];
@@ -265,6 +271,7 @@ const VERBS: Partial<Record<ActionKind, string>> = {
   "node-shell": "Open node shell",
   "port-forward": "Port forward",
   "custom-action": "Run",
+  "force-sync": "Sync now",
 };
 
 export const verbOf = (kind: ActionKind): string =>
