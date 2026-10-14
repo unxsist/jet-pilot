@@ -9,18 +9,28 @@
  *     value?: unknown;       // the cell value (Table API row cell); wins
  *     jsonPath?: string;     // or a simple JSONPath into the row:
  *                            // ".spec.replicas", ".spec.ports[*].port",
- *                            // ".metadata.labels['app']" (no filters)
+ *                            // ".metadata.labels['app']",
+ *                            // '.status.conditions[?(@.type=="Ready")].status'
  *     type?: "string" | "integer" | "number" | "boolean" | "date";
  *     priority?: number;     // > 0: hidden by default (kubectl -o wide)
  *     description?: string;  // header tooltip
  *   }[]
  *
- * Columns are taken from the first rows (union, first-seen order). Names that
- * already exist as columns (Name, Namespace, Age, ...) are skipped.
+ * Columns are taken from the first rows (union, first-seen order), after the
+ * columns a table passes itself (a CRD's additionalPrinterColumns, see
+ * @/lib/crds). Names that already exist as columns (Name, Namespace, Age,
+ * ...) are skipped.
  */
+import { h } from "vue";
 import type { ColumnDef } from "@tanstack/vue-table";
 import { formatAge, toDate } from "./age";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, formatDateTimeDifference } from "@/lib/utils";
+import {
+  StatusDot,
+  statusTextClass,
+  statusTone,
+  type StatusTone,
+} from "@/components/ui/status";
 
 export interface PrinterColumn {
   name: string;
@@ -35,11 +45,68 @@ interface PrinterColumnRow {
   __printerColumns?: PrinterColumn[];
 }
 
-type Segment = { key: string } | { index: number } | { wildcard: true };
+interface Filter {
+  /** Path below the element (`@`), e.g. `.type`. */
+  path: Segment[];
+  op?: "==" | "!=";
+  value?: string | number | boolean;
+}
+
+type Segment =
+  | { key: string }
+  | { index: number }
+  | { wildcard: true }
+  | { filter: Filter };
 
 const pathCache = new Map<string, Segment[] | null>();
 
-/** Parses `.a.b[0]['c.d'][*]` (optionally wrapped in `{}` / prefixed `$`). */
+/* `@.type=="Ready"`, `@.status != 'False'`, `@.ready` (exists). */
+function parseFilter(expression: string): Filter | null {
+  const match = expression
+    .trim()
+    .match(/^@((?:\.[\w-]+|\[['"][^'"]*['"]\])*)\s*(?:(==|!=)\s*(.+))?$/);
+  if (!match) return null;
+  const path = match[1] ? parseJsonPath(match[1]) : [];
+  if (!path) return null;
+  if (!match[2]) return { path };
+
+  const raw = match[3].trim();
+  let value: Filter["value"];
+  if (/^(['"]).*\1$/.test(raw)) value = raw.slice(1, -1);
+  else if (raw === "true" || raw === "false") value = raw === "true";
+  else if (Number.isFinite(Number(raw))) value = Number(raw);
+  else return null;
+  return { path, op: match[2] as Filter["op"], value };
+}
+
+/* Plain key / index walk (filter paths have no wildcards). */
+function walk(value: unknown, path: Segment[]): unknown {
+  let current = value;
+  for (const segment of path) {
+    if (current === null || typeof current !== "object") return undefined;
+    if ("key" in segment) {
+      current = (current as Record<string, unknown>)[segment.key];
+    } else if ("index" in segment && Array.isArray(current)) {
+      current = current[segment.index];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+}
+
+function matchesFilter(element: unknown, filter: Filter): boolean {
+  const value = walk(element, filter.path);
+  if (!filter.op) return value !== undefined && value !== null && value !== false;
+  // Like kubectl: "1" equals 1, true equals "true".
+  const equal = value !== undefined && String(value) === String(filter.value);
+  return filter.op === "==" ? equal : !equal;
+}
+
+/**
+ * Parses `.a.b[0]['c.d'][*][?(@.type=="Ready")]` (optionally wrapped in `{}`
+ * / prefixed `$`).
+ */
 export function parseJsonPath(path: string): Segment[] | null {
   const cached = pathCache.get(path);
   if (cached !== undefined) return cached;
@@ -59,6 +126,15 @@ export function parseJsonPath(path: string): Segment[] | null {
       while (i < p.length && p[i] !== "." && p[i] !== "[") key += p[i++];
       if (!key) ok = false;
       else segments.push({ key });
+    } else if (p.startsWith("[?(", i)) {
+      const end = p.indexOf(")]", i);
+      const filter = end < 0 ? null : parseFilter(p.slice(i + 3, end));
+      if (!filter) {
+        ok = false;
+        break;
+      }
+      segments.push({ filter });
+      i = end + 2;
     } else if (c === "[") {
       const end = p.indexOf("]", i);
       if (end < 0) {
@@ -88,7 +164,11 @@ export function parseJsonPath(path: string): Segment[] | null {
   return result;
 }
 
-/** Evaluates a simple JSONPath; wildcards collect arrays. */
+/**
+ * Evaluates a simple JSONPath. Wildcards collect arrays; filters select
+ * elements, of which the first is the value (like the API server's printer
+ * columns).
+ */
 export function evaluateJsonPath(object: unknown, path: string): unknown {
   const segments = parseJsonPath(path);
   if (!segments) return undefined;
@@ -99,7 +179,11 @@ export function evaluateJsonPath(object: unknown, path: string): unknown {
     const next: unknown[] = [];
     for (const value of current) {
       if (value === null || value === undefined) continue;
-      if ("wildcard" in segment) {
+      if ("filter" in segment) {
+        if (typeof value !== "object") continue;
+        const elements = Array.isArray(value) ? value : Object.values(value);
+        next.push(...elements.filter((e) => matchesFilter(e, segment.filter)));
+      } else if ("wildcard" in segment) {
         multi = true;
         if (Array.isArray(value)) next.push(...value);
         else if (typeof value === "object") next.push(...Object.values(value));
@@ -144,27 +228,32 @@ export function printerValue(row: unknown, column: PrinterColumn): unknown {
   return value;
 }
 
-/** Printer column definitions (union of the first rows, first-seen order). */
+/**
+ * Printer column definitions: `own` first (e.g. from the CRD), then the
+ * union of the first rows' columns, first-seen order.
+ */
 export function collectPrinterColumns(
   rows: readonly unknown[],
-  sample = 50
+  sample = 50,
+  own: readonly PrinterColumn[] = []
 ): PrinterColumn[] {
   const seen = new Map<string, PrinterColumn>();
+  const add = (cell: PrinterColumn) => {
+    if (!cell || typeof cell.name !== "string" || !cell.name) return;
+    if (!seen.has(cell.name)) {
+      seen.set(cell.name, {
+        name: cell.name,
+        jsonPath: cell.jsonPath,
+        type: cell.type,
+        priority: cell.priority,
+        description: cell.description,
+      });
+    }
+  };
+  own.forEach(add);
   for (const row of rows.slice(0, sample)) {
     const cells = (row as PrinterColumnRow)?.__printerColumns;
-    if (!Array.isArray(cells)) continue;
-    for (const cell of cells) {
-      if (!cell || typeof cell.name !== "string" || !cell.name) continue;
-      if (!seen.has(cell.name)) {
-        seen.set(cell.name, {
-          name: cell.name,
-          jsonPath: cell.jsonPath,
-          type: cell.type,
-          priority: cell.priority,
-          description: cell.description,
-        });
-      }
-    }
+    if (Array.isArray(cells)) cells.forEach(add);
   }
   return [...seen.values()];
 }
@@ -178,6 +267,55 @@ export const printerColumnsSignature = (columns: PrinterColumn[]) =>
       (c) => `${c.name}|${c.type ?? ""}|${c.priority ?? 0}|${c.jsonPath ?? ""}`
     )
     .join("\u0000");
+
+/*
+ * Columns that carry a state ("Ready: True", "Status: Failed", "Phase:
+ * Running") get a status dot; healthy values keep neutral text.
+ */
+const STATE_COLUMN = /^(ready|status|state|phase|health|synced|available|reconciled)$/i;
+
+export const isStateColumn = (column: PrinterColumn) =>
+  STATE_COLUMN.test(column.name.trim()) &&
+  (!column.type || column.type === "string" || column.type === "boolean");
+
+/* Operators also write phases in prose: "Cluster in healthy state". */
+const proseTone = (text: string): StatusTone => {
+  const lower = text.toLowerCase();
+  if (/\b(unhealthy|not ready|degraded)\b/.test(lower)) return "warning";
+  if (/\b(healthy|ready|running|available)\b/.test(lower)) return "success";
+  if (/\b(waiting|pending|(in)?progress|provisioning|creating|upgrading|switching)\b/.test(lower)) {
+    return "warning";
+  }
+  return "muted";
+};
+
+const stateCell = (value: unknown) => {
+  const text = value === undefined || value === null ? "" : String(value);
+  if (!text) return "";
+  const tone = statusTone(text, proseTone(text));
+  return h("span", { class: "inline-flex max-w-full items-center gap-2" }, [
+    h(StatusDot, { tone }),
+    h(
+      "span",
+      {
+        class: [
+          "truncate",
+          tone === "success" ? "text-foreground" : statusTextClass[tone],
+        ],
+      },
+      text
+    ),
+  ]);
+};
+
+/** Relative time; dates in the future (expiry, next run) read "in 3d". */
+export const formatRelativeDate = (value: unknown, now = new Date()) => {
+  const date = toDate(value);
+  if (!date) return "-";
+  return date.getTime() > now.getTime()
+    ? `in ${formatDateTimeDifference(now, date)}`
+    : formatAge(date, now);
+};
 
 /**
  * Column definitions for printer columns, skipping names already present
@@ -202,7 +340,7 @@ export function printerColumnDefs(
           id,
           header: column.name,
           accessorFn: (row) => time(row),
-          cell: ({ row }) => formatAge(printerValue(row.original, column)),
+          cell: ({ row }) => formatRelativeDate(printerValue(row.original, column)),
           enableGlobalFilter: false,
           meta: {
             numeric: true,
@@ -229,6 +367,9 @@ export function printerColumnDefs(
           }
           return typeof value === "boolean" ? String(value) : value;
         },
+        ...(isStateColumn(column)
+          ? { cell: ({ getValue }: { getValue: () => unknown }) => stateCell(getValue()) }
+          : {}),
         enableGlobalFilter: !isNumber,
         meta: {
           numeric: isNumber,

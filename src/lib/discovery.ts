@@ -349,7 +349,8 @@ export function findResource(
   return matches.sort((a, b) => groupRank(a.group) - groupRank(b.group))[0];
 }
 
-const groupRank = (group: string) =>
+/** kubectl-like precedence: the core group, built-in groups, then the rest. */
+export const groupRank = (group: string) =>
   group === "" ? 0 : !group.includes(".") || group.endsWith(".k8s.io") ? 1 : 2;
 
 /** Maps a V1APIResource-like object of `groupVersion` to the slim shape. */

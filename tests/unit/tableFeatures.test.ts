@@ -250,7 +250,7 @@ describe("printer columns", () => {
     expect(evaluateJsonPath(row, ".nope.deeper")).toBeUndefined();
     expect(
       evaluateJsonPath(row, ".status.conditions[?(@.type=='Ready')]")
-    ).toBeUndefined();
+    ).toEqual({ type: "Ready", status: "True" });
   });
 
   test("values: explicit value wins, arrays are joined", () => {

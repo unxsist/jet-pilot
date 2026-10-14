@@ -1,4 +1,4 @@
-import type { Component } from "vue";
+import { shallowRef, type Component } from "vue";
 import {
   Activity,
   AppWindow,
@@ -115,7 +115,7 @@ const ICONS: Record<string, Component> = {
   clusterrolebindings: Link,
   accessreview: ShieldCheck,
 
-  // Common CRDs
+  // Common CRDs (more in ./operatorIcons)
   certificates: BadgeCheck,
   certificaterequests: BadgeCheck,
   issuers: Stamp,
@@ -151,10 +151,29 @@ const ICONS: Record<string, Component> = {
   debug: Bug,
 };
 
+/*
+ * Icons of operator kinds (cert-manager, Karpenter, KEDA, ...) stay out of
+ * the startup bundle: they load the first time a kind without an icon here
+ * is drawn, and icons drawn meanwhile update (reactive).
+ */
+const operatorIcons = shallowRef<Record<string, Component> | null>(null);
+let operatorIconsRequested = false;
+const loadOperatorIcons = () => {
+  if (operatorIconsRequested) return;
+  operatorIconsRequested = true;
+  import("./operatorIcons").then(({ OPERATOR_ICONS }) => (operatorIcons.value = OPERATOR_ICONS));
+};
+
 /** Lucide icon for a resource / surface name; a neutral shape otherwise. */
 export function kindIcon(name: string | undefined | null): Component {
   if (!name) return Shapes;
   const key = name.toLowerCase();
-  // Some callers pass the singular kind ("pod").
-  return ICONS[key] || ICONS[`${key}s`] || Shapes;
+  // Some callers pass the singular kind ("pod"); `plural.group` names pick
+  // one group's icon (CloudNativePG's clusters), else the plural's.
+  const plural = key.split(".")[0];
+  const own = ICONS[key] || ICONS[`${key}s`];
+  if (own) return own;
+  const extra = operatorIcons.value;
+  if (!extra) loadOperatorIcons();
+  return extra?.[key] || extra?.[plural] || ICONS[plural] || Shapes;
 }
