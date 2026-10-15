@@ -11,89 +11,107 @@ import {
 } from "@/components/ui/carousel";
 import type { UnwrapRefCarouselApi } from "@/components/ui/carousel/interface";
 import { Button } from "@/components/ui/button";
-import { Cloud, KeyRound, LayoutDashboard, Search, ShieldCheck, SquareTerminal } from "lucide-vue-next";
+import { Braces, ChartLine, Columns3, RefreshCw, ShieldCheck, Unplug } from "lucide-vue-next";
 
-import hubDark from "@/assets/whats-new/hub-dark.webp";
-import hubLight from "@/assets/whats-new/hub-light.webp";
-import cloudsDark from "@/assets/whats-new/clouds-dark.webp";
-import cloudsLight from "@/assets/whats-new/clouds-light.webp";
-import signInDark from "@/assets/whats-new/sign-in-dark.webp";
-import signInLight from "@/assets/whats-new/sign-in-light.webp";
-import guardrailsDark from "@/assets/whats-new/guardrails-dark.webp";
-import guardrailsLight from "@/assets/whats-new/guardrails-light.webp";
-import settingsDark from "@/assets/whats-new/settings-dark.webp";
-import settingsLight from "@/assets/whats-new/settings-light.webp";
+import gitopsDark from "@/assets/whats-new/gitops-dark.webp";
+import gitopsLight from "@/assets/whats-new/gitops-light.webp";
+import usageDark from "@/assets/whats-new/usage-dark.webp";
+import usageLight from "@/assets/whats-new/usage-light.webp";
+import accessDark from "@/assets/whats-new/access-dark.webp";
+import accessLight from "@/assets/whats-new/access-light.webp";
+import helmDark from "@/assets/whats-new/helm-dark.webp";
+import helmLight from "@/assets/whats-new/helm-light.webp";
+import panelsDark from "@/assets/whats-new/panels-dark.webp";
+import panelsLight from "@/assets/whats-new/panels-light.webp";
+import operatorsDark from "@/assets/whats-new/operators-dark.webp";
+import operatorsLight from "@/assets/whats-new/operators-light.webp";
+import actionsDark from "@/assets/whats-new/actions-dark.webp";
+import actionsLight from "@/assets/whats-new/actions-light.webp";
 
 const emit = defineEmits<{ done: [] }>();
 
 const slides = [
   {
-    title: "Welcome to JET Pilot 2.0",
+    title: "GitOps, at a glance",
     description:
-      "The Clusters hub has every cluster from every kubeconfig and cloud account in one calm list. Name them, colour them, put them in folders; click one for everything about it.",
-    dark: hubDark,
-    light: hubLight,
+      "One page for every Flux and Argo CD delivery across your clusters, problems first. Open one to see why it's failing and what it delivered, then reconcile, sync or suspend it.",
+    dark: gitopsDark,
+    light: gitopsLight,
   },
   {
-    title: "Every cloud, connected",
+    title: "Usage over time",
     description:
-      "Add cluster connects AWS, Google Cloud, Azure, DigitalOcean, Akamai, Civo, Scaleway, Vultr and Exoscale, finds their clusters and keeps the list current. Or paste, import or enter a cluster by hand.",
-    dark: cloudsDark,
-    light: cloudsLight,
+      "The side panel charts CPU and memory over an hour to a week, with requests and limits drawn in. JET Pilot finds your cluster's Prometheus by itself; without one, it shows metrics-server's last 15 minutes.",
+    dark: usageDark,
+    light: usageLight,
   },
   {
-    title: "Sign in without leaving JET Pilot",
+    title: "Access, in plain English",
     description:
-      "Device codes and browser sign-ins appear right in the app, and every view reconnects when you're done. Credentials live in your system keychain, never in plain text.",
-    dark: signInDark,
-    light: signInLight,
+      "Ask “Can I delete deployments in payments?” and get a yes or no, with the binding and role behind it. Or ask who can, and see everything a user, group or service account may do.",
+    dark: accessDark,
+    light: accessLight,
   },
   {
-    title: "Production, protected",
+    title: "Helm, built in",
     description:
-      "Mark a cluster as production and deleting or scaling to zero asks you to type the name. Read-only clusters can't be changed from JET Pilot at all.",
-    dark: guardrailsDark,
-    light: guardrailsLight,
+      "Releases load straight from the cluster, without the helm binary. Each one shows its notes, resources and a history that says what changed. Search charts, then install with a values editor and a preview.",
+    dark: helmDark,
+    light: helmLight,
   },
   {
-    title: "Settings, rebuilt",
+    title: "Side panels that explain",
     description:
-      "Every setting is searchable (⌘, or Ctrl+,), the ones you changed are marked, and settings.json is there if you prefer text.",
-    dark: settingsDark,
-    light: settingsLight,
+      "Select anything and the panel says in a sentence whether it's OK, and why not, with links to what it's connected to. Edit labels, annotations and taints in place, with a preview before you save.",
+    dark: panelsDark,
+    light: panelsLight,
+  },
+  {
+    title: "Your operators, first-class",
+    description:
+      "cert-manager, Gateway API, Karpenter, KEDA, External Secrets and Prometheus Operator get their own columns, states in words and panels, with actions like Renew and Sync now.",
+    dark: operatorsDark,
+    light: operatorsLight,
+  },
+  {
+    title: "Your own actions",
+    description:
+      "Describe an action in a small YAML file: open a URL, run a command, exec, patch or copy. It shows up in row menus, the side panel and the command palette. Find them in Settings › Actions.",
+    dark: actionsDark,
+    light: actionsLight,
   },
 ];
 
 const underTheHood = [
   {
-    icon: SquareTerminal,
-    title: "Your terminal, too",
-    text: "Clusters you add work in kubectl and k9s through a small credential helper.",
+    icon: Unplug,
+    title: "Straight to the API",
+    text: "Describe, YAML, browsing Helm releases and port forwards no longer need kubectl or helm.",
   },
   {
-    icon: KeyRound,
-    title: "Your kubeconfig untouched",
-    text: "Added clusters live in ~/.kube/jet-pilot/config; export them when you want them elsewhere.",
+    icon: ChartLine,
+    title: "Nothing to forward",
+    text: "Usage history reaches Prometheus through the API server: no port-forward, no setup.",
   },
   {
-    icon: Cloud,
-    title: "Quiet discovery",
-    text: "Cloud accounts are checked when the hub opens and never start a sign-in by themselves.",
+    icon: RefreshCw,
+    title: "Forwards that heal",
+    text: "When a pod is replaced, its port forward moves to the next one. Send it a request from the list.",
+  },
+  {
+    icon: Braces,
+    title: "Safe templates",
+    text: "Names and labels reach your actions' commands as arguments, never as code.",
   },
   {
     icon: ShieldCheck,
-    title: "Calmer everywhere",
-    text: "A design pass over the whole app: fewer boxes, clearer lists, status only when it needs you.",
+    title: "Guardrails everywhere",
+    text: "Sync, reconcile, install, renew and label edits all respect read-only and protected clusters.",
   },
   {
-    icon: LayoutDashboard,
-    title: "A setup guide",
-    text: "New installs get a short guide; open it any time from the command palette.",
-  },
-  {
-    icon: Search,
-    title: "Found automatically",
-    text: "~/.kube/config, $KUBECONFIG, ~/.kube/*.yaml and ~/.kube/config.d are picked up by themselves.",
+    icon: Columns3,
+    title: "Columns for every CRD",
+    text: "Any custom resource shows its CRD's own columns, live, with ages and status dots.",
   },
 ];
 
@@ -127,7 +145,7 @@ const last = computed(() => selected.value === count - 1);
       </CarouselItem>
       <CarouselItem class="px-6">
         <h3 class="text-lg font-semibold">Under the hood</h3>
-        <p class="mt-1 text-sm text-muted-foreground">The details behind 2.0.</p>
+        <p class="mt-1 text-sm text-muted-foreground">The details behind 2.2.</p>
         <ul class="mt-4 grid grid-cols-2 gap-x-8 gap-y-5">
           <li v-for="item in underTheHood" :key="item.title" class="flex gap-3">
             <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
