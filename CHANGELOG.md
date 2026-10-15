@@ -31,7 +31,7 @@ JET Pilot now understands the tools around your workloads, and every side panel 
 - **Side panels that explain.** Every panel opens with the object's state in a sentence and links to related objects, with sections for pods, nodes, services, ingresses, storage, HPAs, jobs, cron jobs, config maps and namespaces. Edit labels, annotations and node taints in place, with a preview before you save.
 - **Port forwards that heal.** Forwards run over the Kubernetes API and follow their pod through restarts and rollouts. Ports show by name, forwards remember their local ports, and an HTTP tester sends requests through a forward.
 - **Describe and YAML without `kubectl`.** Both now come straight from the Kubernetes API.
-- **A faster start.** The side panel and dialogs load after the first frame.
+- **A faster start.** JET Pilot loads a fifth less code before it first draws, in a few files instead of twenty, and the side panel and dialogs follow right after.
 
 ## 2.1.2 (2026-10-13)
 
