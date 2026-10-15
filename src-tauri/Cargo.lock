@@ -3271,6 +3271,7 @@ dependencies = [
  "flate2",
  "futures",
  "http",
+ "http-body-util",
  "jp-auth-core",
  "k8s-metrics",
  "k8s-openapi",
