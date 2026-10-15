@@ -449,7 +449,7 @@ const screens = {
       await wait(500);
     },
   },
-  "custom-actions": { url: "/settings/actions", ready: "[aria-label='Your actions']", run: async (page) => page.mouse.move(5, 890) },
+  "custom-actions": { url: "/settings/actions?scenario=valid-actions", ready: "[aria-label='Your actions']", run: async (page) => page.mouse.move(5, 890) },
 };
 
 /* ----------------------------------------------------------- settling -- */
