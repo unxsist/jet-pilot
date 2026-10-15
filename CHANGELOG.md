@@ -13,6 +13,11 @@ How to write an entry (jet-pilot.app/changelog is generated from this file):
   `#### Upgrading`: lists of `**Lead.** Detail.` items, in plain words.
 -->
 
+## 2.2.1 (2026-10-15)
+
+#### Fixed
+- **No more keychain password prompts on macOS.** JET Pilot asked for your login password again and again, after every update and for every `kubectl` call in the terminal. It now reads its vault key the same way it stores it, and only once per session. Nothing to migrate: your existing keychain item keeps working.
+
 ## 2.2.0 (2026-10-15)
 
 ### GitOps, usage history and access review
