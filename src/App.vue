@@ -2,7 +2,6 @@
 import AppLayout from "@/components/AppLayout.vue";
 import Navigation from "@/components/Navigation.vue";
 import RouterViewport from "@/components/RouterViewport.vue";
-import SidePanel from "@/components/SidePanel.vue";
 import Toaster from "@/components/ui/toast/Toaster.vue";
 import CommandPalette from "./components/CommandPalette.vue";
 import SettingsContextProvider from "./providers/SettingsContextProvider";
@@ -14,10 +13,15 @@ import CommandPaletteProvider from "./providers/CommandPaletteProvider";
 import PanelProvider from "./providers/PanelProvider";
 import DialogProvider from "./providers/DialogProvider";
 import WorkspaceProvider from "./providers/WorkspaceProvider";
-import DialogHandler from "./components/DialogHandler.vue";
 import AppSkeleton from "./components/skeletons/AppSkeleton.vue";
 import TerminalLauncher from "./components/TerminalLauncher.vue";
 import ClusterTint from "./components/clusters/ClusterTint.vue";
+/*
+ * Side panel and message dialogs (spawnDialog): neither is open on the first
+ * frame (workspaces don't restore the panel), so they load right after it.
+ */
+const SidePanel = defineAsyncComponent(() => import("@/components/SidePanel.vue"));
+const DialogHandler = defineAsyncComponent(() => import("./components/DialogHandler.vue"));
 /* Setup guide and typed confirmations: needed after the first paint. */
 const WelcomeHost = defineAsyncComponent(() => import("./components/welcome/WelcomeHost.vue"));
 const GuardrailsHost = defineAsyncComponent(() => import("./components/guardrails/GuardrailsHost.vue"));
