@@ -496,14 +496,15 @@ pub async fn aws_sso_accounts(connection_id: String) -> Result<Vec<SsoAccount>, 
     Ok(sso::accounts(&ctx, &sso.region, &token.access_token).await?)
 }
 
-/// Checks that an IAM Identity Center connection can assume `role_arn`
-/// from `account_id` + `role_name` (role chaining), before it's saved as
-/// a target. Renews the session silently; `signInRequired` when it can't.
+/// Checks that a connection can assume `role_arn` (role chaining) before
+/// it's saved as a target: from `account_id` + `role_name` (IAM Identity
+/// Center), else with the profile's or the access keys' credentials.
+/// Renews an SSO session silently; `signInRequired` when it can't.
 #[tauri::command]
 pub async fn aws_assume_role_check(
     connection_id: String,
-    account_id: String,
-    role_name: String,
+    account_id: Option<String>,
+    role_name: Option<String>,
     role_arn: String,
 ) -> Result<(), AppError> {
     use jp_auth_core::request::{valid_account_id, valid_role_arn, valid_role_name};
@@ -514,25 +515,39 @@ pub async fn aws_assume_role_check(
             "Enter a role ARN, e.g. arn:aws:iam::123456789012:role/Platform",
         ));
     }
-    if !valid_account_id(&account_id) || !valid_role_name(&role_name) {
-        return Err(AppError::invalid(
-            "accountId",
-            "Choose the account and role to assume it from.",
-        ));
-    }
     let ctx = context();
     let connection = {
         let (ctx, id) = (ctx.clone(), connection_id);
         crate::clusters::blocking(move || ctx.connection(&id).map_err(AppError::from)).await?
     };
-    if connection.kind != ConnectionKind::Sso {
-        return Err(AppError::invalid(
-            "connectionId",
-            "This is not an IAM Identity Center connection.",
-        ));
-    }
-    let source = creds::sso_role(&ctx, &connection, &account_id, &role_name).await?;
-    let key = format!("{account_id}:{role_name}");
+    let (key, source) = match connection.kind {
+        ConnectionKind::Sso => {
+            let (account_id, role_name) = account_id.zip(role_name).unwrap_or_default();
+            if !valid_account_id(&account_id) || !valid_role_name(&role_name) {
+                return Err(AppError::invalid(
+                    "accountId",
+                    "Choose the account and role to assume it from.",
+                ));
+            }
+            let source = creds::sso_role(&ctx, &connection, &account_id, &role_name).await?;
+            (format!("{account_id}:{role_name}"), source)
+        }
+        ConnectionKind::Profile | ConnectionKind::Keys => {
+            let source = creds::for_connection(&ctx, &connection, None, None).await?;
+            // The source the helper caches the session under (see creds::for_eks).
+            let key = match &connection.profile {
+                Some(profile) => format!("profile:{profile}"),
+                None => "keys".to_string(),
+            };
+            (key, source)
+        }
+        _ => {
+            return Err(AppError::invalid(
+                "connectionId",
+                "This is not an AWS connection.",
+            ))
+        }
+    };
     creds::assume_role(&ctx, &connection, &key, &source, &role_arn).await?;
     Ok(())
 }

@@ -644,16 +644,16 @@ async fn team_roles_are_assumed_for_discovery_and_tokens() {
     let team = "arn:aws:iam::222222222222:role/Platform";
     super::aws_assume_role_check(
         sso.id.clone(),
-        "111111111111".into(),
-        "Personal".into(),
+        Some("111111111111".into()),
+        Some("Personal".into()),
         team.into(),
     )
     .await
     .unwrap();
     let err = super::aws_assume_role_check(
         sso.id.clone(),
-        "111111111111".into(),
-        "Personal".into(),
+        Some("111111111111".into()),
+        Some("Personal".into()),
         "arn:aws:iam::222222222222:role/Other".into(),
     )
     .await
@@ -665,8 +665,8 @@ async fn team_roles_are_assumed_for_discovery_and_tokens() {
     );
     let err = super::aws_assume_role_check(
         sso.id.clone(),
-        "111111111111".into(),
-        "Personal".into(),
+        Some("111111111111".into()),
+        Some("Personal".into()),
         "Platform".into(),
     )
     .await
@@ -763,6 +763,155 @@ async fn team_roles_are_assumed_for_discovery_and_tokens() {
     .await
     .unwrap();
     assert!(catalog::catalog_get().await.unwrap().clusters.is_empty());
+
+    super::use_test_context(None);
+    catalog::use_test_paths(None);
+}
+
+/// `fake_aws_with_team_role`, where the access keys may assume the team
+/// role too.
+fn fake_aws_keys_team_role(req: &FakeRequest) -> FakeResponse {
+    let auth = req.header("authorization").unwrap_or_default();
+    if req.body.contains("Action=AssumeRole")
+        && auth.contains("AKIAIOSFODNN7EXAMPLE")
+        && req
+            .body
+            .contains("RoleArn=arn%3Aaws%3Aiam%3A%3A222222222222%3Arole%2FPlatform")
+    {
+        let expiration = jp_auth_core::aws::aws_smithy_types::DateTime::from_secs(
+            jp_auth_core::aws::now() + 3600,
+        )
+        .fmt(jp_auth_core::aws::aws_smithy_types::date_time::Format::DateTime)
+        .unwrap();
+        return FakeResponse::xml(200, &ASSUME_ROLE_XML.replace("EXPIRATION", &expiration));
+    }
+    fake_aws_with_team_role(req)
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn access_keys_assume_team_roles_too() {
+    let _guard = lock(&TEST_LOCK);
+    let server = FakeServer::start(fake_aws_keys_team_role).await;
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = test_context(dir.path(), &server.url);
+    super::use_test_context(Some(ctx.clone()));
+    let managed_path = dir.path().join("managed").join("config");
+    catalog::use_test_paths(Some((
+        dir.path().join("catalog.json"),
+        managed_path.clone(),
+    )));
+
+    let keys = connections::connection_create(ConnectionSpec::Keys {
+        label: None,
+        access_key_id: "AKIAIOSFODNN7EXAMPLE".into(),
+        secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".into(),
+        session_token: None,
+        region: "eu-west-1".into(),
+    })
+    .await
+    .unwrap();
+
+    // Checked with the keys themselves: no account or role to pick.
+    let team = "arn:aws:iam::222222222222:role/Platform";
+    super::aws_assume_role_check(keys.id.clone(), None, None, team.into())
+        .await
+        .unwrap();
+    let err = super::aws_assume_role_check(
+        keys.id.clone(),
+        None,
+        None,
+        "arn:aws:iam::222222222222:role/Other".into(),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        err.message.contains("Not allowed to assume"),
+        "{}",
+        err.message
+    );
+
+    // A target is a role ARN; its account comes from the ARN.
+    let invalid = connections::connection_update(
+        keys.id.clone(),
+        ConnectionPatch {
+            label: None,
+            regions: None,
+            targets: Some(vec![SsoTarget {
+                account_id: String::new(),
+                account_name: None,
+                role_name: String::new(),
+                assume_role_arn: None,
+            }]),
+            exoscale: None,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(invalid.field.as_deref(), Some("targets"));
+    let keys = connections::connection_update(
+        keys.id.clone(),
+        ConnectionPatch {
+            label: None,
+            regions: Some(vec!["eu-west-1".into()]),
+            targets: Some(vec![SsoTarget {
+                account_id: String::new(),
+                account_name: None,
+                role_name: String::new(),
+                assume_role_arn: Some(team.into()),
+            }]),
+            exoscale: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(keys.targets[0].account_id, "222222222222");
+
+    // The keys' own clusters and the team role's.
+    let (sink, _) = collect();
+    catalog::refresh(Some(vec![keys.id.clone()]), sink)
+        .await
+        .unwrap();
+    let snapshot = catalog::catalog_get().await.unwrap();
+    let mut names: Vec<_> = snapshot
+        .clusters
+        .iter()
+        .map(|c| {
+            (
+                c.name.as_str(),
+                c.account_id.as_str(),
+                c.assume_role_arn.as_deref(),
+            )
+        })
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            ("dev", "123456789012", None),
+            ("platform", "222222222222", Some(team)),
+            ("prod", "123456789012", None),
+        ]
+    );
+
+    let platform = snapshot
+        .clusters
+        .iter()
+        .find(|c| c.name == "platform")
+        .unwrap();
+    let added = catalog::catalog_add(vec![platform.key.clone()], None)
+        .await
+        .unwrap();
+    assert!(added.failed.is_empty(), "{:?}", added.failed);
+    let doc = managed::read(&managed_path).unwrap();
+    let exec = doc.auth_infos[0].auth_info.clone().unwrap().exec.unwrap();
+    let args = exec.args.clone().unwrap_or_default().join(" ");
+    assert!(args.contains(&format!("--assume-role {team}")), "{args}");
+    assert!(!args.contains("--account"), "{args}");
+    let credential = crate::auth::broker::mint(&exec, Duration::from_secs(10))
+        .await
+        .unwrap();
+    assert!(credential.token.unwrap().starts_with("k8s-aws-v1."));
 
     super::use_test_context(None);
     catalog::use_test_paths(None);

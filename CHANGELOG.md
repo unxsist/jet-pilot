@@ -13,6 +13,15 @@ How to write an entry (jet-pilot.app/changelog is generated from this file):
   `#### Upgrading`: lists of `**Lead.** Detail.` items, in plain words.
 -->
 
+## 2.2.2 (2026-10-15)
+
+#### Fixed
+- **GitOps with access to some namespaces.** When your role may only read Argo CD or Flux objects in certain namespaces, as team roles often do, GitOps failed with "forbidden … at the cluster scope". It now asks the cluster where you have access and lists those namespaces, with a note saying so.
+- **Team roles stay put.** A cluster reachable through both an account's own role and a team role assumed into that account could switch between them, or show as deleted, from one scan to the next.
+
+#### Improved
+- **Team roles for AWS profiles and access keys.** Like IAM Identity Center sign-ins, profiles and access keys can now assume team roles, often in other accounts, and find those accounts' clusters too.
+
 ## 2.2.1 (2026-10-15)
 
 #### Fixed

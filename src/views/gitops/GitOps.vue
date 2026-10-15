@@ -8,7 +8,7 @@
  * side panel. Reconcile, sync and refresh are a hover or a key away.
  */
 import { useEventListener, useIntervalFn } from "@vueuse/core";
-import { ChevronRight, CircleAlert, CircleCheck, GitMerge, Search, X } from "lucide-vue-next";
+import { ChevronRight, CircleAlert, CircleCheck, GitMerge, Info, Search, X } from "lucide-vue-next";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import PageHeader from "@/components/page/PageHeader.vue";
@@ -43,7 +43,11 @@ const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 
 const { context: primaryContext } = injectStrict(KubeContextStateKey);
 const gitops = useGitOps();
-const { deliveries, errors, loading } = gitops;
+const { deliveries, errors, loading, limited } = gitops;
+
+/* "argocd", "argocd and flux-system", "a, b and c". */
+const namespaceList = (names: string[]) =>
+  new Intl.ListFormat("en", { style: "long", type: "conjunction" }).format(names);
 
 /* Relative times stay current. */
 const now = ref(Date.now());
@@ -254,13 +258,29 @@ const emptyFilter = computed(() => noResults.value && !query.value.trim() && fil
       />
 
       <EmptyState
-        v-else-if="!deliveries.length && !errors.length"
+        v-else-if="!deliveries.length && !errors.length && !limited.length"
         :icon="GitMerge"
         title="Nothing delivered yet"
         description="Flux Kustomizations, HelmReleases and Argo CD applications show up here as soon as they exist."
       />
 
       <template v-else>
+        <div
+          v-for="scope in limited"
+          :key="scope.context"
+          class="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+        >
+          <Info class="mt-px h-3.5 w-3.5 shrink-0" />
+          <span v-if="scope.namespaces.length">
+            In {{ scope.context }} you can read deliveries in {{ namespaceList(scope.namespaces) }} only, so those are
+            listed. To include more, select their namespaces for this cluster.
+          </span>
+          <span v-else>
+            You can't read deliveries in {{ scope.context }} across all namespaces, nor in the ones Argo CD and Flux
+            usually use. Select the namespaces they use for this cluster to list them.
+          </span>
+        </div>
+
         <div
           v-for="error in errors"
           :key="error.kind"

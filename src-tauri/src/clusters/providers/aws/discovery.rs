@@ -345,16 +345,58 @@ pub async fn discover(
             match creds::caller_identity(ctx, &credentials, &connection.home_region()).await {
                 Ok((account, arn)) => {
                     discovery.identity = Some(arn);
-                    scopes.push((
-                        Scope {
-                            account_id: Some(account),
+                    // Roles assumed with these credentials (role chaining),
+                    // cached under the source the helper uses too.
+                    let source = match &connection.profile {
+                        Some(profile) => format!("profile:{profile}"),
+                        None => "keys".to_string(),
+                    };
+                    for arn in connection
+                        .targets
+                        .iter()
+                        .filter_map(|t| t.assume_role_arn.as_deref())
+                    {
+                        let scope = Scope {
+                            account_id: jp_auth_core::request::role_arn_account(arn)
+                                .map(str::to_string),
                             account_name: None,
-                            role_name: None,
+                            role_name: jp_auth_core::request::role_arn_name(arn)
+                                .map(str::to_string),
                             profile: connection.profile.clone(),
-                            assume_role_arn: None,
-                        },
-                        credentials,
-                    ));
+                            assume_role_arn: Some(arn.to_string()),
+                        };
+                        match creds::assume_role(ctx, connection, &source, &credentials, arn).await
+                        {
+                            Ok(assumed) => scopes.push((scope, assumed)),
+                            Err(error) => {
+                                let message = format!(
+                                    "{} as {}: {error}",
+                                    scope.display(),
+                                    scope.role_name.as_deref().unwrap_or_default()
+                                );
+                                progress(scope.progress(
+                                    "credentials",
+                                    None,
+                                    ProgressState::Error,
+                                    Some(error.to_string()),
+                                ));
+                                discovery.error.get_or_insert(message);
+                            }
+                        }
+                    }
+                    scopes.insert(
+                        0,
+                        (
+                            Scope {
+                                account_id: Some(account),
+                                account_name: None,
+                                role_name: None,
+                                profile: connection.profile.clone(),
+                                assume_role_arn: None,
+                            },
+                            credentials,
+                        ),
+                    );
                 }
                 Err(error) => {
                     let message = error.to_string();

@@ -31,7 +31,9 @@ export interface ConnectionTarget {
   roleName: string;
   /**
    * Role chaining: the IAM role assumed with `accountId` + `roleName`'s
-   * credentials. Its account is the one scanned (`accountName` names it).
+   * credentials (IAM Identity Center), or with the profile's or access
+   * keys' own (`roleName` empty). Its account is the one scanned
+   * (`accountName` names it).
    */
   assumeRoleArn?: string | null;
 }
@@ -97,8 +99,13 @@ export interface AwsAccount {
 }
 export const awsSsoAccounts = (connectionId: string) => invoke<AwsAccount[]>("aws_sso_accounts", { connectionId });
 /** Checks an IAM Identity Center account + role can assume `roleArn` (rejects when it can't). */
-export const awsAssumeRoleCheck = (connectionId: string, accountId: string, roleName: string, roleArn: string) =>
-  invoke<void>("aws_assume_role_check", { connectionId, accountId, roleName, roleArn });
+/** Can the connection assume `roleArn`: as `accountId` + `roleName` (IAM Identity Center), else with its own credentials. */
+export const awsAssumeRoleCheck = (
+  connectionId: string,
+  roleArn: string,
+  accountId: string | null = null,
+  roleName: string | null = null
+) => invoke<void>("aws_assume_role_check", { connectionId, accountId, roleName, roleArn });
 
 export interface AwsProfile {
   name: string;
