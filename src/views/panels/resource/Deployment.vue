@@ -1,8 +1,12 @@
 <script setup lang="ts">
+/** A Deployment: its replicas, how it rolls out, and its pods. */
 import { Activity } from "lucide-vue-next";
 import { V1Deployment } from "@kubernetes/client-node";
 import PanelSection from "@/components/generic/PanelSection.vue";
-import { Progress } from "@/components/ui/progress";
+import FactList from "@/components/generic/FactList.vue";
+import Fact from "@/components/generic/Fact.vue";
+import ReplicaStats from "@/components/generic/ReplicaStats.vue";
+import WorkloadPods from "@/views/panels/resource/workload/WorkloadPods.vue";
 
 const props = defineProps<{ resource: V1Deployment }>();
 
@@ -11,12 +15,8 @@ const ready = computed(() => props.resource.status?.readyReplicas ?? 0);
 
 const stats = computed(() => [
   { label: "Ready", value: ready.value, warn: ready.value < desired.value },
-  { label: "Desired", value: desired.value, warn: false },
-  {
-    label: "Updated",
-    value: props.resource.status?.updatedReplicas ?? 0,
-    warn: false,
-  },
+  { label: "Desired", value: desired.value },
+  { label: "Updated", value: props.resource.status?.updatedReplicas ?? 0 },
   {
     label: "Unavailable",
     value: props.resource.status?.unavailableReplicas ?? 0,
@@ -24,51 +24,30 @@ const stats = computed(() => [
   },
 ]);
 
-const readyPercent = computed(() =>
-  desired.value > 0 ? Math.round((ready.value / desired.value) * 100) : 0
-);
+const strategy = computed(() => {
+  const s = props.resource.spec?.strategy;
+  if (s?.type === "Recreate") return { name: "Recreate", words: "Old pods stop before new ones start" };
+  const rolling = s?.rollingUpdate;
+  return {
+    name: "Rolling update",
+    words: `At most ${rolling?.maxUnavailable ?? "25%"} unavailable and ${rolling?.maxSurge ?? "25%"} extra during a rollout`,
+  };
+});
+const revision = computed(() => props.resource.metadata?.annotations?.["deployment.kubernetes.io/revision"]);
 </script>
 <template>
   <PanelSection value="status" title="Status & replicas" :icon="Activity">
-    <div class="space-y-3">
-      <div class="grid grid-cols-4 overflow-hidden rounded-lg border">
-        <div
-          v-for="(stat, index) in stats"
-          :key="stat.label"
-          class="bg-surface-1/60 px-3 py-2"
-          :class="{ 'border-l': index > 0 }"
-        >
-          <div
-            class="text-lg font-semibold tabular-nums"
-            :class="stat.warn ? 'text-warning' : 'text-foreground'"
-          >
-            {{ stat.value }}
-          </div>
-          <div class="text-xs font-medium text-muted-foreground">
-            {{ stat.label }}
-          </div>
-        </div>
-      </div>
-      <div class="flex items-center gap-3">
-        <Progress :model-value="readyPercent" class="h-1.5 flex-1" />
-        <span class="text-xs tabular-nums text-muted-foreground"
-          >{{ readyPercent }}% ready</span
-        >
-      </div>
-      <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
-        <dt class="text-muted-foreground">Strategy</dt>
-        <dd class="font-medium">{{ resource.spec?.strategy?.type ?? "–" }}</dd>
-        <template v-if="resource.spec?.strategy?.rollingUpdate">
-          <dt class="text-muted-foreground">Max unavailable</dt>
-          <dd class="font-mono">
-            {{ resource.spec?.strategy?.rollingUpdate?.maxUnavailable }}
-          </dd>
-          <dt class="text-muted-foreground">Max surge</dt>
-          <dd class="font-mono">
-            {{ resource.spec?.strategy?.rollingUpdate?.maxSurge }}
-          </dd>
-        </template>
-      </dl>
+    <div class="space-y-4">
+      <ReplicaStats :stats="stats" :ready="ready" :desired="desired" />
+      <FactList>
+        <Fact label="Strategy">
+          {{ strategy.name }}
+          <span class="block text-xs text-muted-foreground">{{ strategy.words }}</span>
+        </Fact>
+        <Fact v-if="revision" label="Revision" :value="revision" />
+        <Fact v-if="resource.spec?.paused" label="Rollouts" value="Paused" />
+      </FactList>
     </div>
   </PanelSection>
+  <WorkloadPods :workload="resource" />
 </template>

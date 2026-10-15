@@ -1,9 +1,11 @@
 <script setup lang="ts">
 /*
  * Custom actions in the side panel's header row, next to Edit YAML /
- * Describe / Logs: the ones whose scope matches the object. A few show as
- * buttons, more go into an overflow menu so the header stays calm.
+ * Describe / Logs: the ones whose scope matches the object. As many show
+ * as buttons as fit in the rest of the row (measured, so the header never
+ * wraps); the others go into a "⋯" menu at its end.
  */
+import { useResizeObserver } from "@vueuse/core";
 import { MoreHorizontal } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,9 +37,6 @@ const addTab = injectStrict(PanelProviderAddTabKey);
 const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
 const { actions } = useCustomActions();
 
-/* Inline buttons; with more actions, one fewer plus the menu. */
-const INLINE = 3;
-
 const matching = computed(() => {
   const cluster = guardedCluster(props.context, props.kubeConfig);
   return actions.value.filter(
@@ -47,10 +46,36 @@ const matching = computed(() => {
       !isBlocked(customActionKind(action), cluster)
   );
 });
-const inline = computed(() =>
-  matching.value.length <= INLINE ? matching.value : matching.value.slice(0, INLINE - 1)
-);
-const overflow = computed(() => (matching.value.length <= INLINE ? [] : matching.value.slice(INLINE - 1)));
+
+/*
+ * How many buttons fit: the room left in the row, against the widths of
+ * the buttons (rendered once, invisibly, to measure them).
+ */
+const GAP = 6;
+const MORE = 26;
+const root = ref<HTMLElement | null>(null);
+const measure = ref<HTMLElement | null>(null);
+const room = ref(0);
+const widths = ref<number[]>([]);
+useResizeObserver(root, (entries) => (room.value = entries[0]?.contentRect.width ?? 0));
+useResizeObserver(measure, () => {
+  widths.value = Array.from(measure.value?.children ?? [], (el) => (el as HTMLElement).offsetWidth);
+});
+const fitting = computed(() => {
+  const all = matching.value.length;
+  const total = widths.value.reduce((sum, w) => sum + w + GAP, 0);
+  if (widths.value.length === all && total <= room.value) return all;
+  let used = MORE + GAP;
+  let count = 0;
+  for (const width of widths.value) {
+    if (used + width + GAP > room.value) break;
+    used += width + GAP;
+    count++;
+  }
+  return count;
+});
+const inline = computed(() => matching.value.slice(0, fitting.value));
+const overflow = computed(() => matching.value.slice(fitting.value));
 
 const run = (action: CustomAction) => {
   const object = {
@@ -66,7 +91,16 @@ const run = (action: CustomAction) => {
 </script>
 
 <template>
-  <template v-if="matching.length">
+  <div v-if="matching.length" ref="root" class="relative flex min-w-0 flex-1 items-center gap-1.5">
+    <!-- Every button once, invisible: their widths decide how many fit. -->
+    <div class="pointer-events-none invisible absolute h-0 w-0 overflow-hidden" aria-hidden="true">
+      <div ref="measure" class="flex w-max gap-1.5">
+        <Button v-for="action in matching" :key="action.id" variant="outline" size="xs" tabindex="-1">
+          <component :is="actionIconComponent(action.icon)" class="h-3 w-3" />
+          {{ action.name }}
+        </Button>
+      </div>
+    </div>
     <Button
       v-for="action in inline"
       :key="action.id"
@@ -80,7 +114,7 @@ const run = (action: CustomAction) => {
     </Button>
     <DropdownMenu v-if="overflow.length">
       <DropdownMenuTrigger as-child>
-        <Button variant="outline" size="xs" :aria-label="`${overflow.length} more actions`">
+        <Button variant="outline" size="xs" class="w-[26px] px-0" :aria-label="`${overflow.length} more actions`">
           <MoreHorizontal class="h-3 w-3" />
         </Button>
       </DropdownMenuTrigger>
@@ -92,5 +126,5 @@ const run = (action: CustomAction) => {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-  </template>
+  </div>
 </template>

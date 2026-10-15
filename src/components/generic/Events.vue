@@ -1,65 +1,23 @@
 <script setup lang="ts">
-import { formatDateTime, injectStrict } from "@/lib/utils";
+import { formatDateTime } from "@/lib/utils";
 import { formatAge } from "@/components/tables/age";
 import { getEventLastSeen } from "@/components/tables/status";
-import { KubeContextStateKey } from "@/providers/KubeContextProvider";
-import { Kubernetes } from "@/services/Kubernetes";
 import { StatusDot } from "@/components/ui/status";
 import { CoreV1Event, KubernetesObject } from "@kubernetes/client-node";
+import { usePanelTarget } from "@/composables/usePanelObject";
+import { fetchEvents } from "@/lib/resources/events";
 
-const { context, kubeConfig } = injectStrict(KubeContextStateKey);
+/* Rows carry the context + kubeconfig they were fetched from. */
+const props = defineProps<{ object: KubernetesObject }>();
 
-/*
- * Rows carry the context + kubeconfig they were fetched from; fall back to
- * the primary context for objects that are not context-tagged.
- */
-type ContextTaggedObject = KubernetesObject & {
-  metadata?: KubernetesObject["metadata"] & {
-    context?: string;
-    kubeConfig?: string;
-  };
-};
-
-const props = defineProps<{ object: ContextTaggedObject }>();
-
+const target = usePanelTarget(() => props.object);
 const events = ref<CoreV1Event[]>([]);
 
-const fetchEvents = async () => {
-  const objectContext = props.object.metadata?.context || context.value;
-  const objectKubeConfig =
-    props.object.metadata?.kubeConfig ||
-    (props.object.metadata?.context ? "" : kubeConfig.value);
-
-  const args = [
-    "events",
-    "--for",
-    `${props.object.kind}/${props.object.metadata?.name}`,
-    "--context",
-    objectContext,
-    "-o",
-    "json",
-  ];
-  if (props.object.metadata?.namespace) {
-    args.push("-n", props.object.metadata.namespace);
-  }
-  if (objectKubeConfig) {
-    args.push("--kubeconfig", objectKubeConfig);
-  }
-
-  try {
-    const data = await Kubernetes.kubectl(args);
-    // Most recently seen first.
-    events.value = (JSON.parse(data).items as CoreV1Event[]).sort(
-      (a, b) =>
-        (getEventLastSeen(b)?.getTime() ?? 0) -
-        (getEventLastSeen(a)?.getTime() ?? 0)
-    );
-  } catch (error) {
-    // ignore
-  }
-};
-
-await fetchEvents();
+try {
+  events.value = await fetchEvents(target.value, props.object);
+} catch {
+  // No events is the honest fallback: the panel stays useful without them.
+}
 </script>
 <template>
   <ol v-if="events.length > 0" class="relative space-y-3">

@@ -23,6 +23,7 @@
  *   ?scenario=clouds         accounts in AWS, Google Cloud, Azure, DigitalOcean and Exoscale (clouds.ts)
  *   ?scenario=no-gitops      no Flux / Argo CD API groups (gitops.ts)
  *   ?scenario=metrics-none|metrics-error   no Prometheus / a failing one (metrics.ts)
+ *   ?scenario=edit-forbidden  inline label / taint edits are refused (panels.ts)
  *   ?scenario=rbac-forbidden listing RBAC objects is forbidden (rbac.ts)
  *   ?scenario=no-actions     an empty custom actions folder (actions.ts)
  *
@@ -78,6 +79,7 @@ import { installAuthMocks } from "./auth";
 import { handleKubeRequest } from "./kubeApi";
 import { createGitopsMocks } from "./gitops";
 import { createPortForwardMocks, portForwardSettings } from "./portForwards";
+import { createPanelsMocks } from "./panels";
 import { nodeHistory } from "./metrics";
 import "./rbac";
 import { actionHandlers, seedActionFiles, startActionPty } from "./actions";
@@ -1291,6 +1293,8 @@ const gitops = createGitopsMocks(scenario, emitWatchChange);
 const helm = createHelmMocks(scenario);
 /* Native port forwards, ?pf=reconnecting|profiles|none (dev/harness/portForwards.ts). */
 const portForwards = createPortForwardMocks();
+/* Side panel fixtures, patch and event routes (dev/harness/panels.ts). */
+createPanelsMocks(scenario, emitWatchChange);
 let probeBatches = 0;
 
 /* ------------------------------------------------------------------ fs -- */

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { StatusDot, type StatusTone } from "@/components/ui/status";
+import { StatusDot } from "@/components/ui/status";
 import { formatAge, toDate } from "@/components/tables/age";
 import { formatDateTime } from "@/lib/utils";
+import { conditionTone as toneOf } from "@/lib/resources/conditions";
 
 interface Condition {
   type: string;
@@ -12,24 +13,6 @@ interface Condition {
 }
 
 defineProps<{ conditions: Condition[] }>();
-
-/* Operator conditions that are normally False (KEDA, Karpenter, cert-manager). */
-const NORMALLY_FALSE = /^(Fallback|Paused|Drifted|Denied|InvalidRequest|Issuing)$/;
-
-/* Conditions where "True" is bad news (node pressure, ...). */
-const INVERTED = /(Pressure|Unavailable|Failed|Degraded|Stalled)$/;
-
-const toneOf = (condition: Condition): StatusTone => {
-  const healthy =
-    INVERTED.test(condition.type) || NORMALLY_FALSE.test(condition.type)
-      ? condition.status === "False"
-      : condition.status === "True";
-
-  if (condition.status !== "True" && condition.status !== "False") {
-    return "muted";
-  }
-  return healthy ? "success" : "warning";
-};
 
 const transitionTitle = (value: unknown) => {
   const date = toDate(value);

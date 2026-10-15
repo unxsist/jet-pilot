@@ -977,7 +977,261 @@ const screens = {
     ready: "text=can't read this cluster's RBAC",
     settle: 1000,
   },
+  /* ------------------------------------------ side panels (panels.ts) -- */
+  "panel-pod": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "checkout-api" }).nth(1));
+    },
+  },
+  "panel-node": {
+    url: "/nodes?resource=nodes&kind=Node",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "ip-10-0-78-201" }).first());
+    },
+  },
+  "panel-node-taints-edit": {
+    url: "/nodes?resource=nodes&kind=Node",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "ip-10-0-45-118" }).first(), { foldUsage: true });
+      await page.getByRole("button", { name: "Edit taints" }).click();
+      await page.getByRole("button", { name: "Add taint" }).click();
+      await page.keyboard.type("dedicated");
+      await page.getByRole("textbox", { name: /Value of dedicated/ }).fill("payments");
+      await page.getByRole("combobox", { name: /Effect of dedicated/ }).click();
+      await wait(300);
+      await page.getByRole("option", { name: /NoExecute/ }).click();
+      await scrollPanelTo(page, "Taints");
+      await wait(500);
+    },
+  },
+  "panel-service": {
+    url: "/services?resource=services&kind=Service",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "checkout-api" }).first());
+    },
+  },
+  "panel-ingress": {
+    url: "/ingresses?resource=ingresses&kind=Ingress",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "checkout" }).first());
+    },
+  },
+  "panel-pvc": {
+    url: "/persistentvolumeclaims?resource=persistentvolumeclaims&kind=PersistentVolumeClaim",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "data-postgres-0" }).first());
+    },
+  },
+  "panel-pvc-pending": {
+    url: "/persistentvolumeclaims?resource=persistentvolumeclaims&kind=PersistentVolumeClaim",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "data-redis-0" }).first());
+    },
+  },
+  "panel-hpa": {
+    url: "/horizontalpodautoscalers?resource=horizontalpodautoscalers&kind=HorizontalPodAutoscaler",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "payments-api" }).first());
+    },
+  },
+  "panel-hpa-max": {
+    url: "/horizontalpodautoscalers?resource=horizontalpodautoscalers&kind=HorizontalPodAutoscaler",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "checkout-web" }).first());
+    },
+  },
+  "panel-cronjob": {
+    url: "/cronjobs?resource=cronjobs&kind=CronJob",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "db-backup" }).first());
+    },
+  },
+  "panel-configmap": {
+    url: "/configmaps?resource=configmaps&kind=ConfigMap",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "payments-config" }).first());
+    },
+  },
+  "panel-namespace": {
+    url: "/namespaces?resource=namespaces&kind=Namespace",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "payments" }).first());
+    },
+  },
+  "panel-deployment": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "checkout-api" }).first());
+    },
+  },
+  "panel-statefulset": {
+    url: "/statefulsets?resource=statefulsets&kind=StatefulSet",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "postgres" }).first(), { foldUsage: true });
+    },
+  },
+  "panel-daemonset": {
+    url: "/daemonsets?resource=daemonsets&kind=DaemonSet",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "node-exporter" }).first(), { foldUsage: true });
+    },
+  },
+  "panel-job": {
+    url: "/jobs?resource=jobs&kind=Job",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "report-generator" }).first(), { foldUsage: true });
+    },
+  },
+  "panel-pv": {
+    url: "/persistentvolumes?resource=persistentvolumes&kind=PersistentVolume",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr").first());
+    },
+  },
+  "panel-storageclass": {
+    url: "/storageclasses?resource=storageclasses&kind=StorageClass",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "gp3" }).first());
+    },
+  },
+  "panel-event": {
+    url: "/events?resource=events&kind=Event",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "Back-off restarting" }).first());
+    },
+  },
+  "panel-labels-edit": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "payments-api" }).first(), { foldUsage: true });
+      await page.getByRole("button", { name: "Edit labels" }).click();
+      await page.getByRole("textbox", { name: "Value of tier" }).fill("api");
+      await page.getByRole("button", { name: "Remove app.kubernetes.io/version" }).click();
+      await page.getByRole("button", { name: "Add label" }).click();
+      await page.keyboard.type("team");
+      await page.getByRole("textbox", { name: "Value of team" }).fill("payments");
+      await page.getByRole("button", { name: "Add label" }).click();
+      await page.keyboard.type("Cost Center");
+      await scrollPanelTo(page, "Labels");
+      await wait(500);
+    },
+  },
+  "panel-labels-error": {
+    url: "/deployments?resource=deployments&kind=Deployment&scenario=edit-forbidden",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openPanel(page, page.locator("tbody tr", { hasText: "payments-api" }).first(), { foldUsage: true });
+      await page.getByRole("button", { name: "Edit labels" }).click();
+      await page.getByRole("button", { name: "Add label" }).click();
+      await page.keyboard.type("team");
+      await page.getByRole("textbox", { name: "Value of team" }).fill("payments");
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await wait(600);
+      await scrollPanelTo(page, "Labels");
+      await wait(400);
+    },
+  },
+  "panel-follow": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.getByPlaceholder("Filter pods…").fill("postgres-0");
+      await wait(400);
+      await openPanel(page, page.locator("tbody tr", { hasText: "postgres-0" }).first(), { foldUsage: true });
+      await page.getByRole("button", { name: "data-postgres-0", exact: true }).click();
+      await wait(1200);
+    },
+  },
+  "describe-native": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "CrashLoopBackOff", "Describe");
+      await page.waitForSelector("[data-testid=describe-native]", { timeout: 10000 }).catch(() => {});
+      await enlargePanel(page);
+      await wait(1000);
+    },
+  },
+  "describe-kubectl": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Describe");
+      await page.waitForSelector("[data-testid=describe-native]", { timeout: 10000 }).catch(() => {});
+      await page.getByRole("button", { name: "kubectl describe", exact: true }).click();
+      await page.waitForSelector("[data-testid=describe-output]", { timeout: 10000 }).catch(() => {});
+      await wait(800);
+    },
+  },
+  "describe-native-search": {
+    url: "/nodes?resource=nodes&kind=Node",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "ip-10-0-78-201", "Describe");
+      await page.waitForSelector("[data-testid=describe-native]", { timeout: 10000 }).catch(() => {});
+      await enlargePanel(page);
+      await page.keyboard.press("Control+f");
+      await page.keyboard.type("pressure");
+      await page.keyboard.press("Enter");
+      await wait(800);
+    },
+  },
 };
+
+/*
+ * Opens a row's side panel, widened; `foldUsage` folds the usage charts so
+ * the kind's own sections show.
+ */
+async function openPanel(page, row, { foldUsage = false } = {}) {
+  await row.click();
+  await wait(600);
+  const handles = page.locator("[data-panel-resize-handle-id]");
+  for (let i = 0; i < (await handles.count()); i++) {
+    const box = await handles.nth(i).boundingBox();
+    if (!box || box.height < box.width || box.x < 600) continue;
+    await page.mouse.move(box.x + box.width / 2, box.y + 200);
+    await page.mouse.down();
+    await page.mouse.move(box.x - 130, box.y + 200, { steps: 8 });
+    await page.mouse.up();
+    break;
+  }
+  if (foldUsage) {
+    const usage = page.locator("[data-keyboard-scope=side-panel] h3 button", { hasText: /^\s*Usage\s*$/ }).first();
+    if (await usage.count()) await usage.click();
+  }
+  await page.mouse.move(5, 500);
+  await wait(1200);
+}
+
+/* Scrolls the side panel so a section heading is near its top. */
+async function scrollPanelTo(page, title) {
+  await page.evaluate((title) => {
+    const panel = document.querySelector("[data-keyboard-scope=side-panel]");
+    const heading = [...(panel?.querySelectorAll("h3 button") ?? [])].find((b) => b.textContent?.trim().startsWith(title));
+    if (panel && heading) panel.scrollTop += heading.getBoundingClientRect().top - panel.getBoundingClientRect().top - 150;
+  }, title);
+}
 
 /* Opens the sidebar's Access Control group (collapsed in the fixture settings). */
 async function openAccessControl(page) {

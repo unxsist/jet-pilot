@@ -46,6 +46,9 @@ watch(route, () => {
   setSidePanelComponent(null);
 });
 
+/* Back to where a link in the panel came from (its own chunk). */
+const PanelBack = defineAsyncComponent(() => import("@/components/PanelBack.vue"));
+
 /* Kinds whose logs `kubectl logs <kind>/<name>` can show. */
 const LOGGABLE_KINDS = [
   "Pod",
@@ -183,6 +186,7 @@ const showLogs = () => {
     <div
       class="sticky top-0 z-10 space-y-3 border-b bg-card/95 px-4 pb-3 pt-3.5 backdrop-blur-sm supports-[backdrop-filter]:bg-card/85"
     >
+      <PanelBack />
       <div class="flex items-start gap-3">
         <span
           class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-surface-1 text-muted-foreground shadow-xs"
@@ -267,7 +271,8 @@ const showLogs = () => {
             </dd>
           </div>
         </dl>
-        <div class="flex flex-wrap gap-1.5">
+        <!-- One row, never wrapping: custom actions that don't fit go into their "⋯" menu. -->
+        <div class="flex items-center gap-1.5">
           <Button variant="outline" size="xs" @click="editYaml">
             <FileCode class="h-3 w-3" /> Edit YAML
           </Button>
