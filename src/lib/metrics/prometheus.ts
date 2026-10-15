@@ -76,10 +76,12 @@ export function toPrometheusError(error: unknown, source?: PromSource): Promethe
   else if (code === 401) summary = "The cluster rejected the credentials";
   else if (code === 404 && /services? "[^"]*" not found/.test(lower)) summary = `${service} doesn't exist`;
   else if (code === 404) summary = "No Prometheus API at this address";
+  // The API server couldn't dial the pod (refused, or an "i/o timeout" when a
+  // firewall drops the control plane's traffic): not a slow Prometheus.
+  else if (lower.includes("error trying to reach service")) summary = `Can't connect to ${service}`;
   else if (code === 504 || lower.includes("timed out") || lower.includes("timeout")) summary = "Prometheus took too long to answer";
   else if (fromBody && (code === 400 || code === 422)) summary = "Prometheus rejected the query";
-  else if (code === 502 || code === 503 || lower.includes("error trying to reach service") || lower.includes("connection refused"))
-    summary = `Can't connect to ${service}`;
+  else if (code === 502 || code === 503 || lower.includes("connection refused")) summary = `Can't connect to ${service}`;
   else summary = detail.split("\n")[0]!.slice(0, 120);
   return new PrometheusError(summary, detail, code);
 }
