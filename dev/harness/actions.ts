@@ -4,7 +4,7 @@
  * the folder command, and terminal output for the processes they start.
  * Files live in the harness fs (sessionStorage), so the fs watch and the
  * editors work on them like on disk. `?scenario=no-actions` starts with an
- * empty folder.
+ * empty folder, `?scenario=valid-actions` without the broken file.
  */
 import { HOME, describe, logLines } from "./fixtures";
 
@@ -85,6 +85,9 @@ run:
 `,
 };
 
+/* The file with a typo (`lables.app`): its error shows in Settings › Actions. */
+const BROKEN_FILE = "preview-environment.yaml";
+
 /** Seeds the actions folder (once per harness session). */
 export function seedActionFiles(scenario: string, fsKey: (path: string) => string): void {
   if (scenario === "no-actions" || scenario === "fresh") return;
@@ -92,7 +95,10 @@ export function seedActionFiles(scenario: string, fsKey: (path: string) => strin
   if (Object.keys(sessionStorage).some((key) => key.startsWith(prefix))) return;
   if (sessionStorage.getItem("harness-actions-seeded")) return;
   sessionStorage.setItem("harness-actions-seeded", "1");
-  for (const [file, text] of Object.entries(FILES)) sessionStorage.setItem(fsKey(`actions/${file}`), text);
+  for (const [file, text] of Object.entries(FILES)) {
+    if (scenario === "valid-actions" && file === BROKEN_FILE) continue;
+    sessionStorage.setItem(fsKey(`actions/${file}`), text);
+  }
 }
 
 const encoder = new TextEncoder();
