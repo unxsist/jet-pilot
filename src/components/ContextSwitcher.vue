@@ -17,13 +17,6 @@ import {
   report,
   requestSignIn,
 } from "@/lib/auth/center";
-/*
- * Unused here since sign-in moved to the auth center, but keep it:
- * evaluating DialogProvider from the sidebar lets rolldown keep merging the
- * shared chunks (kind icons, ...) into the entry chunk. Without it the
- * startup bundle grows by ~2 kB of chunk overhead (measured for 1.42).
- */
-import "@/providers/DialogProvider";
 
 import {
   DropdownMenu,
