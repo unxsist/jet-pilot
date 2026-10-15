@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/carousel";
 import type { UnwrapRefCarouselApi } from "@/components/ui/carousel/interface";
 import { Button } from "@/components/ui/button";
-import { Braces, ChartLine, Columns3, RefreshCw, ShieldCheck, Unplug } from "lucide-vue-next";
+import { Braces, ChartLine, Columns3, FileSearch, ShieldCheck, Unplug } from "lucide-vue-next";
 
 import gitopsDark from "@/assets/whats-new/gitops-dark.webp";
 import gitopsLight from "@/assets/whats-new/gitops-light.webp";
@@ -27,6 +27,8 @@ import operatorsDark from "@/assets/whats-new/operators-dark.webp";
 import operatorsLight from "@/assets/whats-new/operators-light.webp";
 import actionsDark from "@/assets/whats-new/actions-dark.webp";
 import actionsLight from "@/assets/whats-new/actions-light.webp";
+import portForwardsDark from "@/assets/whats-new/port-forwards-dark.webp";
+import portForwardsLight from "@/assets/whats-new/port-forwards-light.webp";
 
 const emit = defineEmits<{ done: [] }>();
 
@@ -80,13 +82,20 @@ const slides = [
     dark: actionsDark,
     light: actionsLight,
   },
+  {
+    title: "Port forwards that heal",
+    description:
+      "Forwards follow their pod through restarts and rollouts, and say quietly when they healed. Send one a request and see the status, headers and body without leaving JET Pilot.",
+    dark: portForwardsDark,
+    light: portForwardsLight,
+  },
 ];
 
 const underTheHood = [
   {
     icon: Unplug,
     title: "Straight to the API",
-    text: "Describe, YAML, browsing Helm releases and port forwards no longer need kubectl or helm.",
+    text: "YAML, browsing Helm releases and port forwards no longer need kubectl or helm.",
   },
   {
     icon: ChartLine,
@@ -94,9 +103,9 @@ const underTheHood = [
     text: "Usage history reaches Prometheus through the API server: no port-forward, no setup.",
   },
   {
-    icon: RefreshCw,
-    title: "Forwards that heal",
-    text: "When a pod is replaced, its port forward moves to the next one. Send it a request from the list.",
+    icon: FileSearch,
+    title: "Describe without kubectl",
+    text: "A structured, searchable describe built from the API; kubectl's text is one click away.",
   },
   {
     icon: Braces,
