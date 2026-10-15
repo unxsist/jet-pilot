@@ -17,16 +17,6 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { injectStrict } from "@/lib/utils";
 import {
   WorkspacesKey,
@@ -48,10 +38,19 @@ const shortcut = (index: number) =>
     ? `${isMac ? "⌘⌥" : "Ctrl+Alt+"}${index + 1}`
     : "";
 
+/*
+ * The rename dialog loads on first use and then stays mounted, so it
+ * animates out like any other dialog.
+ */
+const WorkspaceRenameDialog = defineAsyncComponent(
+  () => import("./WorkspaceRenameDialog.vue")
+);
+const renameLoaded = ref(false);
 const renaming = ref(false);
 const draftName = ref("");
 const startRename = () => {
   draftName.value = active.value?.name ?? "";
+  renameLoaded.value = true;
   renaming.value = true;
 };
 const confirmRename = () => {
@@ -158,29 +157,11 @@ onUnmounted(() => clearTimeout(savedTimer));
       </DropdownMenuContent>
     </DropdownMenu>
 
-    <Dialog :open="renaming" @update:open="(open: boolean) => (renaming = open)">
-      <DialogContent class="max-w-sm">
-        <form class="grid gap-4" @submit.prevent="confirmRename">
-          <DialogHeader>
-            <DialogTitle>Rename workspace</DialogTitle>
-            <DialogDescription
-              >Shown in the sidebar and the command palette.</DialogDescription
-            >
-          </DialogHeader>
-          <Input
-            v-model="draftName"
-            aria-label="Workspace name"
-            maxlength="60"
-            autofocus
-          />
-          <DialogFooter>
-            <Button type="button" variant="ghost" @click="renaming = false"
-              >Cancel</Button
-            >
-            <Button type="submit" :disabled="!draftName.trim()">Rename</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <WorkspaceRenameDialog
+      v-if="renameLoaded"
+      v-model:open="renaming"
+      v-model:name="draftName"
+      @confirm="confirmRename"
+    />
   </div>
 </template>

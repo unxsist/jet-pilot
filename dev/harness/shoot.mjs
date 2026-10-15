@@ -325,6 +325,19 @@ const screens = {
       await wait(400);
     },
   },
+  "workspace-rename": {
+    url: "/pods?fresh=1",
+    ready: "tbody tr td",
+    run: async (page) => {
+      const switcher = page.locator("[data-workspace-switcher]");
+      await switcher.click();
+      await page.locator('[role="menuitem"]', { hasText: "Save current as new workspace" }).click();
+      await wait(400);
+      await switcher.click();
+      await page.locator('[role="menuitem"]', { hasText: "Rename" }).click();
+      await wait(700);
+    },
+  },
   "pf-profiles": {
     url: "/pods?pf=profiles",
     ready: "tbody tr td",
