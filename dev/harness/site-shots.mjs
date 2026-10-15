@@ -1,6 +1,6 @@
 /*
  * Website screenshots (jet-pilot.app, public/images/app/<name>-<theme>-*):
- * the 15 screens the site shows, in dark + light, as high-density PNG
+ * the screens the site shows, in dark + light, as high-density PNG
  * masters. The website repo's `npm run shots -- <masters-dir>` turns them
  * into 1280 / 2400 / 3600 px AVIF + WebP and Retina close-up details.
  *
@@ -99,6 +99,44 @@ async function pickNamespaces(page, context, namespaces) {
   }
   await page.keyboard.press("Escape");
   await wait(400);
+}
+
+/* Opens a row's side panel and widens it by dx (CSS px). */
+async function openWidePanel(page, row, dx = 130) {
+  await row.click();
+  await wait(600);
+  const handles = page.locator("[data-panel-resize-handle-id]");
+  for (let i = 0; i < (await handles.count()); i++) {
+    const box = await handles.nth(i).boundingBox();
+    if (!box || box.height < box.width || box.x < 600) continue;
+    await page.mouse.move(box.x + box.width / 2, box.y + 200);
+    await page.mouse.down();
+    await page.mouse.move(box.x - dx, box.y + 200, { steps: 8 });
+    await page.mouse.up();
+    break;
+  }
+  await page.mouse.move(5, 890);
+  await wait(1200);
+}
+
+/* Folds the side panel's Usage section, so the kind's own sections show. */
+async function foldUsage(page) {
+  const usage = page.locator("[data-keyboard-scope=side-panel] h3 button", { hasText: /^\s*Usage\s*$/ }).first();
+  if (await usage.count()) await usage.click();
+  await wait(300);
+}
+
+/* Scrolls the side panel so a section heading sits `offset` px below its top. */
+async function scrollPanelTo(page, title, offset = 150) {
+  await page.evaluate(
+    ({ title, offset }) => {
+      const panel = document.querySelector("[data-keyboard-scope=side-panel]");
+      const heading = [...(panel?.querySelectorAll("h3 button") ?? [])].find((b) => b.textContent?.trim().startsWith(title));
+      if (panel && heading) panel.scrollTop += heading.getBoundingClientRect().top - panel.getBoundingClientRect().top - offset;
+    },
+    { title, offset }
+  );
+  await wait(300);
 }
 
 async function editYaml(page, search, replace) {
@@ -333,6 +371,85 @@ const screens = {
       await wait(800);
     },
   },
+  /* 2.2: GitOps, usage history, access review, Helm, operators and more. */
+  gitops: {
+    url: "/gitops",
+    ready: "[data-delivery-key]",
+    run: async (page) => {
+      await page.locator("[data-delivery-key]", { hasText: "payments" }).first().click();
+      await page.mouse.move(5, 890);
+      await wait(1500);
+    },
+  },
+  usage: {
+    url: DEPLOYMENTS,
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openWidePanel(page, page.locator("tbody tr", { hasText: "payments-api" }).first(), 150);
+      await page.waitForSelector("[aria-label='Loading usage']", { state: "detached", timeout: 10000 }).catch(() => {});
+      // The crosshair on the CPU chart, near the spike.
+      const chart = page.locator("svg[role=img][tabindex='0']").first();
+      const box = await chart.boundingBox().catch(() => null);
+      if (box) await page.mouse.move(box.x + (box.width - 46) * 0.87, box.y + box.height * 0.4);
+      await wait(600);
+    },
+  },
+  "access-review": {
+    url: "/access-review?verb=delete&resource=deployments.apps&namespace=payments",
+    ready: "text=you can",
+    run: async (page) => {
+      await page.locator("nav button", { hasText: /^Access control$/i }).first().click().catch(() => {});
+      await page.mouse.move(1380, 60);
+      await wait(600);
+    },
+  },
+  helm: {
+    url: "/helm-releases?resource=release&kind=Release",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openWidePanel(page, page.locator("tbody tr", { hasText: "payments-api" }).first(), 60);
+      await page.waitForSelector("[aria-label=Revisions] button", { timeout: 8000 }).catch(() => {});
+      for (const section of [/^Notes/, /^Resources/, /^Values/]) await page.getByRole("button", { name: section }).click().catch(() => {});
+      await wait(600);
+    },
+  },
+  operators: {
+    url: "/certificates?resource=certificates&kind=Certificate",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "checkout-tls" }).first().click();
+      await page.mouse.move(5, 890);
+      await wait(1500);
+    },
+  },
+  "inline-edit": {
+    url: DEPLOYMENTS,
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openWidePanel(page, page.locator("tbody tr", { hasText: "payments-api" }).first());
+      await foldUsage(page);
+      await page.getByRole("button", { name: "Edit labels" }).click();
+      await page.getByRole("textbox", { name: "Value of tier" }).fill("api");
+      await page.getByRole("button", { name: "Remove app.kubernetes.io/version" }).click();
+      await page.getByRole("button", { name: "Add label" }).click();
+      await page.keyboard.type("team");
+      await page.getByRole("textbox", { name: "Value of team" }).fill("payments");
+      await scrollPanelTo(page, "Labels");
+      await page.mouse.move(5, 890);
+      await wait(500);
+    },
+  },
+  "port-forwards": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.getByRole("button", { name: /^Port forwards:/ }).click();
+      await wait(700);
+      await page.locator("[data-forward-id]").first().hover();
+      await wait(500);
+    },
+  },
+  "custom-actions": { url: "/settings/actions", ready: "[aria-label='Your actions']", run: async (page) => page.mouse.move(5, 890) },
 };
 
 /* ----------------------------------------------------------- settling -- */
