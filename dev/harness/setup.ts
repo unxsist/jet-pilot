@@ -77,6 +77,7 @@ import { createHelmMocks } from "./helm";
 import { installAuthMocks } from "./auth";
 import { handleKubeRequest } from "./kubeApi";
 import { createGitopsMocks } from "./gitops";
+import { createPortForwardMocks, portForwardSettings } from "./portForwards";
 import { nodeHistory } from "./metrics";
 import "./rbac";
 import { actionHandlers, seedActionFiles, startActionPty } from "./actions";
@@ -169,6 +170,7 @@ const settings = {
   logLevel: "error",
   actions: { disabled: ["copy-image"] },
   ...(polling ? { experimental: { useKubectlPolling: true } } : {}),
+  ...portForwardSettings(),
   ...(scenario === "hub"
     ? {
         clusters: params.get("readonly") === "1"
@@ -1287,6 +1289,8 @@ const cloud = createCloudMocks(scenario, sendToChannel, managed);
 const gitops = createGitopsMocks(scenario, emitWatchChange);
 /* Helm releases, charts, repositories and Artifact Hub (dev/harness/helm.ts). */
 const helm = createHelmMocks(scenario);
+/* Native port forwards, ?pf=reconnecting|profiles|none (dev/harness/portForwards.ts). */
+const portForwards = createPortForwardMocks();
 let probeBatches = 0;
 
 /* ------------------------------------------------------------------ fs -- */
@@ -1459,6 +1463,7 @@ mockIPC(
     if (cmd in gitops.handlers) return gitops.handlers[cmd]!(p);
     if (cmd in helm.handlers) return helm.handlers[cmd]!(p);
     if (cmd in actionHandlers) return actionHandlers[cmd]!(p);
+    if (cmd in portForwards.handlers) return portForwards.handlers[cmd]!(p);
     switch (cmd) {
       // fs / path / app / os / updater / window / clipboard
       case "plugin:fs|exists":
@@ -1573,26 +1578,6 @@ mockIPC(
               target: ["jet_pilot::kube", "jet_pilot::port_forward", "jet_pilot::logs"][i % 3],
               message: ["Listing pods for context prod-eu-west-1", "Port-forward ready on 127.0.0.1:8080", "Structured logging session started"][i % 3],
             }));
-      case "list_port_forwards":
-        return scenario === "default"
-          ? [
-              {
-                id: "pf-1",
-                kubeConfig: KUBECONFIG,
-                context: CONTEXTS[0].name,
-                namespace: "payments",
-                objectType: "service",
-                objectName: "payments-api",
-                objectPort: 80,
-                localPort: 8080,
-                address: "127.0.0.1",
-                status: "ready",
-                error: null,
-                startedAtMs: Date.now() - 600000,
-                expiresAtMs: null,
-              },
-            ]
-          : [];
       case "get_current_context":
         return scenario === "nocontext" ? "" : CONTEXTS[0].name;
       case "list_contexts":
@@ -1821,12 +1806,6 @@ mockIPC(
       }
       case "resize_pty":
       case "stop_tty_session":
-        return null;
-
-      // port forwarding
-      case "start_port_forward":
-        return { ...p.spec, id: `pf-${Date.now()}`, status: "ready", error: null, startedAtMs: Date.now(), expiresAtMs: null };
-      case "stop_port_forward":
         return null;
 
       // object commands (kubernetes.rs)

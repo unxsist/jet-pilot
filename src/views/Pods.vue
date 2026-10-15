@@ -130,8 +130,8 @@ const rowActions: RowAction<ContextAwarePod>[] = [
     label: "Port Forward",
     handler: (row: ContextAwarePod) => {
       spawnDialog({
-        title: "Port Forward",
-        message: "Forward ports from the pod to your local machine",
+        title: "Port forward",
+        message: "Reach a port of this pod from your computer.",
         component: defineAsyncComponent(
           () => import("@/views/dialogs/PortForward.vue")
         ),

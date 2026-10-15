@@ -24,7 +24,7 @@ describe("port-forward profiles", () => {
   it("derives a stable id and a default name from the spec", () => {
     const profile = createProfile({ ...spec, id: "pf-1", status: "ready" } as any);
     expect(profile.id).toBe(profileId(spec));
-    expect(profile.name).toBe("payments-api:80 → 8080");
+    expect(profile.name).toBe("payments-api:80");
     expect(profile.spec).toEqual(spec);
     expect(profile.autoStart).toBe(false);
   });
@@ -37,6 +37,15 @@ describe("port-forward profiles", () => {
 
     expect(isProfileRunning(running, forwards)).toBe(true);
     expect(profilesToAutoStart([running, missing, manual], forwards)).toEqual([missing]);
+  });
+
+  it("keeps the port name for display, outside the id", () => {
+    const named = createProfile({ ...spec, portName: "http" });
+    expect(named.id).toBe(profileId(spec));
+    expect(named.name).toBe("payments-api · http");
+    expect(named.spec.portName).toBe("http");
+    const [parsed] = parseProfiles([{ spec: { ...spec, portName: 42 } }]);
+    expect(parsed.spec.portName).toBeUndefined();
   });
 
   it("upserts by id, keeping the order", () => {

@@ -123,6 +123,8 @@ export interface AppState {
   openTabs: TabSession | null;
   /** Saved port forwards (optionally started on launch). */
   portForwardProfiles: PortForwardProfile[];
+  /** The local port last used per forward target (see portForwardPorts.ts). */
+  portForwardPorts: Record<string, number>;
   /** Named working sets, in hotbar order (Mod+Alt+1..9). */
   workspaces: Workspace[];
   activeWorkspaceId: string | null;
