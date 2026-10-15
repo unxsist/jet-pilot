@@ -561,6 +561,11 @@ pub mod client {
             error!("Failed to create config from kubeconfig: {}", crate::kubeconfig_discovery::read_error_message(&err));
             SerializableKubeError::from(err)
         })?;
+        // kube-rs retries 429 / 503 / 504 up to 15 times with backoff (minutes
+        // in all) by default. A 503 from a down aggregated API (metrics-server)
+        // or the service proxy (no pods behind a service) isn't transient:
+        // callers report it and watchers have their own backoff.
+        client_config.default_retry = false;
 
         let target = ClientTarget {
             kube_config: kubeconfig_path.to_string(),
@@ -1109,6 +1114,46 @@ users:
     token: bearer-secret
     client-key-data: a2V5
 "#;
+
+        /// A 503 is answered once, not retried for minutes.
+        #[tokio::test]
+        async fn clients_do_not_retry_unavailable_answers() {
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let hits = Arc::new(AtomicUsize::new(0));
+            let counter = hits.clone();
+            tokio::spawn(async move {
+                while let Ok((mut stream, _)) = listener.accept().await {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    let mut buffer = [0u8; 4096];
+                    let _ = stream.read(&mut buffer).await;
+                    let body = r#"{"kind":"Status","status":"Failure","message":"no endpoints available","reason":"ServiceUnavailable","code":503}"#;
+                    let response = format!(
+                        "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes()).await;
+                }
+            });
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("config");
+            std::fs::write(
+                &path,
+                format!("apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster: {{server: 'http://127.0.0.1:{port}'}}\ncontexts:\n- name: local\n  context: {{cluster: c, user: u}}\nusers:\n- name: u\n  user: {{token: t}}\n"),
+            )
+            .unwrap();
+            let client = build_client("local", path.to_str().unwrap()).await.unwrap();
+            let request = http::Request::get("/api/v1/namespaces/a/services/b/proxy/").body(Vec::new()).unwrap();
+            let result = tokio::time::timeout(std::time::Duration::from_secs(5), client.request_text(request)).await;
+            match result.expect("answered without retrying") {
+                Err(Error::Api(status)) => assert_eq!(status.code, 503),
+                other => panic!("expected a 503, got {other:?}"),
+            }
+            assert_eq!(hits.load(Ordering::SeqCst), 1);
+        }
 
         #[test]
         fn auth_summary_contains_no_secrets() {
