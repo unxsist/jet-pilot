@@ -982,14 +982,14 @@ const screens = {
     url: "/pods",
     ready: "tbody tr td",
     run: async (page) => {
-      await openPanel(page, page.locator("tbody tr", { hasText: "checkout-api" }).nth(1), { foldUsage: true });
+      await openPanel(page, page.locator("tbody tr", { hasText: "checkout-api" }).nth(1));
     },
   },
   "panel-node": {
     url: "/nodes?resource=nodes&kind=Node",
     ready: "tbody tr td",
     run: async (page) => {
-      await openPanel(page, page.locator("tbody tr", { hasText: "ip-10-0-78-201" }).first(), { foldUsage: true });
+      await openPanel(page, page.locator("tbody tr", { hasText: "ip-10-0-78-201" }).first());
     },
   },
   "panel-node-taints-edit": {
@@ -1068,14 +1068,14 @@ const screens = {
     url: "/namespaces?resource=namespaces&kind=Namespace",
     ready: "tbody tr td",
     run: async (page) => {
-      await openPanel(page, page.locator("tbody tr", { hasText: "payments" }).first(), { foldUsage: true });
+      await openPanel(page, page.locator("tbody tr", { hasText: "payments" }).first());
     },
   },
   "panel-deployment": {
     url: "/deployments?resource=deployments&kind=Deployment",
     ready: "tbody tr td",
     run: async (page) => {
-      await openPanel(page, page.locator("tbody tr", { hasText: "checkout-api" }).first(), { foldUsage: true });
+      await openPanel(page, page.locator("tbody tr", { hasText: "checkout-api" }).first());
     },
   },
   "panel-statefulset": {

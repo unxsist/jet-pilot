@@ -64,6 +64,13 @@ const UsageSection = defineAsyncComponent(
   () => import("@/components/metrics/UsageSection.vue")
 );
 const showUsage = computed(() => hasUsage(props.resource.kind));
+/*
+ * A pod in trouble: where it runs and who owns it come before its charts
+ * (Pod.vue places them right after its overview).
+ */
+const usageAfterOverview = computed(
+  () => showUsage.value && live.value.kind === "Pod" && (state.value?.tone === "destructive" || state.value?.tone === "warning")
+);
 
 /* Generic, read-only views on common spec / status shapes. */
 const anyResource = computed(() => live.value as any);
@@ -128,12 +135,16 @@ const conditionsHint = computed(() =>
   <div v-else :key="`${live.metadata?.context}/${live.metadata?.uid}`" class="bg-card">
     <StateSummary :state="state" :now="now" />
     <Accordion v-model="open" class="w-full" type="multiple" collapsible>
-      <UsageSection v-if="showUsage" :resource="live as Subject" />
+      <UsageSection v-if="showUsage && !usageAfterOverview" :resource="live as Subject" />
       <component
         :is="getResourceSpecificComponent(live)"
         v-if="getResourceSpecificComponent(live)"
         :resource="live"
-      />
+      >
+        <template v-if="usageAfterOverview" #after-overview>
+          <UsageSection :resource="live as Subject" />
+        </template>
+      </component>
       <!-- Pods place their containers themselves (right after the overview). -->
       <ContainersSection v-if="live.kind !== 'Pod'" :object="live" />
       <PanelSection

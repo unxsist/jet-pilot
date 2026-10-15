@@ -77,6 +77,9 @@ const manyContainers = computed(() => (spec.value.containers?.length ?? 0) > 1);
     </FactList>
   </PanelSection>
 
+  <!-- Usage, for a pod in trouble (Resource.vue): after the overview, not above it. -->
+  <slot name="after-overview" />
+
   <ContainersSection :object="resource" />
 
   <PanelSection v-if="uses.length" value="uses" title="Config & storage" :icon="FileCog" :count="uses.length">

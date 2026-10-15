@@ -271,7 +271,8 @@ const showLogs = () => {
             </dd>
           </div>
         </dl>
-        <div class="flex flex-wrap gap-1.5">
+        <!-- One row, never wrapping: custom actions that don't fit go into their "⋯" menu. -->
+        <div class="flex items-center gap-1.5">
           <Button variant="outline" size="xs" @click="editYaml">
             <FileCode class="h-3 w-3" /> Edit YAML
           </Button>
