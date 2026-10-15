@@ -38,6 +38,7 @@ import {
 const scenario =
   new URLSearchParams(location.search).get("scenario") || localStorage.getItem("harness-scenario") || "default";
 const forbidden = scenario === "rbac-forbidden";
+const namespacedGitops = scenario === "gitops-namespaced";
 
 const ME: Identity = forbidden
   ? { username: "sam@partner.io", groups: ["partner:contractors", "system:authenticated"] }
@@ -335,6 +336,11 @@ registerKubeRoutes([
             name: spec.resourceAttributes?.name,
             namespace: spec.resourceAttributes?.namespace,
           };
+      // ?scenario=gitops-namespaced: Flux and Argo CD objects are readable
+      // in their controllers' namespaces only (a team role).
+      if (namespacedGitops && /fluxcd\.io$|^argoproj\.io$/.test(attributes.group ?? "") && attributes.verb === "list") {
+        return { ...request.body, status: { allowed: ["argocd", "flux-system"].includes(attributes.namespace ?? "") } };
+      }
       return { ...request.body, status: decide(request.context, attributes) };
     },
   },

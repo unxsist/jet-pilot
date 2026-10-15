@@ -25,6 +25,7 @@
  *   ?scenario=metrics-none|metrics-error   no Prometheus / a failing one (metrics.ts)
  *   ?scenario=edit-forbidden  inline label / taint edits are refused (panels.ts)
  *   ?scenario=rbac-forbidden listing RBAC objects is forbidden (rbac.ts)
+ *   ?scenario=gitops-namespaced  GitOps objects readable in argocd / flux-system only (rbac.ts)
  *   ?scenario=no-actions     an empty custom actions folder (actions.ts)
  *
  * `large` scales the first context to 5000 pods with a stream of live

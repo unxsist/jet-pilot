@@ -432,7 +432,7 @@ export function createCloudMocks(scenario: string, send: Send, managed: ManagedH
     aws_assume_role_check: async (p) => {
       await sleep(500);
       if (String(p.roleArn).includes("Denied")) {
-        throw err("forbidden", `Not allowed to assume ${p.roleArn}: User: arn:aws:sts::${p.accountId}:assumed-role/${p.roleName}/dev is not authorized to perform: sts:AssumeRole`);
+        throw err("forbidden", `Not allowed to assume ${p.roleArn}: User: arn:aws:sts::${p.accountId ?? "123456789012"}:assumed-role/${p.roleName ?? "ci"}/dev is not authorized to perform: sts:AssumeRole`);
       }
     },
     aws_regions: () => REGIONS,

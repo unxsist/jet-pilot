@@ -760,8 +760,10 @@ pub async fn connection_create(spec: ConnectionSpec) -> Result<CloudConnection, 
     Ok(created)
 }
 
-/// Validates scope targets for a connection: AWS account + role pairs (SSO),
-/// GCP project ids or Azure subscription ids (CLI, role empty).
+/// Validates scope targets for a connection: AWS account + role pairs (SSO,
+/// optionally assuming a role from there), roles to assume (AWS profiles
+/// and access keys), GCP project ids or Azure subscription ids (CLI, role
+/// empty).
 fn validate_targets(
     connection: &CloudConnection,
     targets: Vec<SsoTarget>,
@@ -769,8 +771,22 @@ fn validate_targets(
     let kind = (connection.provider.as_str(), connection.kind);
     let mut out: Vec<SsoTarget> = Vec::new();
     for target in targets {
-        let account_id = target.account_id.trim().to_string();
+        let mut account_id = target.account_id.trim().to_string();
+        let mut role_name = target.role_name.clone();
         match kind {
+            // Profile and access-key connections: roles to assume with
+            // their credentials (role chaining), named by ARN only.
+            (providers::AWS, ConnectionKind::Profile | ConnectionKind::Keys) => {
+                let arn = target.assume_role_arn.as_deref().unwrap_or_default();
+                let Some(account) = jp_auth_core::request::role_arn_account(arn) else {
+                    return Err(AppError::invalid(
+                        "targets",
+                        format!("\"{arn}\" is not a role ARN."),
+                    ));
+                };
+                account_id = account.to_string();
+                role_name = String::new();
+            }
             (providers::AWS, _) => {
                 if !valid_account_id(&account_id) {
                     return Err(AppError::invalid(
@@ -817,11 +833,9 @@ fn validate_targets(
             }
         }
         let aws = connection.provider == providers::AWS;
-        let role_name = if aws {
-            target.role_name.clone()
-        } else {
-            String::new()
-        };
+        if !aws {
+            role_name = String::new();
+        }
         let assume_role_arn = target.assume_role_arn.filter(|_| aws);
         // A team role is assumed once, whichever account + role it is assumed from.
         let duplicate = out.iter().any(|t| match &assume_role_arn {
@@ -893,18 +907,7 @@ pub async fn connection_update(
             None => None,
         };
         let targets = match patch.targets {
-            Some(targets) => {
-                if current.provider == providers::AWS
-                    && current.kind != ConnectionKind::Sso
-                    && !targets.is_empty()
-                {
-                    return Err(AppError::invalid(
-                        "targets",
-                        "Only IAM Identity Center connections have account targets.",
-                    ));
-                }
-                Some(validate_targets(&current, targets)?)
-            }
+            Some(targets) => Some(validate_targets(&current, targets)?),
             None => None,
         };
         let exoscale = match patch.exoscale {

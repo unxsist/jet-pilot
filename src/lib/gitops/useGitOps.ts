@@ -7,7 +7,8 @@
  *
  * The page lists all namespaces of a context, whatever namespaces are
  * selected: deliveries live in their controller's namespace (flux-system,
- * argocd), not in the namespaces they deliver to.
+ * argocd), not in the namespaces they deliver to. With access to some
+ * namespaces only, it lists those it may read (see ./scope).
  */
 import { computed } from "vue";
 import { flattenResources } from "@/lib/discovery";
@@ -17,6 +18,7 @@ import { useWatchedList } from "@/composables/useWatchedList";
 import { kubectlGetForContext, kubectlPollingForced } from "@/lib/multicontext";
 import { useGitOpsDetection } from "./detect";
 import { pendingFor } from "./actions";
+import { useGitOpsScopes } from "./scope";
 import {
   DELIVERY_KINDS,
   SOURCE_KINDS,
@@ -44,15 +46,27 @@ export function useGitOps() {
     }))
   );
 
+  /* Where each served kind may be listed, per context. */
+  const served = computed(() =>
+    detections.value.map(({ target, detection }) => ({
+      target,
+      kinds: WATCHED_KINDS.filter((kind) => detection.served.has(kind.kind)),
+    }))
+  );
+  const scopes = useGitOpsScopes(served);
+
   const watchKind = (kind: WatchedKind) => ({
     kind,
     ...useWatchedList<any>({
       resource: () => qualifiedName(kind),
       kind: () => kind.kind,
       targets: () =>
-        detections.value
-          .filter((d) => d.detection.served.has(kind.kind))
-          .map((d) => ({ ...d.target, namespaces: ["all"] })),
+        served.value.flatMap(({ target, kinds }) => {
+          if (!kinds.includes(kind)) return [];
+          const scope = scopes.scopeOf(target, kinds, kind.kind);
+          if (!scope || !scope.length) return [];
+          return [{ ...target, namespaces: scope === "all" ? ["all"] : scope }];
+        }),
       fallback: (resource, target) =>
         kubectlGetForContext<any>(resource, target.context, target.kubeConfig, target.namespaces),
       forcePolling: () => kubectlPollingForced(settings.value),
@@ -98,6 +112,7 @@ export function useGitOps() {
   const loading = computed(
     () =>
       detection.discovering.value ||
+      scopes.checking.value ||
       deliveryLists.some((l) => l.loading.value && l.items.value.length === 0)
   );
 
@@ -108,6 +123,11 @@ export function useGitOps() {
     sources,
     errors,
     loading,
-    retry: () => lists.forEach((l) => l.retry()),
+    /** Contexts where only some namespaces are readable. */
+    limited: scopes.limited,
+    retry: () => {
+      scopes.reset();
+      lists.forEach((l) => l.retry());
+    },
   };
 }

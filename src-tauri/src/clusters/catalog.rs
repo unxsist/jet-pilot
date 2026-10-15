@@ -320,6 +320,7 @@ fn covers(listing: &Listing, connection_id: &str, entry: &StoredCluster) -> bool
 
 /// Applies one listing of a connection (pure). Only complete listings
 /// teach anything about clusters that are gone.
+#[cfg(test)]
 fn merge(
     stored: &mut Vec<StoredCluster>,
     provider: &str,
@@ -327,10 +328,104 @@ fn merge(
     listing: &Listing,
     now: i64,
 ) {
+    merge_run(
+        stored,
+        provider,
+        connection_id,
+        std::slice::from_ref(listing),
+        now,
+    );
+}
+
+/// The identity a listing reached its clusters with: (role, assumed role,
+/// profile).
+type Reach<'a> = (Option<&'a str>, Option<&'a str>, Option<&'a str>);
+
+fn listing_reach(listing: &Listing) -> Reach<'_> {
+    (
+        listing.role_name.as_deref(),
+        listing.assume_role_arn.as_deref(),
+        listing.profile.as_deref(),
+    )
+}
+
+fn entry_reach(entry: &StoredCluster) -> Reach<'_> {
+    (
+        entry.cluster.role_name.as_deref(),
+        entry.cluster.assume_role_arn.as_deref(),
+        entry.profile.as_deref(),
+    )
+}
+
+/// Applies the listings of one scan of a connection (pure). A cluster that
+/// several listings reach (an account's own role and a role assumed into
+/// it) is merged from one of them: the one it was reached with before,
+/// else an assumed role, else the first. So a scan never flips an added
+/// cluster to another role, nor marks it gone because another identity
+/// doesn't see it.
+fn merge_run(
+    stored: &mut Vec<StoredCluster>,
+    provider: &str,
+    connection_id: &str,
+    listings: &[Listing],
+    now: i64,
+) {
+    let key_of = |listing: &Listing, found: &providers::Found| {
+        catalog_key(
+            provider,
+            connection_id,
+            &listing.account_id,
+            &found.region,
+            &key_handle(provider, found),
+        )
+    };
+    let mut chosen: HashMap<String, usize> = HashMap::new();
+    for (index, listing) in listings.iter().enumerate().filter(|(_, l)| l.complete) {
+        for found in &listing.clusters {
+            let key = key_of(listing, found);
+            let before = stored
+                .iter()
+                .find(|c| c.cluster.key == key)
+                .map(entry_reach);
+            let better = match chosen.get(&key) {
+                None => true,
+                Some(&other) => {
+                    let other = &listings[other];
+                    match before {
+                        Some(reach) if listing_reach(other) == reach => false,
+                        Some(reach) if listing_reach(listing) == reach => true,
+                        _ => listing.assume_role_arn.is_some() && other.assume_role_arn.is_none(),
+                    }
+                }
+            };
+            if better {
+                chosen.insert(key, index);
+            }
+        }
+    }
+    for (index, listing) in listings.iter().enumerate() {
+        merge_listing(stored, provider, connection_id, listing, now, |key| {
+            chosen.get(key) == Some(&index)
+        });
+    }
+    // Clusters another listing reached aren't gone.
+    let found: HashSet<String> = chosen.into_keys().collect();
+    for listing in listings.iter().filter(|l| l.complete) {
+        remove_missing(stored, connection_id, listing, &found);
+    }
+}
+
+fn merge_listing(
+    stored: &mut Vec<StoredCluster>,
+    provider: &str,
+    connection_id: &str,
+    listing: &Listing,
+    now: i64,
+    mine: impl Fn(&str) -> bool,
+) {
     if !listing.complete {
         return;
     }
-    let mut seen = HashSet::new();
     for found in &listing.clusters {
         let key = catalog_key(
             provider,
@@ -339,7 +434,9 @@ fn merge(
             &found.region,
             &key_handle(provider, found),
         );
-        seen.insert(key.clone());
+        if !mine(&key) {
+            continue;
+        }
         let existing = stored.iter_mut().find(|c| c.cluster.key == key);
         let entry = match existing {
             Some(entry) => {
@@ -394,6 +491,16 @@ fn merge(
             entry.resource_group = found.resource_group.clone();
         }
     }
+}
+
+/// Marks the clusters a complete listing covers but no listing found as
+/// removed (or forgets them when ignored).
+fn remove_missing(
+    stored: &mut Vec<StoredCluster>,
+    connection_id: &str,
+    listing: &Listing,
+    seen: &HashSet<String>,
+) {
     stored.retain_mut(|entry| {
         if !covers(listing, connection_id, entry) || seen.contains(&entry.cluster.key) {
             return true;
@@ -576,6 +683,26 @@ enum Outcome {
     Failed(String),
 }
 
+/// The role a profile or access-key connection assumes to reach `cluster`,
+/// if any, as long as the connection still has it.
+fn still_assumed(
+    connection: &CloudConnection,
+    cluster: &CatalogCluster,
+) -> Result<Option<String>, String> {
+    match &cluster.assume_role_arn {
+        Some(arn)
+            if connection
+                .targets
+                .iter()
+                .any(|t| t.assume_role_arn.as_ref() == Some(arn)) =>
+        {
+            Ok(Some(arn.clone()))
+        }
+        Some(arn) => Err(format!("The connection no longer assumes {arn}.")),
+        None => Ok(None),
+    }
+}
+
 /// The helper entry of an EKS cluster (no network: the listing has the
 /// server and CA).
 fn prepare_aws(
@@ -632,7 +759,7 @@ fn prepare_aws(
             account: None,
             role: None,
             profile: entry.profile.clone().or_else(|| connection.profile.clone()),
-            assume_role: None,
+            assume_role: still_assumed(connection, cluster)?,
             region: cluster.region.clone(),
             cluster: cluster.name.clone(),
         },
@@ -641,7 +768,7 @@ fn prepare_aws(
             account: None,
             role: None,
             profile: None,
-            assume_role: None,
+            assume_role: still_assumed(connection, cluster)?,
             region: cluster.region.clone(),
             cluster: cluster.name.clone(),
         },
@@ -1012,9 +1139,7 @@ pub(crate) async fn refresh(
                     .map_err(|e| AppError::io("The connections can't be read", e))?;
                 let file = update(|file| {
                     if live.iter().any(|c| c.id == id) {
-                        for listing in &found.listings {
-                            merge(&mut file.clusters, &provider, &id, listing, now);
-                        }
+                        merge_run(&mut file.clusters, &provider, &id, &found.listings, now);
                     }
                     retain_live(&mut file.clusters, &live);
                     file.refreshed_at = Some(now);
@@ -1222,6 +1347,67 @@ mod tests {
         ));
         let store = memory_store(path.parent().unwrap());
         write(path, outcomes, known, &store).unwrap()
+    }
+
+    #[test]
+    fn a_scan_keeps_each_cluster_on_one_role() {
+        // The account's own role sees prod only; a team role assumed into
+        // the same account sees prod and dev.
+        let own = listing("eu-west-1", true, vec![found("prod")]);
+        let team = Listing {
+            role_name: Some("Platform".into()),
+            assume_role_arn: Some("arn:aws:iam::123456789012:role/Platform".into()),
+            ..listing("eu-west-1", true, vec![found("prod"), found("dev")])
+        };
+        let mut stored = Vec::new();
+        merge_run(&mut stored, "aws", "c1", &[own.clone(), team.clone()], 1);
+        let role = |stored: &[StoredCluster], name: &str| {
+            let entry = stored.iter().find(|c| c.cluster.name == name).unwrap();
+            (
+                entry.cluster.role_name.clone().unwrap(),
+                entry.cluster.state,
+            )
+        };
+        // New clusters go to the assumed role; none is gone.
+        assert_eq!(
+            role(&stored, "prod"),
+            ("Platform".into(), CatalogState::Available)
+        );
+        assert_eq!(
+            role(&stored, "dev"),
+            ("Platform".into(), CatalogState::Available)
+        );
+
+        // Whatever order the listings finish in, a cluster keeps its role.
+        stored[0].cluster.role_name = Some("ReadOnly".into());
+        stored[0].cluster.assume_role_arn = None;
+        for listings in [[own.clone(), team.clone()], [team.clone(), own.clone()]] {
+            merge_run(&mut stored, "aws", "c1", &listings, 2);
+            assert_eq!(
+                role(&stored, "prod"),
+                ("ReadOnly".into(), CatalogState::Available)
+            );
+            assert_eq!(
+                role(&stored, "dev"),
+                ("Platform".into(), CatalogState::Available)
+            );
+        }
+
+        // Gone only when no listing finds it any more.
+        merge_run(
+            &mut stored,
+            "aws",
+            "c1",
+            &[
+                own,
+                Listing {
+                    clusters: vec![found("prod")],
+                    ..team
+                },
+            ],
+            3,
+        );
+        assert_eq!(role(&stored, "dev").1, CatalogState::Removed);
     }
 
     #[test]
