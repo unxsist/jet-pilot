@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/carousel";
 import type { UnwrapRefCarouselApi } from "@/components/ui/carousel/interface";
 import { Button } from "@/components/ui/button";
-import { Braces, ChartLine, Columns3, FileSearch, ShieldCheck, Unplug } from "lucide-vue-next";
+import { Braces, ChartLine, Columns3, Gauge, ShieldCheck, Unplug } from "lucide-vue-next";
 
 import gitopsDark from "@/assets/whats-new/gitops-dark.webp";
 import gitopsLight from "@/assets/whats-new/gitops-light.webp";
@@ -95,7 +95,7 @@ const underTheHood = [
   {
     icon: Unplug,
     title: "Straight to the API",
-    text: "YAML, browsing Helm releases and port forwards no longer need kubectl or helm.",
+    text: "Describe, YAML, browsing Helm releases and port forwards no longer need kubectl or helm.",
   },
   {
     icon: ChartLine,
@@ -103,9 +103,9 @@ const underTheHood = [
     text: "Usage history reaches Prometheus through the API server: no port-forward, no setup.",
   },
   {
-    icon: FileSearch,
-    title: "Describe without kubectl",
-    text: "A structured, searchable describe built from the API; kubectl's text is one click away.",
+    icon: Gauge,
+    title: "A faster start",
+    text: "A fifth less code loads before the first frame; the side panel and dialogs follow right after.",
   },
   {
     icon: Braces,

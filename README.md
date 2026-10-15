@@ -24,28 +24,26 @@ No account, no telemetry: JET Pilot uses your existing kubeconfig files and `kub
   <img alt="A short tour of JET Pilot: the clusters hub; jumping to Deployments with ⌘K, filtering by typing and opening logs with L; a shell in a container with S; editing YAML with a diff and server dry run; a Helm upgrade with a manifest diff; the resource graph; and a protected production cluster asking to type the name before a delete." src="docs/media/demo.webp">
 </p>
 
-## What's new in 2.2
-- **GitOps**: one page for every Flux Kustomization, Flux HelmRelease and Argo CD Application across your clusters, problems first. Open a delivery to see its source, what it delivered and why it fails; reconcile, suspend, sync or refresh it from there.
-- **Usage history**: CPU and memory charts (plus network for pods) over 1h, 6h, 24h or 7d in the side panel of pods, workloads, nodes and namespaces, with requests and limits drawn in. JET Pilot finds the cluster's Prometheus, Thanos Query or VictoriaMetrics by itself and queries it through the API server, so there's nothing to port-forward. Without one, the charts show metrics-server's last 15 minutes.
-- **Access review**: ask "Can I delete deployments in payments?" or "Who can…?" and get an answer with the binding and role behind it, or see everything a user, group or service account may do. Roles, bindings and service accounts get side panels that read like sentences.
-- **Native Helm**: releases and their history load straight from the cluster, without the `helm` binary. A release panel shows notes, resources, values and a revision timeline that says what changed, with rollback and compare. Search your repositories and Artifact Hub, then install with a values editor checked against the chart's schema and a dry-run preview.
-- **Side panels that explain**: every panel opens with the object's state in a sentence, links to related objects and has sections for pods, nodes, services, ingresses, storage, HPAs, jobs, cron jobs, config maps and namespaces. Edit labels, annotations and node taints in place, with a preview before you save. Describe and YAML now come from the API, so they work without `kubectl`.
-- **Operators and CRDs**: every custom resource shows its CRD's printer columns, and well-known projects get their own sidebar sections. cert-manager, Gateway API, Karpenter, KEDA, External Secrets and Prometheus Operator get curated columns, states in words and side panels, with actions such as Renew, Pause and Sync now.
-- **Port forwards that heal**: forwards run over the Kubernetes API and follow their pod through restarts and rollouts. Ports show by name, local ports are predictable, and an HTTP tester sends requests to a forward.
-- **Custom actions**: one small YAML file per action (open a URL, run a command or `kubectl`, exec into a container, apply a patch, copy text), shown in row menus, the side panel and the command palette. Values from the cluster never become code, and actions that change the cluster go through the guardrails.
-
 ## Features
 - **Clusters hub**: every cluster from every kubeconfig and cloud account in one list, with live status, names, colours, folders and tags. Connect AWS, Google Cloud, Azure, DigitalOcean, Akamai/Linode, Civo, Scaleway, Vultr and Exoscale, or paste, import or enter a cluster by hand; credentials live in your system keychain.
 - **Production guardrails**: protected clusters ask you to type the name before destructive actions; read-only clusters can't be changed from JET Pilot.
 - **Multi-cluster & multi-namespace**: connect to several contexts (across multiple kubeconfig files) and namespaces at once; every table aggregates them with Context and Namespace columns.
+- **Side panels that explain**: every object opens with its state in a sentence, links to related objects, usage charts and inline editing of labels, annotations and taints.
+- **Usage history**: CPU, memory and network charts from the cluster's Prometheus, found by itself and queried through the API server, or from metrics-server.
+- **GitOps**: every Flux Kustomization, Flux HelmRelease and Argo CD Application in one place, problems first, with reconcile, suspend, sync and refresh.
+- **Helm**: releases and their history straight from the cluster, chart search across your repositories and Artifact Hub, and installs and upgrades with a diff.
+- **Access review**: "Can I…?", "Who can…?" and everything a user, group or service account may do, with the binding behind each answer.
+- **Operators and CRDs**: printer columns for every custom resource, plus views for cert-manager, Gateway API, Karpenter, KEDA, External Secrets and Prometheus Operator.
 - **Built-in terminal**: open a local terminal (<kbd>Ctrl</kbd>+<kbd>`</kbd>) with `kubectl` preconfigured for the current context — your own kubeconfig is never modified. Shell into any container with one click, on macOS, Linux and Windows.
 - **Resource graph**: see how Services, Deployments, ReplicaSets, Pods, ConfigMaps and Secrets relate, with live health indicators.
-- **Structured log viewer**: follow logs, parse JSON log lines into fields and filter them with facets.
+- **Structured log viewer**: follow logs across every pod of a workload, parse JSON log lines into fields and filter them with facets.
 - **Object management**: browse, describe, create and edit any Kubernetes object in a full YAML editor (<kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>S</kbd> to apply).
 - **Command palette**: <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>K</kbd> to jump anywhere, switch contexts and namespaces or open a terminal — with fuzzy search.
-- **GitOps**, **usage history**, **access review**, **Helm**, self-healing **port forwards** and **custom actions** (see above), plus events, scaling, rollouts, cordon/drain and more.
+- **Port forwards** that follow their pod through rollouts, **custom actions** from small YAML files, events, scaling, rollouts, cordon/drain and more.
 - **SSO-friendly**: in-app sign-in for AWS IAM Identity Center, gcloud, az, kubelogin/OIDC and other exec plugins, with device codes shown in the app.
-- **A premium, accessible UI** with polished dark and light themes.
+- **Themes**: polished dark and light themes, built-in favourites, and your own VS Code, Sublime Text or TextMate themes.
+
+What changed in each release is in the [changelog](CHANGELOG.md), also at [jet-pilot.app/changelog](https://www.jet-pilot.app/changelog/).
 
 ## Installation
 
