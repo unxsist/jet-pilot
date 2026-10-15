@@ -1,0 +1,633 @@
+# Trimmed from the upstream CRD by trim_crds.py.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: helmreleases.helm.toolkit.fluxcd.io
+spec:
+  group: helm.toolkit.fluxcd.io
+  names:
+    categories:
+    - all
+    - fluxcd
+    - fluxcd-appliers
+    kind: HelmRelease
+    listKind: HelmReleaseList
+    plural: helmreleases
+    shortNames:
+    - hr
+    singular: helmrelease
+  scope: Namespaced
+  versions:
+  - name: v2
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              chart:
+                properties:
+                  kind:
+                    enum:
+                    - HelmChart
+                    - OCIRepository
+                    type: string
+                  metadata:
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    type: object
+                  spec:
+                    properties:
+                      certSecretRef:
+                        properties:
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      chart:
+                        maxLength: 2048
+                        minLength: 1
+                        type: string
+                      ignore:
+                        type: string
+                      ignoreMissingValuesFiles:
+                        type: boolean
+                      insecure:
+                        type: boolean
+                      interval:
+                        pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                        type: string
+                      layerSelector:
+                        properties:
+                          mediaType:
+                            type: string
+                          operation:
+                            enum:
+                            - extract
+                            - copy
+                            type: string
+                        type: object
+                      provider:
+                        enum:
+                        - generic
+                        - aws
+                        - azure
+                        - gcp
+                        type: string
+                      proxySecretRef:
+                        properties:
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      reconcileStrategy:
+                        enum:
+                        - ChartVersion
+                        - Revision
+                        type: string
+                      ref:
+                        properties:
+                          digest:
+                            type: string
+                          semver:
+                            type: string
+                          semverFilter:
+                            type: string
+                          tag:
+                            type: string
+                        type: object
+                      secretRef:
+                        properties:
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      serviceAccountName:
+                        type: string
+                      sourceRef:
+                        properties:
+                          apiVersion:
+                            type: string
+                          kind:
+                            enum:
+                            - HelmRepository
+                            - GitRepository
+                            - Bucket
+                            type: string
+                          name:
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                          namespace:
+                            maxLength: 63
+                            minLength: 1
+                            type: string
+                        required:
+                        - kind
+                        - name
+                        type: object
+                      suspend:
+                        type: boolean
+                      timeout:
+                        pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m))+$
+                        type: string
+                      url:
+                        pattern: ^oci://.*$
+                        type: string
+                      valuesFiles:
+                        items:
+                          type: string
+                        type: array
+                      verify:
+                        properties:
+                          matchOIDCIdentity:
+                            items:
+                              properties:
+                                issuer:
+                                  type: string
+                                subject:
+                                  type: string
+                              required:
+                              - issuer
+                              - subject
+                              type: object
+                            type: array
+                          provider:
+                            default: cosign
+                            enum:
+                            - cosign
+                            - notation
+                            type: string
+                          secretRef:
+                            properties:
+                              name:
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          trustedRootSecretRef:
+                            properties:
+                              name:
+                                type: string
+                            required:
+                            - name
+                            type: object
+                        required:
+                        - provider
+                        type: object
+                      version:
+                        type: string
+                    type: object
+                required:
+                - spec
+                type: object
+                x-kubernetes-validations:
+                - message: chart.spec.url must be set when chart.kind is 'OCIRepository'
+                  rule: '!has(self.kind) || self.kind != ''OCIRepository'' || (has(self.spec.url) && size(self.spec.url) > 0)'
+                - message: 'chart.spec.url requires chart.kind: ''OCIRepository''; for a HelmChart template set spec.chart and spec.sourceRef instead'
+                  rule: '!has(self.spec.url) || (has(self.kind) && self.kind == ''OCIRepository'')'
+                - message: chart.spec.chart and chart.spec.sourceRef must be set when chart.kind is not 'OCIRepository'
+                  rule: (has(self.kind) && self.kind == 'OCIRepository') || (has(self.spec.chart) && has(self.spec.sourceRef))
+                - message: chart.spec.chart cannot be set when chart.kind is 'OCIRepository'
+                  rule: '!has(self.kind) || self.kind != ''OCIRepository'' || !has(self.spec.chart)'
+                - message: chart.spec.version cannot be set when chart.kind is 'OCIRepository'
+                  rule: '!has(self.kind) || self.kind != ''OCIRepository'' || !has(self.spec.version) || self.spec.version == ''*'''
+                - message: chart.spec.sourceRef cannot be set when chart.kind is 'OCIRepository'
+                  rule: '!has(self.kind) || self.kind != ''OCIRepository'' || !has(self.spec.sourceRef)'
+                - message: chart.spec.reconcileStrategy cannot be set when chart.kind is 'OCIRepository'
+                  rule: '!has(self.kind) || self.kind != ''OCIRepository'' || !has(self.spec.reconcileStrategy) || self.spec.reconcileStrategy == ''ChartVersion'''
+                - message: chart.spec.valuesFiles cannot be set when chart.kind is 'OCIRepository'
+                  rule: '!has(self.kind) || self.kind != ''OCIRepository'' || !has(self.spec.valuesFiles)'
+                - message: chart.spec.ignoreMissingValuesFiles cannot be set when chart.kind is 'OCIRepository'
+                  rule: '!has(self.kind) || self.kind != ''OCIRepository'' || !has(self.spec.ignoreMissingValuesFiles)'
+              chartRef:
+                properties:
+                  apiVersion:
+                    type: string
+                  kind:
+                    enum:
+                    - OCIRepository
+                    - HelmChart
+                    - ExternalArtifact
+                    type: string
+                  name:
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                  namespace:
+                    maxLength: 63
+                    minLength: 1
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+              commonMetadata:
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  labels:
+                    additionalProperties:
+                      type: string
+                    type: object
+                type: object
+              dependsOn:
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                    readyExpr:
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+              driftDetection:
+                properties:
+                  ignore:
+                    items:
+                      properties:
+                        paths:
+                          items:
+                            type: string
+                          type: array
+                        target:
+                          properties:
+                            annotationSelector:
+                              type: string
+                            group:
+                              type: string
+                            kind:
+                              type: string
+                            labelSelector:
+                              type: string
+                            name:
+                              type: string
+                            namespace:
+                              type: string
+                            version:
+                              type: string
+                          type: object
+                      required:
+                      - paths
+                      type: object
+                    type: array
+                  mode:
+                    enum:
+                    - enabled
+                    - warn
+                    - disabled
+                    type: string
+                type: object
+              healthCheckExprs:
+                items:
+                  properties:
+                    apiVersion:
+                      type: string
+                    current:
+                      type: string
+                    failed:
+                      type: string
+                    inProgress:
+                      type: string
+                    kind:
+                      type: string
+                  required:
+                  - apiVersion
+                  - current
+                  type: object
+                type: array
+              install:
+                properties:
+                  crds:
+                    enum:
+                    - Skip
+                    - Create
+                    - CreateReplace
+                    type: string
+                  createNamespace:
+                    type: boolean
+                  disableHooks:
+                    type: boolean
+                  disableOpenAPIValidation:
+                    type: boolean
+                  disableSchemaValidation:
+                    type: boolean
+                  disableTakeOwnership:
+                    type: boolean
+                  disableWait:
+                    type: boolean
+                  disableWaitForJobs:
+                    type: boolean
+                  remediation:
+                    properties:
+                      ignoreTestFailures:
+                        type: boolean
+                      remediateLastFailure:
+                        type: boolean
+                      retries:
+                        type: integer
+                    type: object
+                  replace:
+                    type: boolean
+                  serverSideApply:
+                    type: boolean
+                  skipCRDs:
+                    type: boolean
+                  strategy:
+                    properties:
+                      name:
+                        enum:
+                        - RemediateOnFailure
+                        - RetryOnFailure
+                        type: string
+                      retryInterval:
+                        pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                        type: string
+                    required:
+                    - name
+                    type: object
+                    x-kubernetes-validations:
+                    - message: .retryInterval cannot be set when .name is 'RemediateOnFailure'
+                      rule: '!has(self.retryInterval) || self.name != ''RemediateOnFailure'''
+                  timeout:
+                    pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                    type: string
+                type: object
+              interval:
+                pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                type: string
+              kubeConfig:
+                properties:
+                  configMapRef:
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  secretRef:
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: exactly one of spec.kubeConfig.configMapRef or spec.kubeConfig.secretRef must be specified
+                  rule: has(self.configMapRef) || has(self.secretRef)
+                - message: exactly one of spec.kubeConfig.configMapRef or spec.kubeConfig.secretRef must be specified
+                  rule: '!has(self.configMapRef) || !has(self.secretRef)'
+              maxHistory:
+                type: integer
+              persistentClient:
+                type: boolean
+              postRenderStrategy:
+                enum:
+                - nohooks
+                - combined
+                - separate
+                type: string
+              postRenderers:
+                items:
+                  properties:
+                    kustomize:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                  type: object
+                type: array
+              releaseName:
+                maxLength: 53
+                minLength: 1
+                type: string
+              rollback:
+                properties:
+                  cleanupOnFail:
+                    type: boolean
+                  disableHooks:
+                    type: boolean
+                  disableWait:
+                    type: boolean
+                  disableWaitForJobs:
+                    type: boolean
+                  force:
+                    type: boolean
+                  recreate:
+                    type: boolean
+                  serverSideApply:
+                    enum:
+                    - enabled
+                    - disabled
+                    - auto
+                    type: string
+                  timeout:
+                    pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                    type: string
+                type: object
+              serviceAccountName:
+                maxLength: 253
+                minLength: 1
+                type: string
+              storageNamespace:
+                maxLength: 63
+                minLength: 1
+                type: string
+              suspend:
+                type: boolean
+              targetNamespace:
+                maxLength: 63
+                minLength: 1
+                type: string
+              test:
+                properties:
+                  enable:
+                    type: boolean
+                  filters:
+                    items:
+                      properties:
+                        exclude:
+                          type: boolean
+                        name:
+                          maxLength: 253
+                          minLength: 1
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  ignoreFailures:
+                    type: boolean
+                  timeout:
+                    pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                    type: string
+                type: object
+              timeout:
+                pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                type: string
+              uninstall:
+                properties:
+                  deletionPropagation:
+                    default: background
+                    enum:
+                    - background
+                    - foreground
+                    - orphan
+                    type: string
+                  disableHooks:
+                    type: boolean
+                  disableWait:
+                    type: boolean
+                  keepHistory:
+                    type: boolean
+                  timeout:
+                    pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                    type: string
+                type: object
+              upgrade:
+                properties:
+                  chartNameChangeStrategy:
+                    enum:
+                    - InPlaceUpdate
+                    - Reinstall
+                    type: string
+                  cleanupOnFail:
+                    type: boolean
+                  crds:
+                    enum:
+                    - Skip
+                    - Create
+                    - CreateReplace
+                    type: string
+                  disableHooks:
+                    type: boolean
+                  disableOpenAPIValidation:
+                    type: boolean
+                  disableSchemaValidation:
+                    type: boolean
+                  disableTakeOwnership:
+                    type: boolean
+                  disableWait:
+                    type: boolean
+                  disableWaitForJobs:
+                    type: boolean
+                  force:
+                    type: boolean
+                  preserveValues:
+                    type: boolean
+                  remediation:
+                    properties:
+                      ignoreTestFailures:
+                        type: boolean
+                      remediateLastFailure:
+                        type: boolean
+                      retries:
+                        type: integer
+                      strategy:
+                        enum:
+                        - rollback
+                        - uninstall
+                        type: string
+                    type: object
+                  serverSideApply:
+                    enum:
+                    - enabled
+                    - disabled
+                    - auto
+                    type: string
+                  strategy:
+                    properties:
+                      name:
+                        enum:
+                        - RemediateOnFailure
+                        - RetryOnFailure
+                        type: string
+                      retryInterval:
+                        pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                        type: string
+                    required:
+                    - name
+                    type: object
+                    x-kubernetes-validations:
+                    - message: .retryInterval can only be set when .name is 'RetryOnFailure'
+                      rule: '!has(self.retryInterval) || self.name == ''RetryOnFailure'''
+                  timeout:
+                    pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                    type: string
+                type: object
+              values:
+                x-kubernetes-preserve-unknown-fields: true
+              valuesFrom:
+                items:
+                  properties:
+                    kind:
+                      enum:
+                      - Secret
+                      - ConfigMap
+                      type: string
+                    literal:
+                      type: boolean
+                    name:
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                    optional:
+                      type: boolean
+                    targetPath:
+                      maxLength: 250
+                      pattern: ^([a-zA-Z0-9_\-.\\\/]|\[[0-9]{1,5}\])+$
+                      type: string
+                    valuesKey:
+                      maxLength: 253
+                      pattern: ^[\-._a-zA-Z0-9]+$
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
+              waitStrategy:
+                properties:
+                  name:
+                    enum:
+                    - poller
+                    - legacy
+                    type: string
+                required:
+                - name
+                type: object
+            required:
+            - interval
+            type: object
+            x-kubernetes-validations:
+            - message: either chart or chartRef must be set
+              rule: (has(self.chart) && !has(self.chartRef)) || (!has(self.chart) && has(self.chartRef))
+          status:
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

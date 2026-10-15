@@ -1,0 +1,319 @@
+# Trimmed from the upstream CRD by trim_crds.py.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: kustomizations.kustomize.toolkit.fluxcd.io
+spec:
+  group: kustomize.toolkit.fluxcd.io
+  names:
+    categories:
+    - all
+    - fluxcd
+    - fluxcd-appliers
+    kind: Kustomization
+    listKind: KustomizationList
+    plural: kustomizations
+    shortNames:
+    - ks
+    singular: kustomization
+  scope: Namespaced
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              buildMetadata:
+                items:
+                  enum:
+                  - originAnnotations
+                  - transformerAnnotations
+                  type: string
+                type: array
+              commonMetadata:
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  labels:
+                    additionalProperties:
+                      type: string
+                    type: object
+                type: object
+              components:
+                items:
+                  type: string
+                type: array
+              decryption:
+                properties:
+                  provider:
+                    enum:
+                    - sops
+                    type: string
+                  secretRef:
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  serviceAccountName:
+                    type: string
+                required:
+                - provider
+                type: object
+              deletionPolicy:
+                enum:
+                - MirrorPrune
+                - Delete
+                - WaitForTermination
+                - Orphan
+                type: string
+              dependsOn:
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                    readyExpr:
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+              force:
+                default: false
+                type: boolean
+              healthCheckExprs:
+                items:
+                  properties:
+                    apiVersion:
+                      type: string
+                    current:
+                      type: string
+                    failed:
+                      type: string
+                    inProgress:
+                      type: string
+                    kind:
+                      type: string
+                  required:
+                  - apiVersion
+                  - current
+                  type: object
+                type: array
+              healthChecks:
+                items:
+                  properties:
+                    apiVersion:
+                      type: string
+                    kind:
+                      type: string
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
+              ignore:
+                items:
+                  properties:
+                    paths:
+                      items:
+                        type: string
+                      type: array
+                    target:
+                      properties:
+                        annotationSelector:
+                          type: string
+                        group:
+                          type: string
+                        kind:
+                          type: string
+                        labelSelector:
+                          type: string
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                        version:
+                          type: string
+                      type: object
+                  required:
+                  - paths
+                  type: object
+                type: array
+              ignoreMissingComponents:
+                type: boolean
+              images:
+                items:
+                  properties:
+                    digest:
+                      type: string
+                    name:
+                      type: string
+                    newName:
+                      type: string
+                    newTag:
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+              interval:
+                pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                type: string
+              kubeConfig:
+                properties:
+                  configMapRef:
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  secretRef:
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: exactly one of spec.kubeConfig.configMapRef or spec.kubeConfig.secretRef must be specified
+                  rule: has(self.configMapRef) || has(self.secretRef)
+                - message: exactly one of spec.kubeConfig.configMapRef or spec.kubeConfig.secretRef must be specified
+                  rule: '!has(self.configMapRef) || !has(self.secretRef)'
+              namePrefix:
+                maxLength: 200
+                minLength: 1
+                type: string
+              nameSuffix:
+                maxLength: 200
+                minLength: 1
+                type: string
+              patches:
+                items:
+                  properties:
+                    patch:
+                      type: string
+                    target:
+                      properties:
+                        annotationSelector:
+                          type: string
+                        group:
+                          type: string
+                        kind:
+                          type: string
+                        labelSelector:
+                          type: string
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                        version:
+                          type: string
+                      type: object
+                  required:
+                  - patch
+                  type: object
+                type: array
+              path:
+                type: string
+              postBuild:
+                properties:
+                  substitute:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  substituteFrom:
+                    items:
+                      properties:
+                        kind:
+                          enum:
+                          - Secret
+                          - ConfigMap
+                          type: string
+                        name:
+                          maxLength: 253
+                          minLength: 1
+                          type: string
+                        optional:
+                          default: false
+                          type: boolean
+                      required:
+                      - kind
+                      - name
+                      type: object
+                    type: array
+                  substituteStrategy:
+                    enum:
+                    - WithVariables
+                    - Always
+                    type: string
+                type: object
+              prune:
+                type: boolean
+              retryInterval:
+                pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                type: string
+              serviceAccountName:
+                type: string
+              sourceRef:
+                properties:
+                  apiVersion:
+                    type: string
+                  kind:
+                    enum:
+                    - OCIRepository
+                    - GitRepository
+                    - Bucket
+                    - ExternalArtifact
+                    type: string
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+              suspend:
+                type: boolean
+              targetNamespace:
+                maxLength: 63
+                minLength: 1
+                type: string
+              timeout:
+                pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                type: string
+              wait:
+                type: boolean
+            required:
+            - interval
+            - prune
+            - sourceRef
+            type: object
+          status:
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
