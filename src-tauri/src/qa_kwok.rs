@@ -1061,3 +1061,7 @@ fn zz_relist_after_api_server_restart() {
         watch::watch_unsubscribe(subscription.id);
     });
 }
+
+/* ------------------------------------------- raw API, Helm, GitOps, ... -- */
+
+mod api;

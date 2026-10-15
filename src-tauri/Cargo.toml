@@ -63,6 +63,7 @@ rpassword = "7"
 # Credential broker (src/auth): client layers, redaction, credential status.
 tower = { version = "0.5", features = ["buffer", "util"] }
 http = "1"
+http-body-util = "0.1"
 base64 = "0.22"
 regex = "1"
 secrecy = "0.10"

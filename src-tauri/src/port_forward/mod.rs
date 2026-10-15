@@ -268,6 +268,18 @@ fn terminate_later(app: &tauri::AppHandle, id: &str, reason: &'static str) {
     tokio::spawn(async move { terminate(&app, &id, reason).await });
 }
 
+fn kube_backends(spec: &PortForwardSpec, client: kube::Client) -> KubeBackends {
+    KubeBackends {
+        resolver: Resolver {
+            client,
+            namespace: spec.namespace.clone(),
+            kind: TargetKind::parse(&spec.object_type).unwrap_or(TargetKind::Pod),
+            name: spec.object_name.clone(),
+            remote_port: spec.object_port,
+        },
+    }
+}
+
 /// Runs a forward: native first, kubectl if the cluster refuses WebSocket
 /// port-forwarding. Ends when the forward fails (stopping aborts it).
 /// A new forward that fails to start is removed (the dialog says why); a
@@ -309,20 +321,11 @@ async fn run_forward(
             return;
         }
     };
-    let backends = KubeBackends {
-        resolver: Resolver {
-            client,
-            namespace: spec.namespace.clone(),
-            kind: TargetKind::parse(&spec.object_type).unwrap_or(TargetKind::Pod),
-            name: spec.object_name.clone(),
-            remote_port: spec.object_port,
-        },
-    };
     let emit_app = app.clone();
     let forward = Forward {
         info: info.clone(),
         traffic,
-        backends: Arc::new(backends),
+        backends: Arc::new(kube_backends(&spec, client)),
         emit: Arc::new(move |event, payload| {
             let _ = emit_app.emit(event, payload);
         }),
@@ -488,6 +491,45 @@ pub fn kill_all_port_forwards() {
         }
     }
     info!("Stopped all port forwards on exit");
+}
+
+/// A native forward without the app, for the kwok QA (`qa_kwok::api`):
+/// events go to `emit`, and it's registered like `start_port_forward`'s
+/// forwards, so `port_forward_http_request` and `list_port_forwards` see it.
+#[cfg(all(test, feature = "kwok-qa"))]
+pub(crate) async fn start_for_qa(
+    spec: PortForwardSpec,
+    emit: Arc<dyn Fn(&'static str, PortForwardInfo) + Send + Sync>,
+    startup: Duration,
+) -> Result<String, String> {
+    validate_spec(&spec)?;
+    let id = Uuid::new_v4().to_string();
+    let info = Arc::new(Mutex::new(initial_info(&id, &spec, None)));
+    let traffic = Arc::new(Traffic::default());
+    let listeners = native::bind(&spec.address, spec.local_port).await?;
+    if let Some(bound) = listeners.first().and_then(|l| l.local_addr().ok()) {
+        lock(&info).local_port = bound.port();
+    }
+    let client = client_with_context(&spec.context, Some(&spec.kube_config)).await.map_err(|e| e.message)?;
+    let forward = Forward {
+        info: info.clone(),
+        traffic: traffic.clone(),
+        backends: Arc::new(kube_backends(&spec, client)),
+        emit,
+    };
+    let task = tokio::spawn(async move {
+        native::run(forward, listeners, startup).await;
+    });
+    let managed = ManagedForward { spec, info, traffic, task: Some(task), child: Arc::new(Mutex::new(None)) };
+    lock(&FORWARDS).insert(id.clone(), managed);
+    Ok(id)
+}
+
+#[cfg(all(test, feature = "kwok-qa"))]
+pub(crate) fn stop_for_qa(id: &str) {
+    if let Some(task) = lock(&FORWARDS).remove(id).and_then(|forward| forward.task) {
+        task.abort();
+    }
 }
 
 #[cfg(test)]

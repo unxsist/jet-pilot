@@ -1,0 +1,141 @@
+# Trimmed from the upstream CRD by trim_crds.py.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: gitrepositories.source.toolkit.fluxcd.io
+spec:
+  group: source.toolkit.fluxcd.io
+  names:
+    categories:
+    - all
+    - fluxcd
+    - fluxcd-sources
+    kind: GitRepository
+    listKind: GitRepositoryList
+    plural: gitrepositories
+    shortNames:
+    - gitrepo
+    singular: gitrepository
+  scope: Namespaced
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              ignore:
+                type: string
+              include:
+                items:
+                  properties:
+                    fromPath:
+                      type: string
+                    repository:
+                      properties:
+                        name:
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    toPath:
+                      type: string
+                  required:
+                  - repository
+                  type: object
+                type: array
+              interval:
+                pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                type: string
+              provider:
+                enum:
+                - generic
+                - aws
+                - azure
+                - github
+                type: string
+              proxySecretRef:
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              recurseSubmodules:
+                type: boolean
+              ref:
+                properties:
+                  branch:
+                    type: string
+                  commit:
+                    type: string
+                  name:
+                    type: string
+                  semver:
+                    type: string
+                  tag:
+                    type: string
+                type: object
+              secretRef:
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              serviceAccountName:
+                type: string
+              sparseCheckout:
+                items:
+                  type: string
+                type: array
+              suspend:
+                type: boolean
+              timeout:
+                default: 60s
+                pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m))+$
+                type: string
+              url:
+                pattern: ^(http|https|ssh)://.*$
+                type: string
+              verify:
+                properties:
+                  mode:
+                    default: HEAD
+                    enum:
+                    - head
+                    - HEAD
+                    - Tag
+                    - TagAndHEAD
+                    type: string
+                  secretRef:
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                required:
+                - secretRef
+                type: object
+            required:
+            - interval
+            - url
+            type: object
+            x-kubernetes-validations:
+            - message: serviceAccountName can only be set when provider is 'azure' or 'aws'
+              rule: '!has(self.serviceAccountName) || (has(self.provider) && (self.provider == ''azure'' || self.provider == ''aws''))'
+          status:
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

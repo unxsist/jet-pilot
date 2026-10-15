@@ -321,4 +321,25 @@ describe("errors", () => {
     expect(timeout.detail).toBe("query timed out");
     expect(toPrometheusError(new SyntaxError("Unexpected token '<'")).summary).toBe("No Prometheus API at this address");
   });
+
+  test("the API server's answers when it can't reach the pod", () => {
+    const source = { namespace: "monitoring", service: "prometheus-k8s", port: "web" };
+    // As a real API server sends them through `kube_request`.
+    const unreachable = (message: string) => toPrometheusError({ code: 503, message }, source).summary;
+    expect(unreachable("error trying to reach service: dial tcp 10.0.0.8:9090: i/o timeout")).toBe(
+      "Can't connect to prometheus-k8s in monitoring"
+    );
+    expect(unreachable("error trying to reach service: dial tcp 10.0.0.8:9090: connect: connection refused")).toBe(
+      "Can't connect to prometheus-k8s in monitoring"
+    );
+    expect(toPrometheusError({ code: 404, message: 'services "prometheus-k8s" not found' }, source).summary).toBe(
+      "prometheus-k8s in monitoring doesn't exist"
+    );
+    const rejected = toPrometheusError({
+      code: 400,
+      message: '{"status":"error","errorType":"bad_data","error":"invalid parameter \\"query\\": 1:6: parse error: unclosed left parenthesis"}',
+    });
+    expect(rejected.summary).toBe("Prometheus rejected the query");
+    expect(rejected.detail).toBe('invalid parameter "query": 1:6: parse error: unclosed left parenthesis');
+  });
 });
