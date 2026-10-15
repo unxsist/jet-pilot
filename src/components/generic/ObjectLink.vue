@@ -43,7 +43,7 @@ const open = async () => {
 <template>
   <button
     type="button"
-    class="inline-flex max-w-full items-baseline gap-1.5 rounded-sm text-left text-link decoration-link/40 underline-offset-[3px] transition-opacity duration-fast hover:underline focus-ring focus-visible:ring-offset-card"
+    class="inline-flex min-w-0 max-w-full items-baseline gap-1.5 rounded-sm text-left text-link decoration-link/40 underline-offset-[3px] transition-opacity duration-fast hover:underline focus-ring focus-visible:ring-offset-card"
     :class="opening ? 'opacity-60' : ''"
     :title="`Open ${objectRef.kind} ${objectRef.name}`"
     :aria-busy="opening"

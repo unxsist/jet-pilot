@@ -23,6 +23,7 @@ const scaleTarget = computed(() => spec.value.scaleTargetRef ?? {});
 const min = computed(() => spec.value.minReplicas ?? 1);
 const metrics = computed(() => hpaMetrics(props.resource));
 const conditions = computed(() => hpaConditionWords(props.resource));
+const problems = computed(() => conditions.value.filter((c) => !c.ok));
 
 /* The scale leaves room above the target, so the target sits at ~80 %. */
 const scale = (metric: HpaMetric) => Math.max(metric.target * 1.25, metric.current ?? 0, 1);
@@ -102,7 +103,14 @@ const above = (metric: HpaMetric) => (metric.current ?? 0) > metric.target;
     </ul>
   </PanelSection>
 
-  <PanelSection v-if="conditions.length" value="scaling" title="Scaling" :icon="Activity">
+  <!-- Folded while all is well (its value isn't opened by default then). -->
+  <PanelSection
+    v-if="conditions.length"
+    :value="problems.length ? 'scaling' : 'scaling-ok'"
+    title="Scaling"
+    :icon="Activity"
+    :hint="problems.length ? problems[0]!.text : 'All OK'"
+  >
     <ul class="space-y-2">
       <li v-for="condition in conditions" :key="condition.type" class="flex items-start gap-2.5">
         <StatusDot :tone="condition.ok ? 'success' : 'warning'" class="mt-1.5" />

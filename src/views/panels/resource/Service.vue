@@ -27,10 +27,10 @@ const namespace = computed(() => props.resource.metadata?.namespace as string);
 const ns = () => (namespace.value ? [namespace.value] : null);
 
 const TYPE_WORDS: Record<string, string> = {
-  ClusterIP: "reachable inside the cluster",
-  NodePort: "also on a port of every node",
-  LoadBalancer: "reachable through a load balancer",
-  ExternalName: "an alias for another host name",
+  ClusterIP: "Reachable inside the cluster",
+  NodePort: "Also on a port of every node",
+  LoadBalancer: "Reachable through a load balancer",
+  ExternalName: "An alias for another host name",
 };
 const headless = computed(() => spec.value.clusterIP === "None");
 const external = computed(() =>
@@ -92,9 +92,9 @@ const forward = (port: number) =>
     <FactList>
       <Fact label="Type">
         {{ headless ? "Headless" : (spec.type ?? "ClusterIP") }}
-        <span class="text-xs text-muted-foreground">
-          · {{ headless ? "no cluster IP; DNS returns the pods" : TYPE_WORDS[spec.type ?? "ClusterIP"] }}</span
-        >
+        <span class="block text-xs text-muted-foreground">{{
+          headless ? "No cluster IP: DNS returns the pods" : TYPE_WORDS[spec.type ?? "ClusterIP"]
+        }}</span>
       </Fact>
       <Fact v-if="spec.clusterIP && !headless" label="Cluster IP" mono :value="spec.clusterIP" />
       <Fact v-if="spec.type === 'ExternalName'" label="Points to" mono :value="spec.externalName" />
@@ -107,7 +107,7 @@ const forward = (port: number) =>
           <span
             v-for="[key, value] in selector"
             :key="key"
-            class="inline-flex h-5 max-w-full items-center truncate rounded bg-muted px-1.5 font-mono text-xs"
+            class="inline-block h-5 max-w-full truncate rounded bg-muted px-1.5 align-middle font-mono text-xs leading-5"
             :title="`${key}=${value}`"
             >{{ key }}=<span class="text-foreground">{{ value }}</span></span
           >
