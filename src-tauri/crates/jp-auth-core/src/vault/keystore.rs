@@ -1,9 +1,14 @@
 //! Where a keychain-backed vault keeps its master key: one generic password
 //! item per vault (service [`SERVICE`], account from the vault header).
 //!
-//! - macOS: the login keychain. The item is created with the `security`
-//!   CLI and `-A` (any application may read it), so the unsigned helper and
-//!   app updates with a new code signature don't trigger keychain prompts.
+//! - macOS: the login keychain, always through Apple's `/usr/bin/security`
+//!   (create, read, delete). The item allows any application (`-A`), and
+//!   since macOS 10.12 an item also records the signer that created it (its
+//!   partition list): `security` creates it as an Apple tool. Read in-process
+//!   by the unsigned app or helper, it asked for the keychain password on
+//!   every read, and "Always Allow" only held for that exact build. Read by
+//!   `security` itself, it matches and nothing prompts, across updates and
+//!   for the helper too.
 //! - Windows: Credential Manager.
 //! - Linux: the Secret Service (GNOME Keyring, KWallet, KeePassXC). Its
 //!   availability is probed without prompting: a provider must own or be
@@ -36,9 +41,12 @@ pub trait Keychain: Send + Sync {
 
 /* --------------------------------------------------------------- OS */
 
-/// The platform keychain via the `keyring` crate.
+/// The platform keychain via the `keyring` crate (and `security` on macOS).
 pub struct OsKeychain {
     probe_cache: Mutex<Option<(Instant, Result<(), String>)>>,
+    /// Secrets read or written by this process, so a long-running app reads
+    /// each item once instead of on every vault open (several a minute).
+    secrets: Mutex<HashMap<String, Zeroizing<String>>>,
 }
 
 impl OsKeychain {
@@ -49,6 +57,7 @@ impl OsKeychain {
             .get_or_init(|| {
                 Arc::new(OsKeychain {
                     probe_cache: Mutex::new(None),
+                    secrets: Mutex::new(HashMap::new()),
                 })
             })
             .clone()
@@ -56,6 +65,27 @@ impl OsKeychain {
 
     fn entry(account: &str) -> Result<keyring::Entry, String> {
         keyring::Entry::new(SERVICE, account).map_err(|e| keyring_message(&e))
+    }
+
+    fn remember(&self, account: &str, secret: Option<&str>) {
+        let mut secrets = self.secrets.lock().unwrap_or_else(|e| e.into_inner());
+        match secret {
+            Some(secret) => secrets.insert(account.to_string(), Zeroizing::new(secret.to_string())),
+            None => secrets.remove(account),
+        };
+    }
+
+    fn read(&self, account: &str) -> Result<Option<Zeroizing<String>>, String> {
+        #[cfg(target_os = "macos")]
+        {
+            macos::find(account)
+        }
+        #[cfg(not(target_os = "macos"))]
+        match Self::entry(account)?.get_password() {
+            Ok(secret) => Ok(Some(Zeroizing::new(secret))),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(keyring_message(&e)),
+        }
     }
 }
 
@@ -86,11 +116,19 @@ impl Keychain for OsKeychain {
     }
 
     fn get(&self, account: &str) -> Result<Option<Zeroizing<String>>, String> {
-        match Self::entry(account)?.get_password() {
-            Ok(secret) => Ok(Some(Zeroizing::new(secret))),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(keyring_message(&e)),
+        if let Some(secret) = self
+            .secrets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(account)
+        {
+            return Ok(Some(secret.clone()));
         }
+        let secret = self.read(account)?;
+        if let Some(secret) = &secret {
+            self.remember(account, Some(secret));
+        }
+        Ok(secret)
     }
 
     fn set(&self, account: &str, secret: &str) -> Result<(), String> {
@@ -99,23 +137,34 @@ impl Keychain for OsKeychain {
             let _ = self.delete(account);
             if macos::add_any_app(account, secret).is_ok()
                 && self
-                    .get(account)
+                    .read(account)
                     .ok()
                     .flatten()
                     .as_deref()
                     .map(String::as_str)
                     == Some(secret)
             {
+                self.remember(account, Some(secret));
                 return Ok(());
             }
-            // Fall back to a regular item (the app itself can still read it).
+            // Fall back to a regular item. `security` then asks once to read
+            // it; "Always Allow" trusts Apple's `security`, which stays the
+            // same across JET Pilot updates.
         }
         Self::entry(account)?
             .set_password(secret)
-            .map_err(|e| keyring_message(&e))
+            .map_err(|e| keyring_message(&e))?;
+        self.remember(account, Some(secret));
+        Ok(())
     }
 
     fn delete(&self, account: &str) -> Result<(), String> {
+        self.remember(account, None);
+        #[cfg(target_os = "macos")]
+        {
+            macos::delete(account)
+        }
+        #[cfg(not(target_os = "macos"))]
         match Self::entry(account)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(keyring_message(&e)),
@@ -185,12 +234,97 @@ mod linux {
     }
 }
 
+/// `security`'s exit status when an item doesn't exist (errSecItemNotFound).
+const SECURITY_NOT_FOUND: i32 = 44;
+
+/// The outcome of `security find-generic-password -w`: the secret is stdout
+/// without its trailing newline.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn parse_find(
+    code: Option<i32>,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> Result<Option<Zeroizing<String>>, String> {
+    match code {
+        Some(0) => {
+            let text = Zeroizing::new(String::from_utf8_lossy(stdout).into_owned());
+            let secret = text.trim_end_matches(['\n', '\r']);
+            if secret.is_empty() {
+                Err("The system keychain returned an empty key.".into())
+            } else {
+                Ok(Some(Zeroizing::new(secret.to_string())))
+            }
+        }
+        Some(SECURITY_NOT_FOUND) => Ok(None),
+        _ => Err(security_message(code, stderr)),
+    }
+}
+
+/// A short message for a failed `security` call (stderr never has the secret).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn security_message(code: Option<i32>, stderr: &[u8]) -> String {
+    let detail = String::from_utf8_lossy(stderr);
+    let detail = detail
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("")
+        .trim();
+    match (code, detail.is_empty()) {
+        (_, false) => format!("The system keychain reported an error: {detail}"),
+        (Some(code), true) => {
+            format!("The system keychain reported an error (security exited with {code}).")
+        }
+        (None, true) => "The system keychain reported an error.".to_string(),
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod macos {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
     use zeroize::Zeroizing;
+
+    const SECURITY: &str = "/usr/bin/security";
+
+    /// Reads the secret of `account` through `security`, the signer the item
+    /// was created with (see the module docs).
+    pub fn find(account: &str) -> Result<Option<Zeroizing<String>>, String> {
+        let output = Command::new(SECURITY)
+            .args([
+                "find-generic-password",
+                "-s",
+                super::SERVICE,
+                "-a",
+                account,
+                "-w",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| format!("The system keychain could not be accessed: {e}"))?;
+        let stdout = Zeroizing::new(output.stdout);
+        super::parse_find(output.status.code(), &stdout, &output.stderr)
+    }
+
+    /// Deletes the item of `account` (no error when it doesn't exist).
+    pub fn delete(account: &str) -> Result<(), String> {
+        let output = Command::new(SECURITY)
+            .args([
+                "delete-generic-password",
+                "-s",
+                super::SERVICE,
+                "-a",
+                account,
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .output()
+            .map_err(|e| format!("The system keychain could not be accessed: {e}"))?;
+        match output.status.code() {
+            Some(0) | Some(super::SECURITY_NOT_FOUND) => Ok(()),
+            code => Err(super::security_message(code, &output.stderr)),
+        }
+    }
 
     /// `security add-generic-password -A` through `security -i` on stdin, so
     /// the secret never appears in a process listing. Service, account and
@@ -205,7 +339,7 @@ mod macos {
         if !safe(super::SERVICE) || !safe(account) || !safe(secret) {
             return Err("unsupported characters".into());
         }
-        let mut child = Command::new("/usr/bin/security")
+        let mut child = Command::new(SECURITY)
             .arg("-i")
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
@@ -329,5 +463,42 @@ pub fn system_keychain() -> Arc<dyn Keychain> {
         })
     } else {
         OsKeychain::shared()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_secret_from_security_output() {
+        let found = parse_find(Some(0), b"c2VjcmV0LWtleQ==\n", b"").unwrap();
+        assert_eq!(
+            found.as_deref().map(String::as_str),
+            Some("c2VjcmV0LWtleQ==")
+        );
+        assert!(parse_find(Some(SECURITY_NOT_FOUND), b"", b"")
+            .unwrap()
+            .is_none());
+        assert!(parse_find(Some(0), b"\n", b"").is_err());
+    }
+
+    #[test]
+    fn security_errors_are_short_and_never_empty() {
+        let err = parse_find(
+            Some(51),
+            b"",
+            b"security: SecKeychainSearchCopyNext: User interaction is not allowed.\n",
+        )
+        .unwrap_err();
+        assert!(err.ends_with("User interaction is not allowed."), "{err}");
+        assert_eq!(
+            security_message(Some(36), b""),
+            "The system keychain reported an error (security exited with 36)."
+        );
+        assert_eq!(
+            security_message(None, b"\n"),
+            "The system keychain reported an error."
+        );
     }
 }
