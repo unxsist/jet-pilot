@@ -9,17 +9,30 @@ import { shallowRef } from "vue";
 type Objects = readonly Record<string, any>[];
 
 const current = shallowRef<{ owner: symbol; objects: Objects } | null>(null);
+/*
+ * Non-reactive mirror of `current` for the publish/withdraw checks. Reading
+ * the ref there would make the publishing watchEffect (VirtualDataTable)
+ * depend on `current` itself: during a keep-alive route swap both tables'
+ * effects are alive for a moment and invalidate each other forever (owner
+ * ping-pong), freezing the view in a microtask storm. The mirror is written
+ * together with the ref; readers use the ref.
+ */
+let currentRaw: { owner: symbol; objects: Objects } | null = null;
 
 export function publishFocus(owner: symbol, objects: Objects): void {
-  const previous = current.value;
+  const previous = currentRaw;
   if (previous?.owner === owner && previous.objects.length === objects.length && previous.objects.every((o, i) => o === objects[i])) {
     return;
   }
-  current.value = { owner, objects };
+  currentRaw = { owner, objects };
+  current.value = currentRaw;
 }
 
 export function withdrawFocus(owner: symbol): void {
-  if (current.value?.owner === owner) current.value = null;
+  if (currentRaw?.owner === owner) {
+    currentRaw = null;
+    current.value = null;
+  }
 }
 
 /** The focused table objects (reactive); empty when there are none. */
