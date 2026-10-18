@@ -13,6 +13,11 @@ How to write an entry (jet-pilot.app/changelog is generated from this file):
   `#### Upgrading`: lists of `**Lead.** Detail.` items, in plain words.
 -->
 
+## 2.2.3 (2026-10-18)
+
+#### Fixed
+- **Switching lists no longer freezes the app.** Opening a list such as StatefulSets right after another one, like Pods, could leave a spinner that never went away and make the window stop responding, most often on macOS with several clusters open.
+
 ## 2.2.2 (2026-10-15)
 
 #### Fixed
