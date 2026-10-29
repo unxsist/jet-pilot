@@ -13,6 +13,7 @@
 import type { TabSession } from "@/lib/tabDescriptors";
 import type { PortForwardProfile } from "@/lib/portForwardProfiles";
 import type { Workspace } from "@/lib/workspaces";
+import type { WindowRecord } from "@/lib/windows";
 import type { ThemeSettings } from "@/lib/themes/types";
 import type { ClusterRecord } from "@/lib/clusters/meta";
 
@@ -109,6 +110,10 @@ export interface AppState {
   PanelProvider: {
     height: number;
   };
+  /** Split view: width of the left pane in percent. */
+  splitView: { size: number };
+  /** Pop-out windows, reopened on start (see @/lib/windows). */
+  windows: WindowRecord[];
   /** What the user told JET Pilot about each cluster (alias, colour, guardrails...). */
   clusters: ClusterRecord[];
   collapsedNavigationGroups: string[];

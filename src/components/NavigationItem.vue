@@ -8,6 +8,8 @@ import {
 } from "@/providers/CommandPaletteProvider";
 import { Pin, PinOff } from "lucide-vue-next";
 import { type } from "@tauri-apps/plugin-os";
+import { SplitViewKey } from "@/providers/SplitViewProvider";
+import { WindowsKey } from "@/lib/windows";
 
 const router = useRouter();
 
@@ -51,10 +53,34 @@ registerCommand({
 onUnmounted(() => {
   unregisterCommand(commandId);
 });
+
+/*
+ * Alt+click or middle-click: open beside the current view (split view).
+ * Shift+click: open in a new window, like a link in a browser.
+ */
+const split = inject(SplitViewKey, null);
+const windows = inject(WindowsKey, null);
+const onClick = (event: MouseEvent) => {
+  if (event.altKey && split) {
+    event.preventDefault();
+    split.openToSide(props.to);
+  } else if (event.shiftKey && windows) {
+    event.preventDefault();
+    void windows.openView(router.resolve(props.to).fullPath);
+  }
+};
+const onAuxClick = (event: MouseEvent) => {
+  if (event.button !== 1 || !split) return;
+  event.preventDefault();
+  split.openToSide(props.to);
+};
 </script>
 <template>
   <router-link
     :to="props.to"
+    @click="onClick"
+    @mousedown.middle.prevent
+    @auxclick="onAuxClick"
     class="group/main relative flex h-7 cursor-pointer items-center gap-2.5 rounded-md px-2 text-sm text-sidebar-foreground transition-colors duration-fast ease-out hover:bg-accent/70 hover:text-foreground focus-ring focus-visible:ring-offset-sidebar before:absolute before:-left-2 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r-full before:bg-primary before:opacity-0 before:transition-opacity before:duration-base [&.router-link-active]:bg-accent [&.router-link-active]:font-medium [&.router-link-active]:text-foreground [&.router-link-active]:before:opacity-100"
   >
     <NavigationItemIcon

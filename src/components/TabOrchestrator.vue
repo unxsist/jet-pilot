@@ -14,8 +14,26 @@ import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 
 import { ResizablePanel } from "@/components/ui/resizable";
 import { useEventListener } from "@vueuse/core";
+import { WindowsKey } from "@/lib/windows";
+
+/* Open in new window / move to main window: loaded with the first tab. */
+const TabWindowActions = defineAsyncComponent(() => import("@/components/TabWindowActions.vue"));
+
+const props = withDefaults(
+  defineProps<{
+    /**
+     * The tabs fill a pop-out window (@/lib/windows, the only panel of its
+     * group): the panel maximized, its tab strip the title bar (slots
+     * `leading` / `trailing` for the window controls); it doesn't collapse.
+     */
+    standalone?: boolean;
+  }>(),
+  { standalone: false }
+);
 
 const { tabs, activeTabId } = injectStrict(PanelProviderStateKey);
+/* Main window: Shift+click moves a tab to a new window. */
+const windows = inject(WindowsKey, null);
 const { settings } = injectStrict(SettingsContextStateKey);
 const closeTab = injectStrict(PanelProviderCloseTabKey);
 
@@ -125,6 +143,11 @@ const isVisible = (id: string) =>
   id === activeTabId.value || id === splitTabId.value;
 
 const onTabClick = (event: MouseEvent, id: string) => {
+  // Shift+click: a window of its own (like a link in a browser).
+  if (event.shiftKey && windows?.canMoveTab(id)) {
+    void windows.moveTab(id);
+    return;
+  }
   if (event.altKey && tabs.value.length > 1) {
     showOnRight(id);
     return;
@@ -179,6 +202,7 @@ watch(
 );
 
 const handleResize = (size: number) => {
+  if (props.standalone) return;
   settings.value.PanelProvider.height = size;
 
   window.dispatchEvent(new Event("TabOrchestrator_Resized"));
@@ -187,7 +211,7 @@ const handleResize = (size: number) => {
 <template>
   <ResizablePanel
     v-if="tabs.length > 0"
-    :defaultSize="settings.PanelProvider.height"
+    :defaultSize="props.standalone ? 100 : settings.PanelProvider.height"
     @resize="handleResize"
   >
     <div
@@ -195,12 +219,16 @@ const handleResize = (size: number) => {
       @keydown.stop="() => {}"
     >
       <div
-        class="flex h-9 shrink-0 items-stretch border-b bg-surface-1 pr-1.5"
+        class="flex shrink-0 items-stretch border-b bg-surface-1 pr-1.5"
+        :class="props.standalone ? 'h-10' : 'h-9'"
+        :data-tauri-drag-region="props.standalone || undefined"
       >
+        <slot name="leading" />
         <div
           class="flex min-w-0 flex-1 items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           role="tablist"
           aria-label="Open tabs"
+          :data-tauri-drag-region="props.standalone || undefined"
         >
           <div
             v-for="tab in tabs"
@@ -274,7 +302,9 @@ const handleResize = (size: number) => {
           >
             <Columns2 class="h-3.5 w-3.5" />
           </Button>
+          <TabWindowActions />
           <Button
+            v-if="!props.standalone"
             variant="ghost"
             size="icon-xs"
             class="text-muted-foreground"
@@ -289,10 +319,11 @@ const handleResize = (size: number) => {
             />
           </Button>
         </div>
+        <slot name="trailing" />
       </div>
       <div
         class="relative flex min-h-0 flex-grow overflow-auto"
-        v-show="state.open"
+        v-show="state.open || props.standalone"
       >
         <!--
           Every tab is rendered and keyed by its id; inactive ones are only

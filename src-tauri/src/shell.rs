@@ -5,7 +5,14 @@
 //!   `powershell.exe`, issue #52)
 //! - output is read by a blocking reader thread and streamed to the frontend
 //!   over a Tauri channel (raw bytes, no busy polling); the process exit is
-//!   reported on the same channel as a JSON message
+//!   reported on the same channel as a JSON message, after the last output
+//! - a terminal can move to another window: `tty_release` detaches it (the
+//!   process keeps running, output only goes to the session's scrollback, the
+//!   last 256 KiB), `tty_attach` replays the scrollback on the new channel and
+//!   streams from there on. A session that ends while detached keeps its
+//!   scrollback and exit message for the next attach (for 5 minutes)
+//! - sessions belong to the webview their terminal is attached to: closing
+//!   that window stops them (detached ones keep running)
 //! - the pty master is kept alive for the lifetime of the session: dropping it
 //!   on Windows closes the pseudo console while the child is still starting
 //!   (STATUS_DLL_INIT_FAILED / 0xc0000142)
@@ -23,7 +30,7 @@ pub mod tty {
     use once_cell::sync::Lazy;
     use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
     use serde::Serialize;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, VecDeque};
     use std::ffi::{OsStr, OsString};
     use std::io::{Read, Write};
     use std::path::{Path, PathBuf};
@@ -31,7 +38,7 @@ pub mod tty {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{mpsc, Arc, Mutex};
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
     use tauri::ipc::{Channel, InvokeResponseBody};
     use tracing::{info, warn};
     use uuid::Uuid;
@@ -47,6 +54,16 @@ pub mod tty {
     /// How long a stopped child gets to exit after SIGHUP before it is killed.
     #[cfg(unix)]
     const KILL_GRACE_PERIOD: Duration = Duration::from_secs(2);
+    /// Output kept per session for a terminal attaching later (moved to
+    /// another window).
+    const SCROLLBACK_LIMIT: usize = 256 * 1024;
+    /// A trimmed scrollback starts after the first newline this close to the
+    /// cut, so a replay doesn't begin in the middle of a line (or an escape
+    /// sequence).
+    const SCROLLBACK_LINE_SEARCH: usize = 4 * 1024;
+    /// How long a session that ended while detached keeps its output for the
+    /// next attach.
+    const DETACHED_EXIT_TTL: Duration = Duration::from_secs(5 * 60);
 
     /// The parts of a session are locked independently: a writer blocked on a
     /// full pty must never keep stop / resize / exit cleanup waiting.
@@ -66,6 +83,75 @@ pub mod tty {
     }
 
     static TTY_SESSIONS: Lazy<Mutex<HashMap<String, Arc<TtySession>>>> =
+        Lazy::new(|| Mutex::new(HashMap::new()));
+
+    /// The last `SCROLLBACK_LIMIT` bytes of a session's output.
+    #[derive(Default)]
+    struct Scrollback {
+        bytes: VecDeque<u8>,
+    }
+
+    impl Scrollback {
+        fn push(&mut self, data: &[u8]) {
+            self.bytes.extend(data);
+            trim_scrollback(&mut self.bytes, SCROLLBACK_LIMIT, SCROLLBACK_LINE_SEARCH);
+        }
+
+        fn is_empty(&self) -> bool {
+            self.bytes.is_empty()
+        }
+
+        fn to_vec(&self) -> Vec<u8> {
+            let (front, back) = self.bytes.as_slices();
+            [front, back].concat()
+        }
+    }
+
+    /// Drops the oldest bytes beyond `limit`, through the first newline
+    /// within `line_search` bytes after the cut (only the excess when there
+    /// is none, e.g. a full screen program redrawing).
+    fn trim_scrollback(bytes: &mut VecDeque<u8>, limit: usize, line_search: usize) {
+        if bytes.len() <= limit {
+            return;
+        }
+        let cut = bytes.len() - limit;
+        let search_end = (cut + line_search).min(bytes.len());
+        let start = bytes
+            .range(cut..search_end)
+            .position(|b| *b == b'\n')
+            .map_or(cut, |newline| cut + newline + 1);
+        bytes.drain(..start);
+    }
+
+    /// Where a session's output goes: the attached terminal's channel, and
+    /// the scrollback for a terminal attaching later. The channel is swapped
+    /// by `tty_release` / `tty_attach`. Locked only for short, non-blocking
+    /// work (channel sends are queued to the webview), so the reader never
+    /// stalls and writers never wait for it; never locked while holding the
+    /// `OUTPUTS` map lock (the other way around is fine).
+    #[derive(Default)]
+    struct Output {
+        /// None while detached: output only goes to the scrollback.
+        channel: Option<Channel<InvokeResponseBody>>,
+        /// Label of the webview the terminal is attached to.
+        owner: Option<String>,
+        scrollback: Scrollback,
+        /// The exit message once the process has ended, and when.
+        ended: Option<(String, Instant)>,
+    }
+
+    impl Output {
+        fn write(&mut self, data: &[u8]) {
+            self.scrollback.push(data);
+            if let Some(channel) = &self.channel {
+                let _ = channel.send(InvokeResponseBody::Raw(data.to_vec()));
+            }
+        }
+    }
+
+    /// Outputs of the running sessions, and of sessions that ended while
+    /// detached (until attached, stopped or `DETACHED_EXIT_TTL` passed).
+    static OUTPUTS: Lazy<Mutex<HashMap<String, Arc<Mutex<Output>>>>> =
         Lazy::new(|| Mutex::new(HashMap::new()));
 
     /// JSON message sent on the session channel when the process has exited.
@@ -101,6 +187,43 @@ pub mod tty {
 
     fn remove_session(session_id: &str) -> Option<Arc<TtySession>> {
         lock_sessions().remove(session_id)
+    }
+
+    /// A snapshot of `OUTPUTS`, so outputs can be locked without the map.
+    fn outputs() -> Vec<(String, Arc<Mutex<Output>>)> {
+        lock(&OUTPUTS)
+            .iter()
+            .map(|(id, output)| (id.clone(), output.clone()))
+            .collect()
+    }
+
+    /// Forgets sessions that ended while detached longer than
+    /// `DETACHED_EXIT_TTL` ago (nobody attached them).
+    fn prune_ended() {
+        let expired: Vec<String> = outputs()
+            .into_iter()
+            .filter(|(_, output)| {
+                lock(output)
+                    .ended
+                    .as_ref()
+                    .is_some_and(|(_, at)| at.elapsed() > DETACHED_EXIT_TTL)
+            })
+            .map(|(id, _)| id)
+            .collect();
+        if !expired.is_empty() {
+            let mut outputs = lock(&OUTPUTS);
+            for id in &expired {
+                outputs.remove(id);
+            }
+        }
+    }
+
+    fn get_output(session_id: &str) -> Result<Arc<Mutex<Output>>, String> {
+        prune_ended();
+        lock(&OUTPUTS)
+            .get(session_id)
+            .cloned()
+            .ok_or_else(|| "The terminal session has ended".to_string())
     }
 
     /// SIGKILL the child's process group (the child is a session leader, so
@@ -190,28 +313,41 @@ pub mod tty {
         Ok(cmd)
     }
 
-    fn send_exit(
-        channel: &Channel<InvokeResponseBody>,
-        exit_code: Option<u32>,
-        error: Option<String>,
-    ) {
+    fn exit_message(exit_code: Option<u32>, error: Option<String>) -> String {
         let event = TtyEvent::Exit { exit_code, error };
-        match serde_json::to_string(&event) {
-            Ok(json) => {
-                let _ = channel.send(InvokeResponseBody::Json(json));
-            }
-            Err(e) => warn!("Failed to serialize terminal exit event: {}", e),
+        serde_json::to_string(&event).unwrap_or_else(|e| {
+            warn!("Failed to serialize terminal exit event: {}", e);
+            r#"{"type":"exit","exitCode":null,"error":null}"#.to_string()
+        })
+    }
+
+    /// Reports the exit on the attached terminal, or keeps it (with the
+    /// scrollback) for the next attach when the terminal is detached.
+    fn report_exit(session_id: &str, output: &Mutex<Output>, message: String) {
+        let mut output = lock(output);
+        let attached = output.channel.is_some();
+        if let Some(channel) = &output.channel {
+            let _ = channel.send(InvokeResponseBody::Json(message.clone()));
+        }
+        output.ended = Some((message, Instant::now()));
+        if attached {
+            // Still under the output lock: an attach racing this one either
+            // finds nothing or sees the ended session.
+            lock(&OUTPUTS).remove(session_id);
         }
     }
 
-    /// Spawn `cmd` in a new pty and start streaming its output to `on_event`.
-    /// `temp_files` are removed once the session ends (also on failure).
+    /// Spawn `cmd` in a new pty and start streaming its output to `on_event`,
+    /// owned by webview `owner`. `temp_files` are removed once the session
+    /// ends (also on failure).
     fn spawn_session(
         cmd: CommandBuilder,
         size: PtySize,
+        owner: &str,
         on_event: Channel<InvokeResponseBody>,
         temp_files: Vec<PathBuf>,
     ) -> Result<String, String> {
+        prune_ended();
         let program = cmd
             .get_argv()
             .first()
@@ -295,8 +431,15 @@ pub mod tty {
             }),
         );
 
+        let output = Arc::new(Mutex::new(Output {
+            channel: Some(on_event),
+            owner: Some(owner.to_string()),
+            ..Output::default()
+        }));
+        lock(&OUTPUTS).insert(session_id.clone(), output.clone());
+
         let (reader_done_tx, reader_done_rx) = mpsc::channel::<()>();
-        let data_channel = on_event.clone();
+        let reader_output = output.clone();
         let spawned_reader = thread::Builder::new()
             .name(format!("tty-reader-{}", session_id))
             .spawn(move || {
@@ -305,9 +448,7 @@ pub mod tty {
                     match reader.read(&mut buf) {
                         // EOF, or EIO on Linux once the child has exited.
                         Ok(0) => break,
-                        Ok(n) => {
-                            let _ = data_channel.send(InvokeResponseBody::Raw(buf[..n].to_vec()));
-                        }
+                        Ok(n) => lock(&reader_output).write(&buf[..n]),
                         Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                         Err(_) => break,
                     }
@@ -316,6 +457,7 @@ pub mod tty {
             });
 
         if let Err(e) = spawned_reader {
+            lock(&OUTPUTS).remove(&session_id);
             if let Some(session) = remove_session(&session_id) {
                 let _ = terminate(&session);
             }
@@ -339,23 +481,25 @@ pub mod tty {
                 let _ = reader_done_rx.recv_timeout(Duration::from_secs(2));
                 remove_temp_files(&temp_files);
 
-                match status {
+                let message = match status {
                     Ok(status) => {
                         info!(
                             "TTY session {} exited with code {}",
                             waiter_session_id,
                             status.exit_code()
                         );
-                        send_exit(&on_event, Some(status.exit_code()), None);
+                        exit_message(Some(status.exit_code()), None)
                     }
                     Err(e) => {
                         warn!(
                             "Failed to wait for TTY session {}: {}",
                             waiter_session_id, e
                         );
-                        send_exit(&on_event, None, Some(e.to_string()));
+                        exit_message(None, Some(e.to_string()))
                     }
-                }
+                };
+                // On whatever terminal is attached by now.
+                report_exit(&waiter_session_id, &output, message);
             });
 
         if let Err(e) = spawned_waiter {
@@ -375,6 +519,7 @@ pub mod tty {
     /// output, a JSON `{ type: "exit", exitCode, error }` message on exit.
     #[tauri::command]
     pub async fn create_tty_session(
+        webview: tauri::Webview,
         init_command: Vec<String>,
         env: Option<HashMap<String, String>>,
         rows: Option<u16>,
@@ -383,9 +528,10 @@ pub mod tty {
     ) -> Result<String, String> {
         info!("Creating TTY session");
         let cmd = build_command(init_command, env.unwrap_or_default())?;
+        let owner = webview.label().to_string();
 
         tauri::async_runtime::spawn_blocking(move || {
-            spawn_session(cmd, pty_size(rows, cols), on_event, Vec::new())
+            spawn_session(cmd, pty_size(rows, cols), &owner, on_event, Vec::new())
         })
         .await
         .map_err(|e| e.to_string())?
@@ -396,7 +542,9 @@ pub mod tty {
     /// user's own kubeconfig is never modified. `shell` (a program path or
     /// name, from the terminal settings) replaces the default shell.
     #[tauri::command]
+    #[allow(clippy::too_many_arguments)] // the frontend's argument list
     pub async fn create_local_terminal_session(
+        webview: tauri::Webview,
         kube_config: String,
         context: String,
         namespace: Option<String>,
@@ -406,6 +554,7 @@ pub mod tty {
         on_event: Channel<InvokeResponseBody>,
     ) -> Result<String, String> {
         info!("Creating local terminal session for context {}", context);
+        let owner = webview.label().to_string();
 
         tauri::async_runtime::spawn_blocking(move || {
             let temp_kubeconfig = write_temp_kubeconfig(
@@ -435,15 +584,19 @@ pub mod tty {
                 }
             };
 
-            spawn_session(cmd, pty_size(rows, cols), on_event, vec![temp_kubeconfig])
+            spawn_session(cmd, pty_size(rows, cols), &owner, on_event, vec![temp_kubeconfig])
         })
         .await
         .map_err(|e| e.to_string())?
     }
 
+    /// Stops a session. Its attached terminal still gets the exit; it can't
+    /// be attached anymore.
     #[tauri::command]
     pub fn stop_tty_session(session_id: String) -> Result<(), String> {
         info!("Stopping TTY session: {}", session_id);
+        // Also forgets a session that ended while detached.
+        lock(&OUTPUTS).remove(&session_id);
 
         // Already gone when the process exited by itself.
         let Some(session) = remove_session(&session_id) else {
@@ -478,9 +631,78 @@ pub mod tty {
             .map_err(|e| format!("Failed to resize the terminal: {}", e))
     }
 
+    /// Detaches the terminal of a session (it is moving to another window):
+    /// the process keeps running, its output only goes to the scrollback
+    /// until `tty_attach`, and closing the window no longer stops it.
+    #[tauri::command]
+    pub fn tty_release(session_id: String) -> Result<(), String> {
+        let output = get_output(&session_id)?;
+        let mut output = lock(&output);
+        output.channel = None;
+        output.owner = None;
+        info!("Released TTY session {}", session_id);
+        Ok(())
+    }
+
+    /// Attaches the calling webview's terminal to a session: the scrollback
+    /// is replayed to `on_event` as one raw message (when there is any),
+    /// then output streams there and the caller owns the session. A session
+    /// that ended while detached replays its scrollback followed by the exit
+    /// message. Fails when the session is gone (ended while attached
+    /// elsewhere, stopped, or unknown).
+    #[tauri::command]
+    pub fn tty_attach(
+        webview: tauri::Webview,
+        session_id: String,
+        on_event: Channel<InvokeResponseBody>,
+    ) -> Result<(), String> {
+        attach(&session_id, webview.label(), on_event)
+    }
+
+    fn attach(
+        session_id: &str,
+        owner: &str,
+        channel: Channel<InvokeResponseBody>,
+    ) -> Result<(), String> {
+        let output = get_output(session_id)?;
+        // Replay and swap under the output lock: the reader can't slip output
+        // in between (lost or sent twice).
+        let mut output = lock(&output);
+        if !output.scrollback.is_empty() {
+            let _ = channel.send(InvokeResponseBody::Raw(output.scrollback.to_vec()));
+        }
+        if let Some((message, _)) = &output.ended {
+            let _ = channel.send(InvokeResponseBody::Json(message.clone()));
+            lock(&OUTPUTS).remove(session_id);
+            info!("Attached ended TTY session {} to {}", session_id, owner);
+            return Ok(());
+        }
+        output.channel = Some(channel);
+        output.owner = Some(owner.to_string());
+        info!("Attached TTY session {} to {}", session_id, owner);
+        Ok(())
+    }
+
+    /// Stops the sessions whose terminal is attached to webview `owner` (its
+    /// window was closed). Returns how many.
+    pub fn stop_sessions_of(owner: &str) -> usize {
+        let owned: Vec<String> = outputs()
+            .into_iter()
+            .filter(|(_, output)| lock(output).owner.as_deref() == Some(owner))
+            .map(|(id, _)| id)
+            .collect();
+        for session_id in &owned {
+            if let Err(e) = stop_tty_session(session_id.clone()) {
+                warn!("{}", e);
+            }
+        }
+        owned.len()
+    }
+
     /// Kill every running session and remove their temporary kubeconfigs.
     /// Called on app exit so no `kubectl exec` / shell processes are orphaned.
     pub fn kill_all_tty_sessions() {
+        lock(&OUTPUTS).clear();
         let sessions: Vec<_> = lock_sessions().drain().map(|(_, s)| s).collect();
 
         for session in &sessions {
@@ -726,6 +948,7 @@ pub mod tty {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use crate::windows::MAIN;
 
         #[test]
         fn pty_size_falls_back_and_clamps() {
@@ -958,6 +1181,7 @@ pub mod tty {
             let session_id = spawn_session(
                 cmd,
                 pty_size(Some(33), Some(101)),
+                MAIN,
                 channel,
                 vec![temp_file.clone()],
             )
@@ -990,7 +1214,7 @@ pub mod tty {
             .unwrap();
 
             let (channel, rx) = collecting_channel();
-            let session_id = spawn_session(cmd, pty_size(None, None), channel, Vec::new()).unwrap();
+            let session_id = spawn_session(cmd, pty_size(None, None), MAIN, channel, Vec::new()).unwrap();
 
             resize_pty(session_id.clone(), 40, 120).unwrap();
             write_to_pty(session_id.clone(), "hello\n".into()).unwrap();
@@ -1024,7 +1248,7 @@ pub mod tty {
             .unwrap();
             let channel = Channel::new(|_| Ok(()));
 
-            let result = spawn_session(cmd, pty_size(None, None), channel, vec![temp_file.clone()]);
+            let result = spawn_session(cmd, pty_size(None, None), MAIN, channel, vec![temp_file.clone()]);
             assert!(result.is_err());
             assert!(!temp_file.exists());
         }
@@ -1038,7 +1262,7 @@ pub mod tty {
             )
             .unwrap();
             let (channel, rx) = collecting_channel();
-            let session_id = spawn_session(cmd, pty_size(None, None), channel, Vec::new()).unwrap();
+            let session_id = spawn_session(cmd, pty_size(None, None), MAIN, channel, Vec::new()).unwrap();
 
             // Far more than the pty buffer holds; nobody reads it.
             let started = std::time::Instant::now();
@@ -1067,7 +1291,7 @@ pub mod tty {
             )
             .unwrap();
             let (channel, rx) = collecting_channel();
-            let session_id = spawn_session(cmd, pty_size(None, None), channel, Vec::new()).unwrap();
+            let session_id = spawn_session(cmd, pty_size(None, None), MAIN, channel, Vec::new()).unwrap();
 
             let mut output = Vec::new();
             while !String::from_utf8_lossy(&output).contains("ready") {
@@ -1121,6 +1345,167 @@ pub mod tty {
             })
             .unwrap();
             assert_eq!(json, r#"{"type":"exit","exitCode":1,"error":null}"#);
+        }
+
+        fn trimmed(data: &str, limit: usize, line_search: usize) -> String {
+            let mut bytes: VecDeque<u8> = data.bytes().collect();
+            trim_scrollback(&mut bytes, limit, line_search);
+            String::from_utf8(bytes.into_iter().collect()).unwrap()
+        }
+
+        #[test]
+        fn scrollback_is_trimmed_at_a_line_boundary() {
+            // Within the limit: untouched.
+            assert_eq!(trimmed("aaaa\nbbbb", 16, 4), "aaaa\nbbbb");
+            // Cut at 6 ("bb\ncccc" kept), the next line starts at 10.
+            assert_eq!(trimmed("aaaa\nbbbb\ncccc", 8, 4), "cccc");
+            // A newline right at the cut is dropped with it.
+            assert_eq!(trimmed("aaaa\nbbbb", 5, 4), "bbbb");
+            // No newline close enough to the cut: just the excess.
+            assert_eq!(trimmed("abcdefghij", 4, 2), "ghij");
+            assert_eq!(trimmed("abcdefgh\nij", 5, 2), "gh\nij");
+        }
+
+        #[test]
+        fn scrollback_keeps_the_last_256_kib() {
+            let mut scrollback = Scrollback::default();
+            for i in 0..40_000 {
+                scrollback.push(format!("line {i}\n").as_bytes());
+            }
+            let text = String::from_utf8(scrollback.to_vec()).unwrap();
+            assert!(text.len() <= SCROLLBACK_LIMIT && text.len() > SCROLLBACK_LIMIT - 64);
+            assert!(text.starts_with("line "), "replay starts at a line: {:?}", &text[..20]);
+            assert!(text.ends_with("line 39999\n"));
+
+            let mut scrollback = Scrollback::default();
+            for _ in 0..20 {
+                scrollback.push(&[b'x'; 16 * 1024]);
+            }
+            assert_eq!(scrollback.to_vec().len(), SCROLLBACK_LIMIT);
+        }
+
+        #[test]
+        fn unknown_sessions_cannot_be_moved() {
+            let channel = Channel::new(|_| Ok(()));
+            assert_eq!(
+                attach("no-such-session", "pop-a", channel).unwrap_err(),
+                "The terminal session has ended"
+            );
+            assert!(tty_release("no-such-session".into()).is_err());
+        }
+
+        #[cfg(unix)]
+        fn scrollback_of(session_id: &str) -> String {
+            let output = lock(&OUTPUTS).get(session_id).cloned().unwrap();
+            let bytes = lock(&output).scrollback.to_vec();
+            String::from_utf8_lossy(&bytes).into_owned()
+        }
+
+        #[cfg(unix)]
+        fn wait_for(what: &str, mut done: impl FnMut() -> bool) {
+            let started = std::time::Instant::now();
+            while !done() {
+                assert!(started.elapsed() < Duration::from_secs(10), "timed out waiting for {what}");
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        /// Raw output received until `text` shows up.
+        #[cfg(unix)]
+        fn read_until(rx: &mpsc::Receiver<InvokeResponseBody>, text: &str) -> String {
+            let mut output = Vec::new();
+            while !String::from_utf8_lossy(&output).contains(text) {
+                match rx.recv_timeout(Duration::from_secs(10)).expect("no output") {
+                    InvokeResponseBody::Raw(bytes) => output.extend(bytes),
+                    InvokeResponseBody::Json(json) => panic!("unexpected exit: {json}"),
+                }
+            }
+            String::from_utf8_lossy(&output).into_owned()
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn a_released_session_keeps_running_and_reattaches_with_its_scrollback() {
+            let cmd = build_command(
+                vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "echo first; read x; echo \"second:$x\"; read y; echo \"third:$y\"; sleep 30".into(),
+                ],
+                HashMap::new(),
+            )
+            .unwrap();
+            let (old_channel, old_rx) = collecting_channel();
+            let session_id =
+                spawn_session(cmd, pty_size(None, None), "pop-tty-old", old_channel, Vec::new()).unwrap();
+            read_until(&old_rx, "first");
+
+            tty_release(session_id.clone()).unwrap();
+            // Closing the old window doesn't stop a released session.
+            assert_eq!(stop_sessions_of("pop-tty-old"), 0);
+            write_to_pty(session_id.clone(), "x\n".into()).unwrap();
+            wait_for("detached output", || scrollback_of(&session_id).contains("second:x"));
+
+            let (new_channel, new_rx) = collecting_channel();
+            attach(&session_id, "pop-tty-test", new_channel).unwrap();
+            match new_rx.recv_timeout(Duration::from_secs(10)).unwrap() {
+                InvokeResponseBody::Raw(bytes) => {
+                    let replay = String::from_utf8_lossy(&bytes);
+                    assert!(replay.contains("first") && replay.contains("second:x"), "replay: {replay:?}");
+                }
+                InvokeResponseBody::Json(json) => panic!("unexpected message: {json}"),
+            }
+
+            write_to_pty(session_id.clone(), "y\n".into()).unwrap();
+            read_until(&new_rx, "third:y");
+            let old: Vec<InvokeResponseBody> = old_rx.try_iter().collect();
+            assert!(
+                old.iter().all(|body| match body {
+                    InvokeResponseBody::Raw(bytes) => !String::from_utf8_lossy(bytes).contains("second:x"),
+                    InvokeResponseBody::Json(_) => false,
+                }),
+                "the old terminal got output after the release"
+            );
+
+            // The new window owns it now: closing it stops the session, and
+            // the exit arrives on the new channel.
+            assert_eq!(stop_sessions_of("pop-tty-test"), 1);
+            let (_, exit) = collect_until_exit(&new_rx);
+            assert!(exit.contains(r#""type":"exit""#), "exit: {exit}");
+            assert!(attach(&session_id, MAIN, Channel::new(|_| Ok(()))).is_err());
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn a_session_that_ends_while_detached_reports_on_attach() {
+            let cmd = build_command(
+                vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "read x; echo \"bye:$x\"; exit 4".into(),
+                ],
+                HashMap::new(),
+            )
+            .unwrap();
+            let (channel, rx) = collecting_channel();
+            let session_id = spawn_session(cmd, pty_size(None, None), MAIN, channel, Vec::new()).unwrap();
+            tty_release(session_id.clone()).unwrap();
+            write_to_pty(session_id.clone(), "z\n".into()).unwrap();
+
+            wait_for("the detached exit", || {
+                let output = lock(&OUTPUTS).get(&session_id).cloned().unwrap();
+                let ended = lock(&output).ended.is_some();
+                ended
+            });
+            assert!(rx.try_iter().next().is_none(), "nothing goes to a released terminal");
+
+            let (channel, rx) = collecting_channel();
+            attach(&session_id, "pop-tty-ended", channel).unwrap();
+            let (output, exit) = collect_until_exit(&rx);
+            assert!(output.contains("bye:z"), "output: {output:?}");
+            assert_eq!(exit, r#"{"type":"exit","exitCode":4,"error":null}"#);
+            // Delivered once.
+            assert!(attach(&session_id, MAIN, Channel::new(|_| Ok(()))).is_err());
         }
     }
 }

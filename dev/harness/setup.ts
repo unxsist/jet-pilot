@@ -27,6 +27,7 @@
  *   ?scenario=rbac-forbidden listing RBAC objects is forbidden (rbac.ts)
  *   ?scenario=gitops-namespaced  GitOps objects readable in argocd / flux-system only (rbac.ts)
  *   ?scenario=no-actions     an empty custom actions folder (actions.ts)
+ *   ?window=pop-demo&popout=view|tabs|shell  a pop-out window (windows.ts)
  *
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views; `large-graph` swaps the
@@ -84,6 +85,7 @@ import { createPanelsMocks } from "./panels";
 import { nodeHistory } from "./metrics";
 import "./rbac";
 import { actionHandlers, seedActionFiles, startActionPty } from "./actions";
+import { handleWindowCommand, installEmitToMock, MOVED_SHELL_OUTPUT, windowLabel } from "./windows";
 import {
   createOperatorMocks,
   OPERATOR_API_VERSIONS,
@@ -139,7 +141,8 @@ document.documentElement.classList.toggle("dark", theme === "dark");
   exe_extension: "",
 };
 
-mockWindows("main");
+/* ?window=pop-…: a pop-out window (windows.ts). */
+mockWindows(windowLabel);
 
 const settings = {
   lastKubeConfig: KUBECONFIG,
@@ -1469,6 +1472,8 @@ mockIPC(
     if (cmd in helm.handlers) return helm.handlers[cmd]!(p);
     if (cmd in actionHandlers) return actionHandlers[cmd]!(p);
     if (cmd in portForwards.handlers) return portForwards.handlers[cmd]!(p);
+    const windowResult = handleWindowCommand(cmd);
+    if (windowResult) return windowResult;
     switch (cmd) {
       // fs / path / app / os / updater / window / clipboard
       case "plugin:fs|exists":
@@ -1804,6 +1809,16 @@ mockIPC(
         else startPty(p.onEvent, []);
         return id;
       }
+      case "tty_attach": {
+        // A shell that "moved" from another window: its output replayed.
+        ptyChannels.set(p.sessionId, p.onEvent);
+        execPrompts.set(
+          p.sessionId,
+          "\x1b[38;5;111mpayments-api-7qjjhld4s-974t2\x1b[0m:\x1b[38;5;150m/app\x1b[0m$ "
+        );
+        setTimeout(() => sendToChannel(p.onEvent, encoder.encode(MOVED_SHELL_OUTPUT).buffer), 60);
+        return null;
+      }
       case "write_to_pty": {
         const channel = ptyChannels.get(p.sessionId);
         if (channel) sendToChannel(channel, encoder.encode(ptyInput(p.sessionId, String(p.data))).buffer);
@@ -1832,6 +1847,7 @@ mockIPC(
   },
   { shouldMockEvents: true }
 );
+installEmitToMock();
 
 /*
  * plugin-fs sends the path of writes as a request header, which mockIPC

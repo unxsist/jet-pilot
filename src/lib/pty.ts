@@ -93,3 +93,23 @@ export const kubectlExecCommand = (options: {
   "--",
   options.shell.trim() || "/bin/sh",
 ];
+
+/*
+ * Running sessions of open tabs, so a tab can move to another window with
+ * its shell still running (see @/lib/windows): the terminal gives its
+ * session up (it no longer stops it when it goes away) and the new window
+ * attaches to it.
+ */
+const releasers = new Map<string, () => string | null>();
+
+export function registerPtyTab(tabId: string, release: () => string | null): () => void {
+  releasers.set(tabId, release);
+  return () => {
+    if (releasers.get(tabId) === release) releasers.delete(tabId);
+  };
+}
+
+/** Takes the running session of a tab's terminal (null: none running). */
+export function releasePtyTab(tabId: string): string | null {
+  return releasers.get(tabId)?.() ?? null;
+}
