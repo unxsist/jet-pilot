@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /*
- * A pop-out window's content (see @/lib/windows):
- * - "tabs": bottom-panel tabs filling the window, the tab strip doubling as
- *   the title bar;
+ * A pop-out window's content (see @/lib/windows), under a title bar that
+ * names what it shows and offers the way back to the main window:
+ * - "tabs": bottom-panel tabs filling the window (a tab strip only once
+ *   there is more than one);
  * - "view": a resource view with its own navigation, side panel and tabs.
  *
  * It opens what the main window sent (running shells attach), reports open
@@ -18,6 +19,7 @@ import { type as getOsType } from "@tauri-apps/plugin-os";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import KindIcon from "@/components/KindIcon.vue";
+import TabIcon from "@/components/TabIcon.vue";
 import RouterViewport from "@/components/RouterViewport.vue";
 import TabOrchestrator from "@/components/TabOrchestrator.vue";
 import WindowControls from "@/components/popout/WindowControls.vue";
@@ -79,12 +81,29 @@ const view = computed(() => viewTitle(router.currentRoute.value));
 const activeTab = computed(
   () => tabs.value.find((t) => t.id === activeTabId.value) ?? null
 );
-const title = computed(() =>
-  isView
-    ? windowTitle(view.value.title, context.value)
-    : windowTitle(activeTab.value?.title ?? "Tabs", activeTab.value?.props?.context ?? null)
+/* Title bar: what the window shows, and where (cluster · namespace). */
+const heading = computed(() => {
+  if (isView) {
+    return {
+      title: view.value.title,
+      where: [context.value, namespace.value].filter(Boolean).join(" · "),
+    };
+  }
+  const tabProps = activeTab.value?.props ?? {};
+  return {
+    title: activeTab.value?.title ?? "",
+    where: [tabProps.context, tabProps.namespace].filter(Boolean).join(" · "),
+  };
+});
+watch(
+  () => windowTitle(heading.value.title, heading.value.where),
+  (value) => void current.setTitle(value).catch(() => undefined),
+  { immediate: true }
 );
-watch(title, (value) => void current.setTitle(value).catch(() => undefined), { immediate: true });
+
+/* View windows move with their tabs; tab windows move the tab on show. */
+const toMain = () =>
+  isView ? viewToMain() : activeTabId.value ? moveTabToMain(activeTabId.value) : undefined;
 
 /* ----------------------------------------------- reports to the main window -- */
 
@@ -215,58 +234,49 @@ provide(PopOutKey, {
 </script>
 
 <template>
-  <!-- Bottom-panel tabs: the tab strip is the title bar. -->
-  <ResizablePanelGroup v-if="!isView" direction="vertical">
-    <TabOrchestrator standalone>
-      <template #leading>
-        <div v-if="isMac" class="w-16 shrink-0" data-tauri-drag-region />
-      </template>
-      <template #trailing>
-        <WindowControls v-if="!isMac" class="ml-1" @close="close" />
-      </template>
-    </TabOrchestrator>
-  </ResizablePanelGroup>
-
-  <!-- A view: title bar, then the view on the same inset canvas as the main window. -->
-  <div v-else class="flex h-full w-full flex-col">
+  <div class="flex h-full w-full flex-col">
     <header class="flex h-10 shrink-0 items-center gap-2 pl-4 pr-2" data-tauri-drag-region>
       <!-- Room for the traffic lights -->
       <div v-if="isMac" class="w-16 shrink-0" data-tauri-drag-region />
-      <KindIcon :name="view.icon" class="h-3.5 w-3.5 text-muted-foreground" />
-      <span class="truncate text-xs font-semibold tracking-tight text-foreground" data-tauri-drag-region>
-        {{ view.title }}
-      </span>
+      <KindIcon v-if="isView" :name="view.icon" class="h-3.5 w-3.5 text-muted-foreground" />
+      <TabIcon v-else-if="activeTab" :name="activeTab.icon" class="text-muted-foreground" />
       <span
-        v-if="context"
-        class="truncate text-xs text-muted-foreground"
+        class="truncate text-xs font-semibold tracking-tight text-foreground"
         data-tauri-drag-region
       >
-        {{ context }}<template v-if="namespace"> · {{ namespace }}</template>
+        {{ heading.title }}
+      </span>
+      <span v-if="heading.where" class="truncate text-xs text-muted-foreground" data-tauri-drag-region>
+        {{ heading.where }}
       </span>
       <div class="ml-auto flex shrink-0 items-center gap-1" data-tauri-drag-region>
         <Button
           variant="ghost"
-          size="icon-xs"
+          size="sm"
           class="text-muted-foreground"
-          aria-label="Move the view to the main window"
-          title="Move to main window"
-          @click="viewToMain"
+          :title="isView ? 'The view and its tabs go back to the main window' : 'This tab goes back to the main window'"
+          @click="toMain"
         >
           <SquareArrowDownLeft class="h-3.5 w-3.5" />
+          {{ !isView && tabs.length > 1 ? "Move tab to main window" : "Move to main window" }}
         </Button>
         <WindowControls v-if="!isMac" @close="close" />
       </div>
     </header>
+    <!-- The content on the same inset canvas as the main window. -->
     <div class="flex min-h-0 flex-1 px-1.5 pb-1.5" data-tauri-drag-region>
       <div
         class="relative flex min-w-0 flex-1 overflow-hidden rounded-lg border bg-background shadow-xs"
       >
-        <ResizablePanelGroup direction="horizontal">
+        <ResizablePanelGroup v-if="isView" direction="horizontal">
           <ResizablePanel>
             <RouterViewport v-if="viewReady" />
           </ResizablePanel>
           <ResizableHandle />
           <SidePanel />
+        </ResizablePanelGroup>
+        <ResizablePanelGroup v-else direction="vertical">
+          <TabOrchestrator standalone />
         </ResizablePanelGroup>
       </div>
     </div>

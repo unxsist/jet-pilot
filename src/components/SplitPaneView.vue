@@ -12,13 +12,18 @@ import { h, type Component } from "vue";
 import { useRouter } from "vue-router";
 import KeptAliveView from "@/components/KeptAliveView.vue";
 import { KEEP_ALIVE_MAX, KEEP_ALIVE_ROUTES } from "@/lib/activeView";
+import { PaneKey } from "@/lib/splitView";
 
 const props = defineProps<{
+  index: number;
   path: string;
   suspended: boolean;
 }>();
 
 const router = useRouter();
+
+/* For PaneControls in the view's toolbar. */
+provide(PaneKey, { index: toRef(props, "index") });
 
 /*
  * The pane's route. Its view component is loaded: the router loaded it when

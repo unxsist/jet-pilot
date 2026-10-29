@@ -2,9 +2,10 @@
 /*
  * The main area: one view, or two side by side (split view, see
  * @/lib/splitView). Panes are keyed by id, so the first pane (and its
- * cached views) stays mounted when a second one opens or closes. With two
- * panes each gets a slim header like a bottom-panel tab; clicking into a
- * pane focuses it, and the router (sidebar, palette, links) follows it.
+ * cached views) stays mounted when a second one opens or closes. Clicking
+ * into a pane focuses it (a thin accent line along its top edge) and the
+ * router (sidebar, palette, links) follows it. Panes have no header of their
+ * own: the view's toolbar names it, PaneControls at its end closes it.
  */
 import SplitPaneView from "@/components/SplitPaneView.vue";
 import {
@@ -15,9 +16,6 @@ import {
 import { injectStrict } from "@/lib/utils";
 import { SplitViewKey } from "@/providers/SplitViewProvider";
 import { MIN_PANE_SIZE } from "@/lib/splitView";
-
-/* Only needed once the view is split. */
-const SplitPaneHeader = defineAsyncComponent(() => import("@/components/SplitPaneHeader.vue"));
 
 const split = injectStrict(SplitViewKey);
 
@@ -68,14 +66,13 @@ watch(
           :data-pane-focused="split.isSplit.value ? index === split.layout.value.focused : undefined"
           @pointerdown.capture="split.focus(index)"
         >
-          <SplitPaneHeader
-            v-if="split.isSplit.value"
-            :index="index"
-            :path="pane.path"
-            :focused="index === split.layout.value.focused"
-          />
           <div class="relative min-h-0 flex-1">
-            <SplitPaneView :path="pane.path" :suspended="split.suspended.value" />
+            <SplitPaneView :index="index" :path="pane.path" :suspended="split.suspended.value" />
+            <div
+              v-if="split.isSplit.value && index === split.layout.value.focused"
+              class="pointer-events-none absolute inset-x-0 top-0 z-10 h-[2px] bg-primary"
+              aria-hidden="true"
+            />
           </div>
         </section>
       </ResizablePanel>

@@ -16,6 +16,10 @@
  * (opening, closing, swapping panes, workspaces) is in @/lib/splitViewOps,
  * loaded on demand.
  */
+import type { InjectionKey, Ref } from "vue";
+
+/** Provided inside each pane (SplitPaneView): its index, for PaneControls. */
+export const PaneKey: InjectionKey<{ index: Readonly<Ref<number>> }> = Symbol("Pane");
 
 export interface Pane {
   /** Stable for the life of the pane (keys its cached views). */

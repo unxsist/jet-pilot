@@ -1,4 +1,5 @@
 <script setup lang="ts" generic="TData, TValue">
+import PaneControls from "@/components/PaneControls.vue";
 import type {
   Column,
   ColumnDef,
@@ -1652,6 +1653,7 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
           </DropdownMenuContent>
         </DropdownMenu>
         <slot name="action-buttons" />
+        <PaneControls />
       </div>
     </div>
 

@@ -23,8 +23,8 @@ const props = withDefaults(
   defineProps<{
     /**
      * The tabs fill a pop-out window (@/lib/windows, the only panel of its
-     * group): the panel maximized, its tab strip the title bar (slots
-     * `leading` / `trailing` for the window controls); it doesn't collapse.
+     * group): it doesn't collapse, and a single tab needs no tab strip (the
+     * window's title bar names it).
      */
     standalone?: boolean;
   }>(),
@@ -219,16 +219,13 @@ const handleResize = (size: number) => {
       @keydown.stop="() => {}"
     >
       <div
-        class="flex shrink-0 items-stretch border-b bg-surface-1 pr-1.5"
-        :class="props.standalone ? 'h-10' : 'h-9'"
-        :data-tauri-drag-region="props.standalone || undefined"
+        v-if="!props.standalone || tabs.length > 1"
+        class="flex h-9 shrink-0 items-stretch border-b bg-surface-1 pr-1.5"
       >
-        <slot name="leading" />
         <div
           class="flex min-w-0 flex-1 items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           role="tablist"
           aria-label="Open tabs"
-          :data-tauri-drag-region="props.standalone || undefined"
         >
           <div
             v-for="tab in tabs"
@@ -319,7 +316,6 @@ const handleResize = (size: number) => {
             />
           </Button>
         </div>
-        <slot name="trailing" />
       </div>
       <div
         class="relative flex min-h-0 flex-grow overflow-auto"
