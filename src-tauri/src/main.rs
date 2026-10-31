@@ -8,6 +8,7 @@ use tracing_subscriber::{fmt, prelude::*, reload, Registry};
 use once_cell::sync::Lazy;
 use std::sync::{Arc, RwLock};
 
+mod ai;
 mod announcements;
 mod app_log;
 mod auth;
@@ -162,6 +163,8 @@ fn main() {
             shell::tty::write_to_pty,
             shell::tty::resize_pty,
             shell::tty::create_local_terminal_session,
+            shell::tty::create_agent_terminal_session,
+            ai::ai_find_agents,
             logs::structured_logging::start_structured_logging_session,
             logs::structured_logging::repurpose_structured_logging_session,
             logs::structured_logging::end_structured_logging_session,

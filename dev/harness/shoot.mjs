@@ -60,6 +60,63 @@ const screens = {
   "health-risks": { url: "/health?tab=risks", ready: "h1", settle: 1500 },
   "health-upgrades": { url: "/health?tab=upgrades", ready: "h1", settle: 1500 },
   "health-changes": { url: "/health?tab=changes", ready: "h1", settle: 1500 },
+  // Ask AI (dev/harness/ai.ts): Claude Code is set up unless ?ai= says otherwise.
+  "ai-settings": { url: "/settings/ai", ready: "main h2", settle: 1200 },
+  "ai-settings-custom": { url: "/settings/ai?ai=custom", ready: "main h2", settle: 1200 },
+  "ai-settings-none": {
+    url: "/settings/ai?ai=none",
+    ready: "main h2",
+    settle: 1200,
+    run: async (page) => {
+      await page.getByRole("button", { name: "How to install" }).first().click();
+      await wait(500);
+    },
+  },
+  "ai-panel": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    settle: 2500,
+    run: async (page) => {
+      await openAskAi(page);
+      await page.keyboard.type("Why does one pod keep restarting?");
+      await wait(300);
+    },
+  },
+  "ai-terminal": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    settle: 2500,
+    run: async (page) => {
+      await openAskAi(page);
+      await page.keyboard.press("Enter");
+      await wait(400);
+      await enlargePanel(page);
+      await wait(1800);
+    },
+  },
+  "ai-terminal-readonly": {
+    url: "/deployments?resource=deployments&kind=Deployment&aireadonly=1",
+    ready: "tbody tr td",
+    settle: 2500,
+    run: async (page) => {
+      await openAskAi(page);
+      await page.keyboard.press("Enter");
+      await wait(400);
+      await enlargePanel(page);
+      await wait(1800);
+    },
+  },
+  "ai-palette": {
+    url: "/pods",
+    ready: "tbody tr td",
+    settle: 2500,
+    run: async (page) => {
+      await page.keyboard.press("Control+k");
+      await wait(400);
+      await page.keyboard.type("ask ai");
+      await wait(600);
+    },
+  },
   "cluster-overview": { url: "/cluster-overview", ready: ".vue-flow__node-k8s", settle: 2500 },
   "graph-problems": {
     url: "/cluster-overview",
@@ -1349,6 +1406,14 @@ async function enlargePanel(page, dy = -330) {
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + dy, { steps: 8 });
   await page.mouse.up();
   await wait(300);
+}
+
+/* Opens checkout-api's side panel and its "Ask AI" popover. */
+async function openAskAi(page) {
+  await page.locator("tbody tr", { hasText: "checkout-api" }).first().click();
+  await wait(900);
+  await page.getByRole("button", { name: "Ask AI" }).click();
+  await wait(500);
 }
 
 async function openForwards(page) {

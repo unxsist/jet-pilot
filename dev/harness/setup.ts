@@ -84,6 +84,7 @@ import { createPanelsMocks } from "./panels";
 import { nodeHistory } from "./metrics";
 import "./rbac";
 import { actionHandlers, seedActionFiles, startActionPty } from "./actions";
+import { aiSettings, createAiMocks } from "./ai";
 import {
   createOperatorMocks,
   OPERATOR_API_VERSIONS,
@@ -174,6 +175,7 @@ const settings = {
   actions: { disabled: ["copy-image"] },
   ...(polling ? { experimental: { useKubectlPolling: true } } : {}),
   ...portForwardSettings(),
+  ...aiSettings(),
   ...(scenario === "hub"
     ? {
         clusters: params.get("readonly") === "1"
@@ -1460,6 +1462,8 @@ const openVsxInstall = (namespace: string, name: string) => {
   return { extension, themes: openVsxThemes() };
 };
 
+const ai = createAiMocks(sendToChannel);
+
 mockIPC(
   async (cmd: string, payload: any) => {
     const p = payload || {};
@@ -1469,6 +1473,7 @@ mockIPC(
     if (cmd in helm.handlers) return helm.handlers[cmd]!(p);
     if (cmd in actionHandlers) return actionHandlers[cmd]!(p);
     if (cmd in portForwards.handlers) return portForwards.handlers[cmd]!(p);
+    if (cmd in ai.handlers) return ai.handlers[cmd]!(p);
     switch (cmd) {
       // fs / path / app / os / updater / window / clipboard
       case "plugin:fs|exists":
