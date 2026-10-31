@@ -151,10 +151,10 @@ export function hubStatus(context: string, kubeConfig: string, interactive: stri
   }
   const versions: Record<string, [string, number]> = {
     [CONTEXTS[0]!.name]: ["v1.31.4-eks-2d5f260", 12],
-    "arn:aws:eks:us-east-1:123456789012:cluster/payments-dr": ["v1.31.4-eks-2d5f260", 3],
-    "gke_acme-prod_europe-west4_checkout": ["v1.32.2-gke.1182003", 9],
-    "do-ams3-hobby": ["v1.30.6", 2],
-    "lke148202-ctx": ["v1.31.0", 3],
+    "arn:aws:eks:us-east-1:123456789012:cluster/payments-dr": ["v1.35.2-eks-3a1f0c9", 3],
+    "gke_acme-prod_europe-west4_checkout": ["v1.35.9-gke.1505000", 9],
+    "do-ams3-hobby": ["v1.35.4", 2],
+    "lke148202-ctx": ["v1.35.1", 3],
     "admin@k8s-blog": ["v1.30.4", 1],
     "kind-dev": ["v1.32.0", 1],
   };

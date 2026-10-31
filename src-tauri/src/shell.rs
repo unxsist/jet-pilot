@@ -568,49 +568,137 @@ pub mod tty {
         )
         .await?;
 
+        let argv = terminal_shell_argv(
+            shell.as_deref(),
+            std::env::var_os("SHELL").as_deref(),
+            std::env::var_os("PATH").as_deref(),
+        );
+        // HTTP(S) proxies also reach the shell's other tools.
+        let env: HashMap<String, String> = route
+            .as_ref()
+            .map(|route| crate::connection::terminal_env(&route.url).into_iter().collect())
+            .unwrap_or_default();
+
         tauri::async_runtime::spawn_blocking(move || {
-            let temp_kubeconfig = write_temp_kubeconfig(
-                &std::env::temp_dir(),
+            spawn_pinned_session(
                 &kube_config,
                 &context,
-                normalize_namespace(namespace).as_deref(),
-                route.as_ref().map(|r| r.url.as_str()),
-            )?;
-
-            let mut env = HashMap::new();
-            env.insert(
-                "KUBECONFIG".to_string(),
-                temp_kubeconfig.to_string_lossy().into_owned(),
-            );
-            if let Some(route) = &route {
-                env.extend(crate::connection::terminal_env(&route.url));
-            }
-
-            let argv = terminal_shell_argv(
-                shell.as_deref(),
-                std::env::var_os("SHELL").as_deref(),
-                std::env::var_os("PATH").as_deref(),
-            );
-
-            let cmd = match build_command(argv, env) {
-                Ok(cmd) => cmd,
-                Err(e) => {
-                    remove_temp_files(&[temp_kubeconfig]);
-                    return Err(e);
-                }
-            };
-
-            spawn_session(
-                cmd,
+                namespace,
+                argv,
+                env,
+                None,
                 pty_size(rows, cols),
                 &owner,
                 on_event,
-                vec![temp_kubeconfig],
-                route.and_then(|r| r.lease),
+                route,
             )
         })
         .await
         .map_err(|e| e.to_string())?
+    }
+
+    /// Start an AI agent CLI (`argv`, e.g. `claude "…"`) for Ask AI, with
+    /// `KUBECONFIG` pinned to a temporary copy of `context` like the local
+    /// terminal. `env` is the agent's own settings (a read-only mode); it
+    /// can't replace the pinned kubeconfig. The agent runs in a workspace
+    /// directory of its own (`ask-ai/` in the app data directory), so it
+    /// doesn't start in, and look through, the user's home directory, and
+    /// agents that ask to trust their folder only ask once.
+    #[tauri::command]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_agent_terminal_session(
+        webview: tauri::Webview,
+        kube_config: String,
+        context: String,
+        namespace: Option<String>,
+        argv: Vec<String>,
+        env: Option<HashMap<String, String>>,
+        rows: Option<u16>,
+        cols: Option<u16>,
+        on_event: Channel<InvokeResponseBody>,
+    ) -> Result<String, String> {
+        info!("Creating agent terminal session for context {}", context);
+        let owner = webview.label().to_string();
+        let workspace = crate::ai::agent_workspace(tauri::Manager::app_handle(&webview));
+        // kubectl goes through the cluster's proxy via the kubeconfig; the
+        // agent's own traffic doesn't.
+        let route = crate::connection::route(
+            &crate::kubernetes::client::resolve_kubeconfig_path(Some(&kube_config)),
+            &context,
+        )
+        .await?;
+
+        tauri::async_runtime::spawn_blocking(move || {
+            spawn_pinned_session(
+                &kube_config,
+                &context,
+                namespace,
+                argv,
+                env.unwrap_or_default(),
+                workspace,
+                pty_size(rows, cols),
+                &owner,
+                on_event,
+                route,
+            )
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    /// The pty command of a session with `KUBECONFIG` pinned to
+    /// `kubeconfig`: set after `env`, so it always wins.
+    pub(crate) fn pinned_command(
+        argv: Vec<String>,
+        mut env: HashMap<String, String>,
+        kubeconfig: &Path,
+        cwd: Option<&Path>,
+    ) -> Result<CommandBuilder, String> {
+        env.insert(
+            "KUBECONFIG".to_string(),
+            kubeconfig.to_string_lossy().into_owned(),
+        );
+        let mut cmd = build_command(argv, env)?;
+        if let Some(cwd) = cwd {
+            cmd.cwd(cwd);
+        }
+        Ok(cmd)
+    }
+
+    /// Write the temporary single-context kubeconfig and run `argv` with
+    /// `KUBECONFIG` pointing to it, owned by webview `owner`; the file is
+    /// removed when the session ends. `route` (a proxy or SSH jump host)
+    /// goes into the kubeconfig; its tunnel is held until the session ends.
+    #[allow(clippy::too_many_arguments)]
+    fn spawn_pinned_session(
+        kube_config: &str,
+        context: &str,
+        namespace: Option<String>,
+        argv: Vec<String>,
+        env: HashMap<String, String>,
+        cwd: Option<PathBuf>,
+        size: PtySize,
+        owner: &str,
+        on_event: Channel<InvokeResponseBody>,
+        route: Option<crate::connection::Route>,
+    ) -> Result<String, String> {
+        let temp_kubeconfig = write_temp_kubeconfig(
+            &std::env::temp_dir(),
+            kube_config,
+            context,
+            normalize_namespace(namespace).as_deref(),
+            route.as_ref().map(|r| r.url.as_str()),
+        )?;
+
+        let cmd = match pinned_command(argv, env, &temp_kubeconfig, cwd.as_deref()) {
+            Ok(cmd) => cmd,
+            Err(e) => {
+                remove_temp_files(&[temp_kubeconfig]);
+                return Err(e);
+            }
+        };
+
+        spawn_session(cmd, size, owner, on_event, vec![temp_kubeconfig], route.and_then(|r| r.lease))
     }
 
     /// Stops a session. Its attached terminal still gets the exit; it can't
@@ -1038,6 +1126,29 @@ pub mod tty {
             );
             assert_eq!(cmd.get_env("KUBECONFIG"), Some(OsStr::new("/tmp/x")));
             assert_eq!(cmd.get_env("TERM"), Some(OsStr::new("xterm-256color")));
+        }
+
+        #[test]
+        fn pinned_command_keeps_the_pinned_kubeconfig() {
+            let mut env = HashMap::new();
+            env.insert("KUBECONFIG".to_string(), "/home/me/.kube/config".to_string());
+            env.insert("OPENCODE_PERMISSION".to_string(), "{}".to_string());
+
+            let cmd = pinned_command(
+                vec!["claude".into(), "Why?".into()],
+                env,
+                Path::new("/tmp/pinned.yaml"),
+                Some(Path::new("/tmp/ask-ai")),
+            )
+            .unwrap();
+
+            assert_eq!(cmd.get_env("KUBECONFIG"), Some(OsStr::new("/tmp/pinned.yaml")));
+            assert_eq!(cmd.get_env("OPENCODE_PERMISSION"), Some(OsStr::new("{}")));
+            assert_eq!(cmd.get_cwd().map(OsString::as_os_str), Some(OsStr::new("/tmp/ask-ai")));
+
+            let cmd = pinned_command(vec!["sh".into()], HashMap::new(), Path::new("k"), None).unwrap();
+            assert_eq!(cmd.get_cwd(), None);
+            assert!(pinned_command(vec![], HashMap::new(), Path::new("k"), None).is_err());
         }
 
         #[test]

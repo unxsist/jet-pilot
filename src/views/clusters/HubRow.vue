@@ -24,6 +24,7 @@ import { STATUS_TONES } from "@/lib/clusters/status";
 import { requestSignIn, useCredential } from "@/lib/auth/center";
 import { credentialBadge } from "@/lib/auth/badge";
 import type { CatalogCluster } from "@/lib/clusters/cloud";
+import { platformOf, supportBadge, supportOf } from "@/lib/upgrades/support";
 
 const props = defineProps<{
   cluster: HubCluster;
@@ -73,6 +74,13 @@ const signIn = computed(() => {
   return badge && (badge.tone === "warning" || badge.tone === "destructive") ? badge : null;
 });
 const version = computed(() => minorVersion(props.cluster.status?.serverVersion));
+/* Near or past the end of support (local clusters come and go: never). */
+const support = computed(() => {
+  const serverVersion = props.cluster.status?.serverVersion;
+  const provider = entry.value.provider.id;
+  if (!serverVersion || provider === "local") return null;
+  return supportBadge(supportOf(platformOf({ version: serverVersion, provider }), serverVersion));
+});
 </script>
 
 <template>
@@ -111,7 +119,15 @@ const version = computed(() => minorVersion(props.cluster.status?.serverVersion)
         <ShieldAlert v-if="meta.protected" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Protected" />
         <Lock v-if="meta.readOnly" class="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Read-only" />
       </div>
-      <p class="truncate text-xs text-muted-foreground">{{ subtitle }}</p>
+      <p class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+        <span class="truncate">{{ subtitle }}</span>
+        <template v-if="support">
+          <span aria-hidden="true" class="text-muted-foreground/60">·</span>
+          <span class="shrink-0 text-warning" :title="support.title">
+            {{ support.text }}
+          </span>
+        </template>
+      </p>
     </div>
 
     <div class="flex shrink-0 items-center justify-end text-xs">

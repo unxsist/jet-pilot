@@ -25,7 +25,7 @@ import { useGitOpsDetection } from "@/lib/gitops/detect";
 import type { NavSection } from "@/lib/apiGroups";
 import { isSameContext } from "@/lib/contextKey";
 import { onRecovered, report } from "@/lib/auth/center";
-import { perfMark } from "@/lib/perf";
+import { perfMark, whenIdle } from "@/lib/perf";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { getCurrentWebviewWindow as getWindow } from "@tauri-apps/api/webviewWindow";
 import { exit } from "@tauri-apps/plugin-process";
@@ -50,10 +50,16 @@ interface NavigationGroup {
   apiGroupResources: string[];
 }
 
+/* The problem count on the Health link: its own chunk, watching from when the app is idle. */
+const HealthCount = defineAsyncComponent(() => import("@/views/health/problems/SidebarCount.vue"));
+const showHealthCount = ref(false);
+whenIdle(() => (showHealthCount.value = true));
+
 /* App destinations above the resource groups; GitOps once Flux or Argo CD runs in an active cluster. */
 const gitops = useGitOpsDetection();
 const appLinks = computed(() => [
   { title: "Clusters", to: { name: "ClustersHub" }, icon: "clustershub" },
+  { title: "Health", to: { name: "Health" }, icon: "health" },
   { title: "Resource Graph", to: { name: "ClusterOverview" }, icon: "diagram" },
   ...(gitops.installed.value ? [{ title: "GitOps", to: { name: "GitOps" }, icon: "gitops" }] : []),
 ]);
@@ -383,7 +389,9 @@ onUnmounted(stopRecovered);
                 :title="link.title"
                 :to="link.to"
                 :can-pin="false"
-              />
+              >
+                <template v-if="link.icon === 'health' && showHealthCount" #trailing><HealthCount /></template>
+              </NavigationItem>
             </div>
             <NavigationGroup
               v-if="

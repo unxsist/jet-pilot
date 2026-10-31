@@ -32,6 +32,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useRoute } from "vue-router";
 import type { KubernetesObject } from "@kubernetes/client-node";
 import { error } from "@/lib/logger";
+import { useAskAi } from "@/lib/ai/askAi";
 
 const route = useRoute();
 
@@ -56,6 +57,10 @@ watch(route, () => {
 
 /* Back to where a link in the panel came from (its own chunk). */
 const PanelBack = defineAsyncComponent(() => import("@/components/PanelBack.vue"));
+
+/* Ask AI (Settings › AI): only loaded while an agent is set up. */
+const askAi = useAskAi();
+const AskAiButton = defineAsyncComponent(() => import("@/components/ai/AskAiButton.vue"));
 
 /* Kinds whose logs `kubectl logs <kind>/<name>` can show. */
 const LOGGABLE_KINDS = [
@@ -349,6 +354,12 @@ const showLogs = () => {
           >
             <ScrollText class="h-3 w-3" /> Logs
           </Button>
+          <AskAiButton
+            v-if="resource && askAi.available.value"
+            :resource="resource"
+            :context="target.context"
+            :kube-config="target.kubeConfig"
+          />
           <PanelActions
             v-if="resource"
             :resource="resource"

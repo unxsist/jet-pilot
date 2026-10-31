@@ -88,6 +88,7 @@ const onAuxClick = (event: MouseEvent) => {
       class="h-4 w-4 text-muted-foreground transition-colors duration-fast group-hover/main:text-foreground [.router-link-active_&]:text-primary"
     />
     <span class="min-w-0 flex-1 truncate" :title="hint ? `${title} · ${hint}` : title">{{ title }}</span>
+    <slot name="trailing" />
     <span
       v-if="props.shortcut"
       class="whitespace-nowrap text-2xs font-medium tabular-nums text-muted-foreground/70"

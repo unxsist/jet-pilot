@@ -24,12 +24,17 @@ import CommandPaletteProvider from "@/providers/CommandPaletteProvider";
 import SplitViewProvider from "@/providers/SplitViewProvider";
 import { currentWindowLabel, MAIN_WINDOW, type WindowPayload } from "@/lib/windows";
 import { parsePayload, WINDOW_EVENTS } from "@/lib/windowRecords";
+import { AskAiKey } from "@/lib/ai/askAi";
+import { appAskAi } from "@/lib/ai/provider";
 
 const DialogHandler = defineAsyncComponent(() => import("@/components/DialogHandler.vue"));
 const GuardrailsHost = defineAsyncComponent(
   () => import("@/components/guardrails/GuardrailsHost.vue")
 );
 const AuthHost = defineAsyncComponent(() => import("@/components/auth/AuthHost.vue"));
+/* Ask AI opens its tabs in this window. */
+const AskAiHost = defineAsyncComponent(() => import("@/components/ai/AskAiHost.vue"));
+provide(AskAiKey, appAskAi);
 
 const osType = getOsType();
 const label = currentWindowLabel();
@@ -77,6 +82,7 @@ onUnmounted(() => {
                       <DialogHandler />
                       <GuardrailsHost />
                       <AuthHost />
+                      <AskAiHost />
                     </SplitViewProvider>
                   </CommandPaletteProvider>
                 </PanelProvider>

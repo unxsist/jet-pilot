@@ -377,6 +377,54 @@ export const SETTINGS: readonly SettingDefinition[] = [
     hidden: true,
   }),
 
+  /* ----------------------------------------------------------------- ai -- */
+  // Edited by Settings › AI (src/components/settings/sections/AskAiSection.vue).
+  choice({
+    key: "ai.agent",
+    default: "",
+    label: "Ask AI agent",
+    description: "The AI agent CLI that answers questions about a cluster, in a terminal tab.",
+    options: [
+      { value: "", label: "Off" },
+      { value: "claude", label: "Claude Code" },
+      { value: "codex", label: "Codex" },
+      { value: "gemini", label: "Gemini CLI" },
+      { value: "opencode", label: "OpenCode" },
+      { value: "copilot", label: "GitHub Copilot CLI" },
+      { value: "custom", label: "Custom command" },
+    ],
+    keywords: ["ai", "agent", "llm", "claude", "codex", "gemini", "opencode", "copilot", "ask ai"],
+    category: "ai",
+    section: "ask-ai",
+    hidden: true,
+  }),
+  string({
+    key: "ai.customCommand",
+    default: "",
+    label: "Custom agent command",
+    description: "Starts your agent; {prompt} becomes the question.",
+    placeholder: "my-agent {prompt}",
+    mono: true,
+    keywords: ["ai", "agent", "command"],
+    category: "ai",
+    section: "ask-ai",
+    machine: true,
+    hidden: true,
+  }),
+  string({
+    key: "ai.customReadOnlyCommand",
+    default: "",
+    label: "Custom agent read-only command",
+    description: "Used on read-only clusters instead.",
+    placeholder: "my-agent --read-only {prompt}",
+    mono: true,
+    keywords: ["ai", "agent", "read-only", "plan mode"],
+    category: "ai",
+    section: "ask-ai",
+    machine: true,
+    hidden: true,
+  }),
+
   /* ----------------------------------------------------------- advanced -- */
   number({
     key: "network.requestTimeout",

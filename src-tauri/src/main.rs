@@ -8,9 +8,12 @@ use tracing_subscriber::{fmt, prelude::*, reload, Registry};
 use once_cell::sync::Lazy;
 use std::sync::{Arc, RwLock};
 
+mod ai;
 mod announcements;
 mod app_log;
 mod auth;
+mod certificates;
+mod changes;
 mod clusters;
 mod connection;
 mod deep_link;
@@ -179,6 +182,8 @@ fn main() {
             shell::tty::tty_attach,
             windows::window_open,
             windows::window_focus,
+            shell::tty::create_agent_terminal_session,
+            ai::ai_find_agents,
             logs::structured_logging::start_structured_logging_session,
             logs::structured_logging::repurpose_structured_logging_session,
             logs::structured_logging::end_structured_logging_session,
@@ -213,6 +218,8 @@ fn main() {
             helm::helm_releases,
             helm::helm_history,
             helm::helm_release_detail,
+            helm::apis::helm_manifest_apis,
+            certificates::tls_certificates,
             helm::chart::helm_chart_inspect,
             helm::artifacthub::artifacthub_search,
             helm::artifacthub::artifacthub_package,
@@ -275,6 +282,8 @@ fn main() {
             connection::cluster_connection_status,
             connection::cluster_connection_connect,
             connection::cluster_cli_args,
+            changes::changes_track,
+            changes::changes_list,
         ])
         // Pop-out windows: cleanup when one closes, quit when main closes.
         .on_window_event(windows::on_window_event)
@@ -364,6 +373,8 @@ fn main() {
             auth::login::cancel_all();
             // SSH tunnels, and kubeconfigs written for proxied clusters.
             connection::shutdown();
+            // Recorded changes still waiting for their debounced write.
+            changes::flush_all();
         }
     });
 }

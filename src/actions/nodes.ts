@@ -107,6 +107,11 @@ export function actions<
       command: (row: T) => commandFromArgv("kubectl", drainArgs(row)),
       handler: async (rows: T[]) => {
         const commands = rows.map((row) => commandFromArgv("kubectl", drainArgs(row)));
+        // What the drain will run into (blocking budgets, pods nothing recreates).
+        const { drainWarnings } = await import("@/lib/health/checks/preflight");
+        const warnings = await drainWarnings(
+          rows.map((row) => ({ name: `${row.metadata?.name}`, context: row.metadata.context, kubeConfig: row.metadata.kubeConfig }))
+        );
         const confirmed = await guard("drain", rowTargets(rows, "Node"), {
           commands,
           confirm: () =>
@@ -115,8 +120,10 @@ export function actions<
                 rows.length === 1
                   ? `Drain ${rows[0].metadata?.name}?`
                   : `Drain ${rows.length} nodes?`,
-              message:
+              message: [
                 "All pods (except DaemonSet pods) are evicted, including pods with local (emptyDir) data, which is lost.",
+                ...warnings,
+              ].join(" "),
               component: defineAsyncComponent(
                 () => import("@/views/dialogs/ResourceList.vue")
               ),

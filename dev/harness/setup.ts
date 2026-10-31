@@ -28,6 +28,7 @@
  *   ?scenario=gitops-namespaced  GitOps objects readable in argocd / flux-system only (rbac.ts)
  *   ?scenario=no-actions     an empty custom actions folder (actions.ts)
  *   ?window=pop-demo&popout=view|tabs|shell  a pop-out window (windows.ts)
+ *   ?scenario=problems-cause the Problems panel finds what caused a problem (cause.ts)
  *
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views; `large-graph` swaps the
@@ -80,14 +81,18 @@ import { createHelmMocks } from "./helm";
 import { installAuthMocks } from "./auth";
 import { handleKubeRequest } from "./kubeApi";
 import { createGitopsMocks } from "./gitops";
+import { installUpkeepMocks } from "./upkeep";
 import { createPortForwardMocks, portForwardSettings } from "./portForwards";
 import { createPanelsMocks } from "./panels";
+import { createChangesMocks } from "./changes";
 import { nodeHistory } from "./metrics";
 import "./rbac";
+import "./problems";
 import { actionHandlers, seedActionFiles, startActionPty } from "./actions";
 import { handleWindowCommand, installEmitToMock, MOVED_SHELL_OUTPUT, windowLabel } from "./windows";
 import { createRolloutMocks, noteRollout, volumeLogLines } from "./polishUi";
 import { createDesktopMocks } from "./desktop";
+import { aiSettings, createAiMocks } from "./ai";
 import {
   createOperatorMocks,
   OPERATOR_API_VERSIONS,
@@ -179,6 +184,7 @@ const settings = {
   actions: { disabled: ["copy-image"] },
   ...(polling ? { experimental: { useKubectlPolling: true } } : {}),
   ...portForwardSettings(),
+  ...aiSettings(),
   ...(scenario === "hub"
     ? {
         clusters: params.get("readonly") === "1"
@@ -1308,6 +1314,8 @@ const helm = createHelmMocks(scenario);
 const portForwards = createPortForwardMocks();
 /* Side panel fixtures, patch and event routes (dev/harness/panels.ts). */
 createPanelsMocks(scenario, emitWatchChange);
+/* Change history and the recorder (dev/harness/changes.ts). */
+const changes = createChangesMocks(scenario);
 let probeBatches = 0;
 
 /* ------------------------------------------------------------------ fs -- */
@@ -1474,6 +1482,7 @@ const openVsxInstall = (namespace: string, name: string) => {
 
 /* jetpilot:// links and per-cluster connections (desktop.ts). */
 const desktop = createDesktopMocks(params);
+const ai = createAiMocks(sendToChannel);
 
 mockIPC(
   async (cmd: string, payload: any) => {
@@ -1487,6 +1496,8 @@ mockIPC(
     if (cmd in portForwards.handlers) return portForwards.handlers[cmd]!(p);
     const windowResult = handleWindowCommand(cmd);
     if (windowResult) return windowResult;
+    if (cmd in changes.handlers) return changes.handlers[cmd]!(p);
+    if (cmd in ai.handlers) return ai.handlers[cmd]!(p);
     switch (cmd) {
       // fs / path / app / os / updater / window / clipboard
       case "plugin:fs|exists":
@@ -1881,5 +1892,7 @@ internals.invoke = async (cmd: string, args: any, options: any) => {
 
 /* Auth center: credential status, sign-ins, auth-expired (auth.ts). */
 installAuthMocks({ scenario, sendToChannel, firstContext: CONTEXTS[0].name, kubeConfig: KUBECONFIG, files: HUB_FILES });
+/* Health Risks / Upgrades: TLS expiry, Helm manifest APIs, a client certificate (upkeep.ts). */
+installUpkeepMocks();
 
 (window as any).__harness = { theme, os, scenario, polling };

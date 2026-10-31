@@ -16,9 +16,10 @@
  * - a ResourceQuota (one line nearly full) and a LimitRange in payments
  * - CSI details on the volumes, gp3 parameters, the nginx IngressClass
  *
- * Routes: PATCH of any built-in object (JSON merge patch and JSON patch
- * with `test`, applied to the fixture and pushed to the watchers; refused
- * with `?scenario=edit-forbidden`), lists with a field / label selector and
+ * Routes: PATCH of any built-in object (JSON merge patch, JSON patch with
+ * `test` and strategic merge patch, applied to the fixture and pushed to
+ * the watchers, or only answered with `?dryRun=All`; refused with
+ * `?scenario=edit-forbidden`), lists with a field / label selector and
  * the events of one object (`fieldSelector=involvedObject...`).
  */
 import { CLUSTERS, CONTEXTS, API_GROUPS } from "./fixtures";
@@ -350,6 +351,24 @@ function mergePatch(target: any, patch: any): any {
   return result;
 }
 
+/* Strategic merge patch, as far as the harness needs it: lists of named items merge by name. */
+function strategicPatch(target: any, patch: any): any {
+  if (Array.isArray(patch) && Array.isArray(target) && patch.every((item) => item?.name)) {
+    const result = target.map((item) => {
+      const change = patch.find((p) => p.name === item?.name);
+      return change ? strategicPatch(item, change) : item;
+    });
+    return [...result, ...patch.filter((p) => !target.some((item) => item?.name === p.name))];
+  }
+  if (patch === null || typeof patch !== "object" || Array.isArray(patch)) return patch;
+  const result = target && typeof target === "object" && !Array.isArray(target) ? { ...target } : {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) delete result[key];
+    else result[key] = strategicPatch(result[key], value);
+  }
+  return result;
+}
+
 /* RFC 6902 JSON patch: add, replace, remove and test (what the panels send). */
 function jsonPatch(target: any, ops: any[]): any {
   const doc = structuredClone(target);
@@ -441,9 +460,15 @@ export function createPanelsMocks(scenario: string, emit: Emit) {
           );
         }
         const before = list[index];
-        const json = String(request.contentType ?? "").includes("json-patch");
-        const next = json ? jsonPatch(before, request.body) : mergePatch(structuredClone(before), request.body);
+        const type = String(request.contentType ?? "");
+        const next = type.includes("json-patch")
+          ? jsonPatch(before, request.body)
+          : type.includes("strategic")
+            ? strategicPatch(structuredClone(before), request.body)
+            : mergePatch(structuredClone(before), request.body);
         next.metadata = { ...next.metadata, resourceVersion: String(++resourceVersion) };
+        // A dry run answers with what would be stored, and stores nothing.
+        if (request.query.get("dryRun") === "All") return next;
         list[index] = next;
         emit(plural!, { modified: [next] }, request.context);
         return next;

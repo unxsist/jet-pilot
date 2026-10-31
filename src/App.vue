@@ -41,6 +41,8 @@ import {
 } from "@/components/ui/resizable";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { whenIdle } from "@/lib/perf";
+import { AskAiKey } from "@/lib/ai/askAi";
+import { appAskAi } from "@/lib/ai/provider";
 
 const osType = ref(getOsType());
 
@@ -73,6 +75,15 @@ const SettingsCommands = defineAsyncComponent(
 /* Custom actions in the palette and on their shortcuts (Settings › Actions). */
 const ActionCommands = defineAsyncComponent(
   () => import("./components/customActions/ActionCommands.vue")
+);
+/* Records changes on the active clusters while the app is open (Health › Changes). */
+const ChangeRecorder = defineAsyncComponent(
+  () => import("@/views/health/changes/ChangeRecorder.vue")
+);
+/* Ask AI (Settings › AI): unavailable until its host connects the agent. */
+provide(AskAiKey, appAskAi);
+const AskAiHost = defineAsyncComponent(
+  () => import("./components/ai/AskAiHost.vue")
 );
 const idle = ref(false);
 onMounted(() => whenIdle(() => (idle.value = true), 2000));
@@ -135,6 +146,8 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
                             <ThemeCommands />
                             <SettingsCommands />
                             <ActionCommands />
+                            <ChangeRecorder />
+                            <AskAiHost />
                           </template>
                           <TerminalLauncher />
                         </WorkspaceProvider>
