@@ -46,7 +46,7 @@ export interface SplitView {
   /** For workspaces: the panes, or null without a split. */
   snapshot(): SplitSnapshot | null;
   /** Applies a workspace's split (null: one pane, the focused view stays). */
-  restore(snapshot: SplitSnapshot | null): void;
+  restore(snapshot: SplitSnapshot | null): Promise<void>;
 }
 
 export const SplitViewKey: InjectionKey<SplitView> = Symbol("SplitView");

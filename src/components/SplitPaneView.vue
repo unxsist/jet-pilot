@@ -9,7 +9,7 @@
  * renders nothing: its cached views are deactivated and pause.
  */
 import { h, type Component } from "vue";
-import { useRouter } from "vue-router";
+import { useRouter, type RouteLocationNormalizedLoaded } from "vue-router";
 import KeptAliveView from "@/components/KeptAliveView.vue";
 import { KEEP_ALIVE_MAX, KEEP_ALIVE_ROUTES } from "@/lib/activeView";
 import { PaneKey } from "@/lib/splitView";
@@ -33,7 +33,9 @@ provide(PaneKey, { index: toRef(props, "index") });
 const route = computed(() => {
   if (!props.path) return null;
   const resolved = router.resolve(props.path);
-  return resolved.matched.length > 0 ? resolved : null;
+  // Only rendered once its component is loaded (`view` below): then it is
+  // the loaded location the view would get from <router-view>.
+  return resolved.matched.length > 0 ? (resolved as unknown as RouteLocationNormalizedLoaded) : null;
 });
 const cached = computed(
   () => !!route.value && KEEP_ALIVE_ROUTES.includes(String(route.value.name ?? ""))
