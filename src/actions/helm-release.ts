@@ -4,6 +4,7 @@ import { describeRows, getResourceTabId } from "@/components/tables/identity";
 import { allowed, confirmDialog, guard, rowTargets } from "@/lib/guardrails/guard";
 import { runCliForEach } from "./command";
 import type { HelmReleaseRow } from "@/lib/helm";
+import { commandFromArgv } from "@/lib/kubectl/command";
 
 /*
  * Helm release actions, shared by the releases table and the release
@@ -29,6 +30,19 @@ const tabProps = (row: ReleaseRef) => ({
     status: row.status,
   },
 });
+
+const releaseFlags = (row: ReleaseRef) => [
+  `--kube-context=${row.metadata.context}`,
+  `--namespace=${row.namespace}`,
+  ...(row.metadata.kubeConfig ? [`--kubeconfig=${row.metadata.kubeConfig}`] : []),
+];
+const rollbackArgs = (row: ReleaseRef, revision: number) => [
+  "rollback",
+  row.name,
+  String(revision),
+  ...releaseFlags(row),
+];
+const uninstallArgs = (row: ReleaseRef) => ["uninstall", row.name, ...releaseFlags(row)];
 
 export function openUpgrade(addTab: any, row: ReleaseRef) {
   if (!allowed("helm-upgrade", rowTargets([row], "release"))) return;
@@ -74,26 +88,22 @@ export async function rollbackRelease(
   row: ReleaseRef,
   revision: { revision: number; chart: string; chartVersion: string; appVersion: string }
 ): Promise<boolean> {
+  const commands = [commandFromArgv("helm", rollbackArgs(row, revision.revision))];
   const confirmed = await guard("helm-rollback", rowTargets([row], "release"), {
+    commands,
     confirm: () =>
       confirmDialog(spawnDialog, {
         title: `Roll back ${row.name} to revision ${revision.revision}?`,
         message: `Re-deploys ${[revision.chart, revision.chartVersion].filter(Boolean).join(" ")}${
           revision.appVersion ? ` (app ${revision.appVersion})` : ""
         } with the values of revision ${revision.revision}, as a new revision.`,
+        commands,
         confirmLabel: `Roll back to #${revision.revision}`,
       }),
   });
   if (!confirmed) return false;
   const { succeeded } = await runCliForEach("helm", [revision], {
-    args: (r) => [
-      "rollback",
-      row.name,
-      String(r.revision),
-      `--kube-context=${row.metadata.context}`,
-      `--namespace=${row.namespace}`,
-      ...(row.metadata.kubeConfig ? [`--kubeconfig=${row.metadata.kubeConfig}`] : []),
-    ],
+    args: (r) => rollbackArgs(row, r.revision),
     label: (r) => `${row.name} to revision ${r.revision}`,
     successVerb: "Rolled back",
     failureVerb: "roll back",
@@ -104,7 +114,9 @@ export async function rollbackRelease(
 
 /** Uninstalls after a confirmation; resolves to the rows uninstalled. */
 export async function uninstallReleases(spawnDialog: any, rows: ReleaseRef[]): Promise<ReleaseRef[]> {
+  const commands = rows.map((row) => commandFromArgv("helm", uninstallArgs(row)));
   const confirmed = await guard("helm-uninstall", rowTargets(rows, "release"), {
+    commands,
     confirm: () =>
       confirmDialog(spawnDialog, {
         title:
@@ -117,19 +129,14 @@ export async function uninstallReleases(spawnDialog: any, rows: ReleaseRef[]): P
         props: {
           lines: describeRows(rows),
         },
+        commands,
         confirmLabel: "Uninstall",
         variant: "destructive",
       }),
   });
   if (!confirmed) return [];
   const { succeeded } = await runCliForEach("helm", rows, {
-    args: (row) => [
-      "uninstall",
-      row.name,
-      `--kube-context=${row.metadata.context}`,
-      `--namespace=${row.namespace}`,
-      ...(row.metadata.kubeConfig ? [`--kubeconfig=${row.metadata.kubeConfig}`] : []),
-    ],
+    args: uninstallArgs,
     label: (row) => row.name,
     successVerb: "Uninstalled",
     failureVerb: "uninstall",
@@ -165,12 +172,14 @@ export function actions(
     },
     {
       label: "History",
+      command: (row) => commandFromArgv("helm", ["history", row.name, ...releaseFlags(row)]),
       handler: (row: HelmReleaseRow) => openHistory(addTab, row),
     },
     {
       label: "Uninstall",
       kind: "helm-uninstall",
       massAction: true,
+      command: (row) => commandFromArgv("helm", uninstallArgs(row)),
       handler: (rows: HelmReleaseRow[]) => uninstallReleases(spawnDialog, rows),
     },
   ];

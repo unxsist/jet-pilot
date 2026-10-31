@@ -1,5 +1,7 @@
 import { ColumnDef } from "@tanstack/vue-table";
 import { contextCell, mutedCell } from "./cells";
+import { resolveCluster } from "@/lib/clusters/meta";
+import { runtimeSettings } from "@/lib/settings/runtime";
 
 /**
  * Columns shown when multiple clusters / namespaces are in play.
@@ -13,6 +15,10 @@ export const multiContextColumns: ColumnDef<any>[] = [
     id: "context",
     meta: {
       showOnMultipleClusters: true,
+      // The cluster's name as the cell shows it (its alias, if it has one).
+      text: (row) =>
+        resolveCluster(runtimeSettings()?.clusters, row?.metadata?.context ?? "", row?.metadata?.kubeConfig)
+          .displayName,
     },
     accessorKey: "metadata.context",
     header: "Context",

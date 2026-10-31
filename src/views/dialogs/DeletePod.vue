@@ -8,6 +8,8 @@ import { useToast } from "@/components/ui/toast";
 import { Kubernetes } from "@/services/Kubernetes";
 import { error } from "@/lib/logger";
 import { guard, rowTargets } from "@/lib/guardrails/guard";
+import { deletePodArgs, kubectlFor } from "@/lib/kubectl/command";
+import EquivalentCommand from "@/components/kubectl/EquivalentCommand.vue";
 
 const props = defineProps<{
   pod: V1Pod & { metadata: { context: string; kubeConfig: string } };
@@ -24,9 +26,13 @@ const gracePeriod = computed(
   () => props.pod.spec?.terminationGracePeriodSeconds ?? 30
 );
 
+const commands = computed(() => [
+  kubectlFor(props.pod, deletePodArgs(props.pod.metadata?.name ?? "", force.value)),
+]);
+
 const deletePod = async () => {
   const name = props.pod.metadata?.name ?? "";
-  if (!(await guard("delete", rowTargets([props.pod], "Pod")))) return;
+  if (!(await guard("delete", rowTargets([props.pod], "Pod"), { commands: commands.value }))) return;
   deleting.value = true;
 
   try {
@@ -83,6 +89,7 @@ const deletePod = async () => {
         </span>
       </span>
     </label>
+    <EquivalentCommand :commands="commands" />
   </div>
   <AlertDialogFooter>
     <Button variant="ghost" :disabled="deleting" @click="emit('closeDialog')">

@@ -21,6 +21,10 @@ import { phraseMatches } from "@/lib/guardrails/policy";
 import type { TypedConfirmRequest } from "@/lib/guardrails/guard";
 
 const props = defineProps<{ request: TypedConfirmRequest }>();
+
+const EquivalentCommand = defineAsyncComponent(
+  () => import("@/components/kubectl/EquivalentCommand.vue")
+);
 const emit = defineEmits<{ (e: "settle", confirmed: boolean): void }>();
 
 const typed = ref("");
@@ -97,6 +101,8 @@ const submit = () => {
               </li>
             </ul>
           </div>
+
+          <EquivalentCommand v-if="request.commands?.length" :commands="request.commands" />
 
           <p v-if="request.requireDryRun" class="flex items-center gap-1.5 text-xs text-muted-foreground">
             <CheckCircle2 class="h-3.5 w-3.5 text-success" /> The server-side dry run passed.
