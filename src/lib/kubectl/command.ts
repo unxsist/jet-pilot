@@ -2,7 +2,8 @@
  * "The kubectl equivalent" of what JET Pilot does (pure, unit tested): a
  * command line for an action, with the cluster flags (`--context`, `-n`,
  * `--kubeconfig`) only where they differ from what kubectl would use by
- * itself, and every value quoted for a POSIX shell.
+ * itself (commands that change something always name their context), and
+ * every value quoted for a POSIX shell.
  */
 
 export type CommandProgram = "kubectl" | "helm";
@@ -82,11 +83,32 @@ export function commandFromArgv(program: CommandProgram, argv: readonly string[]
 
 const normalizePath = (path: string) => path.replace(/\\/g, "/").replace(/\/+$/, "");
 
-/** The cluster flags kubectl (or helm) needs for `target`, given its defaults. */
+/* Commands that only read: everything else may change the cluster. */
+const READ_ONLY: Record<CommandProgram, string[]> = {
+  kubectl: ["get", "describe", "logs", "explain", "top", "events", "port-forward", "api-resources", "auth", "rollout history", "rollout status"],
+  helm: ["history", "status", "get", "list", "show", "search", "template"],
+};
+
+/**
+ * Whether a command may change the cluster. Those always name their context
+ * (and namespace): pasted into a terminal whose current context moved on,
+ * they would otherwise change another cluster.
+ */
+export function changesCluster(spec: Pick<CommandSpec, "program" | "args">): boolean {
+  const [verb = "", sub = ""] = spec.args;
+  return !READ_ONLY[spec.program].some((command) => command === verb || command === `${verb} ${sub}`);
+}
+
+/**
+ * The cluster flags kubectl (or helm) needs for `target`, given its
+ * defaults; `explicit` names the context and namespace even when they are
+ * the defaults.
+ */
 export function clusterFlags(
   program: CommandProgram,
   target: CommandTarget,
-  defaults: KubectlDefaults
+  defaults: KubectlDefaults,
+  explicit = false
 ): string[] {
   const flags = FLAGS[program];
   const kubeConfig = target.kubeConfig ?? "";
@@ -99,15 +121,15 @@ export function clusterFlags(
   const defaultNamespace = defaults.namespaceOf(target.context, kubeConfig) || "default";
 
   const result: string[] = [];
-  if (namespace && namespace !== defaultNamespace) result.push("-n", namespace);
-  if (target.context && target.context !== current) result.push(flags.context[0], target.context);
+  if (namespace && (explicit || namespace !== defaultNamespace)) result.push("-n", namespace);
+  if (target.context && (explicit || target.context !== current)) result.push(flags.context[0], target.context);
   if (!isDefaultFile) result.push(flags.kubeconfig[0], kubeConfig);
   return result;
 }
 
 /** The quoted words of the command line; the flags go before a `--`. */
 export function commandWords(spec: CommandSpec, defaults: KubectlDefaults): string[] {
-  const flags = clusterFlags(spec.program, spec.target, defaults);
+  const flags = clusterFlags(spec.program, spec.target, defaults, changesCluster(spec));
   const split = spec.args.indexOf("--");
   const args =
     split < 0

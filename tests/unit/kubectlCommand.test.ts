@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   annotateArgs,
+  changesCluster,
   clusterFlags,
   commandFromArgv,
   commandLine,
@@ -151,12 +152,22 @@ describe("commands from the argv the app runs", () => {
 });
 
 describe("command lines", () => {
-  test("a restart on the current cluster is just the verb", () => {
+  test("a change always names its cluster, even the current one", () => {
     const spec = kubectlFor(
       { metadata: { context: "prod", kubeConfig: HOME_CONFIG, namespace: "payments" } },
       rolloutArgs("restart", "Deployment", "payments-api")
     );
-    expect(commandLine(spec, defaults())).toBe("kubectl rollout restart deployment/payments-api");
+    expect(commandLine(spec, defaults())).toBe("kubectl rollout restart deployment/payments-api -n payments --context prod");
+  });
+
+  test("a read on the current cluster is just the verb", () => {
+    const target = { metadata: { context: "prod", kubeConfig: HOME_CONFIG, namespace: "payments" } };
+    expect(commandLine(kubectlFor(target, ["rollout", "history", "deployment/payments-api"]), defaults())).toBe(
+      "kubectl rollout history deployment/payments-api"
+    );
+    expect(commandLine(kubectlFor(target, ["logs", "pod/web-1"]), defaults())).toBe("kubectl logs pod/web-1");
+    expect(changesCluster({ program: "helm", args: ["history", "api"] })).toBe(false);
+    expect(changesCluster({ program: "helm", args: ["rollback", "api", "3"] })).toBe(true);
   });
 
   test("elsewhere it says where", () => {
@@ -173,7 +184,7 @@ describe("command lines", () => {
     const ref = kindRef({ kind: "Kustomization", apiVersion: "kustomize.toolkit.fluxcd.io/v1", metadata: { name: "apps" } });
     const patch = kubectlFor({ metadata: { context: "prod", namespace: "flux-system" } }, mergePatchArgs(ref, { spec: { suspend: true } }));
     expect(commandLine(patch, defaults())).toBe(
-      `kubectl patch kustomization.kustomize.toolkit.fluxcd.io/apps --type=merge -p '{"spec":{"suspend":true}}' -n flux-system`
+      `kubectl patch kustomization.kustomize.toolkit.fluxcd.io/apps --type=merge -p '{"spec":{"suspend":true}}' -n flux-system --context prod`
     );
     const annotate = annotateArgs("scaledobject.keda.sh/api", {
       "autoscaling.keda.sh/paused": null,
