@@ -3,6 +3,7 @@ import { getCurrentInstance } from "vue";
 import type * as Monaco from "monaco-editor";
 import Loading from "@/components/Loading.vue";
 import { Command } from "@tauri-apps/plugin-shell";
+import { routedCliArgs } from "@/lib/clusters/connection";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import {
   editorOptions,
@@ -253,7 +254,7 @@ const contextArgs = (context = props.context, kubeConfig = props.kubeConfig) =>
  * also writes warnings (e.g. API deprecations) to stderr.
  */
 const runKubectl = async (args: string[]): Promise<string> => {
-  const { code, stdout, stderr } = await Command.create("kubectl", args).execute();
+  const { code, stdout, stderr } = await Command.create("kubectl", await routedCliArgs(args)).execute();
   if (stderr.trim()) trace(`kubectl ${args[0]} stderr: ${stderr}`);
   if (code !== 0) {
     throw new Error(stderr.trim() || `kubectl exited with code ${code}`);

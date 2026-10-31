@@ -25,9 +25,11 @@ export async function runCli(
   const refusal = cliRefusal(program, args, call);
   if (refusal) return { code: null, stdout: "", stderr: refusal };
   try {
+    // Through the cluster's proxy or SSH tunnel, when it has one.
+    const { routedCliArgs } = await import("@/lib/clusters/connection");
     const { code, stdout, stderr } = await Command.create(
       program,
-      args
+      await routedCliArgs(args)
     ).execute();
     return { code, stdout, stderr };
   } catch (e) {

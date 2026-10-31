@@ -172,8 +172,7 @@ pub fn describe_failure(stderr: &str, spec: &SshSpec) -> Failure {
     let last = stderr
         .lines()
         .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with("Warning: Permanently added"))
-        .next_back();
+        .rfind(|line| !line.is_empty() && !line.starts_with("Warning: Permanently added"));
     failure(
         match last {
             Some(line) => format!("SSH to {host} stopped: {}", line.trim_end_matches('.')),
@@ -692,7 +691,7 @@ mod tests {
     }
 
     /// PROGRAM is shared by the tests that replace ssh.
-    static PROGRAM_TESTS: Mutex<()> = Mutex::new(());
+    static PROGRAM_TESTS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     #[cfg(unix)]
     fn script(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
@@ -706,7 +705,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn a_password_prompt_fails_in_plain_words_without_retrying() {
-        let _guard = lock(&PROGRAM_TESTS);
+        let _guard = PROGRAM_TESTS.lock().await;
         let dir = tempfile::tempdir().unwrap();
         let calls = dir.path().join("calls");
         *lock(&PROGRAM) = Some(script(
@@ -770,7 +769,7 @@ mod tests {
     #[ignore]
     async fn a_real_ssh_tunnel_carries_kube_traffic() {
         let Ok(host) = std::env::var("JP_SSH_E2E_HOST") else { return };
-        let _guard = lock(&PROGRAM_TESTS);
+        let _guard = PROGRAM_TESTS.lock().await;
         let dir = tempfile::tempdir().unwrap();
         let known_hosts = std::env::var("JP_SSH_E2E_KNOWN_HOSTS")
             .map(|file| format!("-o UserKnownHostsFile='{file}' -o StrictHostKeyChecking=accept-new "))

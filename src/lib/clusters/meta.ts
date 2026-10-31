@@ -60,10 +60,17 @@ export interface ClusterMeta {
   namespaces?: string[];
   /** Where usage history comes from; unset: a Prometheus found automatically. */
   metrics?: MetricsSetting;
+  /** How JET Pilot reaches it; unset: directly (src/lib/clusters/connection.ts). */
+  connection?: ConnectionSetting;
 }
 
 /** Off: only metrics-server's last minutes. Service: this Prometheus-compatible API. */
 export type MetricsSetting = { mode: "off" } | ({ mode: "service" } & PromSource);
+
+/** A SOCKS5 / HTTP(S) proxy, or an SSH jump host (`host` is `[user@]host`; `jump` an extra `-J`). */
+export type ConnectionSetting =
+  | { mode: "proxy"; url: string }
+  | { mode: "ssh"; host: string; port?: number; identityFile?: string; jump?: string };
 
 export interface ClusterRecord extends ClusterMeta {
   /** "" = this context name in any kubeconfig. */
@@ -94,6 +101,7 @@ export interface ResolvedCluster {
   tags: string[];
   namespaces: string[];
   metrics?: MetricsSetting;
+  connection?: ConnectionSetting;
 }
 
 /**
@@ -202,6 +210,7 @@ export function resolveCluster(
     tags: record?.tags ?? [],
     namespaces: record?.namespaces ?? [],
     metrics: record?.metrics,
+    connection: record?.connection,
   };
 }
 

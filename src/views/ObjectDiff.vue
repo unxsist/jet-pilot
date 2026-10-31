@@ -6,6 +6,7 @@
  * shows what was declared differently.
  */
 import { Command } from "@tauri-apps/plugin-shell";
+import { routedCliArgs } from "@/lib/clusters/connection";
 import yaml from "js-yaml";
 import Loading from "@/components/Loading.vue";
 import ContextAvatar from "@/components/ContextAvatar.vue";
@@ -53,7 +54,7 @@ const fetchSide = async (side: Side) => {
       namespace: props.namespace,
     }),
   ];
-  const { code, stdout, stderr } = await Command.create("kubectl", args).execute();
+  const { code, stdout, stderr } = await Command.create("kubectl", await routedCliArgs(args)).execute();
   if (code !== 0) throw new Error(stderr.trim() || `kubectl exited with code ${code}`);
   return yaml.load(stdout);
 };

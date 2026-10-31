@@ -372,6 +372,96 @@ const screens = {
   "settings-json": { url: "/settings/json?key=terminal.fontSize", ready: ".monaco-editor", settle: 1800 },
   "clusters-hub": { url: "/clusters?scenario=hub", ready: "[role=grid]", settle: 3500 },
   "clusters-embedded": { url: "/pods?scenario=nocontext", ready: "[role=grid]", settle: 2000 },
+  // Per-cluster connections (dev/harness/desktop.ts): an SSH jump host that
+  // is up, one that fails, a SOCKS proxy, and a proxy-url in the kubeconfig.
+  "connection-detail": {
+    url: "/clusters?scenario=hub",
+    ready: "[role=grid]",
+    settle: 2500,
+    run: async (page) => {
+      await page.locator("[role=grid] [role=row]", { hasText: "Payments prod" }).first().click();
+      await wait(1200);
+    },
+  },
+  "connection-failed": {
+    url: "/clusters?scenario=hub",
+    ready: "[role=grid]",
+    settle: 2500,
+    run: async (page) => {
+      await page.locator("[role=grid] [role=row]", { hasText: "Payments DR" }).first().click();
+      await wait(1200);
+    },
+  },
+  "connection-kubeconfig-proxy": {
+    url: "/clusters?scenario=hub",
+    ready: "[role=grid]",
+    settle: 2500,
+    run: async (page) => {
+      await page.locator("[role=grid] [role=row]", { hasText: "Checkout" }).first().click();
+      await wait(1200);
+    },
+  },
+  "connection-edit-ssh": {
+    url: "/clusters?scenario=hub",
+    ready: "[role=grid]",
+    settle: 2500,
+    run: async (page) => {
+      await page.locator("[role=grid] [role=row]", { hasText: "Payments DR" }).first().click();
+      await wait(900);
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
+      await wait(900);
+      await page.locator("#cluster-ssh-jump").scrollIntoViewIfNeeded();
+      await wait(400);
+    },
+  },
+  "connection-edit-proxy": {
+    url: "/clusters?scenario=hub",
+    ready: "[role=grid]",
+    settle: 2500,
+    run: async (page) => {
+      await page.locator("[role=grid] [role=row]", { hasText: "Sandbox" }).first().click();
+      await wait(900);
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
+      await wait(900);
+      await page.getByRole("tab", { name: "Proxy" }).click();
+      await page.locator("#cluster-proxy").fill("proxy.corp.example:3128");
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await wait(500);
+    },
+  },
+  // jetpilot:// links (?link= is handed over like the link the app started with).
+  "deep-link-open": {
+    url: `/pods?link=${encodeURIComponent("jetpilot://open?context=prod-eu-west-1&kind=Deployment&apiVersion=apps/v1&namespace=payments&name=payments-api")}`,
+    ready: "[role=grid], table",
+    settle: 3500,
+  },
+  "deep-link-unknown": {
+    url: `/pods?link=${encodeURIComponent("jetpilot://open?context=prod-us-east-1&kind=Deployment&apiVersion=apps/v1&namespace=shop&name=checkout-api")}`,
+    ready: "[role=grid], table",
+    settle: 3000,
+  },
+  "deep-link-row-menu": {
+    url: "/pods",
+    ready: "tbody tr",
+    settle: 1500,
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "payments-api" }).first().click({ button: "right" });
+      await wait(500);
+      await page.locator('[role="menuitem"]', { hasText: "Copy link" }).hover();
+      await wait(300);
+    },
+  },
+  "deep-link-panel-menu": {
+    url: "/pods",
+    ready: "tbody tr",
+    settle: 1500,
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "payments-api" }).first().click();
+      await wait(1500);
+      await page.getByRole("button", { name: "More", exact: true }).click();
+      await wait(500);
+    },
+  },
   // GitOps (dev/harness/gitops.ts): both contexts, Flux and Argo CD.
   gitops: { url: "/gitops?contexts=2", ready: "[data-delivery-key]", settle: 1500 },
   "gitops-panel": {

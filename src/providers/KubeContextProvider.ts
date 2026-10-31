@@ -88,15 +88,18 @@ export default {
 
     provide(KubeContextStateKey, toRefs(state));
 
-    /* The auth center only toasts sign-in issues of clusters in use. */
-    watchEffect(() =>
-      setActiveClusters(
-        [...state.contexts.keys()].map((context) => ({
-          context,
-          kubeConfig: state.contextKubeConfigMapping.get(context) || "",
-        }))
-      )
-    );
+    /*
+     * The auth center only toasts sign-in issues of clusters in use; SSH
+     * tunnels stay up for them.
+     */
+    watchEffect(() => {
+      const active = [...state.contexts.keys()].map((context) => ({
+        context,
+        kubeConfig: state.contextKubeConfigMapping.get(context) || "",
+      }));
+      setActiveClusters(active);
+      void import("@/lib/clusters/connection").then((m) => m.syncActiveConnections(active));
+    });
 
     const setContext = (context: { context: string; kubeConfig: string }) => {
       Kubernetes.setCurrentKubeConfig(context.kubeConfig);
