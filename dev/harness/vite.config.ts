@@ -6,6 +6,7 @@
  * Extends the app's Vite config and injects ./setup.ts ahead of src/main.ts.
  * The production config (vite.config.ts) never references this directory.
  */
+import { fileURLToPath } from "node:url";
 import { defineConfig, mergeConfig, type Plugin } from "vite";
 import baseConfig from "../../vite.config";
 
@@ -24,6 +25,21 @@ const injectHarness = (): Plugin => ({
   },
 });
 
+/*
+ * ?scenario=problems-cause: likelyCause answers from fixtures. The app's
+ * imports of @/lib/changes/cause resolve to ./cause.ts, which hands every
+ * other scenario to the real module.
+ */
+const harnessCause = fileURLToPath(new URL("./cause.ts", import.meta.url));
+const mockLikelyCause = (): Plugin => ({
+  name: "jet-pilot-harness-cause",
+  enforce: "pre",
+  resolveId(source, importer) {
+    if (!importer || importer === harnessCause) return null;
+    return /(^@|\/src)\/lib\/changes\/cause(\.ts)?$/.test(source) ? harnessCause : null;
+  },
+});
+
 // Drop the Vue devtools overlay: it would show up in every screenshot.
 const basePlugins = ((baseConfig.plugins || []) as unknown[])
   .flat(Infinity)
@@ -36,7 +52,7 @@ const basePlugins = ((baseConfig.plugins || []) as unknown[])
 export default mergeConfig(
   { ...(baseConfig as Record<string, unknown>), plugins: basePlugins },
   defineConfig({
-    plugins: [injectHarness()],
+    plugins: [injectHarness(), mockLikelyCause()],
     server: { port: 5174, strictPort: true },
   })
 );

@@ -10,6 +10,7 @@
  *   state.json     session state and collections the UI manages (`AppState`):
  *                  active contexts, open tabs, workspaces, ...
  */
+import type { Snooze } from "@/lib/health/problems/snooze";
 import type { TabSession } from "@/lib/tabDescriptors";
 import type { PortForwardProfile } from "@/lib/portForwardProfiles";
 import type { Workspace } from "@/lib/workspaces";
@@ -132,6 +133,8 @@ export interface AppState {
   recentCommands: string[];
   /** Version in which the setup guide was finished or skipped. */
   welcomeCompleted: string | null;
+  /** Problems on the Health page the user snoozed or acknowledged, by fingerprint. */
+  snoozedProblems: Snooze[];
 }
 
 /** Everything the app reads through `SettingsContextStateKey`. */
