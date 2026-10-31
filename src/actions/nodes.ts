@@ -90,6 +90,11 @@ export function actions<
       kind: "drain",
       massAction: true,
       handler: async (rows: T[]) => {
+        // What the drain will run into (blocking budgets, pods nothing recreates).
+        const { drainWarnings } = await import("@/lib/health/checks/preflight");
+        const warnings = await drainWarnings(
+          rows.map((row) => ({ name: `${row.metadata?.name}`, context: row.metadata.context, kubeConfig: row.metadata.kubeConfig }))
+        );
         const confirmed = await guard("drain", rowTargets(rows, "Node"), {
           confirm: () =>
             confirmDialog(spawnDialog, {
@@ -97,8 +102,10 @@ export function actions<
                 rows.length === 1
                   ? `Drain ${rows[0].metadata?.name}?`
                   : `Drain ${rows.length} nodes?`,
-              message:
+              message: [
                 "All pods (except DaemonSet pods) are evicted, including pods with local (emptyDir) data, which is lost.",
+                ...warnings,
+              ].join(" "),
               component: defineAsyncComponent(
                 () => import("@/views/dialogs/ResourceList.vue")
               ),

@@ -6,6 +6,7 @@
  * guardrails, with the actions.
  */
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { useRouter } from "vue-router";
 import { Copy, Lock, MoreHorizontal, ShieldAlert, Sparkles, X } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +29,10 @@ import type { CatalogCluster } from "@/lib/clusters/cloud";
 import { providerInfo } from "@/lib/clusters/providers";
 import { discoverCached, type Discovery } from "@/lib/metrics/discovery";
 import { KIND_LABELS, describeSource } from "@/lib/metrics/prometheus";
+import { platformOf, supportOf } from "@/lib/upgrades/support";
+import { addonsSummary, apisSummary } from "@/lib/upgrades/words";
+import { upgradeChecks } from "@/lib/health/checks/session";
+import { contextKey } from "@/lib/contextKey";
 
 const SCOPE_LABELS: Partial<Record<CatalogCluster["provider"], string>> = { aws: "Account", gcp: "Project", azure: "Subscription" };
 
@@ -90,6 +95,25 @@ const file = computed(() =>
   entry.value.origin === "managed" ? "Added in JET Pilot" : entry.value.kubeConfig.replace(/^\/(home|Users)\/[^/]+/, "~")
 );
 const inferred = computed(() => (meta.value.envInferred ? envInfo(meta.value.env) : undefined));
+
+/*
+ * Upgrades: support from the bundled dates (not for local clusters, which
+ * come and go); APIs and add-ons once the Health page checked them.
+ */
+const support = computed(() => {
+  const version = status.value?.serverVersion;
+  const provider = entry.value.provider.id;
+  return version && provider !== "local" ? supportOf(platformOf({ version, provider }), version) : null;
+});
+const upgrade = computed(() => {
+  const report = upgradeChecks.get(contextKey(entry.value.context, entry.value.kubeConfig))?.result;
+  if (!report) return null;
+  const apis = report.apis.length ? apisSummary(report.apis).text : null;
+  const addons = addonsSummary(report.addons);
+  return [apis, addons.tone === "warning" ? addons.text : null].filter(Boolean).join(" · ") || "Nothing stands in the way";
+});
+const router = useRouter();
+const openUpgrades = () => router.push({ name: "Health", query: { tab: "upgrades" } });
 
 const copy = (text: string, what: string) =>
   writeText(text).then(() => toast({ title: `${what} copied` }), () => undefined);
@@ -191,6 +215,25 @@ const MetricsSourceDialog = defineAsyncComponent(() => import("@/components/metr
         <template v-if="status?.serverVersion">
           <dt class="text-muted-foreground">Kubernetes</dt>
           <dd class="font-mono text-xs leading-5">{{ status.serverVersion }}</dd>
+        </template>
+        <template v-if="support">
+          <dt class="text-muted-foreground">Support</dt>
+          <dd class="min-w-0">
+            <span class="flex items-start gap-2">
+              <span class="flex h-5 shrink-0 items-center"><StatusDot :tone="support.tone" /></span>
+              {{ support.headline }}
+            </span>
+            <span v-if="support.detail" class="block text-xs text-muted-foreground">{{ support.detail }}</span>
+            <span v-if="upgrade" class="block text-xs text-muted-foreground">{{ upgrade }}</span>
+            <button
+              v-if="cluster.active"
+              type="button"
+              class="rounded text-xs text-link hover:underline focus-ring"
+              @click="openUpgrades"
+            >
+              {{ upgrade ? "Upgrade details" : "Check upgrade readiness" }}
+            </button>
+          </dd>
         </template>
         <template v-if="status?.nodeCount != null">
           <dt class="text-muted-foreground">Nodes</dt>

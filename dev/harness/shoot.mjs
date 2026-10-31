@@ -57,8 +57,50 @@ const screens = {
     },
   },
   "health-problems": { url: "/health", ready: "h1", settle: 1500 },
-  "health-risks": { url: "/health?tab=risks", ready: "h1", settle: 1500 },
-  "health-upgrades": { url: "/health?tab=upgrades", ready: "h1", settle: 1500 },
+  // Risks and Upgrades (dev/harness/upkeep.ts): checks finish, then rules / lists open.
+  "health-risks": { url: "/health?tab=risks", ready: "text=Check again", settle: 600 },
+  "health-risks-open": {
+    url: "/health?tab=risks",
+    ready: "text=Check again",
+    settle: 600,
+    run: async (page) => {
+      await page.getByRole("button", { name: /certificates? needs? renewing/ }).click();
+      await page.getByRole("button", { name: /no disruption budget/ }).click();
+      await wait(300);
+      await page.locator("li", { hasText: "payments-worker" }).first().hover();
+      await wait(300);
+    },
+  },
+  "health-risks-multi": {
+    url: "/health?tab=risks&contexts=2",
+    ready: "text=Check again",
+    settle: 600,
+    run: async (page) => {
+      await page.getByRole("button", { name: /kubeconfig certificate/ }).click();
+      await page.getByRole("button", { name: /certificates? needs? renewing/ }).click();
+      await wait(400);
+    },
+  },
+  "health-upgrades": { url: "/health?tab=upgrades", ready: "text=Check again", settle: 600 },
+  "health-upgrades-open": {
+    url: "/health?tab=upgrades",
+    ready: "text=Check again",
+    settle: 600,
+    run: async (page) => {
+      await page.getByRole("button", { name: /deprecated or removed APIs/ }).click();
+      await page.getByRole("button", { name: /need an update/ }).click();
+      await wait(400);
+    },
+  },
+  "health-upgrades-multi": { url: "/health?tab=upgrades&contexts=2", ready: "text=Check again", settle: 800 },
+  "health-risks-clean": { url: "/health?tab=risks&scenario=upkeep-clean", ready: "text=Check again", settle: 600 },
+  "health-upgrades-clean": { url: "/health?tab=upgrades&scenario=upkeep-clean", ready: "text=Check again", settle: 600 },
+  // Drain's pre-flight: checkout-api's budget allows no evictions, a bare debug pod runs there.
+  "nodes-drain": {
+    url: "/nodes?resource=nodes&kind=Node",
+    ready: "tbody tr td",
+    run: async (page) => openRowAction(page, "ip-10-0-45-118", "Drain"),
+  },
   "health-changes": { url: "/health?tab=changes", ready: "h1", settle: 1500 },
   "cluster-overview": { url: "/cluster-overview", ready: ".vue-flow__node-k8s", settle: 2500 },
   "graph-problems": {
@@ -375,6 +417,15 @@ const screens = {
   },
   "settings-json": { url: "/settings/json?key=terminal.fontSize", ready: ".monaco-editor", settle: 1800 },
   "clusters-hub": { url: "/clusters?scenario=hub", ready: "[role=grid]", settle: 3500 },
+  "clusters-hub-detail": {
+    url: "/clusters?scenario=hub",
+    ready: "[role=grid]",
+    settle: 3500,
+    run: async (page) => {
+      await page.locator("[role=row]", { hasText: "Payments prod" }).first().click();
+      await wait(700);
+    },
+  },
   "clusters-embedded": { url: "/pods?scenario=nocontext", ready: "[role=grid]", settle: 2000 },
   // GitOps (dev/harness/gitops.ts): both contexts, Flux and Argo CD.
   gitops: { url: "/gitops?contexts=2", ready: "[data-delivery-key]", settle: 1500 },
