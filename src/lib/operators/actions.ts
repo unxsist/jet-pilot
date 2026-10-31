@@ -11,7 +11,7 @@ import { formatResourceKind } from "@/lib/utils";
 import type { BaseDialogInterface } from "@/providers/DialogProvider";
 import { renewPatch } from "./certManager";
 import { forceSyncPatch } from "./externalSecrets";
-import { pausePatch } from "./keda";
+import { pauseCommand, pausePatch } from "./keda";
 
 type SpawnDialog = (dialog: BaseDialogInterface) => void;
 
@@ -98,12 +98,15 @@ export async function setAutoscalingPaused(
   spawnDialog: SpawnDialog
 ): Promise<boolean> {
   const name = object.metadata?.name;
+  const commands = [pauseCommand(object, paused)];
   const allowed = await guard(paused ? "pause" : "resume", rowTargets([object]), {
+    commands,
     confirm: paused
       ? () =>
           confirmDialog(spawnDialog, {
             title: `Pause autoscaling of ${name}?`,
             message: "KEDA stops scaling it: the replicas stay as they are until you resume.",
+            commands,
             confirmLabel: "Pause",
           })
       : undefined,

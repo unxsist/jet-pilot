@@ -67,6 +67,16 @@ const routes: Array<RouteRecordRaw> = [
     },
   },
   {
+    // Problems, risks, upgrades and recent changes across the active
+    // clusters; `?tab=` opens a tab.
+    path: "/health",
+    name: "Health",
+    component: () => import("./views/health/HealthPage.vue"),
+    meta: {
+      requiresContext: true,
+    },
+  },
+  {
     path: "/gitops",
     name: "GitOps",
     component: () => import("./views/gitops/GitOps.vue"),

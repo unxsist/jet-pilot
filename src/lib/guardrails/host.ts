@@ -5,6 +5,7 @@
  */
 import { shallowRef } from "vue";
 import type { ResolvedCluster } from "@/lib/clusters/meta";
+import type { CommandSpec } from "@/lib/kubectl/command";
 
 export interface TypedConfirmRequest {
   id: number;
@@ -16,6 +17,8 @@ export interface TypedConfirmRequest {
   verb: string;
   destructive: boolean;
   requireDryRun: boolean;
+  /** What the action runs ("Equivalent kubectl command"). */
+  commands?: CommandSpec[];
 }
 
 /** The open typed confirmation (GuardrailsHost renders it). */

@@ -56,6 +56,211 @@ const screens = {
       await wait(600);
     },
   },
+  // Health › Problems (dev/harness/problems.ts): the list, its panel per kind of problem, the fixes.
+  "health-problems": { url: "/health", ready: "[data-problem-key]", settle: 1500 },
+  "health-problems-clusters": { url: "/health?contexts=2", ready: "[data-problem-key]", settle: 1500 },
+  "health-problems-empty": { url: "/health?scenario=empty", ready: "h1", settle: 1500 },
+  "health-problems-error": { url: "/health?scenario=error", ready: "[role=alert]", settle: 1500 },
+  "health-problems-snoozed": {
+    url: "/health",
+    ready: "[data-problem-key]",
+    settle: 1200,
+    run: async (page) => {
+      for (const [name, item] of [["debug-toolbox", "Acknowledge"], ["payments-api", null]]) {
+        const row = page.locator("[data-problem-key]", { hasText: name }).first();
+        await row.hover();
+        await row.getByRole("button", { name: /^Actions for/ }).click();
+        if (item) await page.getByRole("menuitem", { name: item }).click();
+        else {
+          await page.getByRole("menuitem", { name: "Snooze" }).hover();
+          await page.getByRole("menuitem", { name: "For a day" }).click();
+        }
+        await wait(300);
+      }
+      await page.getByRole("button", { name: /^Snoozed/ }).click();
+      await page.locator("section[aria-label=Snoozed] [data-problem-key]").last().scrollIntoViewIfNeeded();
+      await page.mouse.move(5, 500);
+      await wait(500);
+    },
+  },
+  "health-problem-crash": { url: "/health", ready: "[data-problem-key]", settle: 1200, run: (page) => openProblem(page, "checkout-api") },
+  "health-problem-cause": {
+    url: "/health?scenario=problems-cause",
+    ready: "[data-problem-key]",
+    settle: 1200,
+    run: (page) => openProblem(page, "checkout-api"),
+  },
+  "health-problem-oom": {
+    url: "/health?scenario=problems-cause",
+    ready: "[data-problem-key]",
+    settle: 1200,
+    run: (page) => openProblem(page, "payments-worker"),
+  },
+  "health-problem-config": { url: "/health", ready: "[data-problem-key]", settle: 1200, run: (page) => openProblem(page, "fraud-check") },
+  "health-problem-probe": { url: "/health", ready: "[data-problem-key]", settle: 1200, run: (page) => openProblem(page, "search-api") },
+  "health-problem-job": { url: "/health", ready: "[data-problem-key]", settle: 1200, run: (page) => openProblem(page, "db-migrate-42") },
+  "health-problem-node": { url: "/health?contexts=2", ready: "[data-problem-key]", settle: 1200, run: (page) => openProblem(page, "ip-10-0-45-118") },
+  "health-raise-memory": {
+    url: "/health",
+    ready: "[data-problem-key]",
+    settle: 1200,
+    run: async (page) => {
+      await openProblem(page, "payments-worker");
+      await page.getByRole("button", { name: "Raise memory limit…" }).click();
+      await wait(1500);
+    },
+  },
+  "health-rollback": {
+    url: "/health",
+    ready: "[data-problem-key]",
+    settle: 1200,
+    run: async (page) => {
+      await openProblem(page, "checkout-api");
+      await page.getByRole("button", { name: "Roll back…" }).first().click();
+      await wait(1200);
+    },
+  },
+  // Risks and Upgrades (dev/harness/upkeep.ts): checks finish, then rules / lists open.
+  "health-risks": { url: "/health?tab=risks", ready: "text=Check again", settle: 600 },
+  "health-risks-open": {
+    url: "/health?tab=risks",
+    ready: "text=Check again",
+    settle: 600,
+    run: async (page) => {
+      await page.getByRole("button", { name: /certificates? needs? renewing/ }).click();
+      await page.getByRole("button", { name: /no disruption budget/ }).click();
+      await wait(300);
+      await page.locator("li", { hasText: "payments-worker" }).first().hover();
+      await wait(300);
+    },
+  },
+  "health-risks-multi": {
+    url: "/health?tab=risks&contexts=2",
+    ready: "text=Check again",
+    settle: 600,
+    run: async (page) => {
+      await page.getByRole("button", { name: /kubeconfig certificate/ }).click();
+      await page.getByRole("button", { name: /certificates? needs? renewing/ }).click();
+      await wait(400);
+    },
+  },
+  "health-upgrades": { url: "/health?tab=upgrades", ready: "text=Check again", settle: 600 },
+  "health-upgrades-open": {
+    url: "/health?tab=upgrades",
+    ready: "text=Check again",
+    settle: 600,
+    run: async (page) => {
+      await page.getByRole("button", { name: /deprecated or removed APIs/ }).click();
+      await page.getByRole("button", { name: /need an update/ }).click();
+      await wait(400);
+    },
+  },
+  "health-upgrades-multi": { url: "/health?tab=upgrades&contexts=2", ready: "text=Check again", settle: 800 },
+  "health-risks-clean": { url: "/health?tab=risks&scenario=upkeep-clean", ready: "text=Check again", settle: 600 },
+  "health-upgrades-clean": { url: "/health?tab=upgrades&scenario=upkeep-clean", ready: "text=Check again", settle: 600 },
+  // Drain's pre-flight: checkout-api's budget allows no evictions, a bare debug pod runs there.
+  "nodes-drain": {
+    url: "/nodes?resource=nodes&kind=Node",
+    ready: "tbody tr td",
+    run: async (page) => openRowAction(page, "ip-10-0-45-118", "Drain"),
+  },
+  // Changes (dev/harness/changes.ts): the timeline, both clusters, search, a diff, a panel.
+  "health-changes": { url: "/health?tab=changes", ready: "[data-change-key]", settle: 1800 },
+  "health-changes-clusters": { url: "/health?tab=changes&contexts=2", ready: "[data-change-key]", settle: 1800 },
+  "health-changes-search": { url: "/health?tab=changes&q=checkout", ready: "[data-change-key]", settle: 1800 },
+  "health-changes-empty": { url: "/health?tab=changes&scenario=empty", ready: "h1", settle: 2500 },
+  // Argo CD and Flux rows: readable in their namespaces only (the scope checks take a while).
+  "health-changes-gitops": { url: "/health?tab=changes&scenario=gitops-namespaced&q=Argo", ready: "[data-change-key]", settle: 14000 },
+  "health-changes-diff": {
+    url: "/health?tab=changes",
+    ready: "[data-change-key]",
+    settle: 1800,
+    run: async (page) => {
+      await page.locator("[data-change-key]", { hasText: "memory limit" }).first().click();
+      await wait(2500);
+    },
+  },
+  "health-changes-configmap": {
+    url: "/health?tab=changes",
+    ready: "[data-change-key]",
+    settle: 1800,
+    run: async (page) => {
+      await page.locator("[data-change-key]", { hasText: "checkout-flags" }).first().click();
+      await wait(1500);
+      await page.locator("[data-state] >> text=Changes").first().click();
+      await wait(1500);
+    },
+  },
+  "health-changes-panel": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    settle: 1200,
+    run: async (page) => {
+      // A degraded workload: its Changes open by themselves.
+      await page.locator("tbody tr", { hasText: "checkout-api" }).first().click();
+      await wait(2500);
+      await page.locator("[data-state] >> text=Changes").first().scrollIntoViewIfNeeded();
+      await page.mouse.wheel(0, 400);
+      await wait(600);
+    },
+  },
+  // Ask AI (dev/harness/ai.ts): Claude Code is set up unless ?ai= says otherwise.
+  "ai-settings": { url: "/settings/ai", ready: "main h2", settle: 1200 },
+  "ai-settings-custom": { url: "/settings/ai?ai=custom", ready: "main h2", settle: 1200 },
+  "ai-settings-none": {
+    url: "/settings/ai?ai=none",
+    ready: "main h2",
+    settle: 1200,
+    run: async (page) => {
+      await page.getByRole("button", { name: "How to install" }).first().click();
+      await wait(500);
+    },
+  },
+  "ai-panel": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    settle: 2500,
+    run: async (page) => {
+      await openAskAi(page);
+      await page.keyboard.type("Why does one pod keep restarting?");
+      await wait(300);
+    },
+  },
+  "ai-terminal": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    settle: 2500,
+    run: async (page) => {
+      await openAskAi(page);
+      await page.keyboard.press("Enter");
+      await wait(400);
+      await enlargePanel(page);
+      await wait(1800);
+    },
+  },
+  "ai-terminal-readonly": {
+    url: "/deployments?resource=deployments&kind=Deployment&aireadonly=1",
+    ready: "tbody tr td",
+    settle: 2500,
+    run: async (page) => {
+      await openAskAi(page);
+      await page.keyboard.press("Enter");
+      await wait(400);
+      await enlargePanel(page);
+      await wait(1800);
+    },
+  },
+  "ai-palette": {
+    url: "/pods",
+    ready: "tbody tr td",
+    settle: 2500,
+    run: async (page) => {
+      await page.keyboard.press("Control+k");
+      await wait(400);
+      await page.keyboard.type("ask ai");
+      await wait(600);
+    },
+  },
   "cluster-overview": { url: "/cluster-overview", ready: ".vue-flow__node-k8s", settle: 2500 },
   "graph-problems": {
     url: "/cluster-overview",
@@ -371,7 +576,127 @@ const screens = {
   },
   "settings-json": { url: "/settings/json?key=terminal.fontSize", ready: ".monaco-editor", settle: 1800 },
   "clusters-hub": { url: "/clusters?scenario=hub", ready: "[role=grid]", settle: 3500 },
+  "clusters-hub-detail": {
+    url: "/clusters?scenario=hub",
+    ready: "[role=grid]",
+    settle: 3500,
+    run: async (page) => {
+      await page.locator("[role=row]", { hasText: "Payments prod" }).first().click();
+      await wait(700);
+    },
+  },
   "clusters-embedded": { url: "/pods?scenario=nocontext", ready: "[role=grid]", settle: 2000 },
+  // Per-cluster connections (dev/harness/desktop.ts): an SSH jump host that
+  // is up, one that fails, a SOCKS proxy, and a proxy-url in the kubeconfig.
+  "connection-detail": {
+    url: "/clusters?scenario=hub",
+    ready: "[role=grid]",
+    settle: 2500,
+    run: async (page) => {
+      await page.locator("[role=grid] [role=row]", { hasText: "Payments prod" }).first().click();
+      await wait(1200);
+    },
+  },
+  "connection-failed": {
+    url: "/clusters?scenario=hub",
+    ready: "[role=grid]",
+    settle: 2500,
+    run: async (page) => {
+      await page.locator("[role=grid] [role=row]", { hasText: "Payments DR" }).first().click();
+      await wait(1200);
+    },
+  },
+  "connection-kubeconfig-proxy": {
+    url: "/clusters?scenario=hub",
+    ready: "[role=grid]",
+    settle: 2500,
+    run: async (page) => {
+      await page.locator("[role=grid] [role=row]", { hasText: "Checkout" }).first().click();
+      await wait(1200);
+    },
+  },
+  "connection-edit-ssh": {
+    url: "/clusters?scenario=hub",
+    ready: "[role=grid]",
+    settle: 2500,
+    run: async (page) => {
+      await page.locator("[role=grid] [role=row]", { hasText: "Payments DR" }).first().click();
+      await wait(900);
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
+      await wait(900);
+      await page.locator("#cluster-ssh-jump").scrollIntoViewIfNeeded();
+      await wait(400);
+    },
+  },
+  "connection-edit-proxy": {
+    url: "/clusters?scenario=hub",
+    ready: "[role=grid]",
+    settle: 2500,
+    run: async (page) => {
+      await page.locator("[role=grid] [role=row]", { hasText: "Sandbox" }).first().click();
+      await wait(900);
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
+      await wait(900);
+      await page.getByRole("tab", { name: "Proxy" }).click();
+      await page.locator("#cluster-proxy").fill("proxy.corp.example:3128");
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await wait(500);
+    },
+  },
+  // jetpilot:// links (?link= is handed over like the link the app started with).
+  "deep-link-open": {
+    url: `/pods?link=${encodeURIComponent("jetpilot://open?context=prod-eu-west-1&kind=Deployment&apiVersion=apps/v1&namespace=payments&name=payments-api")}`,
+    ready: "[role=grid], table",
+    settle: 3500,
+  },
+  "deep-link-helm": {
+    url: `/pods?link=${encodeURIComponent("jetpilot://helm?context=prod-eu-west-1&namespace=checkout&name=checkout")}`,
+    ready: "[role=grid], table",
+    settle: 3500,
+  },
+  "deep-link-list": {
+    url: `/pods?link=${encodeURIComponent("jetpilot://list?context=staging-us-east-2&kind=StatefulSet&apiVersion=apps/v1")}`,
+    ready: "[role=grid], table",
+    settle: 3500,
+  },
+  "deep-link-unknown": {
+    url: `/pods?link=${encodeURIComponent("jetpilot://open?context=prod-us-east-1&kind=Deployment&apiVersion=apps/v1&namespace=shop&name=checkout-api")}`,
+    ready: "[role=grid], table",
+    settle: 3000,
+  },
+  "deep-link-palette": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    settle: 1200,
+    run: async (page) => {
+      await page.keyboard.press("Control+k");
+      await wait(500);
+      await page.keyboard.type("link");
+      await wait(600);
+    },
+  },
+  "deep-link-row-menu": {
+    url: "/pods",
+    ready: "tbody tr",
+    settle: 1500,
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "payments-api" }).first().click({ button: "right" });
+      await wait(500);
+      await page.locator('[role="menuitem"]', { hasText: "Copy link" }).hover();
+      await wait(300);
+    },
+  },
+  "deep-link-panel-copy": {
+    url: "/pods",
+    ready: "tbody tr",
+    settle: 1500,
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "payments-api" }).first().click();
+      await wait(1500);
+      await page.getByRole("button", { name: "Copy a jetpilot:// link" }).click();
+      await wait(500);
+    },
+  },
   // GitOps (dev/harness/gitops.ts): both contexts, Flux and Argo CD.
   gitops: { url: "/gitops?contexts=2", ready: "[data-delivery-key]", settle: 1500 },
   "gitops-panel": {
@@ -412,6 +737,139 @@ const screens = {
       await openRowAction(page, "payments-api", "Logs", "All pods");
       await enlargePanel(page);
       await wait(2500);
+    },
+  },
+  "log-volume": {
+    url: "/deployments?resource=deployments&kind=Deployment&scenario=log-volume",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Logs", "All pods");
+      await enlargePanel(page);
+      await wait(1800);
+      const box = await page.locator('[role="img"][aria-label^="Log volume"]').boundingBox();
+      if (box) await page.mouse.move(box.x + box.width * 0.62, box.y + box.height / 2);
+      await wait(400);
+    },
+  },
+  "log-volume-range": {
+    url: "/deployments?resource=deployments&kind=Deployment&scenario=log-volume",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Logs", "All pods");
+      await enlargePanel(page);
+      await wait(1800);
+      const box = await page.locator('[role="img"][aria-label^="Log volume"]').boundingBox();
+      if (box) {
+        const y = box.y + box.height / 2;
+        await page.mouse.move(box.x + box.width * 0.56, y);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width * 0.73, y, { steps: 8 });
+        await page.mouse.up();
+        await page.mouse.move(box.x + box.width * 0.2, box.y - 60);
+      }
+      await wait(600);
+    },
+  },
+  "row-menu-copy": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "payments-api" }).first().click({ button: "right" });
+      await wait(400);
+      await page.locator('[role="menuitem"]', { hasText: /Copy kubectl command/ }).first().hover();
+      await wait(500);
+    },
+  },
+  "selection-csv": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      for (const i of [0, 1, 3]) {
+        await page.locator("tbody tr").nth(i).hover();
+        await page.locator("tbody tr").nth(i).locator('[role="checkbox"]').click();
+      }
+      await page.locator("tbody tr").nth(1).click({ button: "right" });
+      await wait(500);
+    },
+  },
+  "confirm-command": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Restart");
+      await wait(400);
+      await page.getByRole("button", { name: /Equivalent kubectl command/ }).click();
+      await wait(500);
+    },
+  },
+  "scale-command": {
+    url: "/deployments?resource=deployments&kind=Deployment&contexts=2",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "staging" }).filter({ hasText: "payments-worker" }).first().click({ button: "right" });
+      await wait(300);
+      await page.locator('[role="menuitem"]', { hasText: /^\s*Scale\b/ }).first().click();
+      await wait(600);
+      await page.getByRole("button", { name: /Equivalent kubectl command/ }).click();
+      await wait(500);
+    },
+  },
+  "typed-confirm-command": {
+    url: "/deployments?resource=deployments&kind=Deployment&scenario=hub",
+    ready: "tbody tr td",
+    settle: 2000,
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Delete");
+      await wait(600);
+      await page.getByRole("button", { name: /Equivalent kubectl command/ }).click();
+      await wait(500);
+    },
+  },
+  "kill-command": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Kill");
+      await wait(500);
+      await page.getByText("Force (skip graceful shutdown)").click();
+      await page.getByRole("button", { name: /Equivalent kubectl command/ }).click();
+      await wait(500);
+    },
+  },
+  "rollout-notify": {
+    url: "/deployments?resource=deployments&kind=Deployment&scenario=rollout",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await restartPaymentsApi(page);
+    },
+  },
+  "rollout-following": {
+    url: "/deployments?resource=deployments&kind=Deployment&scenario=rollout",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await restartPaymentsApi(page);
+      await page.getByRole("button", { name: "Notify me" }).click();
+      await wait(700);
+    },
+  },
+  "rollout-done": {
+    url: "/deployments?resource=deployments&kind=Deployment&scenario=rollout",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await restartPaymentsApi(page);
+      await page.getByRole("button", { name: "Notify me" }).click();
+      await page.getByText("payments-api rolled out").first().waitFor({ timeout: 15000 });
+      await wait(500);
+    },
+  },
+  "rollout-stuck": {
+    url: "/deployments?resource=deployments&kind=Deployment&scenario=rollout-stuck",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await restartPaymentsApi(page);
+      await page.getByRole("button", { name: "Notify me" }).click();
+      await page.getByText("payments-api's rollout is stuck").first().waitFor({ timeout: 15000 });
+      await wait(500);
     },
   },
   "workload-logs-search": {
@@ -1216,6 +1674,13 @@ const screens = {
  * Opens a row's side panel, widened; `foldUsage` folds the usage charts so
  * the kind's own sections show.
  */
+/* Opens a problem on the Health page in the side panel. */
+async function openProblem(page, name) {
+  await page.locator("[data-problem-key]", { hasText: name }).first().click();
+  await page.mouse.move(5, 500);
+  await wait(1500);
+}
+
 async function openPanel(page, row, { foldUsage = false } = {}) {
   await row.click();
   await wait(600);
@@ -1347,9 +1812,25 @@ async function enlargePanel(page, dy = -330) {
   await wait(300);
 }
 
+/* Opens checkout-api's side panel and its "Ask AI" popover. */
+async function openAskAi(page) {
+  await page.locator("tbody tr", { hasText: "checkout-api" }).first().click();
+  await wait(900);
+  await page.getByRole("button", { name: "Ask AI" }).click();
+  await wait(500);
+}
+
 async function openForwards(page) {
   await page.getByRole("button", { name: /^Port forwards:/ }).click();
   await wait(700);
+}
+
+/* Restart from the row menu and confirm: the toast offers "Notify me". */
+async function restartPaymentsApi(page) {
+  await openRowAction(page, "payments-api", "Restart");
+  await page.getByRole("alertdialog").getByRole("button", { name: "Restart" }).click();
+  await page.getByRole("button", { name: "Notify me" }).waitFor({ timeout: 5000 });
+  await wait(400);
 }
 
 async function openRowAction(page, rowText, action, sub) {

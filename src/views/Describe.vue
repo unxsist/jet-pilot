@@ -24,6 +24,7 @@ import {
 } from "lucide-vue-next";
 import { error } from "@/lib/logger";
 import { Command } from "@tauri-apps/plugin-shell";
+import { routedCliArgs } from "@/lib/clusters/connection";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import NativeDescribe from "@/views/describe/NativeDescribe.vue";
@@ -66,7 +67,7 @@ const runKubectl = async (args: string[]) => {
   ];
   // Only the exit code decides success: kubectl also writes warnings to
   // stderr.
-  const { code, stdout, stderr } = await Command.create("kubectl", fullArgs).execute();
+  const { code, stdout, stderr } = await Command.create("kubectl", await routedCliArgs(fullArgs)).execute();
   if (code !== 0) throw new Error(stderr.trim() || `kubectl exited with code ${code}`);
   return stdout;
 };

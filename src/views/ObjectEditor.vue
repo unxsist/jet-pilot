@@ -3,6 +3,7 @@ import { getCurrentInstance } from "vue";
 import type * as Monaco from "monaco-editor";
 import Loading from "@/components/Loading.vue";
 import { Command } from "@tauri-apps/plugin-shell";
+import { routedCliArgs } from "@/lib/clusters/connection";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import {
   editorOptions,
@@ -81,6 +82,8 @@ import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { editCluster, guard, readOnlyToast } from "@/lib/guardrails/guard";
 import { guardedCluster } from "@/lib/guardrails/backstop";
 import { decide, readOnlyReason, type ActionKind } from "@/lib/guardrails/policy";
+import { isRolloutKind, type RolloutRef } from "@/lib/rolloutFollow";
+import { notifyMeOptions } from "@/lib/rolloutToast";
 
 const props = withDefaults(
   defineProps<{
@@ -93,6 +96,8 @@ const props = withDefaults(
     useKubeCtl: boolean;
     create?: boolean;
     createProps?: string[];
+    /** New objects: the manifest to start from (instead of the kind's template). */
+    manifest?: string;
   }>(),
   {
     name: "",
@@ -100,6 +105,7 @@ const props = withDefaults(
     kind: "",
     create: false,
     createProps: () => [],
+    manifest: "",
   }
 );
 
@@ -253,7 +259,7 @@ const contextArgs = (context = props.context, kubeConfig = props.kubeConfig) =>
  * also writes warnings (e.g. API deprecations) to stderr.
  */
 const runKubectl = async (args: string[]): Promise<string> => {
-  const { code, stdout, stderr } = await Command.create("kubectl", args).execute();
+  const { code, stdout, stderr } = await Command.create("kubectl", await routedCliArgs(args)).execute();
   if (stderr.trim()) trace(`kubectl ${args[0]} stderr: ${stderr}`);
   if (code !== 0) {
     throw new Error(stderr.trim() || `kubectl exited with code ${code}`);
@@ -660,6 +666,18 @@ const reloadFromCluster = async () => {
   }
 };
 
+/* A changed spec of a Deployment, StatefulSet or DaemonSet starts a rollout. */
+const startedRollout = (before: string, after: string, kind: string, name: string): RolloutRef[] => {
+  if (props.create || !isRolloutKind(kind)) return [];
+  try {
+    const spec = (text: string) => JSON.stringify((yaml.load(text) as { spec?: unknown })?.spec ?? null);
+    if (spec(before) === spec(after)) return [];
+  } catch {
+    return [];
+  }
+  return [{ context: props.context, kubeConfig: props.kubeConfig, namespace: props.namespace, kind, name }];
+};
+
 const apply = async (force = false) => {
   if (applying.value || review.conflict || review.fetching) return;
   if (review.dryRun === "running") return;
@@ -706,6 +724,7 @@ const apply = async (force = false) => {
         ? `${props.kind || props.type} created`
         : `${objectLabel.value} updated`,
       variant: "success",
+      ...notifyMeOptions(startedRollout(originalContents.value, text, target.kind ?? "", target.name ?? props.name ?? "")),
     });
 
     // Nothing unsaved anymore: closing must not prompt.
@@ -790,8 +809,17 @@ const handleCloseEvent = (e: Event) => {
   }
 };
 
+/* Moving the tab to another window would lose the changes: veto it. */
+const handleMoveEvent = (e: Event) => {
+  const event = e as CustomEvent<TabClosedEvent>;
+  if (instanceAttributes.tabId === event.detail.id && hasChanges.value) {
+    event.preventDefault();
+  }
+};
+
 onMounted(async () => {
   window.addEventListener("TabOrchestrator_TabClosed", handleCloseEvent);
+  window.addEventListener("TabOrchestrator_TabMoving", handleMoveEvent);
   // Start fetching the editor while the object loads.
   const runtime = loadMonaco();
   runtime.catch(() => undefined);
@@ -801,6 +829,8 @@ onMounted(async () => {
       const contents = await fetchLive();
       originalContents.value = contents;
       editContents.value = contents;
+    } else if (props.manifest) {
+      editContents.value = props.manifest;
     } else {
       try {
         editContents.value = await getTemplate();
@@ -853,6 +883,7 @@ onUnmounted(() => {
   clearTimeout(schemaTimer);
   clearTimeout(summaryTimer);
   window.removeEventListener("TabOrchestrator_TabClosed", handleCloseEvent);
+  window.removeEventListener("TabOrchestrator_TabMoving", handleMoveEvent);
   if (rt && editorModel) rt.setModelSchema(editorModel, null, null);
   disposables.forEach((d) => d.dispose());
   diffEditor?.dispose();

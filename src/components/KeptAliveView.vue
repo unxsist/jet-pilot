@@ -10,6 +10,10 @@
  *   private record: every distinct full path is its own view instance, so
  *   the view is never "updated" to another location;
  * - provides the isActiveView flag (see @/lib/activeView).
+ *
+ * Split view panes (SplitPaneView) also use it, outside <keep-alive>, for
+ * views that aren't cached: keyed by route name, so `route` may change its
+ * query (filters in the URL) and useRoute() follows it.
  */
 import {
   matchedRouteKey,
@@ -30,7 +34,12 @@ onActivated(() => (active.value = true));
 onDeactivated(() => (active.value = false));
 provide(IsActiveViewKey, readonly(active));
 
-provide(routeLocationKey, shallowReactive({ ...props.route }));
+const location = shallowReactive({ ...props.route });
+watch(
+  () => props.route,
+  (route) => Object.assign(location, route)
+);
+provide(routeLocationKey, location);
 
 const isolatedRecord = {
   ...(props.route.matched[props.route.matched.length - 1] ?? {}),

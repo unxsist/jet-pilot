@@ -124,12 +124,12 @@ export const HUB_FILES: Record<string, { origin: string; current?: string; conte
 
 /* Metadata the user set (state.json `clusters`). */
 export const HUB_CLUSTER_RECORDS = [
-  { kubeConfig: KUBECONFIG, context: CONTEXTS[0]!.name, alias: "Payments prod", color: "red", env: "prod", folder: "Payments", favorite: true, tags: ["eu"] },
+  { kubeConfig: KUBECONFIG, context: CONTEXTS[0]!.name, alias: "Payments prod", color: "red", env: "prod", folder: "Payments", favorite: true, tags: ["eu"], connection: { mode: "ssh", host: "ops@bastion.example.com" } },
   { kubeConfig: KUBECONFIG, context: CONTEXTS[1]!.name, alias: "Payments staging", color: "amber", env: "staging", folder: "Payments" },
-  { kubeConfig: KUBECONFIG, context: "arn:aws:eks:us-east-1:123456789012:cluster/payments-dr", alias: "Payments DR", env: "prod", readOnly: true, folder: "Payments" },
+  { kubeConfig: KUBECONFIG, context: "arn:aws:eks:us-east-1:123456789012:cluster/payments-dr", alias: "Payments DR", env: "prod", readOnly: true, folder: "Payments", connection: { mode: "ssh", host: "ops@bastion-dr.example.com", port: 2222, identityFile: "~/.ssh/payments-dr" } },
   { kubeConfig: `${HOME}/.kube/gke.yaml`, context: "gke_acme-prod_europe-west4_checkout", alias: "Checkout", color: "blue", env: "prod", folder: "Storefront", favorite: true },
   { kubeConfig: `${HOME}/.kube/gke.yaml`, context: "gke_acme-dev_europe-west4_sandbox", alias: "Sandbox", env: "dev", folder: "Storefront", tags: ["shared"] },
-  { kubeConfig: `${HOME}/.kube/aks.yaml`, context: "aks-weu-analytics", alias: "Analytics", color: "violet", folder: "Data" },
+  { kubeConfig: `${HOME}/.kube/aks.yaml`, context: "aks-weu-analytics", alias: "Analytics", color: "violet", folder: "Data", connection: { mode: "proxy", url: "socks5://proxy.corp.example:1080" } },
   { kubeConfig: `${HOME}/.kube/config.d/side-projects.yaml`, context: "docker-desktop", hidden: true },
 ];
 
@@ -151,10 +151,10 @@ export function hubStatus(context: string, kubeConfig: string, interactive: stri
   }
   const versions: Record<string, [string, number]> = {
     [CONTEXTS[0]!.name]: ["v1.31.4-eks-2d5f260", 12],
-    "arn:aws:eks:us-east-1:123456789012:cluster/payments-dr": ["v1.31.4-eks-2d5f260", 3],
-    "gke_acme-prod_europe-west4_checkout": ["v1.32.2-gke.1182003", 9],
-    "do-ams3-hobby": ["v1.30.6", 2],
-    "lke148202-ctx": ["v1.31.0", 3],
+    "arn:aws:eks:us-east-1:123456789012:cluster/payments-dr": ["v1.35.2-eks-3a1f0c9", 3],
+    "gke_acme-prod_europe-west4_checkout": ["v1.35.9-gke.1505000", 9],
+    "do-ams3-hobby": ["v1.35.4", 2],
+    "lke148202-ctx": ["v1.35.1", 3],
     "admin@k8s-blog": ["v1.30.4", 1],
     "kind-dev": ["v1.32.0", 1],
   };

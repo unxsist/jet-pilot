@@ -87,6 +87,9 @@ window-vibrancy = "0.4.2"
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2.4.0"
 tauri-plugin-updater = "2.13.1"
+# jetpilot:// links: the OS hands them to the running app (single instance).
+tauri-plugin-deep-link = "2.6.3"
+tauri-plugin-single-instance = { version = "2.5.5", features = ["deep-link"] }
 
 [features]
 # by default Tauri runs in production mode

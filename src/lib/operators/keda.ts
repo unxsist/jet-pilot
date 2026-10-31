@@ -12,6 +12,7 @@ import {
   parseSimpleCron,
   type OperatorState,
 } from "./format";
+import { annotateArgs, kindRef, kubectlFor } from "@/lib/kubectl/command";
 
 export const PAUSED_ANNOTATION = "autoscaling.keda.sh/paused";
 export const PAUSED_REPLICAS_ANNOTATION = "autoscaling.keda.sh/paused-replicas";
@@ -34,6 +35,12 @@ export const pausePatch = (paused: boolean) => ({
       : { [PAUSED_ANNOTATION]: null, [PAUSED_REPLICAS_ANNOTATION]: null },
   },
 });
+
+/** `kubectl annotate` with the same annotations as `pausePatch`. */
+export const pauseCommand = (
+  object: { kind?: string; apiVersion?: string; metadata?: { name?: string; context?: string; kubeConfig?: string; namespace?: string } },
+  paused: boolean
+) => kubectlFor(object, annotateArgs(kindRef(object), pausePatch(paused).metadata.annotations));
 
 export function scaledObjectState(object: any): OperatorState {
   const ready = conditionOf(object, "Ready");

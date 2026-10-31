@@ -2,6 +2,7 @@ import { V1Deployment } from "@kubernetes/client-node";
 import { RowAction } from "@/components/tables/types";
 import { Router } from "vue-router";
 import { actions as scalableActions } from "./scalables";
+import { kubectlFor, localPortFor, portForwardArgs } from "@/lib/kubectl/command";
 import {
   logsAction,
   pauseResumeAction,
@@ -23,6 +24,12 @@ export function actions<
     logsAction<any>(addTab),
     {
       label: "Port Forward",
+      command: (row: T) => {
+        const port = row.spec?.template?.spec?.containers?.flatMap((c) => c.ports ?? [])[0]?.containerPort;
+        return port
+          ? kubectlFor(row, portForwardArgs(`deployment/${row.metadata?.name}`, [{ local: localPortFor(port), remote: port }]))
+          : null;
+      },
       handler: (row: T) => {
         spawnDialog({
           title: "Port forward",

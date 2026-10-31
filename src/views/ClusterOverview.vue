@@ -12,6 +12,7 @@
  * per-id flags plus one class on the canvas: it never rebuilds the node
  * list and only re-renders cards whose flags changed.
  */
+import PaneControls from "@/components/PaneControls.vue";
 import type { Edge, Node, NodeMouseEvent } from "@vue-flow/core";
 import { VueFlow, useVueFlow } from "@vue-flow/core";
 import Fuse from "fuse.js";
@@ -1948,6 +1949,7 @@ const navigateTo = (x: number, y: number) =>
         >
           <RefreshCw :class="cn('h-3.5 w-3.5', refreshing && 'animate-spin')" />
         </Button>
+        <PaneControls />
       </div>
     </div>
 

@@ -139,6 +139,7 @@ const ICONS: Record<string, Component> = {
   diagram: Workflow,
   gitops: GitMerge,
   clustershub: Cloud,
+  health: Activity,
   clusters: Cloud,
   settings: Settings,
   tab: AppWindow,

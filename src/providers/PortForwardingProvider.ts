@@ -32,6 +32,7 @@ import {
   targetKey,
   type ForwardTarget,
 } from "@/lib/portForwardLocal";
+import { isMainWindow } from "@/lib/windows";
 
 export const PortForwardingStateKey: InjectionKey<
   ToRefs<PortForwardingState>
@@ -239,6 +240,8 @@ export default {
     refresh()
       .catch((e) => logError(`Failed to list port forwards: ${e}`))
       .finally(() => {
+        // Pop-out windows show the forwards; the main window starts them.
+        if (!isMainWindow()) return;
         // Profiles marked "start automatically" (not already running).
         for (const profile of profilesToAutoStart(
           profiles.value,

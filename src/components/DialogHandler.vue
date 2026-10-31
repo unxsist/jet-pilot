@@ -12,6 +12,11 @@ import { Button } from "@/components/ui/button";
 import { DialogProviderStateKey } from "@/providers/DialogProvider";
 import { injectStrict } from "@/lib/utils";
 
+/* Only confirmations of cluster changes have one: loaded with the first. */
+const EquivalentCommand = defineAsyncComponent(
+  () => import("@/components/kubectl/EquivalentCommand.vue")
+);
+
 const { dialog } = injectStrict(DialogProviderStateKey);
 </script>
 
@@ -36,6 +41,7 @@ const { dialog } = injectStrict(DialogProviderStateKey);
         v-bind="dialog.props"
         @close-dialog="dialog.close"
       />
+      <EquivalentCommand v-if="dialog.commands?.length" :commands="dialog.commands" />
       <AlertDialogFooter v-if="dialog.buttons && dialog.buttons.length > 0">
         <Button
           v-for="(button, index) in dialog.buttons"

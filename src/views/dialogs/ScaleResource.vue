@@ -21,6 +21,10 @@ import { Label } from "@/components/ui/label";
 import { Scaling } from "lucide-vue-next";
 import { guard, rowTargets } from "@/lib/guardrails/guard";
 import { scaleKind } from "@/lib/guardrails/policy";
+import { kubectlFor, scaleArgs } from "@/lib/kubectl/command";
+import { objectRef } from "@/lib/workloads";
+import EquivalentCommand from "@/components/kubectl/EquivalentCommand.vue";
+import { rolloutRefs } from "@/actions/workload";
 
 type ScalableObject = (
   | V1Deployment
@@ -43,12 +47,19 @@ const replicas = ref(0);
 
 const emit = defineEmits(["closeDialog"]);
 
+const commands = computed(() =>
+  (props.objects as ScalableObject[]).map((object) =>
+    kubectlFor(object, scaleArgs(objectRef(object.kind ?? "", object.metadata?.name ?? ""), replicas.value))
+  )
+);
+
 const scale = async () => {
   const count = replicas.value;
   const objects = props.objects as ScalableObject[];
+  const equivalent = commands.value;
   emit("closeDialog");
   // Scaling to 0 takes the workloads down: typed confirmation on protected clusters.
-  if (!(await guard(scaleKind(count), rowTargets(objects)))) return;
+  if (!(await guard(scaleKind(count), rowTargets(objects), { commands: equivalent }))) return;
   await runCliForEach("kubectl", objects, {
     args: (object) => {
       const args = [
@@ -70,6 +81,7 @@ const scale = async () => {
     successVerb: "Scaled",
     failureVerb: "scale",
     guarded: true,
+    rollouts: rolloutRefs,
   });
 };
 
@@ -95,6 +107,7 @@ onMounted(() => {
       <NumberFieldIncrement />
     </NumberFieldContent>
   </NumberField>
+  <EquivalentCommand :commands="commands" />
   <AlertDialogFooter>
     <Button variant="ghost" @click="emit('closeDialog')">Cancel</Button>
     <Button variant="default" @click="scale">
