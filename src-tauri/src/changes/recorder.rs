@@ -158,7 +158,7 @@ pub enum Message {
 
 #[derive(Debug, PartialEq)]
 pub enum Output {
-    Record(ChangeRecord),
+    Record(Box<ChangeRecord>),
     /// Find out who made the change of record `id` (a GET of the object).
     Lookup { id: String, kind: Watched, namespace: String, name: String, seen: DateTime<Utc> },
 }
@@ -236,7 +236,7 @@ impl TargetState {
             Some("snapshot") => {
                 for item in items("items") {
                     if kind == Watched::Event {
-                        out.extend(event_record(&item).map(Output::Record));
+                        out.extend(event_record(&item).map(|r| Output::Record(Box::new(r))));
                     } else {
                         // A second snapshot (a re-subscribe) is compared, the first is the baseline.
                         out.extend(self.hub_upsert(kind, &item, now, false));
@@ -246,7 +246,7 @@ impl TargetState {
             Some("delta") => {
                 for item in items("added").iter().chain(items("modified").iter()) {
                     if kind == Watched::Event {
-                        out.extend(event_record(item).map(Output::Record));
+                        out.extend(event_record(item).map(|r| Output::Record(Box::new(r))));
                     } else {
                         out.extend(self.hub_upsert(kind, item, now, true));
                     }
@@ -286,7 +286,7 @@ impl TargetState {
                 if live && self.created_recently(created) {
                     let record = id.record(format!("{}:created", id.uid), created.to_string(), Action::Created);
                     out.push(lookup(&record.id));
-                    out.push(Output::Record(record));
+                    out.push(Output::Record(Box::new(record)));
                 }
             }
             Some(previous) => {
@@ -295,9 +295,9 @@ impl TargetState {
                 if (changed.is_some() || !transitions.is_empty()) && self.quiet(&id.uid, now) {
                     if let Some(record) = changed {
                         out.push(lookup(&record.id));
-                        out.push(Output::Record(record));
+                        out.push(Output::Record(Box::new(record)));
                     }
-                    out.extend(transitions.into_iter().map(Output::Record));
+                    out.extend(transitions.into_iter().map(|r| Output::Record(Box::new(r))));
                 }
             }
         }
@@ -309,7 +309,7 @@ impl TargetState {
         match self.objects.remove(uid) {
             Some(tracked) => {
                 let at = now_text(now);
-                vec![Output::Record(tracked.id.record(format!("{uid}:deleted"), at, Action::Deleted))]
+                vec![Output::Record(Box::new(tracked.id.record(format!("{uid}:deleted"), at, Action::Deleted)))]
             }
             None => Vec::new(),
         }
@@ -360,7 +360,7 @@ impl TargetState {
                 if self.created_recently(&object.created) {
                     let mut record = object.id.record(format!("{uid}:created"), object.created.clone(), Action::Created);
                     record.by = object.writer.as_ref().map(|(manager, _)| manager.clone());
-                    out.push(Output::Record(record));
+                    out.push(Output::Record(Box::new(record)));
                 }
             }
             Some(previous) => {
@@ -369,7 +369,7 @@ impl TargetState {
                         let mut record = object.id.record(format!("{uid}:{}", hash_text(&format!("{at}{keys:?}"))), at, Action::Updated);
                         record.by = by;
                         record.keys = Some(keys);
-                        out.push(Output::Record(record));
+                        out.push(Output::Record(Box::new(record)));
                     }
                 }
             }
@@ -464,7 +464,7 @@ async fn process(key: ClusterKey, mut rx: mpsc::UnboundedReceiver<Message>) {
     while let Some(message) = rx.recv().await {
         for output in state.apply(message, Utc::now()) {
             match output {
-                Output::Record(record) => super::add_record(&key, record),
+                Output::Record(record) => super::add_record(&key, *record),
                 Output::Lookup { id, kind, namespace, name, seen } => {
                     tauri::async_runtime::spawn(lookup(key.clone(), id, kind, namespace, name, seen));
                 }
@@ -598,7 +598,7 @@ mod tests {
     }
 
     fn records(outputs: &[Output]) -> Vec<&ChangeRecord> {
-        outputs.iter().filter_map(|o| if let Output::Record(r) = o { Some(r) } else { None }).collect()
+        outputs.iter().filter_map(|o| if let Output::Record(r) = o { Some(r.as_ref()) } else { None }).collect()
     }
 
     #[test]

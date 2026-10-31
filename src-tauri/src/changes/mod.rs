@@ -253,7 +253,7 @@ pub struct ClusterChanges {
 
 /// The recorded changes of the given clusters, newest first.
 #[tauri::command]
-pub fn changes_list(request: ListRequest) -> Vec<ClusterChanges> {
+pub async fn changes_list(request: ListRequest) -> Vec<ClusterChanges> {
     let mut state = lock(&STATE);
     request
         .targets
