@@ -81,6 +81,8 @@ import { KubeContextStateKey } from "@/providers/KubeContextProvider";
 import { editCluster, guard, readOnlyToast } from "@/lib/guardrails/guard";
 import { guardedCluster } from "@/lib/guardrails/backstop";
 import { decide, readOnlyReason, type ActionKind } from "@/lib/guardrails/policy";
+import { isRolloutKind, type RolloutRef } from "@/lib/rolloutFollow";
+import { notifyMeOptions } from "@/lib/rolloutToast";
 
 const props = withDefaults(
   defineProps<{
@@ -660,6 +662,18 @@ const reloadFromCluster = async () => {
   }
 };
 
+/* A changed spec of a Deployment, StatefulSet or DaemonSet starts a rollout. */
+const startedRollout = (before: string, after: string, kind: string, name: string): RolloutRef[] => {
+  if (props.create || !isRolloutKind(kind)) return [];
+  try {
+    const spec = (text: string) => JSON.stringify((yaml.load(text) as { spec?: unknown })?.spec ?? null);
+    if (spec(before) === spec(after)) return [];
+  } catch {
+    return [];
+  }
+  return [{ context: props.context, kubeConfig: props.kubeConfig, namespace: props.namespace, kind, name }];
+};
+
 const apply = async (force = false) => {
   if (applying.value || review.conflict || review.fetching) return;
   if (review.dryRun === "running") return;
@@ -706,6 +720,7 @@ const apply = async (force = false) => {
         ? `${props.kind || props.type} created`
         : `${objectLabel.value} updated`,
       variant: "success",
+      ...notifyMeOptions(startedRollout(originalContents.value, text, target.kind ?? "", target.name ?? props.name ?? "")),
     });
 
     // Nothing unsaved anymore: closing must not prompt.

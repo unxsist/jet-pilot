@@ -38,6 +38,8 @@ import { helmClusterArgs } from "@/lib/workloads";
 import { confirmDialog, guard } from "@/lib/guardrails/guard";
 import { diffLines, diffSummary } from "@/lib/diff";
 import { asError, releaseDetail } from "@/lib/helmApi";
+import { manifestWorkloads } from "@/lib/rolloutFollow";
+import { notifyMeOptions } from "@/lib/rolloutToast";
 import {
   ChartSearchResult,
   chartVersionsByRepo,
@@ -311,14 +313,24 @@ const upgrade = async () => {
 
   if (cliSucceeded(result)) {
     const revision = /REVISION:\s*(\d+)/.exec(result.stdout)?.[1];
+    const waited = atomic.value || wait.value;
+    preview.value = null;
+    await load();
+    // Without --wait the workloads are still rolling out: offer to follow them.
+    const rollouts = waited
+      ? []
+      : manifestWorkloads(deployedManifest.value, {
+          context: props.context,
+          kubeConfig: props.kubeConfig,
+          namespace: props.release.namespace,
+        });
     toast({
       title: `Upgraded ${props.release.name}`,
       description: revision ? `Now at revision ${revision}` : undefined,
       variant: "success",
       autoDismiss: true,
+      ...notifyMeOptions(rollouts, props.release.name),
     });
-    preview.value = null;
-    await load();
     return;
   }
 

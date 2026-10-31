@@ -2,6 +2,8 @@ import { Command } from "@tauri-apps/plugin-shell";
 import { toast } from "@/components/ui/toast";
 import { error as logError } from "@/lib/logger";
 import type { GuardedCall } from "@/lib/guardrails/backstop";
+import type { RolloutRef } from "@/lib/rolloutFollow";
+import { notifyMeOptions } from "@/lib/rolloutToast";
 
 export interface CliResult {
   /** Process exit code; null when the process could not be started. */
@@ -79,6 +81,8 @@ export async function runCliForEach<T>(
     failureVerb: string;
     /** The caller ran guard() for these items. */
     guarded?: boolean;
+    /** Rollouts an item starts: the success toast offers "Notify me". */
+    rollouts?: (item: T) => RolloutRef[];
   }
 ): Promise<{ succeeded: T[]; failed: T[] }> {
   const results = await Promise.all(
@@ -102,6 +106,7 @@ export async function runCliForEach<T>(
   });
 
   if (succeeded.length > 0) {
+    const rollouts = options.rollouts ? succeeded.flatMap(options.rollouts) : [];
     toast({
       title: `${options.successVerb} ${
         succeeded.length === 1
@@ -113,6 +118,7 @@ export async function runCliForEach<T>(
           ? succeeded.map(options.label).join(", ")
           : undefined,
       autoDismiss: true,
+      ...notifyMeOptions(rollouts),
     });
   }
 
