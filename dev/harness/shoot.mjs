@@ -686,14 +686,14 @@ const screens = {
       await wait(300);
     },
   },
-  "deep-link-panel-menu": {
+  "deep-link-panel-copy": {
     url: "/pods",
     ready: "tbody tr",
     settle: 1500,
     run: async (page) => {
       await page.locator("tbody tr", { hasText: "payments-api" }).first().click();
       await wait(1500);
-      await page.getByRole("button", { name: "More", exact: true }).click();
+      await page.getByRole("button", { name: "Copy a jetpilot:// link" }).click();
       await wait(500);
     },
   },

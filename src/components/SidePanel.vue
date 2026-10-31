@@ -18,16 +18,9 @@ import {
   FileText,
   FolderTree,
   Link,
-  MoreHorizontal,
   ScrollText,
   X,
 } from "lucide-vue-next";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useRoute } from "vue-router";
 import type { KubernetesObject } from "@kubernetes/client-node";
@@ -265,46 +258,31 @@ const showLogs = () => {
               <Check v-if="copied" class="h-3.5 w-3.5 text-success" />
               <Copy v-else class="h-3.5 w-3.5" />
             </button>
+            <button
+              v-if="target || release"
+              type="button"
+              class="shrink-0 rounded p-1 text-muted-foreground transition-colors duration-fast hover:bg-accent hover:text-foreground focus-ring focus-visible:ring-offset-card"
+              aria-label="Copy a jetpilot:// link"
+              title="Copy link"
+              @click="copyLink"
+            >
+              <Link class="h-3.5 w-3.5" />
+            </button>
             <span class="sr-only" aria-live="polite">{{
               copied ? "Name copied to the clipboard" : ""
             }}</span>
           </div>
         </div>
-        <div class="-mr-1.5 -mt-0.5 flex shrink-0 items-center">
-          <DropdownMenu v-if="target || release">
-            <DropdownMenuTrigger as-child>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                class="text-muted-foreground"
-                aria-label="More"
-                title="More"
-              >
-                <MoreHorizontal class="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" class="min-w-[11rem]">
-              <DropdownMenuItem @select="copyLink">
-                <Link class="h-3.5 w-3.5 text-muted-foreground" />
-                Copy link
-              </DropdownMenuItem>
-              <DropdownMenuItem v-if="target" @select="copyName">
-                <Copy class="h-3.5 w-3.5 text-muted-foreground" />
-                Copy name
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            class="shrink-0 text-muted-foreground"
-            aria-label="Close panel"
-            title="Close"
-            @click="setSidePanelComponent(null)"
-          >
-            <X class="h-4 w-4" />
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="-mr-1.5 -mt-0.5 shrink-0 text-muted-foreground"
+          aria-label="Close panel"
+          title="Close"
+          @click="setSidePanelComponent(null)"
+        >
+          <X class="h-4 w-4" />
+        </Button>
       </div>
       <template v-if="target">
         <!-- Quiet facts: namespace, cluster, age -->
