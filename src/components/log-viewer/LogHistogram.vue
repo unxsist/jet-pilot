@@ -174,9 +174,11 @@ const rangeLabel = computed(() =>
     v-if="drawable"
     class="relative flex h-11 shrink-0 items-center gap-3 border-b border-border-subtle bg-background px-3"
   >
+    <!-- Focusable, so Esc (handled by the viewer) reaches it after a drag. -->
     <div
       ref="chart"
-      class="relative min-w-0 flex-1 select-none"
+      tabindex="0"
+      class="relative min-w-0 flex-1 select-none rounded-sm focus-ring"
       :style="{ height: `${HEIGHT}px`, cursor: 'crosshair', touchAction: 'none' }"
       role="img"
       :aria-label="

@@ -28,6 +28,8 @@ export const MAX_FOLLOWED = 5;
 const POLL_MS = 3000;
 /* Long rollouts are fine; one that never ends stops being followed. */
 const MAX_FOLLOW_MS = 2 * 60 * 60_000;
+/* About a minute without an answer from the cluster: stop asking. */
+const MAX_FAILURES = 20;
 /* A notification opens its workload when JET Pilot comes forward within this. */
 const OPEN_ON_FOCUS_MS = 10 * 60_000;
 
@@ -38,6 +40,7 @@ interface Followed {
   refs: RolloutRef[];
   marks: (ProgressMark | null)[];
   startedAt: number;
+  failures: number;
   timer: ReturnType<typeof setTimeout> | undefined;
   setSidePanel: SetSidePanel;
 }
@@ -154,11 +157,21 @@ async function poll(key: string) {
       })
     );
   } catch (e) {
-    // Deleted meanwhile: nothing to tell about. Anything else: try again.
+    // Deleted meanwhile: nothing to tell about. Anything else: try again, a while.
     if ((e as { code?: number })?.code === 404) return stop(key);
+    if (++item.failures >= MAX_FAILURES) {
+      stop(key);
+      toast({
+        title: `Stopped following ${item.name}`,
+        description: "The cluster didn't answer for a minute.",
+        variant: "warning",
+      });
+      return;
+    }
     results = [];
   }
   if (!followed.has(key)) return;
+  if (results.length > 0) item.failures = 0;
 
   const message = rolloutMessage(item.name, results);
   if (message) {
@@ -195,6 +208,7 @@ export async function followRollout(
     refs,
     marks: refs.map(() => null),
     startedAt: Date.now(),
+    failures: 0,
     timer: undefined,
     setSidePanel: options.setSidePanel ?? null,
   });
