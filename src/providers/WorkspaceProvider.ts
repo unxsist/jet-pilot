@@ -19,6 +19,7 @@ import { PanelProviderSessionKey } from "@/providers/PanelProvider";
 import { PortForwardingProfilesKey } from "@/providers/PortForwardingProvider";
 import { RegisterCommandStateKey } from "@/providers/CommandPaletteProvider";
 import { DialogProviderSpawnDialogKey } from "@/providers/DialogProvider";
+import { SplitViewKey } from "@/providers/SplitViewProvider";
 import { isEditableTarget, isInOverlay } from "@/components/tables/keyboard";
 import {
   createWorkspace,
@@ -59,6 +60,7 @@ export default {
     const pfProfiles = injectStrict(PortForwardingProfilesKey);
     const registerCommand = injectStrict(RegisterCommandStateKey);
     const spawnDialog = injectStrict(DialogProviderSpawnDialogKey);
+    const split = injectStrict(SplitViewKey);
     const router = useRouter();
 
     const workspaces = computed(() =>
@@ -85,6 +87,7 @@ export default {
         .filter((profile) => pfProfiles.isRunning(profile))
         .map((profile) => profile.id),
       route: router.currentRoute.value.fullPath,
+      split: split.snapshot(),
     });
 
     const update = (id: string) => {
@@ -123,9 +126,12 @@ export default {
           .start(profileId)
           .catch((e) => logError(`Failed to start port forward: ${e}`));
       }
-      if (target.route && target.route !== router.currentRoute.value.fullPath) {
-        router.push(target.route).catch(() => {});
-      }
+      // The split first: the router then fills in the focused pane.
+      void split.restore(target.split ?? null).then(() => {
+        if (target.route && target.route !== router.currentRoute.value.fullPath) {
+          router.push(target.route).catch(() => {});
+        }
+      });
     };
 
     /*

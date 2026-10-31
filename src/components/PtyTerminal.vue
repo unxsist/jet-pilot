@@ -16,6 +16,7 @@ import {
   exitText,
   isPtyExitMessage,
   ptyOutput,
+  registerPtyTab,
   terminalError,
   terminalNotice,
 } from "@/lib/pty";
@@ -27,11 +28,18 @@ import {
  * terminal and Enter restarts the session. The session is stopped when the
  * tab closes (the tab component stays cached by keep-alive, so unmounting
  * alone is not enough).
+ *
+ * A tab moving to another window hands its running session over: the
+ * terminal releases it (and no longer stops it), the terminal in the other
+ * window starts by attaching to it (`attachSession`), which replays the
+ * recent output.
  */
 const props = defineProps<{
   start: PtyStarter;
   banner?: string;
   tabId?: string;
+  /** A running session to attach to instead of starting one. */
+  attachSession?: string;
 }>();
 
 /*
@@ -149,6 +157,9 @@ const handleMessage = (source: Channel<PtyMessage>, message: PtyMessage) => {
   }
 };
 
+/* Only the first session attaches; Enter after an exit starts a new one. */
+let attachTo = props.attachSession ?? null;
+
 const startSession = async () => {
   status = "starting";
   pendingInput = "";
@@ -158,11 +169,15 @@ const startSession = async () => {
     handleMessage(sessionChannel, message);
   channel = sessionChannel;
 
+  const attaching = attachTo;
+  attachTo = null;
+
   try {
-    const id = await props.start(
-      { rows: terminal.rows, cols: terminal.cols },
-      sessionChannel
-    );
+    const id = attaching
+      ? await invoke("tty_attach", { sessionId: attaching, onEvent: sessionChannel }).then(
+          () => attaching
+        )
+      : await props.start({ rows: terminal.rows, cols: terminal.cols }, sessionChannel);
 
     // Disposed, restarted, or the process already exited (which resets the
     // channel) while the session was starting.
@@ -186,10 +201,29 @@ const startSession = async () => {
 
     channel = null;
     status = "exited";
+    if (attaching) {
+      terminal.write(terminalNotice(`The session has ended (${e}).`));
+      terminal.write(terminalNotice("Press Enter to start a new one."));
+      return;
+    }
     terminal.write(terminalError(`Failed to start terminal: ${e}`));
     terminal.write(terminalNotice("Press Enter to retry."));
   }
 };
+
+/*
+ * Gives the running session up for a move to another window: it keeps
+ * running, this terminal no longer stops it.
+ */
+const release = (): string | null => {
+  if (status !== "running" || !sessionId) return null;
+  const id = sessionId;
+  sessionId = null;
+  channel = null;
+  status = "exited";
+  return id;
+};
+let unregister: (() => void) | null = null;
 
 terminal.onData((data) => {
   if (status === "running") {
@@ -218,6 +252,7 @@ const dispose = () => {
   if (disposed) return;
   disposed = true;
 
+  unregister?.();
   stopSession();
   resizeObserver?.disconnect();
   window.removeEventListener("TabOrchestrator_TabClosed", handleTabClosed);
@@ -242,9 +277,10 @@ onMounted(() => {
     fit();
   });
 
-  if (props.banner) {
+  if (props.banner && !props.attachSession) {
     terminal.write(terminalNotice(props.banner));
   }
+  if (props.tabId) unregister = registerPtyTab(props.tabId, release);
 
   startSession();
   terminal.focus();

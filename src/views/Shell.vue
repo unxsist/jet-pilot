@@ -26,6 +26,8 @@ const props = defineProps<{
   pod: V1Pod;
   container?: V1Container;
   tabId?: string;
+  /** A running session moved here from another window. */
+  attachSession?: string;
 }>();
 
 /*
@@ -98,7 +100,12 @@ onUnmounted(stopRecovered);
   <div class="flex h-full w-full flex-col">
     <TerminalClusterBanner :context="context" :kube-config="kubeConfig" />
     <div class="relative min-h-0 flex-1">
-      <PtyTerminal :key="session" :start="start" :tab-id="tabId" />
+      <PtyTerminal
+        :key="session"
+        :start="start"
+        :tab-id="tabId"
+        :attach-session="session === 0 ? attachSession : undefined"
+      />
       <div
         v-if="authExit"
         class="absolute inset-0 z-10 flex items-center justify-center bg-background/80 p-4 backdrop-blur-[2px] animate-fade-in"

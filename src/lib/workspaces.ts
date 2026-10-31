@@ -5,6 +5,7 @@
  * current state into the active workspace first, then applies the target.
  */
 import { parseTabSession, type TabSession } from "@/lib/tabDescriptors";
+import type { SplitSnapshot } from "@/lib/splitView";
 
 export interface WorkspaceContext {
   context: string;
@@ -20,6 +21,11 @@ export interface WorkspaceState {
   portForwardProfileIds: string[];
   /** Full path of the view (e.g. "/deployments?resource=…"). */
   route: string | null;
+  /**
+   * Two views side by side (the focused one is `route`); null: one view.
+   * Validated when the workspace is applied (see SplitViewProvider).
+   */
+  split?: SplitSnapshot | null;
 }
 
 export interface Workspace extends WorkspaceState {
@@ -64,6 +70,7 @@ function cloneState(state: WorkspaceState): WorkspaceState {
       tabs: state.tabs,
       portForwardProfileIds: state.portForwardProfileIds,
       route: state.route,
+      split: state.split ?? null,
     })
   );
 }
@@ -143,6 +150,7 @@ export function parseWorkspaces(value: unknown): Workspace[] {
           )
         : [],
       route: typeof raw.route === "string" ? raw.route : null,
+      split: raw.split && typeof raw.split === "object" ? (raw.split as SplitSnapshot) : null,
       updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : 0,
     });
   }

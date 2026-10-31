@@ -18,15 +18,20 @@
 //! - memory is bounded: the reader -> batcher queue is bounded (backpressure
 //!   on kubectl), the session keeps at most `MAX_ENTRIES_PER_SESSION` lines
 //! - streams stop when the session ends, a new stream replaces them, the
-//!   frontend is gone (channel closed, webview reloaded: `log_stream_reset`)
-//!   or the app exits; kubectl processes are killed through their process
-//!   handles (kill_on_drop + exit sweep of the registered children)
+//!   frontend is gone (channel closed, webview reloaded: `log_stream_reset`,
+//!   pop-out window closed) or the app exits; kubectl processes are killed
+//!   through their process handles (kill_on_drop + exit sweep of the
+//!   registered children)
+//! - streams and sessions belong to the webview that started them: a page
+//!   load or a closed window only stops its own
 
 use super::structured_logging::{
-    blocking, get_session, normalize_timestamp, parse_line_from, split_prefix, ParsedLine,
+    blocking, clear_sessions_of, get_session, normalize_timestamp, parse_line_from, split_prefix, ParsedLine,
 };
 use crate::auth::center::{self, IssueSource};
 use crate::util::lock;
+#[cfg(any(test, feature = "kwok-qa"))]
+use crate::windows::MAIN;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -168,6 +173,8 @@ impl EventSink for Channel<LogStreamEvent> {
 
 struct StreamHandle {
     generation: u64,
+    /// Label of the webview that started the stream.
+    owner: String,
     supervisor: tauri::async_runtime::JoinHandle<()>,
 }
 
@@ -870,7 +877,20 @@ fn validate(spec: &LogStreamSpec) -> Result<(), String> {
     Ok(())
 }
 
+/// [`start_stream_for`] on behalf of the main window (tests).
+#[cfg(any(test, feature = "kwok-qa"))]
 pub(crate) fn start_stream_with(
+    session_id: String,
+    spec: LogStreamSpec,
+    sink: Arc<dyn EventSink>,
+    program: &str,
+) -> Result<(), String> {
+    start_stream_for(MAIN, session_id, spec, sink, program)
+}
+
+/// Starts a stream owned by webview `owner` (see `release_owner`).
+pub(crate) fn start_stream_for(
+    owner: &str,
     session_id: String,
     spec: LogStreamSpec,
     sink: Arc<dyn EventSink>,
@@ -899,6 +919,7 @@ pub(crate) fn start_stream_with(
         session_id,
         StreamHandle {
             generation,
+            owner: owner.to_string(),
             supervisor: handle,
         },
     ) {
@@ -920,11 +941,12 @@ pub fn stop_stream(session_id: &str) {
 /// running stream of the session. Progress is reported on `on_event`.
 #[tauri::command]
 pub async fn start_log_stream(
+    webview: tauri::Webview,
     session_id: String,
     spec: LogStreamSpec,
     on_event: Channel<LogStreamEvent>,
 ) -> Result<(), String> {
-    start_stream_with(session_id, spec, Arc::new(on_event), "kubectl")
+    start_stream_for(webview.label(), session_id, spec, Arc::new(on_event), "kubectl")
 }
 
 #[tauri::command]
@@ -943,15 +965,48 @@ fn stop_all_streams() -> usize {
     count
 }
 
-/// Stops the streams a previous load of the webview left behind (their
-/// channels are gone) and ends their log sessions. Called once per page
-/// load, before the frontend starts a log session.
+/// Stops the streams of webview `owner`. Returns how many.
+fn stop_streams_of(owner: &str) -> usize {
+    let stopped: Vec<StreamHandle> = {
+        let mut streams = lock(&STREAMS);
+        let ids: Vec<String> = streams
+            .iter()
+            .filter(|(_, stream)| stream.owner == owner)
+            .map(|(id, _)| id.clone())
+            .collect();
+        ids.iter().filter_map(|id| streams.remove(id)).collect()
+    };
+    for stream in &stopped {
+        stream.supervisor.abort();
+    }
+    stopped.len()
+}
+
+/// Stops the streams of webview `owner` and ends its log sessions (with any
+/// stream still feeding them). Returns (streams, sessions).
+pub fn release_owner(owner: &str) -> (usize, usize) {
+    let stopped = stop_streams_of(owner);
+    let sessions = clear_sessions_of(owner);
+    for session_id in &sessions {
+        stop_stream(session_id);
+    }
+    (stopped, sessions.len())
+}
+
+/// Stops the streams a previous load of the calling webview left behind
+/// (their channels are gone) and ends its log sessions; other windows keep
+/// theirs. Called once per page load, before the frontend starts a log
+/// session.
 #[tauri::command]
-pub async fn log_stream_reset() {
-    let stopped = stop_all_streams();
-    let sessions = super::structured_logging::clear_sessions();
+pub async fn log_stream_reset(webview: tauri::Webview) {
+    let (stopped, sessions) = release_owner(webview.label());
     if stopped > 0 || sessions > 0 {
-        info!("Log stream reset: stopped {} streams, ended {} sessions", stopped, sessions);
+        info!(
+            "Log stream reset of {}: stopped {} streams, ended {} sessions",
+            webview.label(),
+            stopped,
+            sessions
+        );
     }
 }
 
@@ -1295,6 +1350,40 @@ exec sleep 300
             let state = stat.rsplit(')').next().unwrap_or("").split_whitespace().next();
             assert!(matches!(state, None | Some("Z") | Some("X")), "kubectl {} still runs: {}", pid, stat);
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A page load / closed window stops only its own streams and sessions.
+    #[cfg(unix)]
+    #[test]
+    fn release_only_stops_the_owners_streams_and_sessions() {
+        use super::super::structured_logging::insert_owned_session;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("jet-fake-kubectl-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("kubectl");
+        std::fs::write(&path, "#!/bin/sh
+exec sleep 300
+").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let start = |owner: &str| {
+            let session_id = uuid::Uuid::new_v4().to_string();
+            insert_owned_session(owner, session_id.clone(), StructuredLoggingSession::default());
+            let s = spec(LogTarget::Pod { name: "web-1".into() });
+            start_stream_for(owner, session_id.clone(), s, Arc::new(Collector::default()), path.to_str().unwrap())
+                .unwrap();
+            session_id
+        };
+        let a = start("pop-release-a");
+        let b = start("pop-release-b");
+
+        assert_eq!(release_owner("pop-release-a"), (1, 1));
+        assert!(!lock(&STREAMS).contains_key(&a) && get_session(&a).is_none());
+        assert!(lock(&STREAMS).contains_key(&b) && get_session(&b).is_some());
+
+        assert_eq!(release_owner("pop-release-b"), (1, 1));
+        assert!(!lock(&STREAMS).contains_key(&b));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

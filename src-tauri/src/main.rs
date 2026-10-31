@@ -34,6 +34,7 @@ mod themes;
 mod tools;
 mod util;
 mod watch;
+mod windows;
 mod workloads;
 
 static RELOAD_HANDLE: Lazy<Arc<RwLock<reload::Handle<LevelFilter, Registry>>>> = Lazy::new(|| {
@@ -162,6 +163,10 @@ fn main() {
             shell::tty::write_to_pty,
             shell::tty::resize_pty,
             shell::tty::create_local_terminal_session,
+            shell::tty::tty_release,
+            shell::tty::tty_attach,
+            windows::window_open,
+            windows::window_focus,
             logs::structured_logging::start_structured_logging_session,
             logs::structured_logging::repurpose_structured_logging_session,
             logs::structured_logging::end_structured_logging_session,
@@ -253,6 +258,8 @@ fn main() {
             auth::login::auth_login_open_url,
             auth::login::auth_login_cancel,
         ])
+        // Pop-out windows: cleanup when one closes, quit when main closes.
+        .on_window_event(windows::on_window_event)
         .setup(|_app| {
             // auth://issue and auth://resolved need the app handle.
             auth::center::init(_app.handle().clone());
@@ -300,21 +307,10 @@ fn main() {
                 });
             }
 
-            let _window = _app.get_webview_window("main").unwrap();
+            let _window = _app.get_webview_window(windows::MAIN).unwrap();
 
-            #[cfg(target_os = "macos")]
-            {
-                use tauri_nspanel::cocoa;
-                use tauri_nspanel::cocoa::appkit::NSWindow;
-                use tauri_nspanel::cocoa::appkit::NSWindowTitleVisibility;
-                use tauri_nspanel::cocoa::base::BOOL;
-
-                unsafe {
-                    let id = _window.ns_window().unwrap() as cocoa::base::id;
-                    id.setHasShadow_(BOOL::from(false));
-                    id.setTitleVisibility_(NSWindowTitleVisibility::NSWindowTitleHidden);
-                }
-            }
+            // Shared with the pop-out windows.
+            windows::apply_chrome(&_window);
 
             #[cfg(debug_assertions)]
             {
@@ -327,7 +323,12 @@ fn main() {
         .expect("Error while building JET Pilot");
 
     app.run(|_app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = event {
+            // The window close fallbacks must not race the exit below.
+            windows::note_exit();
+        }
         if let tauri::RunEvent::Exit = event {
+            windows::note_exit();
             // Don't orphan kubectl port-forward processes when the app closes.
             port_forward::kill_all_port_forwards();
             // Same for kubectl exec / local shell sessions (and their

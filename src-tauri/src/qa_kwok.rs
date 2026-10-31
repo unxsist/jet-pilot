@@ -794,7 +794,7 @@ impl LogEvents {
 fn multi_pod_log_stream() {
     let env = require_env!();
     block_on(async {
-        let session = logging::start_structured_logging_session(vec![]).await;
+        let session = logging::start_session(crate::windows::MAIN, vec![]).await;
         let events = Arc::new(LogEvents::default());
         let spec = serde_json::from_value(json!({
             "context": env.context,

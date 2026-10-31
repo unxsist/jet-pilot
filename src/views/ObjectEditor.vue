@@ -790,8 +790,17 @@ const handleCloseEvent = (e: Event) => {
   }
 };
 
+/* Moving the tab to another window would lose the changes: veto it. */
+const handleMoveEvent = (e: Event) => {
+  const event = e as CustomEvent<TabClosedEvent>;
+  if (instanceAttributes.tabId === event.detail.id && hasChanges.value) {
+    event.preventDefault();
+  }
+};
+
 onMounted(async () => {
   window.addEventListener("TabOrchestrator_TabClosed", handleCloseEvent);
+  window.addEventListener("TabOrchestrator_TabMoving", handleMoveEvent);
   // Start fetching the editor while the object loads.
   const runtime = loadMonaco();
   runtime.catch(() => undefined);
@@ -853,6 +862,7 @@ onUnmounted(() => {
   clearTimeout(schemaTimer);
   clearTimeout(summaryTimer);
   window.removeEventListener("TabOrchestrator_TabClosed", handleCloseEvent);
+  window.removeEventListener("TabOrchestrator_TabMoving", handleMoveEvent);
   if (rt && editorModel) rt.setModelSchema(editorModel, null, null);
   disposables.forEach((d) => d.dispose());
   diffEditor?.dispose();

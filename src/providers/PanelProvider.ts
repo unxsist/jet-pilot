@@ -12,6 +12,7 @@ import {
 import { SettingsContextStateKey } from "@/providers/SettingsContextProvider";
 import { injectStrict } from "@/lib/utils";
 import {
+  describeTab,
   describeTabs,
   isPtyTabType,
   parseTabSession,
@@ -56,6 +57,8 @@ export interface PanelSession {
   liveTerminalTabs(): { id: string; title: string }[];
   /** Closes tabs, honouring vetoes (unless forced). Returns kept ids. */
   closeTabs(ids: string[], options?: { force?: boolean }): string[];
+  /** The serializable description of a tab (null: it can't be restored or moved). */
+  describe(id: string): TabDescriptor | null;
 }
 export const PanelProviderSessionKey: InjectionKey<PanelSession> =
   Symbol("PanelProviderSession");
@@ -113,7 +116,14 @@ const TAB_COMPONENTS: Record<TabType, Component> = {
 
 export default {
   name: "PanelProvider",
-  setup() {
+  props: {
+    /**
+     * Restore the previous session's tabs and keep them in state.json (the
+     * main window). Pop-out windows get their tabs from the main window.
+     */
+    persist: { type: Boolean, default: true },
+  },
+  setup(props: { persist: boolean }) {
     const { settings } = injectStrict(SettingsContextStateKey);
 
     const state: PanelProviderState = reactive({
@@ -230,22 +240,28 @@ export default {
           )
           .map(({ id, title }) => ({ id, title })),
       closeTabs,
+      describe: (id) => {
+        const tab = state.tabs.find((t) => t.id === id);
+        return tab ? describeTab(tab) : null;
+      },
     };
 
     /* Restore the previous session's tabs, then keep them persisted. */
-    if (settings.value.openTabs) {
+    if (props.persist && settings.value.openTabs) {
       session.restore(settings.value.openTabs);
     }
 
-    watch(
-      () => [
-        state.activeTabId,
-        state.tabs.map((tab) => `${tab.id}\u0000${tab.title}`).join("\u0001"),
-      ],
-      () => {
-        settings.value.openTabs = session.snapshot();
-      }
-    );
+    if (props.persist) {
+      watch(
+        () => [
+          state.activeTabId,
+          state.tabs.map((tab) => `${tab.id}\u0000${tab.title}`).join("\u0001"),
+        ],
+        () => {
+          settings.value.openTabs = session.snapshot();
+        }
+      );
+    }
 
     provide(PanelProviderAddTabKey, addTab);
     provide(PanelProviderCloseTabKey, closeTab);

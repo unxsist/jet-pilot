@@ -23,8 +23,15 @@ pub mod structured_logging {
     /// Sessions are individually locked: the global map is only locked long
     /// enough to look a session up, so a slow query on one log viewer never
     /// blocks another, and a panic can't poison every session at once.
-    static STRUCTURED_LOGGING_SESSIONS: Lazy<Mutex<HashMap<String, Arc<Mutex<StructuredLoggingSession>>>>> =
+    static STRUCTURED_LOGGING_SESSIONS: Lazy<Mutex<HashMap<String, SessionSlot>>> =
         Lazy::new(|| Mutex::new(HashMap::new()));
+
+    struct SessionSlot {
+        /// Label of the webview that started the session: its page loads
+        /// and its window closing end the session.
+        owner: String,
+        session: Arc<Mutex<StructuredLoggingSession>>,
+    }
 
     #[derive(Debug, Default)]
     pub struct StructuredLoggingSession {
@@ -162,7 +169,9 @@ pub mod structured_logging {
     }
 
     pub(crate) fn get_session(session_id: &str) -> Option<Arc<Mutex<StructuredLoggingSession>>> {
-        lock(&STRUCTURED_LOGGING_SESSIONS).get(session_id).cloned()
+        lock(&STRUCTURED_LOGGING_SESSIONS)
+            .get(session_id)
+            .map(|slot| slot.session.clone())
     }
 
     /// Serialized form of a facet value; also what the frontend displays.
@@ -660,7 +669,15 @@ pub mod structured_logging {
     }
 
     #[tauri::command]
-    pub async fn start_structured_logging_session(initial_data: Vec<String>) -> String {
+    pub async fn start_structured_logging_session(
+        webview: tauri::Webview,
+        initial_data: Vec<String>,
+    ) -> String {
+        start_session(webview.label(), initial_data).await
+    }
+
+    /// Starts a session owned by webview `owner`.
+    pub(crate) async fn start_session(owner: &str, initial_data: Vec<String>) -> String {
         info!("Starting structured logging session");
         let session_id = Uuid::new_v4().to_string();
 
@@ -675,18 +692,38 @@ pub mod structured_logging {
         let mut session = StructuredLoggingSession::default();
         session.push_lines(lines);
 
-        insert_session(session_id.clone(), session);
+        insert_owned_session(owner, session_id.clone(), session);
 
         session_id
     }
 
-    /// Ends every session (after a webview reload). Returns how many.
-    pub(crate) fn clear_sessions() -> usize {
-        std::mem::take(&mut *lock(&STRUCTURED_LOGGING_SESSIONS)).len()
+    /// Ends the sessions of webview `owner` (its page reloaded or its window
+    /// closed). Returns their ids.
+    pub(crate) fn clear_sessions_of(owner: &str) -> Vec<String> {
+        let mut sessions = lock(&STRUCTURED_LOGGING_SESSIONS);
+        let ids: Vec<String> = sessions
+            .iter()
+            .filter(|(_, slot)| slot.owner == owner)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in &ids {
+            sessions.remove(id);
+        }
+        ids
     }
 
+    /// [`insert_owned_session`] on behalf of the main window (tests).
+    #[cfg(test)]
     pub(crate) fn insert_session(session_id: String, session: StructuredLoggingSession) {
-        lock(&STRUCTURED_LOGGING_SESSIONS).insert(session_id, Arc::new(Mutex::new(session)));
+        insert_owned_session(crate::windows::MAIN, session_id, session);
+    }
+
+    pub(crate) fn insert_owned_session(owner: &str, session_id: String, session: StructuredLoggingSession) {
+        let slot = SessionSlot {
+            owner: owner.to_string(),
+            session: Arc::new(Mutex::new(session)),
+        };
+        lock(&STRUCTURED_LOGGING_SESSIONS).insert(session_id, slot);
     }
 
     #[tauri::command]
@@ -1276,6 +1313,23 @@ pub mod structured_logging {
             assert!(matches_facets(&e, &[facet("a", "\"x\"", MatchType::OR), facet("b", "\"y\"", MatchType::AND)]));
             assert!(!matches_facets(&e, &[facet("a", "\"x\"", MatchType::OR), facet("b", "\"z\"", MatchType::AND)]));
             assert!(matches_facets(&e, &[facet("a", "\"q\"", MatchType::OR), facet("b", "\"y\"", MatchType::OR)]));
+        }
+
+        #[test]
+        fn sessions_are_cleared_per_owner() {
+            let ids: Vec<String> = (0..3).map(|_| Uuid::new_v4().to_string()).collect();
+            insert_owned_session("pop-logs-a", ids[0].clone(), StructuredLoggingSession::default());
+            insert_owned_session("pop-logs-a", ids[1].clone(), StructuredLoggingSession::default());
+            insert_owned_session("pop-logs-b", ids[2].clone(), StructuredLoggingSession::default());
+
+            let mut cleared = clear_sessions_of("pop-logs-a");
+            cleared.sort();
+            let mut expected = ids[..2].to_vec();
+            expected.sort();
+            assert_eq!(cleared, expected);
+            assert!(get_session(&ids[0]).is_none() && get_session(&ids[1]).is_none());
+            assert!(get_session(&ids[2]).is_some(), "other windows keep their sessions");
+            assert_eq!(clear_sessions_of("pop-logs-b"), vec![ids[2].clone()]);
         }
     }
 }

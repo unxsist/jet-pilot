@@ -30,6 +30,7 @@ import { type as getOsType } from "@tauri-apps/plugin-os";
 import { getCurrentWebviewWindow as getWindow } from "@tauri-apps/api/webviewWindow";
 import { exit } from "@tauri-apps/plugin-process";
 import { formatResourceKind } from "@/lib/utils";
+import { beginQuit } from "@/lib/windows";
 import { ref } from "vue";
 
 const targetOs = ref<string>(getOsType());
@@ -264,6 +265,8 @@ const minimize = () => {
 };
 
 const quit = async () => {
+  // Pop-out windows closing with the app are reopened next time.
+  beginQuit();
   await flushSettings();
   exit(0);
 };
