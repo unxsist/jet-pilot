@@ -21,6 +21,7 @@ import { injectStrict } from "@/lib/utils";
 import { activeTargets } from "@/lib/multicontext";
 import { resolveCluster } from "@/lib/clusters/meta";
 import { HEALTH_TABS, type HealthTab } from "@/lib/health/tabs";
+import { useProblemCount } from "@/lib/health/problems/feed";
 
 /* Each tab loads on its first visit. */
 const ProblemsTab = defineAsyncComponent(() => import("./ProblemsTab.vue"));
@@ -45,6 +46,10 @@ const subtitle = computed(() => {
     : `Across ${new Intl.ListFormat("en", { style: "long", type: "conjunction" }).format(names)}`;
 });
 
+/* Problems are counted on their tab, wherever the page is. */
+const problems = useProblemCount(() => targets.value);
+const tabs = computed(() => HEALTH_TABS.map((t) => (t.id === "problems" ? { ...t, count: problems.count.value || null } : t)));
+
 const tab = ref<HealthTab>("problems");
 watch(
   () => route.query.tab,
@@ -67,7 +72,7 @@ watch(tab, (value) => {
     <div class="mx-auto max-w-5xl space-y-6 px-10 pb-16 pt-10">
       <PageHeader title="Health" :description="subtitle">
         <template #tabs>
-          <PageTabs v-model="tab" label="Health" :tabs="HEALTH_TABS" />
+          <PageTabs v-model="tab" label="Health" :tabs="tabs" />
         </template>
       </PageHeader>
 

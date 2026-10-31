@@ -56,7 +56,70 @@ const screens = {
       await wait(600);
     },
   },
-  "health-problems": { url: "/health", ready: "h1", settle: 1500 },
+  // Health › Problems (dev/harness/problems.ts): the list, its panel per kind of problem, the fixes.
+  "health-problems": { url: "/health", ready: "[data-problem-key]", settle: 1500 },
+  "health-problems-clusters": { url: "/health?contexts=2", ready: "[data-problem-key]", settle: 1500 },
+  "health-problems-empty": { url: "/health?scenario=empty", ready: "h1", settle: 1500 },
+  "health-problems-error": { url: "/health?scenario=error", ready: "[role=alert]", settle: 1500 },
+  "health-problems-snoozed": {
+    url: "/health",
+    ready: "[data-problem-key]",
+    settle: 1200,
+    run: async (page) => {
+      for (const [name, item] of [["debug-toolbox", "Acknowledge"], ["payments-api", null]]) {
+        const row = page.locator("[data-problem-key]", { hasText: name }).first();
+        await row.hover();
+        await row.getByRole("button", { name: /^Actions for/ }).click();
+        if (item) await page.getByRole("menuitem", { name: item }).click();
+        else {
+          await page.getByRole("menuitem", { name: "Snooze" }).hover();
+          await page.getByRole("menuitem", { name: "For a day" }).click();
+        }
+        await wait(300);
+      }
+      await page.getByRole("button", { name: /^Snoozed/ }).click();
+      await page.locator("section[aria-label=Snoozed] [data-problem-key]").last().scrollIntoViewIfNeeded();
+      await page.mouse.move(5, 500);
+      await wait(500);
+    },
+  },
+  "health-problem-crash": { url: "/health", ready: "[data-problem-key]", settle: 1200, run: (page) => openProblem(page, "checkout-api") },
+  "health-problem-cause": {
+    url: "/health?scenario=problems-cause",
+    ready: "[data-problem-key]",
+    settle: 1200,
+    run: (page) => openProblem(page, "checkout-api"),
+  },
+  "health-problem-oom": {
+    url: "/health?scenario=problems-cause",
+    ready: "[data-problem-key]",
+    settle: 1200,
+    run: (page) => openProblem(page, "payments-worker"),
+  },
+  "health-problem-config": { url: "/health", ready: "[data-problem-key]", settle: 1200, run: (page) => openProblem(page, "fraud-check") },
+  "health-problem-probe": { url: "/health", ready: "[data-problem-key]", settle: 1200, run: (page) => openProblem(page, "search-api") },
+  "health-problem-job": { url: "/health", ready: "[data-problem-key]", settle: 1200, run: (page) => openProblem(page, "db-migrate-42") },
+  "health-problem-node": { url: "/health?contexts=2", ready: "[data-problem-key]", settle: 1200, run: (page) => openProblem(page, "ip-10-0-45-118") },
+  "health-raise-memory": {
+    url: "/health",
+    ready: "[data-problem-key]",
+    settle: 1200,
+    run: async (page) => {
+      await openProblem(page, "payments-worker");
+      await page.getByRole("button", { name: "Raise memory limit…" }).click();
+      await wait(1500);
+    },
+  },
+  "health-rollback": {
+    url: "/health",
+    ready: "[data-problem-key]",
+    settle: 1200,
+    run: async (page) => {
+      await openProblem(page, "checkout-api");
+      await page.getByRole("button", { name: "Roll back…" }).first().click();
+      await wait(1200);
+    },
+  },
   "health-risks": { url: "/health?tab=risks", ready: "h1", settle: 1500 },
   "health-upgrades": { url: "/health?tab=upgrades", ready: "h1", settle: 1500 },
   // Changes (dev/harness/changes.ts): the timeline, both clusters, search, a diff, a panel.
@@ -1259,6 +1322,13 @@ const screens = {
  * Opens a row's side panel, widened; `foldUsage` folds the usage charts so
  * the kind's own sections show.
  */
+/* Opens a problem on the Health page in the side panel. */
+async function openProblem(page, name) {
+  await page.locator("[data-problem-key]", { hasText: name }).first().click();
+  await page.mouse.move(5, 500);
+  await wait(1500);
+}
+
 async function openPanel(page, row, { foldUsage = false } = {}) {
   await row.click();
   await wait(600);

@@ -25,6 +25,7 @@ export const STATE_KEYS = [
   "activeWorkspaceId",
   "recentCommands",
   "welcomeCompleted",
+  "snoozedProblems",
 ] as const;
 
 export function stateDefaults(): AppState {
@@ -45,5 +46,6 @@ export function stateDefaults(): AppState {
     activeWorkspaceId: null,
     recentCommands: [],
     welcomeCompleted: null,
+    snoozedProblems: [],
   };
 }

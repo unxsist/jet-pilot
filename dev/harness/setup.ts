@@ -27,6 +27,7 @@
  *   ?scenario=rbac-forbidden listing RBAC objects is forbidden (rbac.ts)
  *   ?scenario=gitops-namespaced  GitOps objects readable in argocd / flux-system only (rbac.ts)
  *   ?scenario=no-actions     an empty custom actions folder (actions.ts)
+ *   ?scenario=problems-cause the Problems panel finds what caused a problem (cause.ts)
  *
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views; `large-graph` swaps the
@@ -84,6 +85,7 @@ import { createPanelsMocks } from "./panels";
 import { createChangesMocks } from "./changes";
 import { nodeHistory } from "./metrics";
 import "./rbac";
+import "./problems";
 import { actionHandlers, seedActionFiles, startActionPty } from "./actions";
 import {
   createOperatorMocks,
