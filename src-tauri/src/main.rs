@@ -12,6 +12,8 @@ mod announcements;
 mod app_log;
 mod auth;
 mod clusters;
+mod connection;
+mod deep_link;
 mod env_import;
 mod helm;
 mod kube_api;
@@ -110,7 +112,17 @@ fn main() {
 
     let ctx = tauri::generate_context!();
 
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // One app: a second launch (or a jetpilot:// link on Windows / Linux)
+    // focuses the running one, which gets the link. Must be the first
+    // plugin. Not in debug builds, which would hand over to an installed
+    // JET Pilot (same identifier) and quit.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        deep_link::focus_main(app);
+    }));
+    let builder = builder
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -252,6 +264,12 @@ fn main() {
             auth::login::auth_login_start,
             auth::login::auth_login_open_url,
             auth::login::auth_login_cancel,
+            deep_link::deep_link_ready,
+            connection::cluster_connections_set,
+            connection::cluster_connections_active,
+            connection::cluster_connection_status,
+            connection::cluster_connection_connect,
+            connection::cluster_cli_args,
         ])
         .setup(|_app| {
             // auth://issue and auth://resolved need the app handle.
@@ -259,6 +277,10 @@ fn main() {
             // Managed-kubeconfig/vault events, and installing the
             // jetpilot-auth helper in the background.
             clusters::init(_app.handle());
+            // Per-cluster proxies and SSH tunnels (status events, reaping).
+            connection::init(_app.handle());
+            // jetpilot:// links the app was started with, and later ones.
+            deep_link::init(_app.handle());
 
             #[cfg(target_os = "macos")]
             {
@@ -339,6 +361,8 @@ fn main() {
             probe::flush_status_cache();
             // Sign-ins still running (aws sso login, kubelogin, ...).
             auth::login::cancel_all();
+            // SSH tunnels, and kubeconfigs written for proxied clusters.
+            connection::shutdown();
         }
     });
 }

@@ -300,7 +300,7 @@ pub mod client {
     }
 
     /// Latest modification time of the kubeconfig file(s) behind `path`.
-    fn kubeconfig_stamp(path: &str) -> Option<SystemTime> {
+    pub(crate) fn kubeconfig_stamp(path: &str) -> Option<SystemTime> {
         kubeconfig_files(path)
             .iter()
             .filter_map(|file| std::fs::metadata(file).and_then(|m| m.modified()).ok())
@@ -332,6 +332,12 @@ pub mod client {
                 cell
             }
         }
+    }
+
+    /// Drops the cached clients `matches` selects (resolved kubeconfig path,
+    /// context): their connection route changed.
+    pub(crate) fn invalidate_clients_matching(matches: impl Fn(&str, &str) -> bool) {
+        lock(&CLIENTS).retain(|(kube_config, context), _| !matches(kube_config, context));
     }
 
     /// Drops the cached clients of (resolved kubeconfig path, context) pairs:
@@ -505,6 +511,18 @@ pub mod client {
             .unwrap_or_default()
     }
 
+    /// The cluster's proxy or SSH tunnel isn't usable (in plain words).
+    fn connection_error(message: String) -> SerializableKubeError {
+        error!("{}", message);
+        SerializableKubeError {
+            message,
+            code: None,
+            reason: Some("ConnectionRoute".to_string()),
+            details: None,
+            auth: None,
+        }
+    }
+
     /// A failed `ClientBuilder::try_from`. With the broker disabled kube-rs
     /// runs exec plugins in there: those failures are auth issues.
     fn client_build_error(err: Error, target: &ClientTarget) -> SerializableKubeError {
@@ -566,6 +584,15 @@ pub mod client {
         // or the service proxy (no pods behind a service) isn't transient:
         // callers report it and watchers have their own backoff.
         client_config.default_retry = false;
+        // A proxy or SSH jump host set for the cluster replaces the
+        // kubeconfig's proxy-url. The tunnel outlives the build (see
+        // connection::init), so the lease isn't kept.
+        if let Some(route) = crate::connection::route(kubeconfig_path, context)
+            .await
+            .map_err(connection_error)?
+        {
+            client_config.proxy_url = Some(route.url.parse().map_err(|_| connection_error(format!("'{}' isn't a proxy URL", route.url)))?);
+        }
 
         let target = ClientTarget {
             kube_config: kubeconfig_path.to_string(),
@@ -969,6 +996,7 @@ pub mod client {
         // one when the frontend passes none / "").
         let kube_config = resolve_kubeconfig_path(kube_config.as_deref());
         let args = manifest_args(mode, context, namespace, Some(&kube_config), dry_run);
+        let (args, _route) = crate::connection::cli_args(args).await?;
         debug!("Running kubectl {:?} (dry run: {}) with manifest on stdin", mode, dry_run);
 
         let mut cmd = Command::new("kubectl");
@@ -1042,8 +1070,9 @@ pub mod client {
 
     #[tauri::command]
     pub async fn run_kubectl(args: Vec<String>) -> Result<String, String> {
+        let (routed, _route) = crate::connection::cli_args(args.clone()).await?;
         let mut cmd = Command::new("kubectl");
-        cmd.args(&args);
+        cmd.args(&routed);
 
         // On Windows, spawning a console-subsystem binary (kubectl, and via it
         // exec-auth plugins like aws/gke-gcloud-auth-plugin/kubelogin) from a GUI

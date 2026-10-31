@@ -312,6 +312,15 @@ async fn run_forward(
         lock(&info).local_port = bound.port();
     }
 
+    // A cluster's SSH tunnel stays up while the forward runs.
+    let _route = match crate::connection::route(&resolve_kubeconfig_path(Some(&spec.kube_config)), &spec.context).await {
+        Ok(route) => route.and_then(|route| route.lease),
+        Err(message) => {
+            fail(&app, &info, &message);
+            give_up(&app);
+            return;
+        }
+    };
     let client = match client_with_context(&spec.context, Some(&spec.kube_config)).await {
         Ok(client) => client,
         Err(err) => {
