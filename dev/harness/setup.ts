@@ -81,6 +81,7 @@ import { handleKubeRequest } from "./kubeApi";
 import { createGitopsMocks } from "./gitops";
 import { createPortForwardMocks, portForwardSettings } from "./portForwards";
 import { createPanelsMocks } from "./panels";
+import { createChangesMocks } from "./changes";
 import { nodeHistory } from "./metrics";
 import "./rbac";
 import { actionHandlers, seedActionFiles, startActionPty } from "./actions";
@@ -1296,6 +1297,8 @@ const helm = createHelmMocks(scenario);
 const portForwards = createPortForwardMocks();
 /* Side panel fixtures, patch and event routes (dev/harness/panels.ts). */
 createPanelsMocks(scenario, emitWatchChange);
+/* Change history and the recorder (dev/harness/changes.ts). */
+const changes = createChangesMocks(scenario);
 let probeBatches = 0;
 
 /* ------------------------------------------------------------------ fs -- */
@@ -1469,6 +1472,7 @@ mockIPC(
     if (cmd in helm.handlers) return helm.handlers[cmd]!(p);
     if (cmd in actionHandlers) return actionHandlers[cmd]!(p);
     if (cmd in portForwards.handlers) return portForwards.handlers[cmd]!(p);
+    if (cmd in changes.handlers) return changes.handlers[cmd]!(p);
     switch (cmd) {
       // fs / path / app / os / updater / window / clipboard
       case "plugin:fs|exists":
