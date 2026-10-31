@@ -85,6 +85,7 @@ import { nodeHistory } from "./metrics";
 import "./rbac";
 import { actionHandlers, seedActionFiles, startActionPty } from "./actions";
 import { createRolloutMocks, noteRollout, volumeLogLines } from "./polishUi";
+import { createDesktopMocks } from "./desktop";
 import {
   createOperatorMocks,
   OPERATOR_API_VERSIONS,
@@ -1468,9 +1469,13 @@ const openVsxInstall = (namespace: string, name: string) => {
   return { extension, themes: openVsxThemes() };
 };
 
+/* jetpilot:// links and per-cluster connections (desktop.ts). */
+const desktop = createDesktopMocks(params);
+
 mockIPC(
   async (cmd: string, payload: any) => {
     const p = payload || {};
+    if (cmd in desktop.handlers) return desktop.handlers[cmd]!(p);
     if (cmd in managed.handlers) return managed.handlers[cmd]!(p);
     if (cmd in cloud.handlers) return cloud.handlers[cmd]!(p);
     if (cmd in gitops.handlers) return gitops.handlers[cmd]!(p);

@@ -34,7 +34,8 @@ export const ORIGIN_LABELS: Record<KubeconfigOrigin, string> = {
 export const discoveredKubeconfigs = shallowRef<DiscoveredKubeconfig[] | null>(null);
 
 let home: Promise<string> | null = null;
-const homePath = () => (home ??= homeDir().catch(() => ""));
+/** The home directory ("" when unknown). */
+export const homePath = () => (home ??= homeDir().catch(() => ""));
 
 export const normalizeKubeconfigPath = (path: string) =>
   path.replace(/\\/g, "/").replace(/\/+$/, "");

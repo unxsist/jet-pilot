@@ -17,9 +17,17 @@ import {
   FileCode,
   FileText,
   FolderTree,
+  Link,
+  MoreHorizontal,
   ScrollText,
   X,
 } from "lucide-vue-next";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useRoute } from "vue-router";
 import type { KubernetesObject } from "@kubernetes/client-node";
@@ -113,6 +121,35 @@ const copyName = async () => {
 };
 
 onUnmounted(() => clearTimeout(copiedTimer));
+
+/* A Helm release panel: linked to the release instead of an object. */
+const release = computed(() => {
+  const candidate = sidePanel.value?.props?.release;
+  return candidate?.metadata?.context && candidate?.name ? candidate : null;
+});
+
+const copyLink = async () => {
+  const { copyLink, copyObjectLink } = await import("@/lib/deepLinkCopy");
+  if (resource.value && target.value) {
+    const object = resource.value;
+    await copyObjectLink({
+      ...object,
+      metadata: { ...object.metadata, context: target.value.context, kubeConfig: target.value.kubeConfig },
+    });
+  } else if (release.value) {
+    const r = release.value;
+    await copyLink(
+      {
+        type: "helm",
+        context: r.metadata.context,
+        kubeConfig: r.metadata.kubeConfig || undefined,
+        namespace: r.namespace,
+        name: r.name,
+      },
+      `Helm release ${r.name}`
+    );
+  }
+};
 
 const tabId = (action: string) => {
   const t = target.value!;
@@ -228,16 +265,41 @@ const showLogs = () => {
             }}</span>
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          class="-mr-1.5 -mt-0.5 shrink-0 text-muted-foreground"
-          aria-label="Close panel"
-          title="Close"
-          @click="setSidePanelComponent(null)"
-        >
-          <X class="h-4 w-4" />
-        </Button>
+        <div class="-mr-1.5 -mt-0.5 flex shrink-0 items-center">
+          <DropdownMenu v-if="target || release">
+            <DropdownMenuTrigger as-child>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                class="text-muted-foreground"
+                aria-label="More"
+                title="More"
+              >
+                <MoreHorizontal class="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" class="min-w-[11rem]">
+              <DropdownMenuItem @select="copyLink">
+                <Link class="h-3.5 w-3.5 text-muted-foreground" />
+                Copy link
+              </DropdownMenuItem>
+              <DropdownMenuItem v-if="target" @select="copyName">
+                <Copy class="h-3.5 w-3.5 text-muted-foreground" />
+                Copy name
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            class="shrink-0 text-muted-foreground"
+            aria-label="Close panel"
+            title="Close"
+            @click="setSidePanelComponent(null)"
+          >
+            <X class="h-4 w-4" />
+          </Button>
+        </div>
       </div>
       <template v-if="target">
         <!-- Quiet facts: namespace, cluster, age -->

@@ -86,6 +86,8 @@ pub(crate) async fn run_with_values(
     temp_dir: PathBuf,
 ) -> Result<CliOutput, String> {
     validate_args(&args)?;
+    // Through the cluster's proxy or SSH tunnel, held until helm is done.
+    let (args, _route) = crate::connection::cli_args(args).await?;
     let values_file = write_values(&temp_dir, &values)?;
 
     let mut cmd = Command::new(program);

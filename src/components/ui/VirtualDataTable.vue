@@ -54,6 +54,7 @@ import {
   Columns3,
   Copy,
   Keyboard,
+  Link,
   Sheet,
   SquareTerminal,
   Loader2,
@@ -1199,6 +1200,17 @@ const copyCsv = async (subject: TData | null): Promise<boolean> => {
   return true;
 };
 
+/* Objects tagged with their cluster have a jetpilot:// link. */
+const linkable = (row: TData | null) => {
+  const r = row as { kind?: string; metadata?: { name?: string; context?: string } } | null;
+  return !!(r?.kind && r.metadata?.name && r.metadata.context);
+};
+
+const copyLink = (row: TData | null) => {
+  if (!linkable(row)) return;
+  void import("@/lib/deepLinkCopy").then(({ copyObjectLink }) => copyObjectLink(row as object));
+};
+
 const focusFilter = () => {
   searchInput.value?.focus();
   searchInput.value?.select();
@@ -2215,6 +2227,13 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
                   <ContextMenuShortcut>
                     <Kbd size="sm" variant="ghost">Y</Kbd>
                   </ContextMenuShortcut>
+                </ContextMenuItem>
+                <ContextMenuItem
+                  v-if="index === 0 && keyboardEnabled && linkable(contextMenuSubject)"
+                  @select="copyLink(contextMenuSubject)"
+                >
+                  <Link class="h-3.5 w-3.5 text-muted-foreground" />
+                  Copy link
                 </ContextMenuItem>
                 <ContextMenuItem v-if="index === 0" @select="copyCsv(contextMenuSubject)">
                   <Sheet class="h-3.5 w-3.5 text-muted-foreground" />

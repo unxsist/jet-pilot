@@ -29,6 +29,8 @@ const GuardrailsHost = defineAsyncComponent(() => import("./components/guardrail
 const AuthHost = defineAsyncComponent(() => import("./components/auth/AuthHost.vue"));
 /* Add-cluster dialog and vault passphrase prompts. */
 const ClustersHost = defineAsyncComponent(() => import("./components/clusters/ClustersHost.vue"));
+/* jetpilot:// links (the one the app was started with, and later ones). */
+const DeepLinkHost = defineAsyncComponent(() => import("./components/deeplink/DeepLinkHost.vue"));
 import {
   ResizableHandle,
   ResizablePanel,
@@ -114,6 +116,7 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
                       <GuardrailsHost />
                       <ClustersHost />
                       <AuthHost />
+                      <DeepLinkHost />
                       <template v-if="idle">
                         <UpdateHandler />
                         <AnnouncementHandler />
