@@ -105,16 +105,20 @@ export function clusterFlags(
   return result;
 }
 
-/** The command line to paste into a terminal; the flags go before a `--`. */
-export function commandLine(spec: CommandSpec, defaults: KubectlDefaults): string {
+/** The quoted words of the command line; the flags go before a `--`. */
+export function commandWords(spec: CommandSpec, defaults: KubectlDefaults): string[] {
   const flags = clusterFlags(spec.program, spec.target, defaults);
   const split = spec.args.indexOf("--");
   const args =
     split < 0
       ? [...spec.args, ...flags]
       : [...spec.args.slice(0, split), ...flags, ...spec.args.slice(split)];
-  return [spec.program, ...args].map(shellQuote).join(" ");
+  return [spec.program, ...args].map(shellQuote);
 }
+
+/** The command line to paste into a terminal. */
+export const commandLine = (spec: CommandSpec, defaults: KubectlDefaults): string =>
+  commandWords(spec, defaults).join(" ");
 
 /** A kubectl command for a table row (rows carry their context and kubeconfig). */
 export const kubectlFor = (

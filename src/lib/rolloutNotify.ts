@@ -207,7 +207,7 @@ export async function followRollout(
   toast({
     title: `Following ${name}`,
     description: allowed
-      ? "You'll get a notification when it has rolled out or gets stuck."
+      ? "You'll hear when it has rolled out, or if it gets stuck."
       : "Notifications are off for JET Pilot, so the news shows up here.",
     autoDismiss: true,
   });

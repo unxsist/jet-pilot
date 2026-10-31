@@ -500,6 +500,17 @@ const screens = {
       await wait(500);
     },
   },
+  "kill-command": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Kill");
+      await wait(500);
+      await page.getByText("Force (skip graceful shutdown)").click();
+      await page.getByRole("button", { name: /Equivalent kubectl command/ }).click();
+      await wait(500);
+    },
+  },
   "rollout-notify": {
     url: "/deployments?resource=deployments&kind=Deployment&scenario=rollout",
     ready: "tbody tr td",

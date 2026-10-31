@@ -7,7 +7,7 @@
  */
 import { Check, ChevronRight, Copy } from "lucide-vue-next";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { commandLine, type CommandSpec } from "@/lib/kubectl/command";
+import { commandWords, type CommandSpec } from "@/lib/kubectl/command";
 import { kubectlDefaults } from "@/lib/kubectl/defaults";
 
 const props = defineProps<{ commands: CommandSpec[] }>();
@@ -16,7 +16,8 @@ const props = defineProps<{ commands: CommandSpec[] }>();
 const SHOWN = 6;
 
 const open = ref(false);
-const lines = ref<string[]>([]);
+/* Each line as its quoted words: a line only wraps between words. */
+const lines = ref<string[][]>([]);
 const copied = ref(false);
 
 const title = computed(() => {
@@ -26,7 +27,7 @@ const title = computed(() => {
 
 const resolve = async () => {
   const defaults = await kubectlDefaults(props.commands.map((c) => c.target));
-  lines.value = props.commands.map((spec) => commandLine(spec, defaults));
+  lines.value = props.commands.map((spec) => commandWords(spec, defaults));
 };
 
 watch(
@@ -44,7 +45,7 @@ const toggle = () => {
 let reset: ReturnType<typeof setTimeout> | undefined;
 const copy = async () => {
   await resolve();
-  const text = lines.value.join("\n");
+  const text = lines.value.map((words) => words.join(" ")).join("\n");
   try {
     await writeText(text);
   } catch {
@@ -76,9 +77,13 @@ onBeforeUnmount(() => clearTimeout(reset));
       v-if="open && lines.length"
       class="relative mt-2 rounded-md border border-border-subtle bg-muted/40 py-2 pl-3 pr-9"
     >
-      <pre
-        class="max-h-40 select-text overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground"
-      >{{ lines.slice(0, SHOWN).join("\n") }}</pre>
+      <div class="max-h-40 select-text overflow-auto font-mono text-xs leading-5 text-foreground">
+        <div v-for="(words, index) in lines.slice(0, SHOWN)" :key="index">
+          <template v-for="(word, w) in words" :key="w"
+            ><span class="whitespace-nowrap">{{ word }}</span>{{ w < words.length - 1 ? " " : "" }}</template
+          >
+        </div>
+      </div>
       <p v-if="lines.length > SHOWN" class="mt-1 text-2xs text-muted-foreground">
         … and {{ lines.length - SHOWN }} more (copied too)
       </p>
