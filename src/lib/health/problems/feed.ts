@@ -155,8 +155,26 @@ function createFeed() {
     return observed.get(fingerprint);
   };
 
+  /*
+   * Problems that didn't change keep their identity, so their rows don't
+   * re-render on every pod update elsewhere in the cluster.
+   */
+  let previous = new Map<string, { signature: string; problem: Problem }>();
+  const stable = (next: Problem[]) => {
+    const kept = new Map<string, { signature: string; problem: Problem }>();
+    const result = next.map((problem) => {
+      const signature = JSON.stringify(problem);
+      const known = previous.get(problem.fingerprint);
+      const same = known && known.signature === signature ? known.problem : problem;
+      kept.set(problem.fingerprint, { signature, problem: same });
+      return same;
+    });
+    previous = kept;
+    return result;
+  };
+
   const problems = computed<Problem[]>(() =>
-    detectProblems(
+    stable(detectProblems(
       {
         pods: items("pods"),
         deployments: items("deployments"),
@@ -168,7 +186,7 @@ function createFeed() {
       },
       now.value,
       firstObserved
-    )
+    ))
   );
 
   /* Lists that couldn't load (unreachable, forbidden), per kind. */

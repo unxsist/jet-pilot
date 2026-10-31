@@ -77,6 +77,7 @@ const screens = {
         await wait(300);
       }
       await page.getByRole("button", { name: /^Snoozed/ }).click();
+      await page.locator("section[aria-label=Snoozed] [data-problem-key]").last().scrollIntoViewIfNeeded();
       await page.mouse.move(5, 500);
       await wait(500);
     },

@@ -12,7 +12,7 @@ const hunks = computed(() => diffHunks(diffLines(props.before, props.after), 2))
 </script>
 
 <template>
-  <div class="max-h-56 overflow-auto rounded-lg border bg-surface-1 py-1.5 font-mono text-2xs leading-relaxed">
+  <div class="max-h-60 overflow-auto rounded-lg border bg-surface-1 py-1.5 font-mono text-2xs leading-relaxed">
     <p v-if="!hunks.length" class="px-3 text-muted-foreground">Nothing changes.</p>
     <template v-for="(hunk, index) in hunks" :key="index">
       <div v-if="index > 0" class="my-1 border-t border-dashed" aria-hidden="true" />

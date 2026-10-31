@@ -107,7 +107,7 @@ const readOnly = computed(() => {
       <KindIcon :name="subjectIcon(problem)" class="h-[18px] w-[18px]" />
     </span>
 
-    <div class="min-w-0 flex-1" :class="snooze && 'opacity-70'">
+    <div class="min-w-0 flex-1" :class="snooze && 'opacity-60'">
       <span class="block truncate text-sm font-medium text-foreground">{{ problem.subject.name }}</span>
       <p class="truncate text-xs text-muted-foreground" :title="detail">{{ detail }}</p>
     </div>

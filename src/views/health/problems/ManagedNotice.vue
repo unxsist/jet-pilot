@@ -1,14 +1,22 @@
 <script setup lang="ts">
-/** "Managed by Argo CD app shop. A change here is reverted on the next sync; fix it in Git." */
+/**
+ * "Managed by Argo CD app shop. A change here is reverted on the next sync;
+ * fix it in Git." A tinted box where a change is about to be made (the fix
+ * dialogs), a quiet line elsewhere.
+ */
 import { GitMerge } from "lucide-vue-next";
 import { managedWords, type Manager } from "@/lib/health/problems/managed";
 
-const props = defineProps<{ manager: Manager }>();
+const props = defineProps<{ manager: Manager; quiet?: boolean }>();
 const words = computed(() => managedWords(props.manager));
 </script>
 
 <template>
-  <div class="flex gap-2.5 rounded-lg border border-warning/25 bg-warning/5 px-3 py-2.5 text-xs">
+  <p v-if="quiet" class="flex gap-2.5 text-xs text-muted-foreground">
+    <GitMerge class="mt-px h-3.5 w-3.5 shrink-0" />
+    <span><span class="text-foreground">{{ words.title }}.</span> {{ words.detail }}</span>
+  </p>
+  <div v-else class="flex gap-2.5 rounded-lg border border-warning/25 bg-warning/5 px-3 py-2.5 text-xs">
     <GitMerge class="mt-px h-3.5 w-3.5 shrink-0 text-warning" />
     <div class="space-y-0.5">
       <p class="font-medium text-foreground">{{ words.title }}</p>

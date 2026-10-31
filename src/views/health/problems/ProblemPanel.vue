@@ -282,8 +282,8 @@ watch(
       </dl>
 
       <ul v-if="also.length" class="space-y-1">
-        <li v-for="finding in also" :key="finding.kind" class="flex min-w-0 items-baseline gap-2 text-xs">
-          <StatusDot :tone="KINDS[finding.kind].tone" size="sm" class="relative -top-px" />
+        <li v-for="finding in also" :key="finding.kind" class="flex min-w-0 items-center gap-2.5 text-xs">
+          <span class="flex w-3.5 shrink-0 justify-center"><StatusDot :tone="KINDS[finding.kind].tone" size="sm" /></span>
           <span class="shrink-0 font-medium" :class="statusTextClass[KINDS[finding.kind].tone]">{{ finding.label ?? KINDS[finding.kind].label }}</span>
           <span class="truncate text-muted-foreground" :title="finding.message ?? finding.short">{{ finding.short }}</span>
         </li>
@@ -291,7 +291,7 @@ watch(
 
       <LikelyCause v-if="!resolved && changeCanExplain(problem)" :problem="problem" :object="causeObject" :now="now" @found="cause = $event" />
 
-      <ManagedNotice v-if="manager && fixes.length" :manager="manager" />
+      <ManagedNotice v-if="manager && fixes.length" :manager="manager" quiet />
 
       <p v-if="snoozedText" class="text-xs text-muted-foreground">
         {{ snoozedText }}
@@ -318,6 +318,9 @@ watch(
         <Button v-if="source && leadFix" variant="outline" size="sm" @click="doLogs">
           <ScrollText class="h-3.5 w-3.5" />
           Logs
+        </Button>
+        <Button v-if="!fixes.length && !source" variant="outline" size="sm" @click="openSubject(problem, setSidePanel, sidePanel)">
+          Open {{ problem.subject.kind }}
         </Button>
         <Button v-if="askAi.available.value" variant="outline" size="sm" @click="doAsk">
           <Sparkles class="h-3.5 w-3.5" />
@@ -377,7 +380,7 @@ watch(
       </PanelSection>
 
       <PanelSection v-if="termination" value="termination" title="Last crash" :icon="SECTION_ICONS.termination" :hint="termination.finished?.text">
-        <dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5 text-sm">
+        <dl class="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
           <dt class="text-muted-foreground">Reason</dt>
           <dd>{{ termination.reason }}</dd>
           <template v-if="termination.exitCode !== undefined">

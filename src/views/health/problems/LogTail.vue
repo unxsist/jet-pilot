@@ -35,14 +35,14 @@ onMounted(async () => {
 <template>
   <div class="space-y-2">
     <div v-if="!lines && !error" class="space-y-1.5" aria-label="Fetching logs">
-      <Skeleton v-for="index in 4" :key="index" class="h-3" :class="index % 2 ? 'w-full' : 'w-4/5'" />
+      <Skeleton v-for="index in 4" :key="index" class="h-3" :class="index % 2 ? 'w-full' : 'w-3/4'" />
     </div>
     <p v-else-if="error" class="text-xs text-muted-foreground">Couldn't fetch the logs: {{ error }}</p>
     <p v-else-if="!lines?.length" class="text-xs text-muted-foreground">It didn't write any logs.</p>
     <div
       v-else
       ref="scroller"
-      class="max-h-64 overflow-auto rounded-lg border bg-surface-1 px-3 py-2 font-mono text-2xs leading-relaxed text-muted-foreground"
+      class="max-h-72 overflow-auto rounded-lg border bg-surface-1 px-3 py-2 font-mono text-2xs leading-relaxed text-muted-foreground"
     >
       <p
         v-for="(line, index) in lines"

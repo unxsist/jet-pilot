@@ -13,7 +13,9 @@ import { detectProblems, fingerprintOf, fingerprintScope, podsWords, topOwner } 
 import { managedWords, managerOf } from "@/lib/health/problems/managed";
 import { isActive, partition, prune, snooze, unsnooze } from "@/lib/health/problems/snooze";
 import {
+  changeCanExplain,
   fixesFor,
+  primaryFix,
   memoryLimitOf,
   memoryPatch,
   memoryTarget,
@@ -401,6 +403,8 @@ describe("grouping", () => {
       context: "prod",
     });
     expect(podsWords(problem!)).toBe("2 of 3 pods");
+    expect(podsWords({ ...problem!, pods: { affected: 2, total: 2 } })).toBe("Both pods");
+    expect(podsWords({ ...problem!, pods: { affected: 3, total: 3 } })).toBe("All 3 pods");
     expect(problem!.findings.map((f) => f.kind)).toEqual(["oom", "crashloop"]);
   });
 
@@ -552,6 +556,28 @@ describe("fixes", () => {
     expect(fixesFor(problemOf([pod("lonely", [crashing(137, "OOMKilled")])], []))).toEqual([]);
     const stuck = pod("b", [running()], { metadata: { deletionTimestamp: ago(600) } });
     expect(fixesFor(problemOf([stuck], []))).toEqual(["delete-pod"]);
+  });
+
+  test("the primary fix: only when it's clearly right", () => {
+    const pull = running("app", { ready: false, state: { waiting: { reason: "ImagePullBackOff" } } });
+    // Every pod of the new version broken: roll back.
+    expect(primaryFix(problemOf([rsPod("api-7d9f8-a", "api", [pull])]), false)).toBe("rollback");
+    // One crashing pod of three: look first, unless a change explains it or the rollout stalled.
+    const oneOfThree = problemOf([rsPod("api-7d9f8-a", "api", [crashing()]), rsPod("api-7d9f8-b", "api", [running()]), rsPod("api-7d9f8-c", "api", [running()])]);
+    expect(primaryFix(oneOfThree, false)).toBeNull();
+    expect(primaryFix(oneOfThree, true)).toBe("rollback");
+    const stalled = deployment("api", { status: { conditions: [{ type: "Progressing", status: "False", reason: "ProgressDeadlineExceeded" }] } });
+    expect(primaryFix(problemOf([rsPod("api-7d9f8-a", "api", [crashing()]), rsPod("api-7d9f8-b", "api", [running()])], [stalled]), false)).toBe("rollback");
+    // A missing Secret is fixed by creating it, not by rolling back (unless a change explains it).
+    const config = running("app", { ready: false, state: { waiting: { reason: "CreateContainerConfigError", message: 'secret "db" not found' } } });
+    expect(primaryFix(problemOf([rsPod("api-7d9f8-a", "api", [config])]), false)).toBeNull();
+    expect(primaryFix(problemOf([rsPod("api-7d9f8-a", "api", [crashing(137, "OOMKilled")])]), false)).toBe("raise-memory");
+  });
+
+  test("which problems a recent change can explain", () => {
+    expect(changeCanExplain(problemOf([rsPod("api-7d9f8-a", "api", [crashing()])]))).toBe(true);
+    const stuck = pod("b", [running()], { metadata: { deletionTimestamp: ago(600) } });
+    expect(changeCanExplain(problemOf([stuck], []))).toBe(false);
   });
 
   test("raising a memory limit", () => {

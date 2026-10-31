@@ -222,10 +222,11 @@ export function compareProblems(a: Problem, b: Problem): number {
   return a.subject.name.localeCompare(b.subject.name);
 }
 
-/** "2 of 3 pods", "All 3 pods", "4 pods" (evicted); "" for a single pod. */
+/** "2 of 3 pods", "Both pods", "All 3 pods", "4 pods" (evicted); "" for a single pod. */
 export function podsWords(problem: Problem): string {
   const pods = problem.pods;
   if (!pods || pods.total <= 1) return "";
   if (problem.kind === "evicted") return plural(pods.affected, "pod");
-  return pods.affected >= pods.total ? `All ${pods.total} pods` : `${pods.affected} of ${pods.total} pods`;
+  if (pods.affected < pods.total) return `${pods.affected} of ${pods.total} pods`;
+  return pods.total === 2 ? "Both pods" : `All ${pods.total} pods`;
 }
