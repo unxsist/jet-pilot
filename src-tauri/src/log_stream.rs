@@ -109,6 +109,10 @@ pub struct LogStreamSpec {
     pub tail: Option<i64>,
     #[serde(default)]
     pub max_pods: Option<usize>,
+    /// The cluster's proxied kubeconfig (a proxy or SSH jump host, see
+    /// `connection`), set by `start_log_stream`; holds the tunnel up.
+    #[serde(skip)]
+    pub route: Option<Arc<crate::connection::Routed>>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -269,7 +273,8 @@ fn connection_args(spec: &LogStreamSpec) -> Vec<String> {
     if !spec.namespace.is_empty() {
         args.push(flag("namespace", &spec.namespace));
     }
-    if let Some(kube_config) = spec.kube_config.as_deref().filter(|k| !k.is_empty()) {
+    let kube_config = spec.route.as_ref().map(|route| route.kubeconfig.as_str()).or(spec.kube_config.as_deref());
+    if let Some(kube_config) = kube_config.filter(|k| !k.is_empty()) {
         args.push(flag("kubeconfig", kube_config));
     }
     args
@@ -943,9 +948,11 @@ pub fn stop_stream(session_id: &str) {
 pub async fn start_log_stream(
     webview: tauri::Webview,
     session_id: String,
-    spec: LogStreamSpec,
+    mut spec: LogStreamSpec,
     on_event: Channel<LogStreamEvent>,
 ) -> Result<(), String> {
+    let kube_config = crate::kubernetes::client::resolve_kubeconfig_path(spec.kube_config.as_deref());
+    spec.route = crate::connection::routed_kubeconfig(&kube_config, &spec.context).await?.map(Arc::new);
     start_stream_for(webview.label(), session_id, spec, Arc::new(on_event), "kubectl")
 }
 
@@ -1040,6 +1047,7 @@ mod tests {
             since: None,
             tail: Some(100),
             max_pods: None,
+            route: None,
         }
     }
 

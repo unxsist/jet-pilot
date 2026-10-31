@@ -28,6 +28,7 @@ export type TableCommand =
   | { type: "open" }
   | { type: "action"; action: ActionId }
   | { type: "copyName" }
+  | { type: "copyCsv" }
   | { type: "toggleSelect" }
   | { type: "focusFilter" }
   | { type: "escape" }
@@ -94,7 +95,8 @@ export function resolveTableKey(
   }
 
   if (primary) {
-    if (shift) return null;
+    // Plain ⌘/Ctrl+C stays the browser's copy (selected text).
+    if (shift) return key.toLowerCase() === "c" ? { type: "copyCsv" } : null;
     switch (key.toLowerCase()) {
       case "d":
         return { type: "action", action: "delete" };
@@ -337,6 +339,7 @@ export function tableShortcuts(isMac: boolean): ShortcutGroup[] {
       note: "Row mode",
       items: [
         { keys: [["Space"]], label: "Toggle row selection" },
+        { keys: [[mod, "⇧", "C"]], label: "Copy as CSV (selection or row)" },
         {
           keys: [
             ["⇧", "↓"],

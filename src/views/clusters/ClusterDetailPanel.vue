@@ -28,6 +28,13 @@ import type { CatalogCluster } from "@/lib/clusters/cloud";
 import { providerInfo } from "@/lib/clusters/providers";
 import { discoverCached, type Discovery } from "@/lib/metrics/discovery";
 import { KIND_LABELS, describeSource } from "@/lib/metrics/prometheus";
+import {
+  connectNow,
+  connectionLine,
+  connectionStatus,
+  onConnectionChange,
+  type ConnectionStatus,
+} from "@/lib/clusters/connection";
 
 const SCOPE_LABELS: Partial<Record<CatalogCluster["provider"], string>> = { aws: "Account", gcp: "Project", azure: "Subscription" };
 
@@ -122,6 +129,35 @@ const metricsOpen = ref(false);
 const metricsUsed = ref(false);
 watch(metricsOpen, (isOpen) => isOpen && (metricsUsed.value = true));
 const MetricsSourceDialog = defineAsyncComponent(() => import("@/components/metrics/MetricsSourceDialog.vue"));
+
+/* A proxy or SSH jump host (or the kubeconfig's proxy-url), live. */
+const connection = shallowRef<ConnectionStatus | null>(null);
+const refreshConnection = () => {
+  const { context, kubeConfig } = entry.value;
+  connectionStatus(context, kubeConfig).then(
+    (result) => {
+      if (entry.value.context === context && entry.value.kubeConfig === kubeConfig) connection.value = result;
+    },
+    () => undefined
+  );
+};
+watch(() => [entry.value.context, entry.value.kubeConfig, meta.value.connection] as const, refreshConnection, {
+  immediate: true,
+});
+let stopListening: (() => void) | undefined;
+onMounted(() => onConnectionChange(refreshConnection).then((stop) => (stopListening = stop), () => undefined));
+onBeforeUnmount(() => stopListening?.());
+const connectionInfo = computed(() => connectionLine(connection.value, meta.value.connection));
+const retrying = ref(false);
+const retryConnection = () => {
+  retrying.value = true;
+  connectNow(entry.value.context, entry.value.kubeConfig)
+    .catch(() => undefined)
+    .finally(() => {
+      retrying.value = false;
+      refreshConnection();
+    });
+};
 </script>
 
 <template>
@@ -187,6 +223,32 @@ const MetricsSourceDialog = defineAsyncComponent(() => import("@/components/metr
           <span class="flex items-center gap-2"><StatusDot :tone="tone" /> {{ statusLine }}</span>
           <span v-if="statusDetail" class="block text-xs text-muted-foreground">{{ statusDetail }}</span>
         </dd>
+
+        <template v-if="connectionInfo">
+          <dt class="text-muted-foreground">Connects via</dt>
+          <dd class="min-w-0">
+            <span class="flex min-w-0 items-center gap-2">
+              <StatusDot :tone="connectionInfo.tone" />
+              <span class="truncate" :title="connectionInfo.title">{{ connectionInfo.title }}</span>
+            </span>
+            <span
+              v-if="connectionInfo.detail || connectionInfo.retry"
+              class="block text-xs"
+              :class="connectionInfo.tone === 'destructive' ? 'text-destructive' : 'text-muted-foreground'"
+            >
+              {{ connectionInfo.detail }}
+              <button
+                v-if="connectionInfo.retry"
+                type="button"
+                class="ml-1 rounded text-link hover:underline focus-ring disabled:opacity-60"
+                :disabled="retrying"
+                @click="retryConnection"
+              >
+                Try again
+              </button>
+            </span>
+          </dd>
+        </template>
 
         <template v-if="status?.serverVersion">
           <dt class="text-muted-foreground">Kubernetes</dt>

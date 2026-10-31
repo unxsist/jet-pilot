@@ -16,6 +16,8 @@ declare module "@tanstack/table-core" {
     title?: (row: TData) => string | undefined;
     /** Header tooltip (e.g. a printer column description). */
     headerTitle?: string;
+    /** Plain text of the cell (Copy as CSV) when its renderer shows a component. */
+    text?: (row: TData) => string;
     /** Hidden until the user shows it (e.g. priority > 0 printer columns). */
     defaultHidden?: boolean;
   }

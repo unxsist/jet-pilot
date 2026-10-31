@@ -315,6 +315,13 @@ export default {
           },
           { immediate: true }
         );
+        // Per-cluster proxies and SSH jump hosts are applied in the backend.
+        watch(
+          () => state.settings.clusters,
+          (records) =>
+            void import("@/lib/clusters/connection").then((m) => m.syncConnections(records ?? [])),
+          { immediate: true }
+        );
       });
 
     /*

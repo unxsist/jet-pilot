@@ -642,6 +642,43 @@ async fn restart_unauthorized_in(contexts: &[(String, String)]) -> usize {
     restarted
 }
 
+/// Restarts the watchers of the clusters `matches` selects (kubeconfig,
+/// context) with a fresh client: their connection route changed (a proxy or
+/// SSH jump host was set, or its tunnel moved to another port). Returns how
+/// many were restarted.
+pub(crate) async fn restart_matching(matches: impl Fn(&str, &str) -> bool) -> usize {
+    let keys: Vec<WatcherKey> = lock(&HUB.inner)
+        .watchers
+        .keys()
+        .filter(|key| matches(&key.kube_config, &key.context))
+        .cloned()
+        .collect();
+    let mut clients: HashMap<(String, String), Client> = HashMap::new();
+    let mut restarted = 0;
+    for key in keys {
+        let target = (key.kube_config.clone(), key.context.clone());
+        let client = match clients.get(&target) {
+            Some(client) => client.clone(),
+            None => match center::with_source(IssueSource::Watch, client_with_context(&key.context, Some(&key.kube_config))).await {
+                Ok(client) => {
+                    clients.insert(target, client.clone());
+                    client
+                }
+                Err(err) => {
+                    warn!("Not restarting watches of {}: {}", key.context, err.message);
+                    continue;
+                }
+            },
+        };
+        let mut inner = lock(&HUB.inner);
+        if let Some(watcher) = inner.watchers.get_mut(&key) {
+            Hub::start(watcher, &key, client);
+            restarted += 1;
+        }
+    }
+    restarted
+}
+
 /// Drops the calling webview's subscriptions (called once per page load:
 /// the channels of the previous load are gone). Watchers stay warm for their
 /// usual period. Its subscribes still resolving (started before the reset)

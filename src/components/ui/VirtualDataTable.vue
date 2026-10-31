@@ -55,6 +55,9 @@ import {
   Columns3,
   Copy,
   Keyboard,
+  Link,
+  Sheet,
+  SquareTerminal,
   Loader2,
   MoreHorizontal,
   RefreshCw,
@@ -69,6 +72,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { MassWithHandler, RowAction, WithHandler } from "../tables/types";
+import type { CommandSpec } from "@/lib/kubectl/command";
 import { formatAge } from "../tables/age";
 import { useTableModel } from "../tables/useTableModel";
 import {
@@ -1107,23 +1111,105 @@ const rowName = (row: TData): string => {
   return r?.metadata?.name ?? r?.name ?? "";
 };
 
-const copyName = async (row: TData | null) => {
-  const name = row ? rowName(row) : "";
-  if (!name) return;
+const copyText = async (text: string): Promise<boolean> => {
   try {
-    await writeText(name);
+    await writeText(text);
   } catch {
     try {
-      await navigator.clipboard?.writeText(name);
+      await navigator.clipboard?.writeText(text);
     } catch {
       toast({
         title: "Couldn't copy to the clipboard",
         variant: "destructive",
       });
-      return;
+      return false;
     }
   }
-  toast({ title: "Copied name", description: name });
+  return true;
+};
+
+const copyName = async (row: TData | null) => {
+  const name = row ? rowName(row) : "";
+  if (!name) return;
+  if (await copyText(name)) toast({ title: "Copied name", description: name });
+};
+
+/* ------------------------------------------------------------- CSV -- */
+
+/*
+ * The rows to copy: the selection (when the row asked about is part of it),
+ * else that row (the context menu's) or the keyboard cursor's.
+ */
+const csvRows = (subject: TData | null): Row<TData>[] => {
+  const selected = selectedRows.value;
+  if (selected.length > 0 && (!subject || selected.some((row) => row.original === subject))) {
+    // In the order they're shown (groups reorder rows).
+    const shown = new Map<Row<TData>, number>();
+    displayItems.value.forEach((item, index) => {
+      if (item.type === "row") shown.set(item.row, index);
+    });
+    const order = (row: Row<TData>) => shown.get(row) ?? Number.MAX_SAFE_INTEGER;
+    return [...selected].sort((a, b) => order(a) - order(b));
+  }
+  if (subject) {
+    const row = filteredRows.value.find((candidate) => candidate.original === subject);
+    return row ? [row] : [];
+  }
+  const cursor = cursorRow();
+  return cursor ? [cursor] : [];
+};
+
+/*
+ * The visible columns in their current order, with each cell's text as
+ * the table shows it: the column's own text, its rendered text, its
+ * tooltip, or its value. The CSV helpers load with the first copy.
+ */
+const copyCsv = async (subject: TData | null): Promise<boolean> => {
+  const rows = csvRows(subject);
+  if (rows.length === 0) return false;
+  const { renderedText, toCsv } = await import("../tables/csv");
+  const columns = table
+    .getVisibleLeafColumns()
+    .filter((column) => !isPinnedColumn(column.id));
+  const ids = new Set(columns.map((column) => column.id));
+  const text = (cell: ReturnType<Row<TData>["getVisibleCells"]>[number]) => {
+    const def = cell.column.columnDef;
+    if (def.meta?.text) return def.meta.text(cell.row.original);
+    const rendered =
+      typeof def.cell === "function"
+        ? renderedText(def.cell(cell.getContext()))
+        : renderedText(def.cell);
+    if (rendered) return rendered;
+    // Charts (usage sparklines) say their value in the tooltip.
+    const title = def.meta?.title?.(cell.row.original);
+    if (title) return title;
+    const value = cell.getValue();
+    return typeof value === "string" || typeof value === "number" ? String(value) : "";
+  };
+  const csv = toCsv(
+    columns.map((column) => headerName(column.columnDef) || column.id),
+    rows.map((row) =>
+      row.getVisibleCells().filter((cell) => ids.has(cell.column.id)).map(text)
+    )
+  );
+  if (!(await copyText(csv))) return true;
+  toast({
+    title: rows.length === 1 ? "Copied the row as CSV" : `Copied ${rows.length} rows as CSV`,
+    description: `${columns.length} columns, as shown`,
+    autoDismiss: true,
+  });
+  return true;
+};
+
+/* Objects tagged with their cluster have a jetpilot:// link. */
+const linkable = (row: TData | null) => {
+  const r = row as { kind?: string; metadata?: { name?: string; context?: string } } | null;
+  return !!(r?.kind && r.metadata?.name && r.metadata.context);
+};
+
+const copyLink = (row: TData | null) => {
+  if (!linkable(row)) return;
+  void import("@/lib/deepLinkCopy").then(({ copyObjectLink }) => copyObjectLink(row as object));
 };
 
 const focusFilter = () => {
@@ -1179,6 +1265,10 @@ const runCommand = (command: TableCommand): boolean => {
       return true;
     case "copyName":
       copyName(cursorRow()?.original ?? null);
+      return true;
+    case "copyCsv":
+      if (selectedRows.value.length === 0 && !cursorRow()) return false;
+      copyCsv(null);
       return true;
     case "toggleSelect": {
       const item = cursorVisible.value ? cursorItem.value : null;
@@ -1356,6 +1446,45 @@ const startsGroup = (index: number) => {
     (previous) => previous.group === rowAction.group && isRowActionAvailable(previous)
   );
 };
+
+const csvKeys = isMac ? ["⌘", "⇧", "C"] : ["Ctrl", "Shift", "C"];
+
+/* ------------------------------------------------ kubectl commands -- */
+
+/* The menu subject's actions that can say what kubectl command does the same. */
+const commandActions = computed(() => {
+  const subject = contextMenuSubject.value as TData | null;
+  if (!subject) return [];
+  return (props.rowActions ?? []).flatMap((rowAction) => {
+    if (!rowAction.command || !isRowActionAvailable(rowAction)) return [];
+    const spec = rowAction.command(subject);
+    return spec ? [{ label: actionLabel(rowAction), spec }] : [];
+  });
+});
+
+const commandMenuLabel = computed(() =>
+  commandActions.value.every((item) => item.spec.program === "helm")
+    ? "Copy helm command"
+    : "Copy kubectl command"
+);
+
+const copyCommand = async (spec: CommandSpec) => {
+  const [{ commandLine }, { kubectlDefaults }] = await Promise.all([
+    import("@/lib/kubectl/command"),
+    import("@/lib/kubectl/defaults"),
+  ]);
+  const line = commandLine(spec, await kubectlDefaults([spec.target]));
+  if (await copyText(line)) toast({ title: `Copied ${spec.program} command`, description: line });
+};
+
+/* "Copy 3 rows as CSV" when the row is part of a selection. */
+const csvMenuLabel = computed(() => {
+  const subject = contextMenuSubject.value as TData | null;
+  const selected = selectedRows.value;
+  return selected.length > 1 && selected.some((row) => row.original === subject)
+    ? `Copy ${selected.length} rows as CSV`
+    : "Copy as CSV";
+});
 
 const actionShortcut = (rowAction: RowAction<TData>) => {
   if (rowAction.shortcut) return rowAction.shortcut;
@@ -2101,6 +2230,35 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
                     <Kbd size="sm" variant="ghost">Y</Kbd>
                   </ContextMenuShortcut>
                 </ContextMenuItem>
+                <ContextMenuItem
+                  v-if="index === 0 && keyboardEnabled && linkable(contextMenuSubject)"
+                  @select="copyLink(contextMenuSubject)"
+                >
+                  <Link class="h-3.5 w-3.5 text-muted-foreground" />
+                  Copy link
+                </ContextMenuItem>
+                <ContextMenuItem v-if="index === 0" @select="copyCsv(contextMenuSubject)">
+                  <Sheet class="h-3.5 w-3.5 text-muted-foreground" />
+                  {{ csvMenuLabel }}
+                  <ContextMenuShortcut v-if="keyboardEnabled">
+                    <Kbd :keys="csvKeys" size="sm" variant="ghost" />
+                  </ContextMenuShortcut>
+                </ContextMenuItem>
+                <ContextMenuSub v-if="index === 0 && commandActions.length > 0">
+                  <ContextMenuSubTrigger>
+                    <SquareTerminal class="h-3.5 w-3.5 text-muted-foreground" />
+                    {{ commandMenuLabel }}
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent class="min-w-[11rem]">
+                    <ContextMenuItem
+                      v-for="item in commandActions"
+                      :key="item.label"
+                      @select="copyCommand(item.spec)"
+                    >
+                      {{ item.label }}
+                    </ContextMenuItem>
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
               </template>
               <template v-else-if="!isRowActionBlocked(rowAction)">
                 <ContextMenuSub>
@@ -2203,6 +2361,16 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
             />
           </Button>
         </span>
+        <span v-if="massActions.length > 0" class="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+        <Button
+          size="xs"
+          variant="ghost"
+          :title="keyboardEnabled ? `Copy as CSV (${csvKeys.join('+')})` : undefined"
+          @click="copyCsv(null)"
+        >
+          <Sheet class="h-3 w-3" />
+          Copy as CSV
+        </Button>
         <Button
           variant="ghost"
           size="icon-xs"

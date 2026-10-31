@@ -6,9 +6,11 @@ import {
   getResourceTabId,
   getResourceTabTitle,
 } from "@/components/tables/identity";
-import { clusterArgs } from "@/lib/workloads";
+import { clusterArgs, objectRef, workloadSelector } from "@/lib/workloads";
 import { rolloutArgs } from "@/lib/rollout";
 import { confirmDialog, guard, rowTargets } from "@/lib/guardrails/guard";
+import { kubectlFor, selectorLogsArgs } from "@/lib/kubectl/command";
+import { isRolloutKind, type RolloutRef } from "@/lib/rolloutFollow";
 import { runCliForEach } from "./command";
 
 /*
@@ -47,9 +49,16 @@ export function openWorkloadLogs(addTab: any, row: WorkloadRow, previous = false
   );
 }
 
+/* Every pod of the workload, by its selector (kubectl logs deployment/x reads one pod). */
+const logsCommand = (row: WorkloadRow, previous = false) => {
+  const selector = workloadSelector(row as never);
+  return selector ? kubectlFor(row, selectorLogsArgs(selector, previous)) : null;
+};
+
 export function logsAction<T extends WorkloadRow>(addTab: any): RowAction<T> {
   return {
     label: "Logs",
+    command: (row: T) => logsCommand(row),
     options: (row: T) => [
       { label: "All pods", handler: () => openWorkloadLogs(addTab, row) },
       {
@@ -79,12 +88,34 @@ export function rolloutHistoryAction<T extends WorkloadRow>(
 ): RowAction<T> {
   return {
     label: "Rollout history",
+    command: (row: T) =>
+      kubectlFor(row, ["rollout", "history", objectRef(row.kind ?? "", row.metadata.name ?? "")]),
     handler: (row: T) => openRolloutHistory(addTab, row),
   };
 }
 
 const kindLabel = (rows: WorkloadRow[]) =>
   (rows[0]?.kind ?? "workload").toLowerCase();
+
+/** The rollout a change to `row` starts (Deployments, StatefulSets, DaemonSets). */
+export const rolloutRefs = (row: {
+  kind?: string;
+  metadata?: { context: string; kubeConfig: string; namespace?: string; name?: string };
+}): RolloutRef[] =>
+  isRolloutKind(row.kind) && row.metadata
+    ? [
+        {
+          context: row.metadata.context,
+          kubeConfig: row.metadata.kubeConfig,
+          namespace: row.metadata.namespace ?? "",
+          kind: row.kind,
+          name: row.metadata.name ?? "",
+        },
+      ]
+    : [];
+
+const rolloutCommand = (row: WorkloadRow, verb: "restart" | "pause" | "resume") =>
+  kubectlFor(row, rolloutArgs(verb, row.kind ?? "", row.metadata.name ?? ""));
 
 /** `kubectl rollout restart` with a confirmation listing the objects. */
 export function restartAction<T extends WorkloadRow>(
@@ -94,8 +125,11 @@ export function restartAction<T extends WorkloadRow>(
     label: "Restart",
     kind: "restart",
     massAction: true,
+    command: (row: T) => rolloutCommand(row, "restart"),
     handler: async (rows: T[]) => {
+      const commands = rows.map((row) => rolloutCommand(row, "restart"));
       const confirmed = await guard("restart", rowTargets(rows), {
+        commands,
         confirm: () =>
           confirmDialog(spawnDialog, {
             title:
@@ -108,6 +142,7 @@ export function restartAction<T extends WorkloadRow>(
               () => import("@/views/dialogs/ResourceList.vue")
             ),
             props: { lines: describeRows(rows) },
+            commands,
             confirmLabel: "Restart",
           }),
       });
@@ -121,6 +156,7 @@ export function restartAction<T extends WorkloadRow>(
         successVerb: "Restarted",
         failureVerb: "restart",
         guarded: true,
+        rollouts: rolloutRefs,
       });
     },
   };
@@ -133,15 +169,19 @@ export function pauseResumeAction<T extends WorkloadRow>(
   const paused = (row: T) => row.spec?.paused === true;
   return {
     label: (row: T) => (paused(row) ? "Resume rollout" : "Pause rollout"),
+    command: (row: T) => rolloutCommand(row, paused(row) ? "resume" : "pause"),
     handler: async (row: T) => {
       const resume = paused(row);
+      const commands = [rolloutCommand(row, resume ? "resume" : "pause")];
       const confirmed = await guard(resume ? "resume" : "pause", rowTargets([row]), {
+        commands,
         confirm: () =>
           confirmDialog(spawnDialog, {
             title: `${resume ? "Resume" : "Pause"} rollout of ${row.metadata.name}?`,
             message: resume
               ? "Pending template changes are rolled out."
               : "Template changes are not rolled out until the rollout is resumed. Scaling still works.",
+            commands,
             confirmLabel: resume ? "Resume" : "Pause",
           }),
       });

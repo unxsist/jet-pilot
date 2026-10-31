@@ -25,6 +25,9 @@
 //!   `KUBECONFIG` (owner-only 0600 permissions on unix; on Windows it lives in
 //!   the per-user temp directory), removed again when the session ends and
 //!   swept at startup in case a previous run crashed
+//! - clusters with a proxy or SSH jump host (see `connection`): the temporary
+//!   kubeconfig gets its `proxy-url`, `kubectl exec` gets a proxied
+//!   kubeconfig, and the session keeps the SSH tunnel up while it runs
 
 pub mod tty {
     use once_cell::sync::Lazy;
@@ -339,13 +342,15 @@ pub mod tty {
 
     /// Spawn `cmd` in a new pty and start streaming its output to `on_event`,
     /// owned by webview `owner`. `temp_files` are removed once the session
-    /// ends (also on failure).
+    /// ends (also on failure); `route` (a cluster's SSH tunnel) is held
+    /// until then.
     fn spawn_session(
         cmd: CommandBuilder,
         size: PtySize,
         owner: &str,
         on_event: Channel<InvokeResponseBody>,
         temp_files: Vec<PathBuf>,
+        route: Option<crate::connection::Lease>,
     ) -> Result<String, String> {
         prune_ended();
         let program = cmd
@@ -471,6 +476,7 @@ pub mod tty {
             .spawn(move || {
                 let status = child.wait();
                 exited.store(true, Ordering::SeqCst);
+                drop(route);
 
                 // Closing the master is what makes the reader see EOF on
                 // Windows (ClosePseudoConsole); on unix it is a no-op for the
@@ -527,11 +533,12 @@ pub mod tty {
         on_event: Channel<InvokeResponseBody>,
     ) -> Result<String, String> {
         info!("Creating TTY session");
+        let (init_command, route) = routed_command(init_command).await?;
         let cmd = build_command(init_command, env.unwrap_or_default())?;
         let owner = webview.label().to_string();
 
         tauri::async_runtime::spawn_blocking(move || {
-            spawn_session(cmd, pty_size(rows, cols), &owner, on_event, Vec::new())
+            spawn_session(cmd, pty_size(rows, cols), &owner, on_event, Vec::new(), route)
         })
         .await
         .map_err(|e| e.to_string())?
@@ -555,6 +562,11 @@ pub mod tty {
     ) -> Result<String, String> {
         info!("Creating local terminal session for context {}", context);
         let owner = webview.label().to_string();
+        let route = crate::connection::route(
+            &crate::kubernetes::client::resolve_kubeconfig_path(Some(&kube_config)),
+            &context,
+        )
+        .await?;
 
         tauri::async_runtime::spawn_blocking(move || {
             let temp_kubeconfig = write_temp_kubeconfig(
@@ -562,6 +574,7 @@ pub mod tty {
                 &kube_config,
                 &context,
                 normalize_namespace(namespace).as_deref(),
+                route.as_ref().map(|r| r.url.as_str()),
             )?;
 
             let mut env = HashMap::new();
@@ -569,6 +582,9 @@ pub mod tty {
                 "KUBECONFIG".to_string(),
                 temp_kubeconfig.to_string_lossy().into_owned(),
             );
+            if let Some(route) = &route {
+                env.extend(crate::connection::terminal_env(&route.url));
+            }
 
             let argv = terminal_shell_argv(
                 shell.as_deref(),
@@ -584,7 +600,14 @@ pub mod tty {
                 }
             };
 
-            spawn_session(cmd, pty_size(rows, cols), &owner, on_event, vec![temp_kubeconfig])
+            spawn_session(
+                cmd,
+                pty_size(rows, cols),
+                &owner,
+                on_event,
+                vec![temp_kubeconfig],
+                route.and_then(|r| r.lease),
+            )
         })
         .await
         .map_err(|e| e.to_string())?
@@ -744,7 +767,9 @@ pub mod tty {
             .filter(|entry| {
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
-                name.starts_with(TEMP_KUBECONFIG_PREFIX) && name.ends_with(TEMP_KUBECONFIG_SUFFIX)
+                (name.starts_with(TEMP_KUBECONFIG_PREFIX) && name.ends_with(TEMP_KUBECONFIG_SUFFIX))
+                    || (name.starts_with(crate::connection::cli::TEMP_PREFIX)
+                        && name.ends_with(crate::connection::cli::TEMP_SUFFIX))
             })
             .map(|entry| entry.path())
             .collect();
@@ -801,6 +826,25 @@ pub mod tty {
         ]
     }
 
+    /// `kubectl` / `helm` command lines (`kubectl exec`, `kubectl debug`) of
+    /// a cluster with a proxy or SSH jump host get its proxied kubeconfig.
+    async fn routed_command(
+        argv: Vec<String>,
+    ) -> Result<(Vec<String>, Option<crate::connection::Lease>), String> {
+        let routed = argv.first().is_some_and(|program| {
+            let name = Path::new(program).file_stem().map(|s| s.to_string_lossy().to_lowercase());
+            matches!(name.as_deref(), Some("kubectl" | "helm"))
+        });
+        if !routed {
+            return Ok((argv, None));
+        }
+        let mut argv = argv;
+        let args = argv.split_off(1);
+        let (args, lease) = crate::connection::cli_args(args).await?;
+        argv.extend(args);
+        Ok((argv, lease))
+    }
+
     fn run_kubectl(args: &[String]) -> Result<Vec<u8>, String> {
         let mut cmd = Command::new("kubectl");
         cmd.args(args);
@@ -849,18 +893,26 @@ pub mod tty {
     }
 
     /// `kubectl config view --minify --flatten` of a single context, written to
-    /// a private temp file, optionally with the namespace set on the context.
+    /// a private temp file, optionally with the namespace set on the context
+    /// and the cluster's proxy as `proxy-url`.
     fn write_temp_kubeconfig(
         dir: &Path,
         kube_config: &str,
         context: &str,
         namespace: Option<&str>,
+        proxy: Option<&str>,
     ) -> Result<PathBuf, String> {
         if context.is_empty() {
             return Err("No context selected".to_string());
         }
 
-        let contents = run_kubectl(&minify_kubeconfig_args(kube_config, context))?;
+        let contents = match proxy {
+            None => run_kubectl(&minify_kubeconfig_args(kube_config, context))?,
+            Some(proxy) => crate::connection::cli::with_proxy_url(
+                &run_kubectl(&crate::connection::cli::minify_args(kube_config, context))?,
+                proxy,
+            )?,
+        };
         let path = temp_kubeconfig_path(dir);
 
         write_private_file(&path, &contents).map_err(|e| {
@@ -1184,6 +1236,7 @@ pub mod tty {
                 MAIN,
                 channel,
                 vec![temp_file.clone()],
+                None,
             )
             .unwrap();
 
@@ -1214,7 +1267,7 @@ pub mod tty {
             .unwrap();
 
             let (channel, rx) = collecting_channel();
-            let session_id = spawn_session(cmd, pty_size(None, None), MAIN, channel, Vec::new()).unwrap();
+            let session_id = spawn_session(cmd, pty_size(None, None), MAIN, channel, Vec::new(), None).unwrap();
 
             resize_pty(session_id.clone(), 40, 120).unwrap();
             write_to_pty(session_id.clone(), "hello\n".into()).unwrap();
@@ -1248,7 +1301,7 @@ pub mod tty {
             .unwrap();
             let channel = Channel::new(|_| Ok(()));
 
-            let result = spawn_session(cmd, pty_size(None, None), MAIN, channel, vec![temp_file.clone()]);
+            let result = spawn_session(cmd, pty_size(None, None), MAIN, channel, vec![temp_file.clone()], None);
             assert!(result.is_err());
             assert!(!temp_file.exists());
         }
@@ -1262,7 +1315,7 @@ pub mod tty {
             )
             .unwrap();
             let (channel, rx) = collecting_channel();
-            let session_id = spawn_session(cmd, pty_size(None, None), MAIN, channel, Vec::new()).unwrap();
+            let session_id = spawn_session(cmd, pty_size(None, None), MAIN, channel, Vec::new(), None).unwrap();
 
             // Far more than the pty buffer holds; nobody reads it.
             let started = std::time::Instant::now();
@@ -1291,7 +1344,7 @@ pub mod tty {
             )
             .unwrap();
             let (channel, rx) = collecting_channel();
-            let session_id = spawn_session(cmd, pty_size(None, None), MAIN, channel, Vec::new()).unwrap();
+            let session_id = spawn_session(cmd, pty_size(None, None), MAIN, channel, Vec::new(), None).unwrap();
 
             let mut output = Vec::new();
             while !String::from_utf8_lossy(&output).contains("ready") {
@@ -1437,7 +1490,7 @@ pub mod tty {
             .unwrap();
             let (old_channel, old_rx) = collecting_channel();
             let session_id =
-                spawn_session(cmd, pty_size(None, None), "pop-tty-old", old_channel, Vec::new()).unwrap();
+                spawn_session(cmd, pty_size(None, None), "pop-tty-old", old_channel, Vec::new(), None).unwrap();
             read_until(&old_rx, "first");
 
             tty_release(session_id.clone()).unwrap();
@@ -1488,7 +1541,7 @@ pub mod tty {
             )
             .unwrap();
             let (channel, rx) = collecting_channel();
-            let session_id = spawn_session(cmd, pty_size(None, None), MAIN, channel, Vec::new()).unwrap();
+            let session_id = spawn_session(cmd, pty_size(None, None), MAIN, channel, Vec::new(), None).unwrap();
             tty_release(session_id.clone()).unwrap();
             write_to_pty(session_id.clone(), "z\n".into()).unwrap();
 

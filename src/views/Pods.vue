@@ -29,6 +29,13 @@ import {
 import { PanelProviderAddTabKey } from "@/providers/PanelProvider";
 import { allowed, rowTargets } from "@/lib/guardrails/guard";
 import { useCustomRowActions } from "@/lib/customActions/rowActions";
+import {
+  deletePodArgs,
+  execArgs,
+  kubectlFor,
+  logsArgs,
+  portForwardArgs,
+} from "@/lib/kubectl/command";
 
 const {
   namespace,
@@ -78,6 +85,13 @@ const tableColumns = computed(
     [...multiContextColumns, ...columns] as ColumnDef<ContextAwarePod, any>[]
 );
 
+/* The first running container and the first declared port: what a quick command uses. */
+const firstContainer = (row: ContextAwarePod) =>
+  row.status?.containerStatuses?.find((c) => c.state?.running)?.name ??
+  row.spec?.containers?.[0]?.name;
+const firstPort = (row: ContextAwarePod) =>
+  row.spec?.containers?.flatMap((c) => c.ports ?? [])[0]?.containerPort;
+
 const rowActions: RowAction<ContextAwarePod>[] = [
   ...getDefaultActions<ContextAwarePod>(
     addTab,
@@ -86,6 +100,11 @@ const rowActions: RowAction<ContextAwarePod>[] = [
   ),
   {
     label: "Shell",
+    command: (row) =>
+      kubectlFor(
+        row,
+        execArgs(row.metadata.name ?? "", firstContainer(row), settings.value.terminal.containerShell.trim() || "/bin/sh")
+      ),
     options: (row) => {
       const containerStatuses = [
         ...(row.status?.containerStatuses || []),
@@ -128,6 +147,12 @@ const rowActions: RowAction<ContextAwarePod>[] = [
   },
   {
     label: "Port Forward",
+    command: (row) => {
+      const port = firstPort(row);
+      return port
+        ? kubectlFor(row, portForwardArgs(`pod/${row.metadata.name}`, [{ local: port, remote: port }]))
+        : null;
+    },
     handler: (row: ContextAwarePod) => {
       spawnDialog({
         title: "Port forward",
@@ -147,6 +172,7 @@ const rowActions: RowAction<ContextAwarePod>[] = [
   },
   {
     label: "Logs",
+    command: (row) => kubectlFor(row, logsArgs(row.metadata.name ?? "")),
     options: (row) => {
       return [
         {
@@ -197,6 +223,7 @@ const rowActions: RowAction<ContextAwarePod>[] = [
   {
     label: "Kill",
     kind: "delete",
+    command: (row) => kubectlFor(row, deletePodArgs(row.metadata.name ?? "", false)),
     handler: (row: ContextAwarePod) => {
       // The dialog asks for the typed confirmation on protected clusters.
       if (!allowed("delete", rowTargets([row], "Pod"))) return;
