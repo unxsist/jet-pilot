@@ -84,6 +84,7 @@ import { createPanelsMocks } from "./panels";
 import { nodeHistory } from "./metrics";
 import "./rbac";
 import { actionHandlers, seedActionFiles, startActionPty } from "./actions";
+import { createRolloutMocks, noteRollout, volumeLogLines } from "./polishUi";
 import {
   createOperatorMocks,
   OPERATOR_API_VERSIONS,
@@ -596,6 +597,10 @@ function startLogStream(sessionId: string, spec: any, onEvent: any) {
     const now = Date.now();
     const initial: string[] = [];
     running.forEach((p, k) => {
+      if (scenario === "log-volume") {
+        volumeLogLines(k, now).forEach(({ ms, text }) => initial.push(line(p, source(p)[0], ms, text)));
+        return;
+      }
       for (const container of source(p)) {
         logLines(tail).forEach((text, i) => initial.push(line(p, container, now - (tail - i) * 1700 - k * 410, text)));
       }
@@ -742,6 +747,7 @@ async function shellExecute(program: string, args: string[]) {
   }
 
   if (program === "kubectl") {
+    noteRollout(args, context);
     if (args[0] === "describe") {
       const obj = findObject(context, args[1]);
       return ok(describe(obj?.kind || "Pod", obj));
@@ -1280,6 +1286,8 @@ const installTool = async (id: string, channel: any) => {
 /* ------------------------------------------------------------- dispatch -- */
 
 const ptyChannels = new Map<string, any>();
+/* Rollouts that play out (polishUi.ts); first, so its workload reads win. */
+createRolloutMocks(scenario);
 /* Operator fixtures, CRDs and patch routes (dev/harness/operators.ts). */
 createOperatorMocks(emitWatchChange);
 /* Clusters added in JET Pilot + the vault (dev/harness/managed.ts). */
