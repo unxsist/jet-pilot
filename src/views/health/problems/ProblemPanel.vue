@@ -125,12 +125,14 @@ const lastSeen = computed(() => {
 /* ------------------------------------------------- managed + fixes -- */
 
 const subject = shallowRef<any>(null);
+const cause = shallowRef<ChangeSummary | null>(null);
 const manager = shallowRef<Manager | null>(null);
 watch(
   () => props.fingerprint,
   async () => {
     subject.value = null;
     manager.value = null;
+    cause.value = null;
     const object = await fetchSubject(problem.value).catch(() => null);
     subject.value = object;
     manager.value = managerOf(object);
@@ -139,7 +141,6 @@ watch(
 );
 const managed = computed(() => (manager.value ? managedWords(manager.value) : null));
 
-const cause = shallowRef<ChangeSummary | null>(null);
 const fixes = computed<FixId[]>(() => (resolved.value ? [] : fixesFor(problem.value)));
 const leadFix = computed(() => (resolved.value ? null : primaryFix(problem.value, !!cause.value)));
 /* The primary fix first; two buttons at most, the rest in the menu. */

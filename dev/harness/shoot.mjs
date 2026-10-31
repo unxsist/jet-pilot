@@ -60,6 +60,7 @@ const screens = {
   "health-problems": { url: "/health", ready: "[data-problem-key]", settle: 1500 },
   "health-problems-clusters": { url: "/health?contexts=2", ready: "[data-problem-key]", settle: 1500 },
   "health-problems-empty": { url: "/health?scenario=empty", ready: "h1", settle: 1500 },
+  "health-problems-error": { url: "/health?scenario=error", ready: "[role=alert]", settle: 1500 },
   "health-problems-snoozed": {
     url: "/health",
     ready: "[data-problem-key]",

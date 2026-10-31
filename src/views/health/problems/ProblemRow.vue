@@ -37,6 +37,8 @@ const props = defineProps<{
   open: boolean;
   /** Several clusters are active: say which one it is in. */
   cluster?: string;
+  /** Several namespaces are in view: say which one it is in. */
+  showNamespace: boolean;
   now: number;
   /** Snoozed (or acknowledged): shown dimmed, with when it comes back. */
   snooze?: Snooze;
@@ -59,7 +61,7 @@ const pods = computed(() => podsWords(props.problem));
 const logs = computed(() => hasLogs(props.problem));
 
 const detail = computed(() =>
-  [props.cluster, props.problem.namespace, props.problem.short].filter(Boolean).join(" · ")
+  [props.cluster, props.showNamespace && props.problem.namespace, props.problem.short].filter(Boolean).join(" · ")
 );
 
 const when = computed(() => {

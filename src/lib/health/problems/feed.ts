@@ -189,10 +189,15 @@ function createFeed() {
     ))
   );
 
-  /* Lists that couldn't load (unreachable, forbidden), per kind. */
-  const errors = computed(() =>
-    lists.filter((l) => l.error.value).map((l) => ({ kind: l.watched.kind, message: l.error.value!.message }))
-  );
+  /* Lists that couldn't load (unreachable, forbidden): one entry per message, with its kinds. */
+  const errors = computed(() => {
+    const byMessage = new Map<string, string[]>();
+    for (const l of lists) {
+      const message = l.error.value?.message;
+      if (message) byMessage.set(message, [...(byMessage.get(message) ?? []), l.watched.plural]);
+    }
+    return [...byMessage].map(([message, kinds]) => ({ message, kinds, all: kinds.length === lists.length }));
+  });
 
   /* The first snapshot of every list is in. */
   const loading = computed(() => checking.value || lists.some((l) => l.loading.value && l.items.value.length === 0));

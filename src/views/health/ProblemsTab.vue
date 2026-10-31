@@ -25,6 +25,7 @@ import { useProblemFeed } from "@/lib/health/problems/feed";
 import { partition, prune, snooze, unsnooze, type Snooze } from "@/lib/health/problems/snooze";
 import { logSource } from "@/lib/health/problems/evidence";
 import { podsWords } from "@/lib/health/problems/group";
+import { listWords } from "@/lib/resources/format";
 import { askAbout, openLogs, openSubject } from "@/lib/health/problems/actions";
 import { openProblemPanel, panelProblem, runFix } from "@/views/health/problems/panel";
 import type { FixId } from "@/lib/health/problems/fixes";
@@ -44,6 +45,8 @@ const feed = useProblemFeed({ targets: () => props.targets, events: true });
 const { problems, loading, errors, now } = feed;
 
 const multiCluster = computed(() => props.targets.length > 1);
+/* One namespace selected everywhere: saying it on every row adds nothing. */
+const showNamespace = computed(() => !props.targets.every((t) => t.namespaces.length === 1 && t.namespaces[0] !== "all"));
 const clusterName = (problem: Problem) =>
   multiCluster.value ? resolveCluster(settings.value.clusters, problem.context, problem.kubeConfig).displayName : undefined;
 
@@ -193,18 +196,21 @@ useEventListener(window, "keydown", (event: KeyboardEvent) => {
 /* ------------------------------------------------------ empty states -- */
 
 const noResults = computed(() => problems.value.length > 0 && visible.value.length === 0);
+
+/* "persistentvolumeclaims" reads as "volume claims"; the rest as they are. */
+const kindWords = (plural: string) => (plural === "persistentvolumeclaims" ? "volume claims" : plural);
 </script>
 
 <template>
   <div class="space-y-6">
     <div
       v-for="error in errors"
-      :key="error.kind"
+      :key="error.message"
       class="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
       role="alert"
     >
       <CircleAlert class="mt-px h-3.5 w-3.5 shrink-0" />
-      <span>Couldn't watch {{ error.kind }}s: {{ error.message }}</span>
+      <span>{{ error.all ? "Couldn't look for problems" : `Couldn't watch ${listWords(error.kinds.map(kindWords))}` }}: {{ error.message }}</span>
     </div>
 
     <!-- The first snapshot of every list -->
@@ -219,12 +225,14 @@ const noResults = computed(() => problems.value.length > 0 && visible.value.leng
       </div>
     </div>
 
-    <EmptyState
-      v-else-if="!problems.length"
-      :icon="CircleCheck"
-      title="Nothing is broken"
-      description="Crash loops, failed jobs and nodes in trouble show up here the moment they happen."
-    />
+    <template v-else-if="!problems.length">
+      <EmptyState
+        v-if="!errors.length"
+        :icon="CircleCheck"
+        title="Nothing is broken"
+        description="Crash loops, failed jobs and nodes in trouble show up here the moment they happen."
+      />
+    </template>
 
     <template v-else>
       <div v-if="searchable" class="relative">
@@ -269,6 +277,7 @@ const noResults = computed(() => problems.value.length > 0 && visible.value.leng
             :focused="focusedKey ? focusedKey === problem.fingerprint : problem === rows[0]"
             :open="openKey === problem.fingerprint"
             :cluster="clusterName(problem)"
+            :show-namespace="showNamespace"
             :now="now"
             :can-ask="askAi.available.value"
             @open="open(problem)"
@@ -304,6 +313,7 @@ const noResults = computed(() => problems.value.length > 0 && visible.value.leng
               :focused="focusedKey === problem.fingerprint"
               :open="openKey === problem.fingerprint"
               :cluster="clusterName(problem)"
+              :show-namespace="showNamespace"
               :now="now"
               :can-ask="askAi.available.value"
               @open="open(problem)"
