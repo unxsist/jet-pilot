@@ -65,6 +65,10 @@ const SettingsCommands = defineAsyncComponent(
 const ActionCommands = defineAsyncComponent(
   () => import("./components/customActions/ActionCommands.vue")
 );
+/* Records changes on the active clusters while the app is open (Health › Changes). */
+const ChangeRecorder = defineAsyncComponent(
+  () => import("@/views/health/changes/ChangeRecorder.vue")
+);
 const idle = ref(false);
 onMounted(() => whenIdle(() => (idle.value = true), 2000));
 </script>
@@ -121,6 +125,7 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
                         <ThemeCommands />
                         <SettingsCommands />
                         <ActionCommands />
+                        <ChangeRecorder />
                       </template>
                       <TerminalLauncher />
                     </WorkspaceProvider>

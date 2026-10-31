@@ -59,7 +59,46 @@ const screens = {
   "health-problems": { url: "/health", ready: "h1", settle: 1500 },
   "health-risks": { url: "/health?tab=risks", ready: "h1", settle: 1500 },
   "health-upgrades": { url: "/health?tab=upgrades", ready: "h1", settle: 1500 },
-  "health-changes": { url: "/health?tab=changes", ready: "h1", settle: 1500 },
+  // Changes (dev/harness/changes.ts): the timeline, both clusters, search, a diff, a panel.
+  "health-changes": { url: "/health?tab=changes", ready: "[data-change-key]", settle: 1800 },
+  "health-changes-clusters": { url: "/health?tab=changes&contexts=2", ready: "[data-change-key]", settle: 1800 },
+  "health-changes-search": { url: "/health?tab=changes&q=checkout", ready: "[data-change-key]", settle: 1800 },
+  "health-changes-empty": { url: "/health?tab=changes&scenario=empty", ready: "h1", settle: 2500 },
+  // Argo CD and Flux rows: readable in their namespaces only (the scope checks take a while).
+  "health-changes-gitops": { url: "/health?tab=changes&scenario=gitops-namespaced&q=Argo", ready: "[data-change-key]", settle: 14000 },
+  "health-changes-diff": {
+    url: "/health?tab=changes",
+    ready: "[data-change-key]",
+    settle: 1800,
+    run: async (page) => {
+      await page.locator("[data-change-key]", { hasText: "memory limit" }).first().click();
+      await wait(2500);
+    },
+  },
+  "health-changes-configmap": {
+    url: "/health?tab=changes",
+    ready: "[data-change-key]",
+    settle: 1800,
+    run: async (page) => {
+      await page.locator("[data-change-key]", { hasText: "checkout-flags" }).first().click();
+      await wait(1500);
+      await page.locator("[data-state] >> text=Changes").first().click();
+      await wait(1500);
+    },
+  },
+  "health-changes-panel": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    settle: 1200,
+    run: async (page) => {
+      // A degraded workload: its Changes open by themselves.
+      await page.locator("tbody tr", { hasText: "checkout-api" }).first().click();
+      await wait(2500);
+      await page.locator("[data-state] >> text=Changes").first().scrollIntoViewIfNeeded();
+      await page.mouse.wheel(0, 400);
+      await wait(600);
+    },
+  },
   "cluster-overview": { url: "/cluster-overview", ready: ".vue-flow__node-k8s", settle: 2500 },
   "graph-problems": {
     url: "/cluster-overview",

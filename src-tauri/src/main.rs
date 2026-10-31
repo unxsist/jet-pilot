@@ -11,6 +11,7 @@ use std::sync::{Arc, RwLock};
 mod announcements;
 mod app_log;
 mod auth;
+mod changes;
 mod clusters;
 mod env_import;
 mod helm;
@@ -252,6 +253,8 @@ fn main() {
             auth::login::auth_login_start,
             auth::login::auth_login_open_url,
             auth::login::auth_login_cancel,
+            changes::changes_track,
+            changes::changes_list,
         ])
         .setup(|_app| {
             // auth://issue and auth://resolved need the app handle.
@@ -339,6 +342,8 @@ fn main() {
             probe::flush_status_cache();
             // Sign-ins still running (aws sso login, kubelogin, ...).
             auth::login::cancel_all();
+            // Recorded changes still waiting for their debounced write.
+            changes::flush_all();
         }
     });
 }
