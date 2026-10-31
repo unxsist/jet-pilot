@@ -53,6 +53,7 @@ interface NavigationGroup {
 const gitops = useGitOpsDetection();
 const appLinks = computed(() => [
   { title: "Clusters", to: { name: "ClustersHub" }, icon: "clustershub" },
+  { title: "Health", to: { name: "Health" }, icon: "health" },
   { title: "Resource Graph", to: { name: "ClusterOverview" }, icon: "diagram" },
   ...(gitops.installed.value ? [{ title: "GitOps", to: { name: "GitOps" }, icon: "gitops" }] : []),
 ]);

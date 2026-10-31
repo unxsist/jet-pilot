@@ -56,6 +56,10 @@ const screens = {
       await wait(600);
     },
   },
+  "health-problems": { url: "/health", ready: "h1", settle: 1500 },
+  "health-risks": { url: "/health?tab=risks", ready: "h1", settle: 1500 },
+  "health-upgrades": { url: "/health?tab=upgrades", ready: "h1", settle: 1500 },
+  "health-changes": { url: "/health?tab=changes", ready: "h1", settle: 1500 },
   "cluster-overview": { url: "/cluster-overview", ready: ".vue-flow__node-k8s", settle: 2500 },
   "graph-problems": {
     url: "/cluster-overview",
