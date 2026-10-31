@@ -28,6 +28,9 @@ No account, no telemetry: JET Pilot uses your existing kubeconfig files and `kub
 - **Clusters hub**: every cluster from every kubeconfig and cloud account in one list, with live status, names, colours, folders and tags. Connect AWS, Google Cloud, Azure, DigitalOcean, Akamai/Linode, Civo, Scaleway, Vultr and Exoscale, or paste, import or enter a cluster by hand; credentials live in your system keychain.
 - **Production guardrails**: protected clusters ask you to type the name before destructive actions; read-only clusters can't be changed from JET Pilot.
 - **Multi-cluster & multi-namespace**: connect to several contexts (across multiple kubeconfig files) and namespaces at once; every table aggregates them with Context and Namespace columns.
+- **Health**: what's broken across your clusters in plain words, with the likely cause, the evidence and fixes behind a dry-run diff. Plus what changed and when, risks such as missing limits or expiring certificates, and upgrade readiness: support dates, deprecated APIs and add-ons.
+- **Ask AI**: hand a problem or an object to the AI agent you already use (Claude Code, Codex, Gemini CLI and more), in a terminal with `kubectl` pinned to that cluster. JET Pilot stores no keys and sends nothing itself.
+- **Split view and windows**: two views side by side, or a view or a tab in a window of its own.
 - **Side panels that explain**: every object opens with its state in a sentence, links to related objects, usage charts and inline editing of labels, annotations and taints.
 - **Usage history**: CPU, memory and network charts from the cluster's Prometheus, found by itself and queried through the API server, or from metrics-server.
 - **GitOps**: every Flux Kustomization, Flux HelmRelease and Argo CD Application in one place, problems first, with reconcile, suspend, sync and refresh.
@@ -36,10 +39,10 @@ No account, no telemetry: JET Pilot uses your existing kubeconfig files and `kub
 - **Operators and CRDs**: printer columns for every custom resource, plus views for cert-manager, Gateway API, Karpenter, KEDA, External Secrets and Prometheus Operator.
 - **Built-in terminal**: open a local terminal (<kbd>Ctrl</kbd>+<kbd>`</kbd>) with `kubectl` preconfigured for the current context — your own kubeconfig is never modified. Shell into any container with one click, on macOS, Linux and Windows.
 - **Resource graph**: see how Services, Deployments, ReplicaSets, Pods, ConfigMaps and Secrets relate, with live health indicators.
-- **Structured log viewer**: follow logs across every pod of a workload, parse JSON log lines into fields and filter them with facets.
+- **Structured log viewer**: follow logs across every pod of a workload, parse JSON log lines into fields, filter them with facets and pick a time range on the volume chart.
 - **Object management**: browse, describe, create and edit any Kubernetes object in a full YAML editor (<kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>S</kbd> to apply).
 - **Command palette**: <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>K</kbd> to jump anywhere, switch contexts and namespaces or open a terminal — with fuzzy search.
-- **Port forwards** that follow their pod through rollouts, **custom actions** from small YAML files, events, scaling, rollouts, cordon/drain and more.
+- **Port forwards** that follow their pod through rollouts, **custom actions** from small YAML files, `jetpilot://` links, a proxy or SSH jump host per cluster, the `kubectl` equivalent of every action, events, scaling, rollouts, cordon/drain and more.
 - **SSO-friendly**: in-app sign-in for AWS IAM Identity Center, gcloud, az, kubelogin/OIDC and other exec plugins, with device codes shown in the app.
 - **Themes**: polished dark and light themes, built-in favourites, and your own VS Code, Sublime Text or TextMate themes.
 

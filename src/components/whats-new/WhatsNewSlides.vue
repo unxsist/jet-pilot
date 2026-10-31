@@ -11,116 +11,107 @@ import {
 } from "@/components/ui/carousel";
 import type { UnwrapRefCarouselApi } from "@/components/ui/carousel/interface";
 import { Button } from "@/components/ui/button";
-import { Braces, ChartLine, Columns3, Gauge, ShieldCheck, Unplug } from "lucide-vue-next";
+import { Bell, HardDrive, Link, ShieldCheck, Sheet, Terminal } from "lucide-vue-next";
 
-import gitopsDark from "@/assets/whats-new/gitops-dark.webp";
-import gitopsLight from "@/assets/whats-new/gitops-light.webp";
-import usageDark from "@/assets/whats-new/usage-dark.webp";
-import usageLight from "@/assets/whats-new/usage-light.webp";
-import accessDark from "@/assets/whats-new/access-dark.webp";
-import accessLight from "@/assets/whats-new/access-light.webp";
-import helmDark from "@/assets/whats-new/helm-dark.webp";
-import helmLight from "@/assets/whats-new/helm-light.webp";
-import panelsDark from "@/assets/whats-new/panels-dark.webp";
-import panelsLight from "@/assets/whats-new/panels-light.webp";
-import operatorsDark from "@/assets/whats-new/operators-dark.webp";
-import operatorsLight from "@/assets/whats-new/operators-light.webp";
-import actionsDark from "@/assets/whats-new/actions-dark.webp";
-import actionsLight from "@/assets/whats-new/actions-light.webp";
-import portForwardsDark from "@/assets/whats-new/port-forwards-dark.webp";
-import portForwardsLight from "@/assets/whats-new/port-forwards-light.webp";
+import healthDark from "@/assets/whats-new/health-dark.webp";
+import healthLight from "@/assets/whats-new/health-light.webp";
+import changesDark from "@/assets/whats-new/changes-dark.webp";
+import changesLight from "@/assets/whats-new/changes-light.webp";
+import upgradesDark from "@/assets/whats-new/upgrades-dark.webp";
+import upgradesLight from "@/assets/whats-new/upgrades-light.webp";
+import askAiDark from "@/assets/whats-new/ask-ai-dark.webp";
+import askAiLight from "@/assets/whats-new/ask-ai-light.webp";
+import splitViewDark from "@/assets/whats-new/split-view-dark.webp";
+import splitViewLight from "@/assets/whats-new/split-view-light.webp";
+import logVolumeDark from "@/assets/whats-new/log-volume-dark.webp";
+import logVolumeLight from "@/assets/whats-new/log-volume-light.webp";
+import connectionDark from "@/assets/whats-new/connection-dark.webp";
+import connectionLight from "@/assets/whats-new/connection-light.webp";
 
 const emit = defineEmits<{ done: [] }>();
 
 const slides = [
   {
-    title: "GitOps, at a glance",
+    title: "What's broken, in plain words",
     description:
-      "One page for every Flux and Argo CD delivery across your clusters, problems first. Open one to see why it's failing and what it delivered, then reconcile, sync or suspend it.",
-    dark: gitopsDark,
-    light: gitopsLight,
+      "The new Health page lists what's broken across your clusters, one row per workload, with the likely cause and the evidence. Fix it with a dry-run diff first, or copy the patch when Helm or GitOps manages it.",
+    dark: healthDark,
+    light: healthLight,
   },
   {
-    title: "Usage over time",
+    title: "What changed, and when",
     description:
-      "The side panel charts CPU and memory over an hour to a week, with requests and limits drawn in. JET Pilot finds your cluster's Prometheus by itself; without one, it shows metrics-server's last 15 minutes.",
-    dark: usageDark,
-    light: usageLight,
+      "Image bumps, config edits, scaling, Helm releases and syncs, newest first, with who did it and a diff. Read from the cluster's own history, and recorded while JET Pilot is open.",
+    dark: changesDark,
+    light: changesLight,
   },
   {
-    title: "Access, in plain English",
+    title: "Ready for the next upgrade",
     description:
-      "Ask “Can I delete deployments in payments?” and get a yes or no, with the binding and role behind it. Or ask who can, and see everything a user, group or service account may do.",
-    dark: accessDark,
-    light: accessLight,
+      "Support dates for EKS, GKE, AKS and Kubernetes, the deprecated APIs your objects still use and add-ons that need an update. Risks checks limits, probes, budgets and expiring certificates.",
+    dark: upgradesDark,
+    light: upgradesLight,
   },
   {
-    title: "Helm, built in",
+    title: "Ask your own AI",
     description:
-      "Releases load straight from the cluster, without the helm binary. Each one shows its notes, resources and a history that says what changed. Search charts, then install with a values editor and a preview.",
-    dark: helmDark,
-    light: helmLight,
+      "Hand a problem or an object to Claude Code, Codex, Gemini CLI or another agent you use, in a terminal with kubectl pinned to that cluster. Pick one in Settings › AI; JET Pilot sends nothing itself.",
+    dark: askAiDark,
+    light: askAiLight,
   },
   {
-    title: "Side panels that explain",
+    title: "Two views, side by side",
     description:
-      "Select anything and the panel says in a sentence whether it's OK, and why not, with links to what it's connected to. Edit labels, annotations and taints in place, with a preview before you save.",
-    dark: panelsDark,
-    light: panelsLight,
+      "Alt+click a sidebar item, or press ⌘\\ or Ctrl+\\, to open a view beside the one you're on. Shift+click moves a view or a tab into a window of its own; running shells move without restarting.",
+    dark: splitViewDark,
+    light: splitViewLight,
   },
   {
-    title: "Your operators, first-class",
+    title: "Logs over time",
     description:
-      "cert-manager, Gateway API, Karpenter, KEDA, External Secrets and Prometheus Operator get their own columns, states in words and panels, with actions like Renew and Sync now.",
-    dark: operatorsDark,
-    light: operatorsLight,
+      "A slim chart above the logs shows lines over time, with errors and warnings in their colours. Drag across it to read just that moment.",
+    dark: logVolumeDark,
+    light: logVolumeLight,
   },
   {
-    title: "Your own actions",
+    title: "Through the bastion",
     description:
-      "Describe an action in a small YAML file: open a URL, run a command, exec, patch or copy. It shows up in row menus, the side panel and the command palette. Find them in Settings › Actions.",
-    dark: actionsDark,
-    light: actionsLight,
-  },
-  {
-    title: "Port forwards that heal",
-    description:
-      "Forwards follow their pod through restarts and rollouts, and say quietly when they healed. Send one a request and see the status, headers and body without leaving JET Pilot.",
-    dark: portForwardsDark,
-    light: portForwardsLight,
+      "Connect a cluster through a SOCKS5 or HTTP proxy, or an SSH jump host. JET Pilot keeps the tunnel open while you use the cluster, and never asks for a password.",
+    dark: connectionDark,
+    light: connectionLight,
   },
 ];
 
 const underTheHood = [
   {
-    icon: Unplug,
-    title: "Straight to the API",
-    text: "Describe, YAML, browsing Helm releases and port forwards no longer need kubectl or helm.",
+    icon: Terminal,
+    title: "The kubectl equivalent",
+    text: "Confirmations show the kubectl command that does the same; the row menu copies it.",
   },
   {
-    icon: ChartLine,
-    title: "Nothing to forward",
-    text: "Usage history reaches Prometheus through the API server: no port-forward, no setup.",
+    icon: Sheet,
+    title: "Copy as CSV",
+    text: "The selected rows with their visible columns: ⌘⇧C or Ctrl+Shift+C.",
   },
   {
-    icon: Gauge,
-    title: "A faster start",
-    text: "A fifth less code loads before the first frame; the side panel and dialogs follow right after.",
+    icon: Link,
+    title: "jetpilot:// links",
+    text: "Link to an object or a view from Slack or a runbook. Links only navigate.",
   },
   {
-    icon: Braces,
-    title: "Safe templates",
-    text: "Names and labels reach your actions' commands as arguments, never as code.",
+    icon: Bell,
+    title: "Notify me",
+    text: "A desktop notification when a rollout you started finishes or gets stuck.",
   },
   {
     icon: ShieldCheck,
-    title: "Guardrails everywhere",
-    text: "Sync, reconcile, install, renew and label edits all respect read-only and protected clusters.",
+    title: "Drain checks first",
+    text: "Disruption budgets, bare pods and emptyDir data, before anything is evicted.",
   },
   {
-    icon: Columns3,
-    title: "Columns for every CRD",
-    text: "Any custom resource shows its CRD's own columns, live, with ages and status dots.",
+    icon: HardDrive,
+    title: "Stays on your machine",
+    text: "Rule data ships with JET Pilot; recorded changes never leave your computer.",
   },
 ];
 
@@ -154,7 +145,7 @@ const last = computed(() => selected.value === count - 1);
       </CarouselItem>
       <CarouselItem class="px-6">
         <h3 class="text-lg font-semibold">Under the hood</h3>
-        <p class="mt-1 text-sm text-muted-foreground">The details behind 2.2.</p>
+        <p class="mt-1 text-sm text-muted-foreground">The details behind 2.3.</p>
         <ul class="mt-4 grid grid-cols-2 gap-x-8 gap-y-5">
           <li v-for="item in underTheHood" :key="item.title" class="flex gap-3">
             <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">

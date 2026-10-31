@@ -13,6 +13,30 @@ How to write an entry (jet-pilot.app/changelog is generated from this file):
   `#### Upgrading`: lists of `**Lead.** Detail.` items, in plain words.
 -->
 
+## 2.3.0 (2026-10-31)
+
+### Health, split view and windows
+
+JET Pilot now tells you what's broken, what changed before it broke and what will hurt next, and shows more than one thing at a time.
+
+#### New
+- **Health.** A new page that lists what's broken across your active clusters: one row per workload, job, node or volume claim, in plain words, such as "Secret fraud-model-credentials doesn't exist". Open one to see the likely cause, the last crash, the logs before it and the failing probe. Fix it with a dry-run diff first: raise a memory limit, roll back, restart or retry a job. When Helm, Argo CD or Flux manages the object, JET Pilot says so and offers the patch to copy instead. Snooze or acknowledge what you already know about.
+- **Changes.** What changed on your clusters, newest first: image bumps, config edits, scaling, Helm releases, GitOps syncs, restarts and node conditions, with who did it and a diff. JET Pilot reads the cluster's own history and records changes while it's open. That record stays on your machine for 14 days, and Secret and ConfigMap values are never stored. Workloads, pods, config maps, secrets and nodes get a Changes section in their side panel too.
+- **Risks and upgrades.** Check a cluster for missing limits and probes, `:latest` images, single replicas, missing disruption budgets, privileged containers and certificates about to expire. Upgrades shows support dates for EKS, GKE, AKS and Kubernetes itself, the deprecated APIs your objects and Helm releases still use, and add-ons that need an update. The Clusters hub notes clusters near or past the end of support. The data ships with JET Pilot, so nothing is fetched.
+- **Ask AI.** Hand a problem, an object or a cluster to the AI agent you already use: Claude Code, Codex, Gemini CLI, OpenCode, GitHub Copilot CLI or a command of your own. It opens in a terminal tab with `kubectl` pinned to that cluster, along with what JET Pilot already knows. On read-only clusters the agent starts in its read-only or plan mode. It's off until you pick an agent in Settings › AI. JET Pilot stores no keys and sends nothing itself.
+- **Split view.** Two views side by side: <kbd>Alt</kbd>+click a sidebar item, or press <kbd>⌘\\</kbd> / <kbd>Ctrl+\\</kbd>. The sidebar, the command palette and back and forward follow the pane you last clicked, and workspaces remember the split.
+- **Pop-out windows.** Move a view or a bottom-panel tab into a window of its own, for a second screen or a log tail next to your editor: <kbd>Shift</kbd>+click a sidebar item or a tab. Running shells move without restarting, and windows come back after a restart.
+- **Through a bastion.** Connect a cluster through a SOCKS5 or HTTP proxy, or an SSH jump host. JET Pilot keeps the tunnel open while you use the cluster and never asks for a password. Find it in the cluster's Edit dialog.
+- **jetpilot:// links.** Copy a link to an object, a list, a Helm release or a Health tab, and paste it into Slack, a runbook or an alert. Opening one brings JET Pilot forward and opens it. Links only navigate; they never change anything.
+
+#### Improved
+- **Log volume.** A slim chart above the logs shows lines over time, with errors and warnings in their colours. Drag across it to show only that time range.
+- **The kubectl equivalent.** Confirmations show the `kubectl` command that does the same thing, and the row menu copies it.
+- **Copy as CSV.** Copy the selected rows with their visible columns from the row menu, the selection bar or <kbd>⌘⇧C</kbd> / <kbd>Ctrl+Shift+C</kbd>.
+- **Notify me.** After a restart, scale, rollback or Helm upgrade, the toast offers a desktop notification for when the rollout finishes or gets stuck.
+- **Drain checks first.** The Drain confirmation warns about pods a disruption budget won't let go, pods without a controller and emptyDir data.
+- **One JET Pilot.** Opening JET Pilot again brings the running app forward instead of starting a second one.
+
 ## 2.2.3 (2026-10-18)
 
 #### Fixed

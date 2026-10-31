@@ -450,6 +450,100 @@ const screens = {
     },
   },
   "custom-actions": { url: "/settings/actions?scenario=valid-actions", ready: "[aria-label='Your actions']", run: async (page) => page.mouse.move(5, 890) },
+  /* 2.3: Health (problems, changes, upgrades), Ask AI, split view and the polish. */
+  health: {
+    url: "/health?scenario=problems-cause",
+    ready: "[data-problem-key]",
+    run: async (page) => {
+      await page.locator("[data-problem-key]", { hasText: "payments-worker" }).first().click();
+      await page.mouse.move(5, 890);
+      await wait(1500);
+    },
+  },
+  changes: {
+    url: "/health?tab=changes&q=payments",
+    ready: "[data-change-key]",
+    settle: 1800,
+    run: async (page) => {
+      // Resting on a row in view (hover() would scroll the header away).
+      const box = await page.locator("[data-change-key]", { hasText: "memory limit" }).first().boundingBox();
+      if (box) await page.mouse.move(box.x + box.width * 0.6, box.y + box.height / 2);
+      await wait(600);
+    },
+  },
+  upgrades: {
+    url: "/health?tab=upgrades",
+    ready: "text=Check again",
+    run: async (page) => {
+      await page.getByRole("button", { name: /deprecated or removed APIs/ }).click();
+      await page.getByRole("button", { name: /need an update/ }).click();
+      await page.mouse.move(5, 890);
+      await wait(600);
+    },
+  },
+  "ask-ai": {
+    url: DEPLOYMENTS,
+    ready: "tbody tr td",
+    settle: 2500,
+    run: async (page) => {
+      await page.locator("tbody tr", { hasText: "checkout-api" }).first().click();
+      await wait(900);
+      await page.getByRole("button", { name: "Ask AI" }).click();
+      await wait(500);
+      await page.keyboard.press("Enter");
+      await wait(400);
+      await panelTopAt(page, 300);
+      await page.mouse.move(5, 890);
+      await wait(1800);
+    },
+  },
+  "split-view": {
+    url: "/pods",
+    ready: "tbody tr td",
+    run: async (page) => {
+      // Health, then Mod+\ opens the view before it (Pods) beside it.
+      await page.getByRole("link", { name: /^Health/ }).first().click();
+      await page.waitForSelector("[data-problem-key]", { timeout: 20000 }).catch(() => {});
+      await wait(800);
+      await page.keyboard.press("Meta+Backslash");
+      await wait(2500);
+      await page.mouse.move(5, 890);
+      await wait(500);
+    },
+  },
+  "log-volume": {
+    url: `${DEPLOYMENTS}&scenario=log-volume`,
+    ready: "tbody tr td",
+    run: async (page) => {
+      await openRowAction(page, "payments-api", "Logs", "All pods");
+      await panelTopAt(page, 164);
+      await wait(1800);
+      const box = await page.locator('[role="img"][aria-label^="Log volume"]').boundingBox();
+      if (box) {
+        const y = box.y + box.height / 2;
+        await page.mouse.move(box.x + box.width * 0.56, y);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width * 0.73, y, { steps: 8 });
+        await page.mouse.up();
+      }
+      await page.mouse.move(5, 890);
+      await wait(600);
+    },
+  },
+  connection: {
+    url: "/clusters?scenario=hub",
+    ready: "[role=grid]",
+    settle: 3500,
+    run: async (page) => {
+      await page.locator("[role=grid] [role=row]", { hasText: "Payments DR" }).first().click();
+      await wait(900);
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
+      await wait(900);
+      await page.locator("#cluster-ssh-jump").scrollIntoViewIfNeeded();
+      await page.mouse.move(5, 890);
+      await wait(600);
+    },
+  },
 };
 
 /* ----------------------------------------------------------- settling -- */
