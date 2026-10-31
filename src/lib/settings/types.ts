@@ -93,6 +93,14 @@ export interface Preferences {
     /** Ids (file names without extension) of custom actions turned off. */
     disabled: string[];
   };
+  ai: {
+    /** The agent Ask AI starts (src/lib/ai/agents.ts); empty: Ask AI is off. */
+    agent: string;
+    /** "custom": the command line that starts it ({prompt}: the question). */
+    customCommand: string;
+    /** "custom" on read-only clusters; empty: not used there. */
+    customReadOnlyCommand: string;
+  };
 }
 
 /** Per-context namespace lists of releases before 1.41 (now part of `clusters`). */
@@ -147,6 +155,7 @@ export type SettingCategoryId =
   | "tables"
   | "clusters"
   | "actions"
+  | "ai"
   | "advanced";
 
 export type Platform = "macos" | "linux" | "windows";
