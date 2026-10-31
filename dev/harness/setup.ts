@@ -80,6 +80,7 @@ import { createHelmMocks } from "./helm";
 import { installAuthMocks } from "./auth";
 import { handleKubeRequest } from "./kubeApi";
 import { createGitopsMocks } from "./gitops";
+import { installUpkeepMocks } from "./upkeep";
 import { createPortForwardMocks, portForwardSettings } from "./portForwards";
 import { createPanelsMocks } from "./panels";
 import { createChangesMocks } from "./changes";
@@ -1858,5 +1859,7 @@ internals.invoke = async (cmd: string, args: any, options: any) => {
 
 /* Auth center: credential status, sign-ins, auth-expired (auth.ts). */
 installAuthMocks({ scenario, sendToChannel, firstContext: CONTEXTS[0].name, kubeConfig: KUBECONFIG, files: HUB_FILES });
+/* Health Risks / Upgrades: TLS expiry, Helm manifest APIs, a client certificate (upkeep.ts). */
+installUpkeepMocks();
 
 (window as any).__harness = { theme, os, scenario, polling };

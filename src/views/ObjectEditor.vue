@@ -93,6 +93,8 @@ const props = withDefaults(
     useKubeCtl: boolean;
     create?: boolean;
     createProps?: string[];
+    /** New objects: the manifest to start from (instead of the kind's template). */
+    manifest?: string;
   }>(),
   {
     name: "",
@@ -100,6 +102,7 @@ const props = withDefaults(
     kind: "",
     create: false,
     createProps: () => [],
+    manifest: "",
   }
 );
 
@@ -801,6 +804,8 @@ onMounted(async () => {
       const contents = await fetchLive();
       originalContents.value = contents;
       editContents.value = contents;
+    } else if (props.manifest) {
+      editContents.value = props.manifest;
     } else {
       try {
         editContents.value = await getTemplate();

@@ -11,6 +11,7 @@
 //! - `chart`: a chart's Chart.yaml, values, schema and README, pulled with
 //!   helm into a temporary directory.
 
+pub mod apis;
 pub mod artifacthub;
 pub mod chart;
 pub mod storage;
@@ -233,13 +234,13 @@ fn valid_release_name(name: &str) -> bool {
 }
 
 /// A namespace name (it becomes part of the request path).
-fn valid_namespace(namespace: &str) -> bool {
+pub(crate) fn valid_namespace(namespace: &str) -> bool {
     !namespace.is_empty()
         && namespace.len() <= 63
         && namespace.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
-fn bad_request(message: String) -> SerializableKubeError {
+pub(crate) fn bad_request(message: String) -> SerializableKubeError {
     SerializableKubeError {
         message,
         code: Some(400),

@@ -470,7 +470,7 @@ pub fn latest_revisions(objects: Vec<StoredRevision>) -> Vec<StoredRevision> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use flate2::write::GzEncoder;
     use flate2::Compression;

@@ -11,6 +11,7 @@ use std::sync::{Arc, RwLock};
 mod announcements;
 mod app_log;
 mod auth;
+mod certificates;
 mod changes;
 mod clusters;
 mod env_import;
@@ -197,6 +198,8 @@ fn main() {
             helm::helm_releases,
             helm::helm_history,
             helm::helm_release_detail,
+            helm::apis::helm_manifest_apis,
+            certificates::tls_certificates,
             helm::chart::helm_chart_inspect,
             helm::artifacthub::artifacthub_search,
             helm::artifacthub::artifacthub_package,
