@@ -16,6 +16,8 @@ const props = defineProps<{
   namespace: string;
   kubeConfig: string;
   tabId?: string;
+  /** A running session moved here from another window. */
+  attachSession?: string;
 }>();
 
 const { settings } = injectStrict(SettingsContextStateKey);
@@ -44,7 +46,12 @@ const start: PtyStarter = ({ rows, cols }, onEvent) =>
   <div class="flex h-full w-full flex-col">
     <TerminalClusterBanner :context="context" :kube-config="kubeConfig" />
     <div class="min-h-0 flex-1">
-      <PtyTerminal :start="start" :banner="banner" :tab-id="tabId" />
+      <PtyTerminal
+        :start="start"
+        :banner="banner"
+        :tab-id="tabId"
+        :attach-session="attachSession"
+      />
     </div>
   </div>
 </template>

@@ -112,7 +112,7 @@ pub enum End {
     Exited,
 }
 
-fn command(spec: &PortForwardSpec, local_port: u16) -> Command {
+fn args(spec: &PortForwardSpec, local_port: u16) -> Vec<String> {
     let mut args: Vec<String> = vec![
         "port-forward".into(),
         "--context".into(),
@@ -129,9 +129,12 @@ fn command(spec: &PortForwardSpec, local_port: u16) -> Command {
         args.insert(1, spec.kube_config.clone());
         args.insert(1, "--kubeconfig".into());
     }
+    args
+}
 
+fn command(args: &[String]) -> Command {
     let mut command = Command::new("kubectl");
-    command.args(&args);
+    command.args(args);
     // If this app process dies, take the forward down with us instead of
     // orphaning a kubectl process.
     command.kill_on_drop(true);
@@ -154,10 +157,16 @@ pub async fn run(
     child: Arc<Mutex<Option<Child>>>,
 ) -> End {
     let local_port = lock(&info).local_port;
-    let mut process = match command(&spec, local_port).spawn() {
+    // Through the cluster's proxy or SSH tunnel (held by run_forward).
+    let spawned = match crate::connection::cli_args(args(&spec, local_port)).await {
+        Ok((args, _)) => command(&args)
+            .spawn()
+            .map_err(|e| format!("Failed to launch kubectl port-forward. Is kubectl installed and on PATH? ({e})")),
+        Err(message) => Err(message),
+    };
+    let mut process = match spawned {
         Ok(process) => process,
-        Err(e) => {
-            let message = format!("Failed to launch kubectl port-forward. Is kubectl installed and on PATH? ({e})");
+        Err(message) => {
             tracing::error!("{message}");
             let payload = {
                 let mut current = lock(&info);

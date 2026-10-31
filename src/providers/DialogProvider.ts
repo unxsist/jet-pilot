@@ -1,5 +1,6 @@
 import { Component, ToRefs } from "vue";
 import { buttonVariants } from "@/components/ui/button";
+import type { CommandSpec } from "@/lib/kubectl/command";
 
 export const DialogProviderStateKey: InjectionKey<ToRefs<DialogProviderState>> =
   Symbol("DialogProviderState");
@@ -20,6 +21,8 @@ export interface BaseDialogInterface {
   component?: any;
   props?: any;
   buttons?: DialogButtonInterface[];
+  /** What the action runs, shown as "Equivalent kubectl command". */
+  commands?: CommandSpec[];
 }
 
 export interface DialogInterface extends BaseDialogInterface {

@@ -24,6 +24,7 @@ import { perfMark } from "@/lib/perf";
 import { setRuntimeSettings } from "@/lib/settings/runtime";
 import type { Settings, SettingsIssue } from "@/lib/settings/types";
 import type { JsonObject } from "@/lib/settings/paths";
+import { isMainWindow } from "@/lib/windows";
 
 export type { ContextSettings, Settings } from "@/lib/settings/types";
 
@@ -147,8 +148,13 @@ export default {
    * Preferences live in settings.json (sparse: only values that differ from
    * their default, see src/lib/settings/store.ts), session state in
    * state.json. The preference registry is loaded while the files are read.
+   *
+   * Only the main window writes the files. Pop-out windows (@/lib/windows)
+   * read them, apply preference changes the main window saves (through the
+   * settings.json watcher) and keep their own changes in memory.
    */
   setup(_props: unknown, { slots }: SetupContext) {
+    const readOnly = !isMainWindow();
     const state: SettingsContextState = reactive({
       settings: {} as Settings,
     });
@@ -219,7 +225,11 @@ export default {
       firstRun.value = settingsRead.text === null && stateRead.text === null;
 
       const migrated = store.migrate(settingsRead.data, stateRead.data, { home });
-      if (migrated.changed && settingsRead.text !== null) {
+      if (readOnly) {
+        settingsFile.canSave = false;
+        stateFile.canSave = false;
+      }
+      if (migrated.changed && settingsRead.text !== null && !readOnly) {
         // The first migration keeps the original file around.
         const backup = store.SETTINGS_BACKUP_FILE;
         if (!(await exists(backup, { baseDir: BaseDirectory.AppConfig }).catch(() => true))) {
@@ -241,7 +251,7 @@ export default {
       if (settings.PanelProvider.height > 90) settings.PanelProvider.height = 90;
       state.settings = settings;
 
-      if (settingsRead.text !== null) syncLogLevel();
+      if (settingsRead.text !== null && !readOnly) syncLogLevel();
     };
 
     /* Edits made outside the app (an editor, a dotfiles sync) apply live. */
@@ -285,6 +295,13 @@ export default {
         // Only start saving now: an earlier save would overwrite the files
         // with defaults. Persist what loading filled in (no-op if unchanged).
         watch(() => state.settings, scheduleSave, { deep: true });
+        flush().then(() => {
+          if (settingsFile.canSave || readOnly) void watchSettingsFile();
+        });
+        ready.value = true;
+        perfMark("settings:loaded");
+        // App-wide backend switches: the main window's.
+        if (readOnly) return;
         watch(() => state.settings.diagnostics?.logLevel, syncLogLevel);
         // The credential broker is on in the backend unless turned off here.
         watch(
@@ -298,11 +315,13 @@ export default {
           },
           { immediate: true }
         );
-        flush().then(() => {
-          if (settingsFile.canSave) void watchSettingsFile();
-        });
-        ready.value = true;
-        perfMark("settings:loaded");
+        // Per-cluster proxies and SSH jump hosts are applied in the backend.
+        watch(
+          () => state.settings.clusters,
+          (records) =>
+            void import("@/lib/clusters/connection").then((m) => m.syncConnections(records ?? [])),
+          { immediate: true }
+        );
       });
 
     /*

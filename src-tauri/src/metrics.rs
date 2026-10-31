@@ -13,12 +13,13 @@
 //!   sent once on subscribe.
 //!
 //! Clusters without metrics-server report `unavailable` and are re-checked
-//! every minute. Polling stops while the window is hidden (see
+//! every minute. Polling stops while every window is hidden (see
 //! `watch_set_paused`) and pollers stay warm for 60 s after the last
-//! subscriber leaves, like the WatchHub.
+//! subscriber leaves, like the WatchHub. Subscriptions belong to the webview
+//! that made them: a page load (`metrics_reset`) or a closed window only
+//! releases its own.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -37,6 +38,9 @@ use crate::auth::center::{self, AuthErrorKind, AuthFailure, AuthIssue, IssueSour
 use crate::kubernetes::client::{auth_error_message, client_with_context, exec_command_for_context, resolve_kubeconfig_path};
 use crate::util::lock;
 use crate::watch::{channel_sink, next_subscription_id, paused_receiver, WatchSink as Sink};
+use crate::windows::Ownership;
+#[cfg(test)]
+use crate::windows::MAIN;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(15);
 const UNAVAILABLE_INTERVAL: Duration = Duration::from_secs(60);
@@ -148,9 +152,11 @@ struct Poller {
 
 static POLLERS: Lazy<Mutex<HashMap<PollerKey, Arc<Poller>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 static SUBSCRIPTIONS: Lazy<Mutex<HashMap<u64, PollerKey>>> = Lazy::new(|| Mutex::new(HashMap::new()));
-/// Bumped by `metrics_reset` (webview reload): a subscribe that started
-/// before it registers nothing (its channel belongs to the old page).
-static EPOCH: AtomicU64 = AtomicU64::new(0);
+/// The webview of every subscription. A reset of a webview (reload, window
+/// closed) bumps its epoch under the `POLLERS` lock: a subscribe it started
+/// before registers nothing (its channel belongs to the old page). Always
+/// locked after `POLLERS`, never before.
+static OWNERS: Lazy<Mutex<Ownership>> = Lazy::new(|| Mutex::new(Ownership::default()));
 
 fn status_message(state: MetricsState, message: &Option<String>) -> String {
     serde_json::json!({ "type": "status", "state": state, "message": message }).to_string()
@@ -366,20 +372,28 @@ fn key_for(request: &MetricsRequest) -> PollerKey {
 
 #[tauri::command]
 pub async fn metrics_subscribe(
+    webview: tauri::Webview,
     request: MetricsRequest,
     on_event: Channel<InvokeResponseBody>,
 ) -> Result<u64, String> {
-    subscribe(request, channel_sink(on_event)).await
+    subscribe_for(webview.label(), request, channel_sink(on_event)).await
 }
 
+/// [`subscribe_for`] on behalf of the main window (QA tests).
+#[cfg(all(test, feature = "kwok-qa"))]
 pub(crate) async fn subscribe(request: MetricsRequest, sink: Sink) -> Result<u64, String> {
-    let epoch = EPOCH.load(Ordering::SeqCst);
+    subscribe_for(MAIN, request, sink).await
+}
+
+/// Subscribes `sink`, owned by webview `owner` (see `reset_owner`).
+pub(crate) async fn subscribe_for(owner: &str, request: MetricsRequest, sink: Sink) -> Result<u64, String> {
+    let epoch = lock(&OWNERS).epoch(owner);
     let key = key_for(&request);
     let client = center::with_source(IssueSource::Metrics, client_with_context(&key.context, Some(&key.kube_config)))
         .await
         .map_err(|e| e.message)?;
     let id = next_subscription_id();
-    attach(&key, id, sink, epoch, |poller| Some(spawn_poller(poller, client, key.clone())))?;
+    attach(&key, id, sink, (owner, epoch), |poller| Some(spawn_poller(poller, client, key.clone())))?;
     Ok(id)
 }
 
@@ -441,21 +455,23 @@ fn new_poller() -> Arc<Poller> {
     })
 }
 
-/// Adds subscriber `id` to the poller of `key`, creating it (and starting
-/// its task with `start`) when there is none. Lookup and registration
-/// happen under the `POLLERS` lock, which eviction holds while it checks
-/// idleness: a poller is never attached to just after it was evicted (it
-/// would never deliver).
+/// Adds subscriber `id` of webview `owner` (with the owner's epoch when the
+/// subscribe started) to the poller of `key`, creating it (and starting its
+/// task with `start`) when there is none. Lookup and registration happen
+/// under the `POLLERS` lock, which eviction holds while it checks idleness:
+/// a poller is never attached to just after it was evicted (it would never
+/// deliver).
 fn attach(
     key: &PollerKey,
     id: u64,
     sink: Sink,
-    epoch: u64,
+    (owner, epoch): (&str, u64),
     start: impl FnOnce(Arc<Poller>) -> Option<JoinHandle<()>>,
 ) -> Result<Arc<Poller>, String> {
     let mut pollers = lock(&POLLERS);
-    // The webview was reloaded while this subscribe was resolving.
-    if EPOCH.load(Ordering::SeqCst) != epoch {
+    // The webview was reloaded (or closed) while this subscribe was
+    // resolving.
+    if !lock(&OWNERS).is_current(owner, epoch) {
         return Err("The subscription was reset".to_string());
     }
     let poller = match pollers.get(key) {
@@ -485,12 +501,14 @@ fn attach(
         state.idle = false;
     }
     lock(&SUBSCRIPTIONS).insert(id, key.clone());
+    lock(&OWNERS).insert(id, owner);
     Ok(poller)
 }
 
 /// Removes subscriber `id`. Returns the key and idle generation of its
 /// poller when that has no subscribers left.
 fn detach(id: u64) -> Option<(PollerKey, u64)> {
+    lock(&OWNERS).remove(id);
     let key = lock(&SUBSCRIPTIONS).remove(&id)?;
     let pollers = lock(&POLLERS);
     let poller = pollers.get(&key)?;
@@ -536,21 +554,34 @@ pub fn metrics_unsubscribe(id: u64) {
     });
 }
 
-/// Drops all metrics subscriptions (webview reload). Subscribes still
-/// resolving (started before the reset) are rejected.
+/// Drops the calling webview's metrics subscriptions (page load). Its
+/// subscribes still resolving (started before the reset) are rejected;
+/// other windows are not affected.
 #[tauri::command]
-pub fn metrics_reset() {
-    let ids: Vec<u64> = {
-        let _pollers = lock(&POLLERS);
-        EPOCH.fetch_add(1, Ordering::SeqCst);
-        lock(&SUBSCRIPTIONS).keys().copied().collect()
-    };
-    if !ids.is_empty() {
-        warn!("Dropping {} stale metrics subscriptions", ids.len());
+pub fn metrics_reset(webview: tauri::Webview) {
+    let dropped = reset_owner(webview.label());
+    if dropped > 0 {
+        warn!("Dropped {} stale metrics subscriptions of {}", dropped, webview.label());
     }
+}
+
+/// Releases every subscription of webview `owner` and rejects its
+/// subscribes in flight. Returns how many were released.
+fn reset_owner(owner: &str) -> usize {
+    let ids = {
+        let _pollers = lock(&POLLERS);
+        lock(&OWNERS).reset(owner)
+    };
+    let count = ids.len();
     for id in ids {
         metrics_unsubscribe(id);
     }
+    count
+}
+
+/// The window `label` was closed: releases its subscriptions.
+pub fn release_owner(label: &str) -> usize {
+    reset_owner(label)
 }
 
 #[cfg(test)]
@@ -609,7 +640,7 @@ mod tests {
     #[test]
     fn attaching_and_evicting_are_atomic() {
         let key = test_key("metrics-attach-test");
-        let epoch = EPOCH.load(Ordering::SeqCst);
+        let epoch = (MAIN, lock(&OWNERS).epoch(MAIN));
         let sink: Sink = Arc::new(|_| true);
 
         let first = attach(&key, 9_001, sink.clone(), epoch, |_| None).unwrap();
@@ -634,11 +665,36 @@ mod tests {
     #[test]
     fn subscribes_that_straddle_a_reset_register_nothing() {
         let key = test_key("metrics-epoch-test");
-        // An epoch before the latest reset.
-        let stale_epoch = EPOCH.load(Ordering::SeqCst).wrapping_sub(1);
-        assert!(attach(&key, 9_100, Arc::new(|_| true), stale_epoch, |_| None).is_err());
+        let owner = "pop-metrics-epoch-test";
+        let stale_epoch = lock(&OWNERS).epoch(owner);
+        let main_epoch = lock(&OWNERS).epoch(MAIN);
+        reset_owner(owner);
+        assert!(attach(&key, 9_100, Arc::new(|_| true), (owner, stale_epoch), |_| None).is_err());
         assert!(!lock(&POLLERS).contains_key(&key));
         assert!(!lock(&SUBSCRIPTIONS).contains_key(&9_100));
+        // Another window's reset doesn't reject main's subscribes.
+        assert!(attach(&key, 9_101, Arc::new(|_| true), (MAIN, main_epoch), |_| None).is_ok());
+        let (_, generation) = detach(9_101).unwrap();
+        assert!(evict_if_idle(&key, generation));
+    }
+
+    #[test]
+    fn reset_releases_only_the_owners_subscriptions() {
+        let key = test_key("metrics-owner-test");
+        let attach_as = |id: u64, owner: &str| {
+            let epoch = lock(&OWNERS).epoch(owner);
+            attach(&key, id, Arc::new(|_| true), (owner, epoch), |_| None).unwrap()
+        };
+        let poller = attach_as(9_300, "pop-metrics-a");
+        attach_as(9_301, "pop-metrics-a");
+        attach_as(9_302, "pop-metrics-b");
+
+        assert_eq!(reset_owner("pop-metrics-a"), 2);
+        assert_eq!(lock(&poller.state).sinks.keys().copied().collect::<Vec<_>>(), vec![9_302]);
+        assert!(lock(&SUBSCRIPTIONS).contains_key(&9_302));
+        assert_eq!(release_owner("pop-metrics-b"), 1);
+        assert!(lock(&poller.state).sinks.is_empty());
+        assert!(!lock(&SUBSCRIPTIONS).contains_key(&9_302));
     }
 
     #[tokio::test]
@@ -656,7 +712,7 @@ mod tests {
             context: "metrics-retry".into(),
             namespaces: vec![],
         };
-        let epoch = EPOCH.load(Ordering::SeqCst);
+        let epoch = (MAIN, lock(&OWNERS).epoch(MAIN));
         let poller = attach(&key, 9_200, Arc::new(|_| true), epoch, |_| None).unwrap();
         assert_eq!(retry_contexts(&[(kube_config.clone(), "metrics-retry".into())]).await, 0, "healthy pollers stay");
 

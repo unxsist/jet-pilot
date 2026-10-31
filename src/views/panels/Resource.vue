@@ -59,6 +59,11 @@ const getResourceSpecificComponent = (
   return sectionCache.get(kind) ?? null;
 };
 
+/* What changed (Health › Changes): workloads, their pods, config and nodes. */
+const ChangesSection = defineAsyncComponent(() => import("@/views/health/changes/ChangesSection.vue"));
+const CHANGES_KINDS = new Set(["Deployment", "StatefulSet", "DaemonSet", "Pod", "ConfigMap", "Secret", "Node"]);
+const showChanges = computed(() => CHANGES_KINDS.has(live.value.kind ?? "") && !gone.value);
+
 /* Usage over time (its own chunk; only kinds with pods or a node). */
 const UsageSection = defineAsyncComponent(
   () => import("@/components/metrics/UsageSection.vue")
@@ -114,7 +119,7 @@ watch(
     open.value = [
       ...DEFAULT_OPEN,
       ...(unhealthyConditions.value > 0 ? ["conditions"] : []),
-      ...(problem() ? ["events"] : []),
+      ...(problem() ? ["events", "changes"] : []),
     ];
   },
   { immediate: true }
@@ -161,6 +166,7 @@ const conditionsHint = computed(() =>
         <MetadataSection type="labels" :object="live" :editable="!isEvent" />
         <MetadataSection type="annotations" :object="live" :editable="!isEvent" />
       </template>
+      <ChangesSection v-if="showChanges" :object="live" />
       <PanelSection v-if="!isEvent" value="events" title="Events" :icon="CalendarSearch">
         <Suspense>
           <Events :object="live" />

@@ -27,6 +27,8 @@
  *   ?scenario=rbac-forbidden listing RBAC objects is forbidden (rbac.ts)
  *   ?scenario=gitops-namespaced  GitOps objects readable in argocd / flux-system only (rbac.ts)
  *   ?scenario=no-actions     an empty custom actions folder (actions.ts)
+ *   ?window=pop-demo&popout=view|tabs|shell  a pop-out window (windows.ts)
+ *   ?scenario=problems-cause the Problems panel finds what caused a problem (cause.ts)
  *
  * `large` scales the first context to 5000 pods with a stream of live
  * changes (watch deltas) to exercise the list views; `large-graph` swaps the
@@ -79,11 +81,18 @@ import { createHelmMocks } from "./helm";
 import { installAuthMocks } from "./auth";
 import { handleKubeRequest } from "./kubeApi";
 import { createGitopsMocks } from "./gitops";
+import { installUpkeepMocks } from "./upkeep";
 import { createPortForwardMocks, portForwardSettings } from "./portForwards";
 import { createPanelsMocks } from "./panels";
+import { createChangesMocks } from "./changes";
 import { nodeHistory } from "./metrics";
 import "./rbac";
+import "./problems";
 import { actionHandlers, seedActionFiles, startActionPty } from "./actions";
+import { handleWindowCommand, installEmitToMock, MOVED_SHELL_OUTPUT, windowLabel } from "./windows";
+import { createRolloutMocks, noteRollout, volumeLogLines } from "./polishUi";
+import { createDesktopMocks } from "./desktop";
+import { aiSettings, createAiMocks } from "./ai";
 import {
   createOperatorMocks,
   OPERATOR_API_VERSIONS,
@@ -139,7 +148,8 @@ document.documentElement.classList.toggle("dark", theme === "dark");
   exe_extension: "",
 };
 
-mockWindows("main");
+/* ?window=pop-…: a pop-out window (windows.ts). */
+mockWindows(windowLabel);
 
 const settings = {
   lastKubeConfig: KUBECONFIG,
@@ -174,6 +184,7 @@ const settings = {
   actions: { disabled: ["copy-image"] },
   ...(polling ? { experimental: { useKubectlPolling: true } } : {}),
   ...portForwardSettings(),
+  ...aiSettings(),
   ...(scenario === "hub"
     ? {
         clusters: params.get("readonly") === "1"
@@ -596,6 +607,10 @@ function startLogStream(sessionId: string, spec: any, onEvent: any) {
     const now = Date.now();
     const initial: string[] = [];
     running.forEach((p, k) => {
+      if (scenario === "log-volume") {
+        volumeLogLines(k, now).forEach(({ ms, text }) => initial.push(line(p, source(p)[0], ms, text)));
+        return;
+      }
       for (const container of source(p)) {
         logLines(tail).forEach((text, i) => initial.push(line(p, container, now - (tail - i) * 1700 - k * 410, text)));
       }
@@ -742,6 +757,7 @@ async function shellExecute(program: string, args: string[]) {
   }
 
   if (program === "kubectl") {
+    noteRollout(args, context);
     if (args[0] === "describe") {
       const obj = findObject(context, args[1]);
       return ok(describe(obj?.kind || "Pod", obj));
@@ -1280,6 +1296,8 @@ const installTool = async (id: string, channel: any) => {
 /* ------------------------------------------------------------- dispatch -- */
 
 const ptyChannels = new Map<string, any>();
+/* Rollouts that play out (polishUi.ts); first, so its workload reads win. */
+createRolloutMocks(scenario);
 /* Operator fixtures, CRDs and patch routes (dev/harness/operators.ts). */
 createOperatorMocks(emitWatchChange);
 /* Clusters added in JET Pilot + the vault (dev/harness/managed.ts). */
@@ -1296,6 +1314,8 @@ const helm = createHelmMocks(scenario);
 const portForwards = createPortForwardMocks();
 /* Side panel fixtures, patch and event routes (dev/harness/panels.ts). */
 createPanelsMocks(scenario, emitWatchChange);
+/* Change history and the recorder (dev/harness/changes.ts). */
+const changes = createChangesMocks(scenario);
 let probeBatches = 0;
 
 /* ------------------------------------------------------------------ fs -- */
@@ -1460,15 +1480,24 @@ const openVsxInstall = (namespace: string, name: string) => {
   return { extension, themes: openVsxThemes() };
 };
 
+/* jetpilot:// links and per-cluster connections (desktop.ts). */
+const desktop = createDesktopMocks(params);
+const ai = createAiMocks(sendToChannel);
+
 mockIPC(
   async (cmd: string, payload: any) => {
     const p = payload || {};
+    if (cmd in desktop.handlers) return desktop.handlers[cmd]!(p);
     if (cmd in managed.handlers) return managed.handlers[cmd]!(p);
     if (cmd in cloud.handlers) return cloud.handlers[cmd]!(p);
     if (cmd in gitops.handlers) return gitops.handlers[cmd]!(p);
     if (cmd in helm.handlers) return helm.handlers[cmd]!(p);
     if (cmd in actionHandlers) return actionHandlers[cmd]!(p);
     if (cmd in portForwards.handlers) return portForwards.handlers[cmd]!(p);
+    const windowResult = handleWindowCommand(cmd);
+    if (windowResult) return windowResult;
+    if (cmd in changes.handlers) return changes.handlers[cmd]!(p);
+    if (cmd in ai.handlers) return ai.handlers[cmd]!(p);
     switch (cmd) {
       // fs / path / app / os / updater / window / clipboard
       case "plugin:fs|exists":
@@ -1804,6 +1833,16 @@ mockIPC(
         else startPty(p.onEvent, []);
         return id;
       }
+      case "tty_attach": {
+        // A shell that "moved" from another window: its output replayed.
+        ptyChannels.set(p.sessionId, p.onEvent);
+        execPrompts.set(
+          p.sessionId,
+          "\x1b[38;5;111mpayments-api-7qjjhld4s-974t2\x1b[0m:\x1b[38;5;150m/app\x1b[0m$ "
+        );
+        setTimeout(() => sendToChannel(p.onEvent, encoder.encode(MOVED_SHELL_OUTPUT).buffer), 60);
+        return null;
+      }
       case "write_to_pty": {
         const channel = ptyChannels.get(p.sessionId);
         if (channel) sendToChannel(channel, encoder.encode(ptyInput(p.sessionId, String(p.data))).buffer);
@@ -1832,6 +1871,7 @@ mockIPC(
   },
   { shouldMockEvents: true }
 );
+installEmitToMock();
 
 /*
  * plugin-fs sends the path of writes as a request header, which mockIPC
@@ -1852,5 +1892,7 @@ internals.invoke = async (cmd: string, args: any, options: any) => {
 
 /* Auth center: credential status, sign-ins, auth-expired (auth.ts). */
 installAuthMocks({ scenario, sendToChannel, firstContext: CONTEXTS[0].name, kubeConfig: KUBECONFIG, files: HUB_FILES });
+/* Health Risks / Upgrades: TLS expiry, Helm manifest APIs, a client certificate (upkeep.ts). */
+installUpkeepMocks();
 
 (window as any).__harness = { theme, os, scenario, polling };

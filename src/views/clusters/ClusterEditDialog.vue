@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /**
  * Edit what JET Pilot knows about one cluster, or several at once (bulk:
- * only the fields you touch are applied; mixed values start empty). Three
- * calm groups: how it looks, its guardrails, how it's organised.
+ * only the fields you touch are applied; mixed values start empty). Calm
+ * groups: how it looks, its guardrails, how it's organised, and how JET
+ * Pilot reaches it.
  */
 import { Layers, Lock, ShieldAlert } from "lucide-vue-next";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -29,8 +30,10 @@ import {
   shortName,
   type ClusterColor,
   type ClusterMeta,
+  type ConnectionSetting,
   type Environment,
 } from "@/lib/clusters/meta";
+import { connectionProblem, connectionStatus } from "@/lib/clusters/connection";
 import type { HubCluster } from "@/lib/clusters/hubModel";
 
 const props = defineProps<{ clusters: HubCluster[]; folders: string[] }>();
@@ -57,7 +60,22 @@ interface Form {
   namespaces: string[];
   favorite: boolean;
   hidden: boolean;
+  connection: ConnectionMode;
+  proxyUrl: string;
+  sshHost: string;
+  sshPort: string;
+  sshIdentity: string;
+  sshJump: string;
 }
+
+type ConnectionMode = "direct" | "proxy" | "ssh";
+const CONNECTION_MODES: { value: ConnectionMode; label: string }[] = [
+  { value: "direct", label: "Direct" },
+  { value: "proxy", label: "Proxy" },
+  { value: "ssh", label: "SSH jump host" },
+];
+/* Every connection field changes the one setting. */
+const CONNECTION_FIELDS: (keyof Form)[] = ["proxyUrl", "sshHost", "sshPort", "sshIdentity", "sshJump"];
 
 const form = reactive<Form>({
   alias: "",
@@ -70,13 +88,23 @@ const form = reactive<Form>({
   namespaces: [],
   favorite: false,
   hidden: false,
+  connection: "direct",
+  proxyUrl: "",
+  sshHost: "",
+  sshPort: "",
+  sshIdentity: "",
+  sshJump: "",
 });
 /* Fields changed in this session (bulk edits apply only these). */
 const touched = reactive(new Set<keyof Form>());
 const set = <K extends keyof Form>(key: K, value: Form[K]) => {
   form[key] = value;
-  touched.add(key);
+  touched.add(CONNECTION_FIELDS.includes(key) ? "connection" : key);
 };
+
+/* The kubeconfig's own proxy, shown under Direct (one cluster). */
+const kubeconfigProxy = ref<string | null>(null);
+const connectionError = ref("");
 
 watch(
   () => [open.value, props.clusters] as const,
@@ -95,9 +123,50 @@ watch(
     form.namespaces = [...(shared((c) => record(c).namespaces) ?? [])];
     form.favorite = shared((c) => record(c).favorite) ?? false;
     form.hidden = shared((c) => record(c).hidden) ?? false;
+    const connection = shared((c) => record(c).connection ?? null) ?? undefined;
+    form.connection = connection?.mode ?? "direct";
+    form.proxyUrl = connection?.mode === "proxy" ? connection.url : "";
+    form.sshHost = connection?.mode === "ssh" ? connection.host : "";
+    form.sshPort = connection?.mode === "ssh" && connection.port ? String(connection.port) : "";
+    form.sshIdentity = connection?.mode === "ssh" ? (connection.identityFile ?? "") : "";
+    form.sshJump = connection?.mode === "ssh" ? (connection.jump ?? "") : "";
+    connectionError.value = "";
+    kubeconfigProxy.value = null;
+    const one = single.value;
+    if (one) {
+      connectionStatus(one.entry.context, one.entry.kubeConfig).then(
+        (status) => {
+          if (single.value === one) kubeconfigProxy.value = status.kubeconfigProxy ?? null;
+        },
+        () => undefined
+      );
+    }
   },
   { immediate: true }
 );
+
+const connectionSetting = (): ConnectionSetting | undefined => {
+  if (form.connection === "proxy") return { mode: "proxy", url: form.proxyUrl.trim() };
+  if (form.connection !== "ssh") return undefined;
+  const port = form.sshPort.trim();
+  return {
+    mode: "ssh",
+    host: form.sshHost.trim(),
+    port: port ? Number(port) : undefined,
+    identityFile: form.sshIdentity.trim() || undefined,
+    jump: form.sshJump.trim() || undefined,
+  };
+};
+
+const connectionHint = computed(() => {
+  if (form.connection === "proxy") return "SOCKS5, HTTP or HTTPS. Used instead of a proxy set in the kubeconfig.";
+  if (form.connection === "ssh") {
+    return "JET Pilot keeps an SSH tunnel open while you use the cluster. Keys come from ssh-agent or the identity file; it never asks for a password.";
+  }
+  return kubeconfigProxy.value
+    ? `Through ${kubeconfigProxy.value}, as set in the kubeconfig.`
+    : "Straight to the API server.";
+});
 
 /* Choosing Production turns protection on (unless set by hand). */
 const chooseEnv = (value: string) => {
@@ -109,7 +178,24 @@ const inferred = computed(() =>
   single.value && single.value.meta.envInferred ? envInfo(single.value.meta.env) : undefined
 );
 
+/* A bad connection setting: say so next to it (the section may be scrolled away). */
+const connectionErrorEl = ref<HTMLElement | null>(null);
+const showConnectionError = async (problem: string) => {
+  connectionError.value = problem;
+  await nextTick();
+  document.getElementById(form.connection === "proxy" ? "cluster-proxy" : "cluster-ssh-host")?.focus();
+  connectionErrorEl.value?.scrollIntoView({ block: "center" });
+};
+
 const save = () => {
+  const connection = connectionSetting();
+  if (single.value || touched.has("connection")) {
+    const problem = connectionProblem(connection);
+    if (problem) {
+      void showConnectionError(problem);
+      return;
+    }
+  }
   const patch: Partial<ClusterMeta> = {};
   const apply = (key: keyof Form, value: unknown) => {
     if (single.value || touched.has(key)) (patch as Record<string, unknown>)[key] = value;
@@ -130,6 +216,7 @@ const save = () => {
   apply("namespaces", form.namespaces.length ? [...form.namespaces] : undefined);
   apply("favorite", form.favorite || undefined);
   apply("hidden", form.hidden || undefined);
+  apply("connection", connection);
 
   if (single.value) update(single.value.entry.context, single.value.entry.kubeConfig, patch);
   else updateMany(props.clusters.map((c) => ({ context: c.entry.context, kubeConfig: c.entry.kubeConfig })), patch);
@@ -311,6 +398,85 @@ const SECTION = "space-y-4 border-t pt-5";
                 Hidden from lists
               </label>
             </div>
+          </div>
+        </section>
+
+        <!-- How JET Pilot reaches it -->
+        <section :class="SECTION">
+          <h3 class="text-xs font-medium text-muted-foreground">Connection</h3>
+          <div class="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-x-4 gap-y-4">
+            <span :class="[LABEL, 'self-start pt-1.5']">Connect</span>
+            <div class="space-y-1.5">
+              <Tabs
+                :model-value="form.connection"
+                @update:model-value="(v) => { set('connection', v as ConnectionMode); connectionError = ''; }"
+              >
+                <TabsList aria-label="How to connect">
+                  <TabsTrigger v-for="mode in CONNECTION_MODES" :key="mode.value" :value="mode.value">
+                    {{ mode.label }}
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <p class="text-xs text-muted-foreground">{{ connectionHint }}</p>
+            </div>
+
+            <template v-if="form.connection === 'proxy'">
+              <label for="cluster-proxy" :class="LABEL">Proxy URL</label>
+              <Input
+                id="cluster-proxy"
+                :model-value="form.proxyUrl"
+                placeholder="socks5://proxy.example.com:1080"
+                spellcheck="false"
+                autocomplete="off"
+                @update:model-value="(v: string | number) => set('proxyUrl', String(v))"
+              />
+            </template>
+
+            <template v-if="form.connection === 'ssh'">
+              <label for="cluster-ssh-host" :class="LABEL">Jump host</label>
+              <div class="flex items-center gap-2">
+                <Input
+                  id="cluster-ssh-host"
+                  :model-value="form.sshHost"
+                  placeholder="user@bastion.example.com"
+                  spellcheck="false"
+                  autocomplete="off"
+                  class="min-w-0 flex-1"
+                  @update:model-value="(v: string | number) => set('sshHost', String(v))"
+                />
+                <Input
+                  :model-value="form.sshPort"
+                  placeholder="22"
+                  inputmode="numeric"
+                  aria-label="SSH port"
+                  class="w-20"
+                  @update:model-value="(v: string | number) => set('sshPort', String(v))"
+                />
+              </div>
+              <label for="cluster-ssh-identity" :class="LABEL">Identity file</label>
+              <Input
+                id="cluster-ssh-identity"
+                :model-value="form.sshIdentity"
+                placeholder="Optional, e.g. ~/.ssh/id_ed25519"
+                spellcheck="false"
+                autocomplete="off"
+                @update:model-value="(v: string | number) => set('sshIdentity', String(v))"
+              />
+              <label for="cluster-ssh-jump" :class="LABEL">Via</label>
+              <Input
+                id="cluster-ssh-jump"
+                :model-value="form.sshJump"
+                placeholder="Optional, a host to hop through first"
+                spellcheck="false"
+                autocomplete="off"
+                @update:model-value="(v: string | number) => set('sshJump', String(v))"
+              />
+            </template>
+
+            <template v-if="connectionError">
+              <span />
+              <p ref="connectionErrorEl" class="-mt-2 text-xs text-destructive" role="alert">{{ connectionError }}</p>
+            </template>
           </div>
         </section>
       </div>

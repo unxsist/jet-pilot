@@ -2,6 +2,8 @@ import { Command } from "@tauri-apps/plugin-shell";
 import { toast } from "@/components/ui/toast";
 import { error as logError } from "@/lib/logger";
 import type { GuardedCall } from "@/lib/guardrails/backstop";
+import type { RolloutRef } from "@/lib/rolloutFollow";
+import { notifyMeOptions } from "@/lib/rolloutToast";
 
 export interface CliResult {
   /** Process exit code; null when the process could not be started. */
@@ -25,9 +27,11 @@ export async function runCli(
   const refusal = cliRefusal(program, args, call);
   if (refusal) return { code: null, stdout: "", stderr: refusal };
   try {
+    // Through the cluster's proxy or SSH tunnel, when it has one.
+    const { routedCliArgs } = await import("@/lib/clusters/connection");
     const { code, stdout, stderr } = await Command.create(
       program,
-      args
+      await routedCliArgs(args)
     ).execute();
     return { code, stdout, stderr };
   } catch (e) {
@@ -79,6 +83,8 @@ export async function runCliForEach<T>(
     failureVerb: string;
     /** The caller ran guard() for these items. */
     guarded?: boolean;
+    /** Rollouts an item starts: the success toast offers "Notify me". */
+    rollouts?: (item: T) => RolloutRef[];
   }
 ): Promise<{ succeeded: T[]; failed: T[] }> {
   const results = await Promise.all(
@@ -102,6 +108,7 @@ export async function runCliForEach<T>(
   });
 
   if (succeeded.length > 0) {
+    const rollouts = options.rollouts ? succeeded.flatMap(options.rollouts) : [];
     toast({
       title: `${options.successVerb} ${
         succeeded.length === 1
@@ -113,6 +120,7 @@ export async function runCliForEach<T>(
           ? succeeded.map(options.label).join(", ")
           : undefined,
       autoDismiss: true,
+      ...notifyMeOptions(rollouts),
     });
   }
 

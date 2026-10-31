@@ -10,9 +10,11 @@
  *   state.json     session state and collections the UI manages (`AppState`):
  *                  active contexts, open tabs, workspaces, ...
  */
+import type { Snooze } from "@/lib/health/problems/snooze";
 import type { TabSession } from "@/lib/tabDescriptors";
 import type { PortForwardProfile } from "@/lib/portForwardProfiles";
 import type { Workspace } from "@/lib/workspaces";
+import type { WindowRecord } from "@/lib/windows";
 import type { ThemeSettings } from "@/lib/themes/types";
 import type { ClusterRecord } from "@/lib/clusters/meta";
 
@@ -92,6 +94,14 @@ export interface Preferences {
     /** Ids (file names without extension) of custom actions turned off. */
     disabled: string[];
   };
+  ai: {
+    /** The agent Ask AI starts (src/lib/ai/agents.ts); empty: Ask AI is off. */
+    agent: string;
+    /** "custom": the command line that starts it ({prompt}: the question). */
+    customCommand: string;
+    /** "custom" on read-only clusters; empty: not used there. */
+    customReadOnlyCommand: string;
+  };
 }
 
 /** Per-context namespace lists of releases before 1.41 (now part of `clusters`). */
@@ -109,6 +119,10 @@ export interface AppState {
   PanelProvider: {
     height: number;
   };
+  /** Split view: width of the left pane in percent. */
+  splitView: { size: number };
+  /** Pop-out windows, reopened on start (see @/lib/windows). */
+  windows: WindowRecord[];
   /** What the user told JET Pilot about each cluster (alias, colour, guardrails...). */
   clusters: ClusterRecord[];
   collapsedNavigationGroups: string[];
@@ -132,6 +146,8 @@ export interface AppState {
   recentCommands: string[];
   /** Version in which the setup guide was finished or skipped. */
   welcomeCompleted: string | null;
+  /** Problems on the Health page the user snoozed or acknowledged, by fingerprint. */
+  snoozedProblems: Snooze[];
 }
 
 /** Everything the app reads through `SettingsContextStateKey`. */
@@ -144,6 +160,7 @@ export type SettingCategoryId =
   | "tables"
   | "clusters"
   | "actions"
+  | "ai"
   | "advanced";
 
 export type Platform = "macos" | "linux" | "windows";

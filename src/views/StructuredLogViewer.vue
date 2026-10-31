@@ -31,6 +31,7 @@ import { StatusDot, type StatusTone } from "@/components/ui/status";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
 import LogLines from "@/components/log-viewer/LogLines.vue";
+import LogHistogram from "@/components/log-viewer/LogHistogram.vue";
 import ToolbarButton from "@/components/log-viewer/ToolbarButton.vue";
 import { runCli, cliSucceeded, cliErrorMessage } from "@/actions/command";
 import { formatSnakeCaseToHumanReadable, injectStrict } from "@/lib/utils";
@@ -50,6 +51,7 @@ import {
   shortPodNames,
   stepMatch,
 } from "@/lib/logViewer";
+import { LogTimeline } from "@/lib/logTimeline";
 import {
   clusterArgs,
   isPodRef,
@@ -166,6 +168,30 @@ const activeMatch = ref(-1);
 const searchInput = ref<HTMLInputElement | null>(null);
 const logLines = ref<InstanceType<typeof LogLines> | null>(null);
 
+/*
+ * Volume over time (the histogram) and the time range brushed on it, which
+ * narrows the lines on top of the facets and the search. The timeline
+ * follows `rows` synchronously, so `visibleRows` never reads a stale one.
+ */
+const timeline = new LogTimeline();
+const timelineVersion = ref(0);
+const timeRange = ref<[number, number] | null>(null);
+watch(
+  rows,
+  (value) => {
+    timeline.update(value);
+    timelineVersion.value++;
+  },
+  { flush: "sync" }
+);
+const visibleRows = computed(() => {
+  void timelineVersion.value;
+  const all = rows.value;
+  if (!timeRange.value) return all;
+  const [from, to] = timeline.indexRange(...timeRange.value);
+  return from === 0 && to === all.length ? all : all.slice(from, to);
+});
+
 let streamToken = 0;
 let unmounted = false;
 
@@ -255,6 +281,7 @@ const startStream = async () => {
 
   const token = ++streamToken;
   rows.value = [];
+  timeRange.value = null;
   lastSeq = 0;
   latestSeq.value = 0;
   totalLines.value = 0;
@@ -579,7 +606,7 @@ const hasSidebar = computed(
 
 const matches = computed(() =>
   searchQuery.value && !filterMode.value
-    ? matchingRowIndexes(rows.value, searchQuery.value)
+    ? matchingRowIndexes(visibleRows.value, searchQuery.value)
     : []
 );
 
@@ -674,6 +701,7 @@ const clearLines = async () => {
     sessionId: sessionId.value,
   });
   rows.value = [];
+  timeRange.value = null;
   activeMatch.value = -1;
   totalLines.value = 0;
   await updateFacetValues();
@@ -717,9 +745,14 @@ const download = async () => {
   }
 };
 
-/* Keyboard: ⌘/Ctrl+F search, F3 / ⇧F3 matches, End = latest. */
+/* Keyboard: ⌘/Ctrl+F search, F3 / ⇧F3 matches, End = latest, Esc = all times. */
 const onKeydown = (event: KeyboardEvent) => {
   const mod = event.metaKey || event.ctrlKey;
+  if (event.key === "Escape" && timeRange.value && !event.defaultPrevented) {
+    event.preventDefault();
+    timeRange.value = null;
+    return;
+  }
   if (mod && event.key.toLowerCase() === "f") {
     event.preventDefault();
     searchInput.value?.focus();
@@ -777,6 +810,7 @@ const emptyTitle = computed(() => {
   if (status.value === "resolving" || status.value === "starting") {
     return "Waiting for log lines…";
   }
+  if (timeRange.value && rows.value.length > 0) return "No lines in this time range";
   if (filterMode.value && searchQuery.value) return "No matching lines";
   if (previous.value) return "No previous container logs";
   return follow.value && status.value === "streaming"
@@ -1171,12 +1205,18 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <LogHistogram
+          v-model:range="timeRange"
+          :timeline="timeline"
+          :version="timelineVersion"
+        />
+
         <!-- Lines -->
         <div class="relative min-h-0 w-full flex-1">
           <LogLines
             ref="logLines"
             v-model:stick-to-bottom="stickToBottom"
-            :rows="rows"
+            :rows="visibleRows"
             :show-timestamps="showTimestamps"
             :wrap="wrap"
             :show-source="showSource"
@@ -1237,7 +1277,7 @@ onUnmounted(() => {
           </LogLines>
 
           <button
-            v-if="!stickToBottom && rows.length > 0"
+            v-if="!stickToBottom && visibleRows.length > 0"
             type="button"
             class="absolute bottom-3 left-1/2 inline-flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-full border bg-popover px-3 text-xs font-medium text-foreground shadow-md transition-colors duration-fast hover:bg-accent focus-ring animate-slide-up-fade"
             @click="paused ? togglePause() : jumpToLatest()"
@@ -1261,8 +1301,8 @@ onUnmounted(() => {
             {{ statusText }}
           </span>
           <span class="tabular-nums">
-            {{ rows.length.toLocaleString() }}
-            <template v-if="rows.length !== totalLines">
+            {{ visibleRows.length.toLocaleString() }}
+            <template v-if="visibleRows.length !== totalLines">
               of {{ totalLines.toLocaleString() }}</template
             >
             lines

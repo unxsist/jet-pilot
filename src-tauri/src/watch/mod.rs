@@ -15,8 +15,12 @@
 //! Watchers are ref-counted by subscriptions and kept warm for 60 s after
 //! the last subscriber leaves, so navigating back to a list is instant.
 //! Resolution works for every kind (incl. CRDs) through discovery and
-//! `DynamicObject`s. While the window is hidden, deltas are coalesced and
+//! `DynamicObject`s. While every window is hidden, deltas are coalesced and
 //! not delivered; they are flushed on resume.
+//!
+//! Subscriptions belong to the webview that made them (main window or a
+//! pop-out): a page load (`watch_reset`) or a closed window only releases
+//! its own.
 
 mod batch;
 #[cfg(test)]
@@ -46,6 +50,9 @@ use crate::kubernetes::client::{
     auth_error_message, client_with_context, exec_command_for_context, resolve_kubeconfig_path,
 };
 use crate::util::lock;
+use crate::windows::Ownership;
+#[cfg(test)]
+use crate::windows::MAIN;
 use entry::{Entry, Sink, State, Status};
 use object::Tag;
 
@@ -82,27 +89,31 @@ struct Watcher {
 struct HubInner {
     watchers: HashMap<WatcherKey, Watcher>,
     subscriptions: HashMap<u64, Vec<WatcherKey>>,
+    /// The webview of every subscription. Its epoch is bumped by a reset (a
+    /// reload of that webview, or the window closing), under this lock: a
+    /// subscribe it started in an earlier epoch registers nothing, its
+    /// channel belongs to the page that is gone.
+    owners: Ownership,
 }
 
 struct Hub {
     inner: Mutex<HubInner>,
     paused: tokio::sync::watch::Sender<bool>,
+    /// Whether each window that reported (`watch_set_paused`) is hidden, by
+    /// label.
+    hidden: Mutex<HashMap<String, bool>>,
     next_id: AtomicU64,
-    /// Bumped by `watch_reset` (a webview reload), under the `inner` lock. A
-    /// subscribe that started in an earlier epoch registers nothing: its
-    /// channel belongs to the page that is gone.
-    epoch: AtomicU64,
 }
 
 static HUB: Lazy<Hub> = Lazy::new(|| Hub {
     inner: Mutex::new(HubInner::default()),
     paused: tokio::sync::watch::channel(false).0,
+    hidden: Mutex::new(HashMap::new()),
     next_id: AtomicU64::new(1),
-    epoch: AtomicU64::new(0),
 });
 
-/// Whether delivery to the frontend is paused (window hidden). Shared with
-/// the metrics service.
+/// Whether delivery to the frontend is paused (every window hidden). Shared
+/// with the metrics service.
 pub fn paused_receiver() -> tokio::sync::watch::Receiver<bool> {
     HUB.paused.subscribe()
 }
@@ -410,7 +421,11 @@ impl Hub {
     }
 
     fn release(&self, id: u64) {
-        let keys = lock(&self.inner).subscriptions.remove(&id).unwrap_or_default();
+        let keys = {
+            let mut inner = lock(&self.inner);
+            inner.owners.remove(id);
+            inner.subscriptions.remove(&id).unwrap_or_default()
+        };
         for key in keys {
             let generation = {
                 let inner = lock(&self.inner);
@@ -449,14 +464,23 @@ impl Hub {
 /// docs); the returned id is passed to `watch_unsubscribe`.
 #[tauri::command]
 pub async fn watch_subscribe(
+    webview: tauri::Webview,
     request: WatchRequest,
     on_event: Channel<InvokeResponseBody>,
 ) -> Result<WatchSubscription, String> {
-    center::with_source(IssueSource::Watch, subscribe(request, channel_sink(on_event))).await
+    let owner = webview.label().to_string();
+    center::with_source(IssueSource::Watch, subscribe_for(&owner, request, channel_sink(on_event))).await
 }
 
+/// [`subscribe_for`] on behalf of the main window (QA tests).
+#[cfg(all(test, feature = "kwok-qa"))]
 pub(crate) async fn subscribe(request: WatchRequest, sink: Sink) -> Result<WatchSubscription, String> {
-    let epoch = HUB.epoch.load(Ordering::SeqCst);
+    subscribe_for(MAIN, request, sink).await
+}
+
+/// Subscribes `sink`, owned by webview `owner` (see `reset_owner`).
+pub(crate) async fn subscribe_for(owner: &str, request: WatchRequest, sink: Sink) -> Result<WatchSubscription, String> {
+    let epoch = lock(&HUB.inner).owners.epoch(owner);
     // "" / None = the selected kubeconfig: resolved, so the same cluster
     // never runs two sets of watchers and rows carry the real path.
     let kube_config = resolve_kubeconfig_path(request.kube_config.as_deref());
@@ -494,8 +518,9 @@ pub(crate) async fn subscribe(request: WatchRequest, sink: Sink) -> Result<Watch
 
     {
         let mut inner = lock(&HUB.inner);
-        // The webview was reloaded while this subscribe was resolving.
-        if HUB.epoch.load(Ordering::SeqCst) != epoch {
+        // The webview was reloaded (or closed) while this subscribe was
+        // resolving.
+        if !inner.owners.is_current(owner, epoch) {
             return Err("The subscription was reset".to_string());
         }
         let missing = keys.iter().filter(|k| !inner.watchers.contains_key(*k)).count();
@@ -525,6 +550,7 @@ pub(crate) async fn subscribe(request: WatchRequest, sink: Sink) -> Result<Watch
             watcher.entry.add_sink(id, sink.clone());
         }
         inner.subscriptions.insert(id, keys);
+        inner.owners.insert(id, owner);
     }
 
     debug!(
@@ -616,27 +642,110 @@ async fn restart_unauthorized_in(contexts: &[(String, String)]) -> usize {
     restarted
 }
 
-/// Drops every subscription (e.g. after a webview reload, whose channels
-/// are gone). Watchers stay warm for their usual period.
-/// Subscribes still resolving (started before the reset) are rejected.
+/// Restarts the watchers of the clusters `matches` selects (kubeconfig,
+/// context) with a fresh client: their connection route changed (a proxy or
+/// SSH jump host was set, or its tunnel moved to another port). Returns how
+/// many were restarted.
+pub(crate) async fn restart_matching(matches: impl Fn(&str, &str) -> bool) -> usize {
+    let keys: Vec<WatcherKey> = lock(&HUB.inner)
+        .watchers
+        .keys()
+        .filter(|key| matches(&key.kube_config, &key.context))
+        .cloned()
+        .collect();
+    let mut clients: HashMap<(String, String), Client> = HashMap::new();
+    let mut restarted = 0;
+    for key in keys {
+        let target = (key.kube_config.clone(), key.context.clone());
+        let client = match clients.get(&target) {
+            Some(client) => client.clone(),
+            None => match center::with_source(IssueSource::Watch, client_with_context(&key.context, Some(&key.kube_config))).await {
+                Ok(client) => {
+                    clients.insert(target, client.clone());
+                    client
+                }
+                Err(err) => {
+                    warn!("Not restarting watches of {}: {}", key.context, err.message);
+                    continue;
+                }
+            },
+        };
+        let mut inner = lock(&HUB.inner);
+        if let Some(watcher) = inner.watchers.get_mut(&key) {
+            Hub::start(watcher, &key, client);
+            restarted += 1;
+        }
+    }
+    restarted
+}
+
+/// Drops the calling webview's subscriptions (called once per page load:
+/// the channels of the previous load are gone). Watchers stay warm for their
+/// usual period. Its subscribes still resolving (started before the reset)
+/// are rejected; other windows are not affected.
 #[tauri::command]
-pub fn watch_reset() {
-    let ids: Vec<u64> = {
-        let inner = lock(&HUB.inner);
-        HUB.epoch.fetch_add(1, Ordering::SeqCst);
-        inner.subscriptions.keys().copied().collect()
-    };
+pub fn watch_reset(webview: tauri::Webview) {
+    reset_owner(webview.label());
+}
+
+/// Releases every subscription of webview `owner` and rejects its
+/// subscribes in flight. Returns how many were released.
+fn reset_owner(owner: &str) -> usize {
+    let ids = lock(&HUB.inner).owners.reset(owner);
+    let count = ids.len();
     for id in ids {
         HUB.release(id);
     }
+    count
 }
 
-/// Pauses (window hidden) or resumes delivery of deltas to the frontend.
+/// The window `label` was closed: releases its subscriptions.
+pub fn release_owner(label: &str) -> usize {
+    reset_owner(label)
+}
+
+/// Pauses (window hidden) or resumes delivery of deltas to the frontend,
+/// per window: delivery pauses once every window that reported is hidden.
 /// Watchers keep their stores current while paused; pending changes are
 /// coalesced and flushed on resume.
 #[tauri::command]
-pub fn watch_set_paused(paused: bool) {
-    HUB.paused.send_replace(paused);
+pub fn watch_set_paused(webview: tauri::Webview, paused: bool) {
+    set_window_hidden(webview.label(), Some(paused));
+}
+
+/// A window was opened or brought forward: visible until its page reports
+/// otherwise (a page may only report changes).
+pub fn window_shown(label: &str) {
+    set_window_hidden(label, Some(false));
+}
+
+/// A closed window no longer keeps delivery going (or paused).
+pub fn forget_window(label: &str) {
+    set_window_hidden(label, None);
+}
+
+/// Records whether window `label` is hidden (None: forget it) and updates
+/// the pause state, waking the watchers only when it changes.
+fn set_window_hidden(label: &str, hidden: Option<bool>) {
+    let mut windows = lock(&HUB.hidden);
+    match hidden {
+        Some(hidden) => {
+            windows.insert(label.to_string(), hidden);
+        }
+        None => {
+            windows.remove(label);
+        }
+    }
+    let paused = delivery_paused(&windows);
+    let changed = HUB.paused.send_if_modified(|current| std::mem::replace(current, paused) != paused);
+    if changed {
+        debug!("Watch delivery {}", if paused { "paused" } else { "resumed" });
+    }
+}
+
+/// Delivery pauses only when every window that reported is hidden.
+fn delivery_paused(hidden: &HashMap<String, bool>) -> bool {
+    !hidden.is_empty() && hidden.values().all(|hidden| *hidden)
 }
 
 /// The full cached object (as JSON) for `uid`, from any running watcher.
@@ -760,11 +869,49 @@ mod tests {
     }
 
     #[test]
-    fn reset_invalidates_subscribes_in_flight() {
-        let before = HUB.epoch.load(Ordering::SeqCst);
-        watch_reset();
-        let after = HUB.epoch.load(Ordering::SeqCst);
-        assert!(after > before, "a subscribe that started before the reset must be rejected");
+    fn reset_invalidates_only_the_owners_subscribes_in_flight() {
+        let (main_before, pop_before) = {
+            let inner = lock(&HUB.inner);
+            (inner.owners.epoch(MAIN), inner.owners.epoch("pop-epoch-test"))
+        };
+        reset_owner("pop-epoch-test");
+        let inner = lock(&HUB.inner);
+        assert!(
+            !inner.owners.is_current("pop-epoch-test", pop_before),
+            "a subscribe that started before the reset must be rejected"
+        );
+        assert!(inner.owners.is_current(MAIN, main_before), "other windows are not affected");
+    }
+
+    #[test]
+    fn reset_releases_only_the_owners_subscriptions() {
+        {
+            let mut inner = lock(&HUB.inner);
+            for (id, owner) in [(90_001, "pop-reset-a"), (90_002, "pop-reset-a"), (90_003, "pop-reset-b")] {
+                inner.subscriptions.insert(id, Vec::new());
+                inner.owners.insert(id, owner);
+            }
+        }
+        assert_eq!(reset_owner("pop-reset-a"), 2);
+        {
+            let inner = lock(&HUB.inner);
+            assert!(!inner.subscriptions.contains_key(&90_001) && !inner.subscriptions.contains_key(&90_002));
+            assert!(inner.subscriptions.contains_key(&90_003));
+        }
+        assert_eq!(release_owner("pop-reset-b"), 1);
+        assert!(!lock(&HUB.inner).subscriptions.contains_key(&90_003));
+    }
+
+    #[test]
+    fn delivery_pauses_only_when_every_window_is_hidden() {
+        let windows = |states: &[(&str, bool)]| -> HashMap<String, bool> {
+            states.iter().map(|(label, hidden)| (label.to_string(), *hidden)).collect()
+        };
+        assert!(!delivery_paused(&windows(&[])), "nobody reported yet");
+        assert!(delivery_paused(&windows(&[("main", true)])));
+        assert!(!delivery_paused(&windows(&[("main", false)])));
+        assert!(!delivery_paused(&windows(&[("main", true), ("pop-a", false)])));
+        assert!(delivery_paused(&windows(&[("main", true), ("pop-a", true)])));
     }
 
     #[test]

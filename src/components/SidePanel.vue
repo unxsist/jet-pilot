@@ -17,6 +17,7 @@ import {
   FileCode,
   FileText,
   FolderTree,
+  Link,
   ScrollText,
   X,
 } from "lucide-vue-next";
@@ -24,6 +25,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useRoute } from "vue-router";
 import type { KubernetesObject } from "@kubernetes/client-node";
 import { error } from "@/lib/logger";
+import { useAskAi } from "@/lib/ai/askAi";
 
 const route = useRoute();
 
@@ -48,6 +50,10 @@ watch(route, () => {
 
 /* Back to where a link in the panel came from (its own chunk). */
 const PanelBack = defineAsyncComponent(() => import("@/components/PanelBack.vue"));
+
+/* Ask AI (Settings › AI): only loaded while an agent is set up. */
+const askAi = useAskAi();
+const AskAiButton = defineAsyncComponent(() => import("@/components/ai/AskAiButton.vue"));
 
 /* Kinds whose logs `kubectl logs <kind>/<name>` can show. */
 const LOGGABLE_KINDS = [
@@ -113,6 +119,35 @@ const copyName = async () => {
 };
 
 onUnmounted(() => clearTimeout(copiedTimer));
+
+/* A Helm release panel: linked to the release instead of an object. */
+const release = computed(() => {
+  const candidate = sidePanel.value?.props?.release;
+  return candidate?.metadata?.context && candidate?.name ? candidate : null;
+});
+
+const copyLink = async () => {
+  const { copyLink, copyObjectLink } = await import("@/lib/deepLinkCopy");
+  if (resource.value && target.value) {
+    const object = resource.value;
+    await copyObjectLink({
+      ...object,
+      metadata: { ...object.metadata, context: target.value.context, kubeConfig: target.value.kubeConfig },
+    });
+  } else if (release.value) {
+    const r = release.value;
+    await copyLink(
+      {
+        type: "helm",
+        context: r.metadata.context,
+        kubeConfig: r.metadata.kubeConfig || undefined,
+        namespace: r.namespace,
+        name: r.name,
+      },
+      `Helm release ${r.name}`
+    );
+  }
+};
 
 const tabId = (action: string) => {
   const t = target.value!;
@@ -223,6 +258,16 @@ const showLogs = () => {
               <Check v-if="copied" class="h-3.5 w-3.5 text-success" />
               <Copy v-else class="h-3.5 w-3.5" />
             </button>
+            <button
+              v-if="target || release"
+              type="button"
+              class="shrink-0 rounded p-1 text-muted-foreground transition-colors duration-fast hover:bg-accent hover:text-foreground focus-ring focus-visible:ring-offset-card"
+              aria-label="Copy a jetpilot:// link"
+              title="Copy link"
+              @click="copyLink"
+            >
+              <Link class="h-3.5 w-3.5" />
+            </button>
             <span class="sr-only" aria-live="polite">{{
               copied ? "Name copied to the clipboard" : ""
             }}</span>
@@ -287,6 +332,12 @@ const showLogs = () => {
           >
             <ScrollText class="h-3 w-3" /> Logs
           </Button>
+          <AskAiButton
+            v-if="resource && askAi.available.value"
+            :resource="resource"
+            :context="target.context"
+            :kube-config="target.kubeConfig"
+          />
           <PanelActions
             v-if="resource"
             :resource="resource"

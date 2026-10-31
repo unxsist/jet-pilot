@@ -37,6 +37,8 @@ export type ActionKind =
   | "helm-rollback"
   | "helm-uninstall"
   | "cronjob-trigger"
+  | "retry-job"
+  | "set-resources"
   | "reconcile"
   | "suspend"
   | "sync"
@@ -89,6 +91,9 @@ const EFFECTS: Record<ActionKind, ActionEffect> = {
   "helm-upgrade": "mutate",
   "helm-rollback": "mutate",
   "cronjob-trigger": "mutate",
+  // Health: run a failed Job again, raise a workload's memory limit.
+  "retry-job": "mutate",
+  "set-resources": "mutate",
   // GitOps: Flux / Argo CD apply what is in Git.
   reconcile: "mutate",
   suspend: "mutate",
@@ -119,7 +124,7 @@ export const changesCluster = (kind: ActionKind): boolean =>
   EFFECTS[kind] === "mutate" || EFFECTS[kind] === "destructive";
 
 /* Applying YAML: always a server-side dry run first on protected clusters. */
-const APPLIES = new Set<ActionKind>(["apply", "create", "replace", "edit-secret"]);
+const APPLIES = new Set<ActionKind>(["apply", "create", "replace", "edit-secret", "set-resources"]);
 
 /* Typed confirmation on protected clusters. */
 const TYPED = new Set<ActionKind>([
@@ -151,6 +156,7 @@ const CONFIRMED = new Set<ActionKind>([
   "helm-rollback",
   "helm-uninstall",
   "cronjob-trigger",
+  "retry-job",
   "debug",
   "node-shell",
   "copy-to-pod",
@@ -276,6 +282,8 @@ const VERBS: Partial<Record<ActionKind, string>> = {
   "helm-uninstall": "Uninstall",
   rollback: "Roll back",
   "cronjob-trigger": "Trigger",
+  "retry-job": "Retry",
+  "set-resources": "Apply",
   "sync-prune": "Sync and prune",
   "copy-to-pod": "Upload",
   "node-shell": "Open node shell",

@@ -13,6 +13,9 @@ import CommandPaletteProvider from "./providers/CommandPaletteProvider";
 import PanelProvider from "./providers/PanelProvider";
 import DialogProvider from "./providers/DialogProvider";
 import WorkspaceProvider from "./providers/WorkspaceProvider";
+import SplitViewProvider from "./providers/SplitViewProvider";
+import WindowsProvider from "./providers/WindowsProvider";
+import { isMainWindow } from "./lib/windows";
 import AppSkeleton from "./components/skeletons/AppSkeleton.vue";
 import TerminalLauncher from "./components/TerminalLauncher.vue";
 import ClusterTint from "./components/clusters/ClusterTint.vue";
@@ -29,6 +32,8 @@ const GuardrailsHost = defineAsyncComponent(() => import("./components/guardrail
 const AuthHost = defineAsyncComponent(() => import("./components/auth/AuthHost.vue"));
 /* Add-cluster dialog and vault passphrase prompts. */
 const ClustersHost = defineAsyncComponent(() => import("./components/clusters/ClustersHost.vue"));
+/* jetpilot:// links (the one the app was started with, and later ones). */
+const DeepLinkHost = defineAsyncComponent(() => import("./components/deeplink/DeepLinkHost.vue"));
 import {
   ResizableHandle,
   ResizablePanel,
@@ -36,8 +41,14 @@ import {
 } from "@/components/ui/resizable";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { whenIdle } from "@/lib/perf";
+import { AskAiKey } from "@/lib/ai/askAi";
+import { appAskAi } from "@/lib/ai/provider";
 
 const osType = ref(getOsType());
+
+/* Pop-out windows (@/lib/windows) render their own, smaller app. */
+const popOut = !isMainWindow();
+const PopOutApp = defineAsyncComponent(() => import("./components/popout/PopOutApp.vue"));
 
 /*
  * Not needed for the first frame: the update check (marked + DOMPurify for
@@ -65,12 +76,23 @@ const SettingsCommands = defineAsyncComponent(
 const ActionCommands = defineAsyncComponent(
   () => import("./components/customActions/ActionCommands.vue")
 );
+/* Records changes on the active clusters while the app is open (Health › Changes). */
+const ChangeRecorder = defineAsyncComponent(
+  () => import("@/views/health/changes/ChangeRecorder.vue")
+);
+/* Ask AI (Settings › AI): unavailable until its host connects the agent. */
+provide(AskAiKey, appAskAi);
+const AskAiHost = defineAsyncComponent(
+  () => import("./components/ai/AskAiHost.vue")
+);
 const idle = ref(false);
 onMounted(() => whenIdle(() => (idle.value = true), 2000));
 </script>
 
 <template>
+  <PopOutApp v-if="popOut" />
   <AppLayout
+    v-else
     class="bg-sidebar text-sm text-foreground rounded-lg border border-border overflow-hidden"
     :class="`os:${osType}`"
   >
@@ -85,45 +107,52 @@ onMounted(() => whenIdle(() => (idle.value = true), 2000));
               <PortForwardingProvider>
                 <PanelProvider>
                   <CommandPaletteProvider>
-                    <WorkspaceProvider>
-                      <Navigation />
-                      <!--
-                        Content sits on an inset canvas: the app chrome
-                        (sidebar colour) frames it on the right, top and
-                        bottom. The gutter is a window drag region.
-                      -->
-                      <div
-                        class="flex min-w-0 flex-1 py-1.5 pr-1.5"
-                        data-tauri-drag-region
-                      >
-                        <div
-                          class="relative flex min-w-0 flex-1 overflow-hidden rounded-lg border bg-background shadow-xs"
-                        >
-                          <ClusterTint />
-                          <WelcomeHost />
-                          <ResizablePanelGroup direction="horizontal">
-                            <ResizablePanel><RouterViewport /></ResizablePanel>
-                            <ResizableHandle />
-                            <SidePanel />
-                          </ResizablePanelGroup>
-                        </div>
-                      </div>
-                      <Toaster />
-                      <CommandPalette />
-                      <DialogHandler />
-                      <GuardrailsHost />
-                      <ClustersHost />
-                      <AuthHost />
-                      <template v-if="idle">
-                        <UpdateHandler />
-                        <AnnouncementHandler />
-                        <WhatsNew />
-                        <ThemeCommands />
-                        <SettingsCommands />
-                        <ActionCommands />
-                      </template>
-                      <TerminalLauncher />
-                    </WorkspaceProvider>
+                    <SplitViewProvider>
+                      <WindowsProvider>
+                        <WorkspaceProvider>
+                          <Navigation />
+                          <!--
+                            Content sits on an inset canvas: the app chrome
+                            (sidebar colour) frames it on the right, top and
+                            bottom. The gutter is a window drag region.
+                          -->
+                          <div
+                            class="flex min-w-0 flex-1 py-1.5 pr-1.5"
+                            data-tauri-drag-region
+                          >
+                            <div
+                              class="relative flex min-w-0 flex-1 overflow-hidden rounded-lg border bg-background shadow-xs"
+                            >
+                              <ClusterTint />
+                              <WelcomeHost />
+                              <ResizablePanelGroup direction="horizontal">
+                                <ResizablePanel><RouterViewport /></ResizablePanel>
+                                <ResizableHandle />
+                                <SidePanel />
+                              </ResizablePanelGroup>
+                            </div>
+                          </div>
+                          <Toaster />
+                          <CommandPalette />
+                          <DialogHandler />
+                          <GuardrailsHost />
+                          <ClustersHost />
+                          <AuthHost />
+                          <DeepLinkHost />
+                          <template v-if="idle">
+                            <UpdateHandler />
+                            <AnnouncementHandler />
+                            <WhatsNew />
+                            <ThemeCommands />
+                            <SettingsCommands />
+                            <ActionCommands />
+                            <ChangeRecorder />
+                            <AskAiHost />
+                          </template>
+                          <TerminalLauncher />
+                        </WorkspaceProvider>
+                      </WindowsProvider>
+                    </SplitViewProvider>
                   </CommandPaletteProvider>
                 </PanelProvider>
               </PortForwardingProvider>

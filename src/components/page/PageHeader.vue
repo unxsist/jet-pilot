@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import PaneControls from "@/components/PaneControls.vue";
+
 /**
  * The header of a page view (Clusters hub, Cloud accounts…): a title, one
  * quiet line under it, actions on the right and, optionally, tabs. Pages
@@ -16,8 +18,9 @@ defineProps<{ title: string; description?: string }>();
           <slot name="description">{{ description }}</slot>
         </p>
       </div>
-      <div v-if="$slots.actions" class="flex shrink-0 items-center gap-2">
+      <div class="flex shrink-0 items-center gap-2">
         <slot name="actions" />
+        <PaneControls />
       </div>
     </div>
     <slot name="tabs" />

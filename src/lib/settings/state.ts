@@ -13,6 +13,8 @@ export const STATE_KEYS = [
   "lastNamespace",
   "activeContexts",
   "PanelProvider",
+  "splitView",
+  "windows",
   "clusters",
   "collapsedNavigationGroups",
   "pinnedResources",
@@ -25,6 +27,7 @@ export const STATE_KEYS = [
   "activeWorkspaceId",
   "recentCommands",
   "welcomeCompleted",
+  "snoozedProblems",
 ] as const;
 
 export function stateDefaults(): AppState {
@@ -34,6 +37,8 @@ export function stateDefaults(): AppState {
     lastNamespace: null,
     activeContexts: [],
     PanelProvider: { height: 50 },
+    splitView: { size: 50 },
+    windows: [],
     clusters: [],
     collapsedNavigationGroups: [],
     pinnedResources: [],
@@ -45,5 +50,6 @@ export function stateDefaults(): AppState {
     activeWorkspaceId: null,
     recentCommands: [],
     welcomeCompleted: null,
+    snoozedProblems: [],
   };
 }

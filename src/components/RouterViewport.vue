@@ -7,15 +7,16 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import TabOrchestrator from "@/components/TabOrchestrator.vue";
-import KeptAliveView from "@/components/KeptAliveView.vue";
-import { useRoute, type RouteLocationNormalizedLoaded } from "vue-router";
+import SplitPanes from "@/components/SplitPanes.vue";
+import { useRoute } from "vue-router";
+import { SplitViewKey } from "@/providers/SplitViewProvider";
 /* Every cluster, to pick one, when a view needs a context and none is active. */
 const ClustersHub = defineAsyncComponent(() => import("@/views/clusters/ClustersHub.vue"));
-import { KEEP_ALIVE_MAX, KEEP_ALIVE_ROUTES } from "@/lib/activeView";
 import { credentialView } from "@/lib/auth/center";
 
 const { context, contexts, contextKubeConfigMapping } = injectStrict(KubeContextStateKey);
 const route = useRoute();
+const split = injectStrict(SplitViewKey);
 
 /* Active clusters that need a sign-in: a notice above every view (lazy). */
 const ActiveClustersAuthNotice = defineAsyncComponent(
@@ -34,13 +35,13 @@ const authNotice = computed(
 );
 
 /*
- * Resource lists are kept alive (bounded, keyed by path + query) so going
+ * Views are shown by SplitPanes (one pane, or two side by side). Resource
+ * lists are kept alive per pane (bounded, keyed by path + query) so going
  * back to one is instant: rows, scroll position, filters and column state
  * are still there. See @/lib/activeView for how hidden views pause.
+ * Full-width pages (Settings) are rendered by <router-view> instead, which
+ * also runs their route guards (unsaved changes).
  */
-const isCached = (r: RouteLocationNormalizedLoaded) =>
-  KEEP_ALIVE_ROUTES.includes(String(r.name ?? ""));
-
 // The startup mark jet:data:first is recorded by the data composables
 // (useWatchedList / useResourceList) once their first rows are rendered.
 </script>
@@ -57,20 +58,10 @@ const isCached = (r: RouteLocationNormalizedLoaded) =>
         <div v-else class="flex h-full flex-col">
           <ActiveClustersAuthNotice v-if="authNotice" />
           <div class="min-h-0 flex-1">
-            <router-view v-slot="{ Component, route: viewRoute }">
-              <keep-alive :max="KEEP_ALIVE_MAX">
-                <KeptAliveView
-                  v-if="Component && isCached(viewRoute)"
-                  :key="viewRoute.fullPath"
-                  :view="Component"
-                  :route="viewRoute"
-                />
-              </keep-alive>
-              <component
-                :is="Component"
-                v-if="Component && !isCached(viewRoute)"
-              />
+            <router-view v-if="split.suspended.value" v-slot="{ Component }">
+              <component :is="Component" v-if="Component" />
             </router-view>
+            <SplitPanes v-show="!split.suspended.value" />
           </div>
         </div>
       </ResizablePanel>

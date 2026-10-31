@@ -8,10 +8,15 @@ use tracing_subscriber::{fmt, prelude::*, reload, Registry};
 use once_cell::sync::Lazy;
 use std::sync::{Arc, RwLock};
 
+mod ai;
 mod announcements;
 mod app_log;
 mod auth;
+mod certificates;
+mod changes;
 mod clusters;
+mod connection;
+mod deep_link;
 mod env_import;
 mod helm;
 mod kube_api;
@@ -34,6 +39,7 @@ mod themes;
 mod tools;
 mod util;
 mod watch;
+mod windows;
 mod workloads;
 
 static RELOAD_HANDLE: Lazy<Arc<RwLock<reload::Handle<LevelFilter, Registry>>>> = Lazy::new(|| {
@@ -110,7 +116,17 @@ fn main() {
 
     let ctx = tauri::generate_context!();
 
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // One app: a second launch (or a jetpilot:// link on Windows / Linux)
+    // focuses the running one, which gets the link. Must be the first
+    // plugin. Not in debug builds, which would hand over to an installed
+    // JET Pilot (same identifier) and quit.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        deep_link::focus_main(app);
+    }));
+    let builder = builder
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -162,6 +178,12 @@ fn main() {
             shell::tty::write_to_pty,
             shell::tty::resize_pty,
             shell::tty::create_local_terminal_session,
+            shell::tty::tty_release,
+            shell::tty::tty_attach,
+            windows::window_open,
+            windows::window_focus,
+            shell::tty::create_agent_terminal_session,
+            ai::ai_find_agents,
             logs::structured_logging::start_structured_logging_session,
             logs::structured_logging::repurpose_structured_logging_session,
             logs::structured_logging::end_structured_logging_session,
@@ -196,6 +218,8 @@ fn main() {
             helm::helm_releases,
             helm::helm_history,
             helm::helm_release_detail,
+            helm::apis::helm_manifest_apis,
+            certificates::tls_certificates,
             helm::chart::helm_chart_inspect,
             helm::artifacthub::artifacthub_search,
             helm::artifacthub::artifacthub_package,
@@ -252,13 +276,27 @@ fn main() {
             auth::login::auth_login_start,
             auth::login::auth_login_open_url,
             auth::login::auth_login_cancel,
+            deep_link::deep_link_ready,
+            connection::cluster_connections_set,
+            connection::cluster_connections_active,
+            connection::cluster_connection_status,
+            connection::cluster_connection_connect,
+            connection::cluster_cli_args,
+            changes::changes_track,
+            changes::changes_list,
         ])
+        // Pop-out windows: cleanup when one closes, quit when main closes.
+        .on_window_event(windows::on_window_event)
         .setup(|_app| {
             // auth://issue and auth://resolved need the app handle.
             auth::center::init(_app.handle().clone());
             // Managed-kubeconfig/vault events, and installing the
             // jetpilot-auth helper in the background.
             clusters::init(_app.handle());
+            // Per-cluster proxies and SSH tunnels (status events, reaping).
+            connection::init(_app.handle());
+            // jetpilot:// links the app was started with, and later ones.
+            deep_link::init(_app.handle());
 
             #[cfg(target_os = "macos")]
             {
@@ -300,21 +338,10 @@ fn main() {
                 });
             }
 
-            let _window = _app.get_webview_window("main").unwrap();
+            let _window = _app.get_webview_window(windows::MAIN).unwrap();
 
-            #[cfg(target_os = "macos")]
-            {
-                use tauri_nspanel::cocoa;
-                use tauri_nspanel::cocoa::appkit::NSWindow;
-                use tauri_nspanel::cocoa::appkit::NSWindowTitleVisibility;
-                use tauri_nspanel::cocoa::base::BOOL;
-
-                unsafe {
-                    let id = _window.ns_window().unwrap() as cocoa::base::id;
-                    id.setHasShadow_(BOOL::from(false));
-                    id.setTitleVisibility_(NSWindowTitleVisibility::NSWindowTitleHidden);
-                }
-            }
+            // Shared with the pop-out windows.
+            windows::apply_chrome(&_window);
 
             #[cfg(debug_assertions)]
             {
@@ -327,7 +354,12 @@ fn main() {
         .expect("Error while building JET Pilot");
 
     app.run(|_app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = event {
+            // The window close fallbacks must not race the exit below.
+            windows::note_exit();
+        }
         if let tauri::RunEvent::Exit = event {
+            windows::note_exit();
             // Don't orphan kubectl port-forward processes when the app closes.
             port_forward::kill_all_port_forwards();
             // Same for kubectl exec / local shell sessions (and their
@@ -339,6 +371,10 @@ fn main() {
             probe::flush_status_cache();
             // Sign-ins still running (aws sso login, kubelogin, ...).
             auth::login::cancel_all();
+            // SSH tunnels, and kubeconfigs written for proxied clusters.
+            connection::shutdown();
+            // Recorded changes still waiting for their debounced write.
+            changes::flush_all();
         }
     });
 }

@@ -7,6 +7,8 @@ import {
 import { RowAction } from "@/components/tables/types";
 import { Router } from "vue-router";
 import { allowed, rowTargets } from "@/lib/guardrails/guard";
+import { kubectlFor, scaleArgs } from "@/lib/kubectl/command";
+import { objectRef } from "@/lib/workloads";
 
 export function actions<
   T extends
@@ -33,6 +35,8 @@ export function actions<
       label: "Scale",
       kind: "scale",
       massAction: true,
+      command: (row: T) =>
+        kubectlFor(row, scaleArgs(objectRef(row.kind ?? "", row.metadata?.name ?? ""), row.spec?.replicas ?? 1)),
       handler: (rows: T[]) => {
         // The dialog asks for the typed confirmation when scaling to 0.
         if (!allowed("scale", rowTargets(rows))) return;

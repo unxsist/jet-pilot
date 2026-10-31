@@ -6,6 +6,7 @@
  * guardrails, with the actions.
  */
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { useRouter } from "vue-router";
 import { Copy, Lock, MoreHorizontal, ShieldAlert, Sparkles, X } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +29,17 @@ import type { CatalogCluster } from "@/lib/clusters/cloud";
 import { providerInfo } from "@/lib/clusters/providers";
 import { discoverCached, type Discovery } from "@/lib/metrics/discovery";
 import { KIND_LABELS, describeSource } from "@/lib/metrics/prometheus";
+import {
+  connectNow,
+  connectionLine,
+  connectionStatus,
+  onConnectionChange,
+  type ConnectionStatus,
+} from "@/lib/clusters/connection";
+import { platformOf, supportOf } from "@/lib/upgrades/support";
+import { addonsSummary, apisSummary } from "@/lib/upgrades/words";
+import { upgradeChecks } from "@/lib/health/checks/session";
+import { contextKey } from "@/lib/contextKey";
 
 const SCOPE_LABELS: Partial<Record<CatalogCluster["provider"], string>> = { aws: "Account", gcp: "Project", azure: "Subscription" };
 
@@ -91,6 +103,25 @@ const file = computed(() =>
 );
 const inferred = computed(() => (meta.value.envInferred ? envInfo(meta.value.env) : undefined));
 
+/*
+ * Upgrades: support from the bundled dates (not for local clusters, which
+ * come and go); APIs and add-ons once the Health page checked them.
+ */
+const support = computed(() => {
+  const version = status.value?.serverVersion;
+  const provider = entry.value.provider.id;
+  return version && provider !== "local" ? supportOf(platformOf({ version, provider }), version) : null;
+});
+const upgrade = computed(() => {
+  const report = upgradeChecks.get(contextKey(entry.value.context, entry.value.kubeConfig))?.result;
+  if (!report) return null;
+  const apis = report.apis.length ? apisSummary(report.apis).text : null;
+  const addons = addonsSummary(report.addons);
+  return [apis, addons.tone === "warning" ? addons.text : null].filter(Boolean).join(" · ") || "Nothing stands in the way";
+});
+const router = useRouter();
+const openUpgrades = () => router.push({ name: "Health", query: { tab: "upgrades" } });
+
 const copy = (text: string, what: string) =>
   writeText(text).then(() => toast({ title: `${what} copied` }), () => undefined);
 
@@ -122,6 +153,35 @@ const metricsOpen = ref(false);
 const metricsUsed = ref(false);
 watch(metricsOpen, (isOpen) => isOpen && (metricsUsed.value = true));
 const MetricsSourceDialog = defineAsyncComponent(() => import("@/components/metrics/MetricsSourceDialog.vue"));
+
+/* A proxy or SSH jump host (or the kubeconfig's proxy-url), live. */
+const connection = shallowRef<ConnectionStatus | null>(null);
+const refreshConnection = () => {
+  const { context, kubeConfig } = entry.value;
+  connectionStatus(context, kubeConfig).then(
+    (result) => {
+      if (entry.value.context === context && entry.value.kubeConfig === kubeConfig) connection.value = result;
+    },
+    () => undefined
+  );
+};
+watch(() => [entry.value.context, entry.value.kubeConfig, meta.value.connection] as const, refreshConnection, {
+  immediate: true,
+});
+let stopListening: (() => void) | undefined;
+onMounted(() => onConnectionChange(refreshConnection).then((stop) => (stopListening = stop), () => undefined));
+onBeforeUnmount(() => stopListening?.());
+const connectionInfo = computed(() => connectionLine(connection.value, meta.value.connection));
+const retrying = ref(false);
+const retryConnection = () => {
+  retrying.value = true;
+  connectNow(entry.value.context, entry.value.kubeConfig)
+    .catch(() => undefined)
+    .finally(() => {
+      retrying.value = false;
+      refreshConnection();
+    });
+};
 </script>
 
 <template>
@@ -188,9 +248,54 @@ const MetricsSourceDialog = defineAsyncComponent(() => import("@/components/metr
           <span v-if="statusDetail" class="block text-xs text-muted-foreground">{{ statusDetail }}</span>
         </dd>
 
+        <template v-if="connectionInfo">
+          <dt class="text-muted-foreground">Connects via</dt>
+          <dd class="min-w-0">
+            <span class="flex min-w-0 items-center gap-2">
+              <StatusDot :tone="connectionInfo.tone" />
+              <span class="truncate" :title="connectionInfo.title">{{ connectionInfo.title }}</span>
+            </span>
+            <span
+              v-if="connectionInfo.detail || connectionInfo.retry"
+              class="block text-xs"
+              :class="connectionInfo.tone === 'destructive' ? 'text-destructive' : 'text-muted-foreground'"
+            >
+              {{ connectionInfo.detail }}
+              <button
+                v-if="connectionInfo.retry"
+                type="button"
+                class="ml-1 rounded text-link hover:underline focus-ring disabled:opacity-60"
+                :disabled="retrying"
+                @click="retryConnection"
+              >
+                Try again
+              </button>
+            </span>
+          </dd>
+        </template>
+
         <template v-if="status?.serverVersion">
           <dt class="text-muted-foreground">Kubernetes</dt>
           <dd class="font-mono text-xs leading-5">{{ status.serverVersion }}</dd>
+        </template>
+        <template v-if="support">
+          <dt class="text-muted-foreground">Support</dt>
+          <dd class="min-w-0">
+            <span class="flex items-start gap-2">
+              <span class="flex h-5 shrink-0 items-center"><StatusDot :tone="support.tone" /></span>
+              {{ support.headline }}
+            </span>
+            <span v-if="support.detail" class="block text-xs text-muted-foreground">{{ support.detail }}</span>
+            <span v-if="upgrade" class="block text-xs text-muted-foreground">{{ upgrade }}</span>
+            <button
+              v-if="cluster.active"
+              type="button"
+              class="rounded text-xs text-link hover:underline focus-ring"
+              @click="openUpgrades"
+            >
+              {{ upgrade ? "Upgrade details" : "Check upgrade readiness" }}
+            </button>
+          </dd>
         </template>
         <template v-if="status?.nodeCount != null">
           <dt class="text-muted-foreground">Nodes</dt>

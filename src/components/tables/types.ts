@@ -6,6 +6,7 @@ import { formatResourceKind } from "@/lib/utils";
 import { runCliForEach } from "@/actions/command";
 import { confirmDialog, guard, rowTargets } from "@/lib/guardrails/guard";
 import type { ActionKind } from "@/lib/guardrails/policy";
+import { kubectlFor, kindRef, type CommandSpec } from "@/lib/kubectl/command";
 import {
   describeRows,
   getResourceTabId,
@@ -43,6 +44,8 @@ export interface BaseRowAction<T> {
   group?: string;
   /** Shortcut hint shown next to the action, e.g. ["Ctrl", "Shift", "G"]. */
   shortcut?: string[];
+  /** The kubectl command that does the same ("Copy kubectl command"). */
+  command?: (row: T) => CommandSpec | null;
 }
 
 export interface WithOptions<T> extends BaseRowAction<T> {
@@ -93,6 +96,7 @@ export function getDefaultActions<
     },
     {
       label: "Edit YAML",
+      command: (row: T) => kubectlFor(row, ["edit", kindRef(row)]),
       handler: (row: T) => {
         addTab(
           getResourceTabId("edit", row),
@@ -112,6 +116,7 @@ export function getDefaultActions<
     },
     {
       label: "Describe",
+      command: (row: T) => kubectlFor(row, ["describe", kindRef(row)]),
       handler: (row: T) => {
         addTab(
           getResourceTabId("describe", row),
@@ -132,7 +137,9 @@ export function getDefaultActions<
       label: "Delete",
       kind: "delete",
       massAction: true,
+      command: (row: T) => kubectlFor(row, ["delete", kindRef(row)]),
       handler: async (rows: T[]) => {
+        const commands = rows.map((row) => kubectlFor(row, ["delete", kindRef(row)]));
         const dialog: Omit<BaseDialogInterface, "buttons"> = {
           title:
             rows.length === 1
@@ -145,8 +152,10 @@ export function getDefaultActions<
           props: {
             lines: describeRows(rows),
           },
+          commands,
         };
         const confirmed = await guard("delete", rowTargets(rows), {
+          commands,
           confirm: () =>
             confirmDialog(spawnDialog, {
               ...dialog,

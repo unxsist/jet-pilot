@@ -152,6 +152,8 @@ function buildRbac(full: boolean): RbacSnapshot {
       age: 88,
     }),
     clusterRole("acme:rbac-reader", [rule(READ, ["rbac.authorization.k8s.io"], ["clusterroles", "clusterrolebindings", "roles", "rolebindings"])], { age: 60 }),
+    // Developers see the nodes their pods run on (Health › Problems lists nodes in trouble).
+    clusterRole("acme:node-reader", [rule(READ, [""], ["nodes"])], { age: 45 }),
     clusterRole("ci-deployer", [
       rule([...READ, "update", "patch"], ["apps"], ["deployments", "statefulsets", "daemonsets"]),
       rule(["update", "patch"], ["apps"], ["deployments/scale", "statefulsets/scale"]),
@@ -186,6 +188,7 @@ function buildRbac(full: boolean): RbacSnapshot {
     crb("platform-admins", "cluster-admin", [group("acme:platform"), user("jeroen@acme.dev")], 180),
     crb("developers-read-only", "view", [group("acme:developers")], 160),
     crb("developers-rbac-reader", "acme:rbac-reader", [group("acme:developers"), group("acme:security")], 60),
+    crb("developers-node-reader", "acme:node-reader", [group("acme:developers")], 45),
     crb("prometheus", "prometheus", [sa("monitoring", "prometheus")], 88),
     crb("cert-manager-controller", "cert-manager-controller", [sa("cert-manager", "cert-manager")], 120),
     crb("system:discovery", "system:discovery", [group("system:authenticated")], 210, BOOTSTRAP),

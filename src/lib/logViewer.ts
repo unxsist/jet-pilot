@@ -232,11 +232,12 @@ export function logLevelOf(data: unknown): string {
   return typeof level === "string" ? level.toLowerCase() : "";
 }
 
+export const ERROR_LEVELS = new Set(["error", "err", "fatal", "critical", "panic"]);
+export const WARN_LEVELS = new Set(["warn", "warning"]);
+
 export function levelClass(level: string): string {
-  if (["error", "err", "fatal", "critical", "panic"].includes(level)) {
-    return "text-destructive";
-  }
-  if (["warn", "warning"].includes(level)) return "text-warning";
+  if (ERROR_LEVELS.has(level)) return "text-destructive";
+  if (WARN_LEVELS.has(level)) return "text-warning";
   if (["debug", "trace"].includes(level)) return "text-muted-foreground";
   return "text-foreground";
 }

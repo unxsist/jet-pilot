@@ -21,6 +21,7 @@ import type {
   DialogButtonInterface,
 } from "@/providers/DialogProvider";
 import type { ResolvedCluster } from "@/lib/clusters/meta";
+import type { CommandSpec } from "@/lib/kubectl/command";
 import { runtimeSettings } from "@/lib/settings/runtime";
 import { guardedCluster } from "./backstop";
 import {
@@ -160,6 +161,8 @@ export async function guard(
     confirm?: () => boolean | Promise<boolean>;
     /** Title of the typed confirmation for `subject` ("payments-api", "3 pods"). */
     title?: (subject: string) => string;
+    /** What the action runs, for the typed confirmation's "Equivalent kubectl command". */
+    commands?: CommandSpec[];
   } = {}
 ): Promise<boolean> {
   const clusters = new Map<string, ResolvedCluster>();
@@ -197,6 +200,7 @@ export async function guard(
       verb,
       destructive: effectOf(kind) === "destructive",
       requireDryRun: decision.requireDryRun,
+      commands: options.commands,
     });
   }
 
