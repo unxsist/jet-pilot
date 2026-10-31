@@ -435,10 +435,31 @@ const screens = {
     ready: "[role=grid], table",
     settle: 3500,
   },
+  "deep-link-helm": {
+    url: `/pods?link=${encodeURIComponent("jetpilot://helm?context=prod-eu-west-1&namespace=checkout&name=checkout")}`,
+    ready: "[role=grid], table",
+    settle: 3500,
+  },
+  "deep-link-list": {
+    url: `/pods?link=${encodeURIComponent("jetpilot://list?context=staging-us-east-2&kind=StatefulSet&apiVersion=apps/v1")}`,
+    ready: "[role=grid], table",
+    settle: 3500,
+  },
   "deep-link-unknown": {
     url: `/pods?link=${encodeURIComponent("jetpilot://open?context=prod-us-east-1&kind=Deployment&apiVersion=apps/v1&namespace=shop&name=checkout-api")}`,
     ready: "[role=grid], table",
     settle: 3000,
+  },
+  "deep-link-palette": {
+    url: "/deployments?resource=deployments&kind=Deployment",
+    ready: "tbody tr td",
+    settle: 1200,
+    run: async (page) => {
+      await page.keyboard.press("Control+k");
+      await wait(500);
+      await page.keyboard.type("link");
+      await wait(600);
+    },
   },
   "deep-link-row-menu": {
     url: "/pods",

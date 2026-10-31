@@ -5,11 +5,12 @@
  * brought to the front first). A link only navigates: it activates its
  * cluster when needed (a cluster JET Pilot already knows), goes to the
  * list, and opens the object in the side panel. Anything it can't find is
- * a calm notice. Mounted once in App.vue.
+ * a calm notice. Also "Copy link to this view" in the palette. Mounted
+ * once in App.vue.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { toast } from "@/components/ui/toast";
 import { parseLink, matchContext, type DeepLink, type KnownContext } from "@/lib/deepLink";
 import { homePath } from "@/lib/kubeconfigSources";
@@ -27,10 +28,13 @@ import {
   KubeContextStateKey,
 } from "@/providers/KubeContextProvider";
 import { PanelProviderSetSidePanelComponentKey } from "@/providers/PanelProvider";
+import { RegisterCommandStateKey } from "@/providers/CommandPaletteProvider";
 
 const router = useRouter();
+const route = useRoute();
 const { settings } = injectStrict(SettingsContextStateKey);
-const { contexts } = injectStrict(KubeContextStateKey);
+const { contexts, context: primaryContext, kubeConfig: primaryKubeConfig, namespace: primaryNamespace } =
+  injectStrict(KubeContextStateKey);
 const isContextActive = injectStrict(KubeContextIsContextActiveKey);
 const isNamespaceActive = injectStrict(KubeContextIsNamespaceActiveKey);
 const setActiveNamespaces = injectStrict(KubeContextSetActiveNamespacesKey);
@@ -158,6 +162,50 @@ async function open(url: string) {
     notice(`Couldn't open the link`, message(e));
   }
 }
+
+/*
+ * The link to what's on screen: a resource list (the primary cluster, and
+ * its namespace when one is selected) or a Health tab.
+ */
+async function copyViewLink() {
+  const { copyLink } = await import("@/lib/deepLinkCopy");
+  if (route.path === "/health") {
+    const tab = typeof route.query.tab === "string" ? route.query.tab : undefined;
+    await copyLink({ type: "health", tab }, "Health");
+    return;
+  }
+  const kind = typeof route.query.kind === "string" ? route.query.kind : "";
+  const listed = typeof route.query.resource === "string" ? route.query.resource : "";
+  if (!kind || !listed || kind === "Release" || !primaryContext.value) {
+    notice("This view has no link", "Links open objects, resource lists, Helm releases and Health.");
+    return;
+  }
+  const target = { context: primaryContext.value, kubeConfig: primaryKubeConfig.value };
+  // `plural.group` names the group; else the kind's usual one.
+  const group = listed.includes(".") ? listed.slice(listed.indexOf(".") + 1) : undefined;
+  const all = flattenResources(await getDiscoveryService().load(target.context, target.kubeConfig).catch(() => null));
+  const served = all.find((r) => r.kind === kind && (group === undefined || r.group === group));
+  const namespace = primaryNamespace.value && primaryNamespace.value !== "all" ? primaryNamespace.value : undefined;
+  await copyLink(
+    {
+      type: "list",
+      context: target.context,
+      kubeConfig: target.kubeConfig || undefined,
+      kind,
+      apiVersion: served ? (served.group ? `${served.group}/${served.version}` : served.version) : undefined,
+      namespace: served?.namespaced === false ? undefined : namespace,
+    },
+    `${formatResourceKind(kind)} in ${resolveClusterNow(target.context, target.kubeConfig).displayName}`
+  );
+}
+
+injectStrict(RegisterCommandStateKey)({
+  id: "copy-view-link",
+  name: "Copy link to this view",
+  description: "A jetpilot:// link to this list or Health tab, for chat or a runbook",
+  keywords: ["link", "share", "url", "deep link", "copy"],
+  execute: () => void copyViewLink(),
+});
 
 /* One at a time, in order (a burst of clicks while starting). */
 let queue = Promise.resolve();
