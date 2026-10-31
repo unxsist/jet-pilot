@@ -188,6 +188,13 @@ const pods = computed(() => {
   });
 });
 const showPods = computed(() => problem.value.subject.kind !== "Pod" && pods.value.length > 0);
+/* A pod's state, what's wrong when it differs from the rest, and its node (one bad node shows). */
+const podLine = (finding: Problem["findings"][number]) => {
+  const node = feed.find(finding.object, problem.value.context)?.spec?.nodeName?.split(".")[0];
+  return [finding.label ?? KINDS[finding.kind].label, finding.short !== problem.value.short && finding.short, node && `on ${node}`]
+    .filter(Boolean)
+    .join(" · ");
+};
 const openPod = (finding: Problem["findings"][number]) => {
   const object = feed.find(finding.object, problem.value.context);
   if (object) openInPanel(setSidePanel, sidePanel.value, object);
@@ -373,7 +380,7 @@ watch(
               <StatusDot :tone="KINDS[finding.kind].tone" />
               <span class="min-w-0 flex-1">
                 <span class="block truncate text-sm">{{ finding.object.name }}</span>
-                <span class="block truncate text-xs text-muted-foreground">{{ finding.label ?? KINDS[finding.kind].label }} · {{ finding.short }}</span>
+                <span class="block truncate text-xs text-muted-foreground">{{ podLine(finding) }}</span>
               </span>
             </button>
           </li>
