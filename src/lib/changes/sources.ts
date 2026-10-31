@@ -19,6 +19,7 @@ import {
   eventWords,
   fieldWords,
   helmWords,
+  isRestart,
   keyWords,
   managedWords,
   ownedTopics,
@@ -74,8 +75,7 @@ export function cleanTemplate(template: unknown): Record<string, unknown> {
 }
 
 /* What a template diff did: a restart, or a template change. */
-const templateKind = (fields: FieldChange[]): ChangeKind =>
-  fields.length > 0 && fields.every((f) => f.path.includes("kubectl.kubernetes.io/restartedAt")) ? "restart" : "template";
+const templateKind = (fields: FieldChange[]): ChangeKind => (fields.length > 0 && fields.every(isRestart) ? "restart" : "template");
 
 interface Revisioned {
   owner: { kind: string; name: string; uid: string };
@@ -442,6 +442,7 @@ export function fromEvents(target: ChangeTarget, events: any[], window: Window):
         by: event.source?.component || event.reportingComponent || event.reportingController || undefined,
         source: "events",
         tone: event.type === "Warning" ? "warning" : undefined,
+        reason,
       }),
     ];
   });
@@ -469,7 +470,7 @@ export interface ChangeRecord {
 
 const updateKind = (fields: FieldChange[]): ChangeKind => {
   if (fields.length && fields.every((f) => f.path.length === 1 && f.path[0] === "replicas")) return "scale";
-  if (fields.length && fields.every((f) => f.path.includes("kubectl.kubernetes.io/restartedAt"))) return "restart";
+  if (fields.length && fields.every(isRestart)) return "restart";
   return fields.some((f) => f.path[0] === "template") ? "template" : "spec";
 };
 
@@ -489,6 +490,7 @@ export function fromRecords(target: ChangeTarget, records: ChangeRecord[]): Chan
             kind: eventKind(event.reason),
             words: eventWords(event),
             tone: event.type === "Warning" ? "warning" : undefined,
+            reason: event.reason,
           }),
         ];
       }

@@ -78,9 +78,16 @@ describe("words", () => {
     );
     expect(words(["template", "spec", "volumes", "[config]", "configMap", "name"], "a", "b")).toBe("ConfigMap a → b");
     expect(words(["template", "metadata", "annotations", "kubectl.kubernetes.io/restartedAt"], undefined, "2026")).toBe("restarted");
+    expect(words(["metadata", "annotations"], undefined, { "kubectl.kubernetes.io/restartedAt": "2026" })).toBe("restarted");
     expect(words(["replicas"], 3, 5)).toBe("replicas 3 → 5");
     expect(words(["unschedulable"], undefined, true)).toBe("cordoned");
     expect(words(["taints"], [], [{ key: "gpu", effect: "NoSchedule" }])).toBe("taint gpu added");
+    expect(
+      fieldWords([
+        { path: ["unschedulable"], to: true },
+        { path: ["taints"], to: [{ key: "node.kubernetes.io/unschedulable", effect: "NoSchedule" }] },
+      ]).text
+    ).toBe("cordoned");
     expect(words(["template", "spec", "serviceAccountName"], "a", "b")).toBe("service account name changed");
     expect(words(["metadata", "labels", "app.kubernetes.io/version"], "1", "2")).toBe("pod labels changed");
   });
@@ -133,11 +140,18 @@ describe("words", () => {
 
   it("words events, restarts and revisions", () => {
     expect(
-      eventWords({ reason: "SuccessfulRescale", message: "New size: 5; reason: cpu resource utilization (percentage of request) above target" }).text
+      eventWords({ reason: "SuccessfulRescale", message: "New size: 5; reason: cpu resource utilization (percentage of request) above target; capped at the maximum" }).text
     ).toBe("scaled to 5 (cpu above target)");
     expect(eventWords({ type: "Warning", reason: "BackOff", message: "Back-off restarting failed container api", count: 61 }).text).toBe(
-      "Back-off restarting failed container api (61 times)"
+      "keeps crashing (61 times)"
     );
+    expect(eventWords({ type: "Warning", reason: "Failed", message: 'Failed to pull image "ghcr.io/acme/resizer:v0.9.1-rc": not found' }).text).toBe(
+      "can't pull image resizer:v0.9.1-rc"
+    );
+    expect(
+      eventWords({ type: "Warning", reason: "FailedScheduling", message: "0/4 nodes are available: 4 Insufficient memory. preemption: 0/4 nodes are available" }).text
+    ).toBe("can't be scheduled: insufficient memory");
+    expect(eventWords({ type: "Warning", reason: "Unhealthy", message: "Readiness probe failed: 503" }).text).toBe("Readiness probe failed: 503");
     expect(restartWords({ reason: "OOMKilled", exitCode: 137 }, 4).text).toBe("restarted after running out of memory · 4 restarts");
     expect(restartWords({ reason: "Error", exitCode: 1 }, 1).text).toBe("restarted after exiting with code 1");
     expect(shortImage("registry.k8s.io/coredns/coredns@sha256:1234567890abcdef")).toBe("coredns@1234567");
@@ -291,12 +305,25 @@ describe("merging", () => {
       change("scale", 5, { source: "recorded", kind: "scale", recorded: true }),
       change("event:e1", 3, { source: "recorded", kind: "event", recorded: true }),
       change("event:e1", 1, { source: "events", kind: "event", by: "kubelet" }),
+      change("rec:node", 30, { source: "recorded", kind: "condition", summary: "under disk pressure", recorded: true }),
+      change("condition:node", 30.2, { source: "nodes", kind: "condition", summary: "under disk pressure", by: "kubelet" }),
     ]);
     expect(merged.map((c) => [c.key, c.by, c.recorded])).toEqual([
       ["event:e1", "kubelet", true],
       ["scale", undefined, true],
       ["revision", "helm", true],
+      ["rec:node", "kubelet", true],
     ]);
+  });
+
+  it("lets a restart speak for its pod's crash events", () => {
+    const pod = { kind: "Pod", name: "p", namespace: "a" };
+    const merged = mergeChanges([
+      change("restart", 5, { kind: "crash", source: "pods", object: pod, summary: "restarted after exiting with code 1" }),
+      change("event:backoff", 1, { kind: "event", source: "events", object: pod, reason: "BackOff", summary: "keeps crashing (61 times)" }),
+      change("event:probe", 2, { kind: "event", source: "events", object: pod, reason: "Unhealthy", summary: "Readiness probe failed" }),
+    ]);
+    expect(merged.map((c) => c.key)).toEqual(["event:probe", "restart"]);
   });
 
   it("groups by day and searches", () => {

@@ -123,13 +123,22 @@ function containerPhrase(container: string, rest: string[], field: FieldChange):
   return phrase(`${humanize(key)} changed`);
 }
 
+const RESTARTED_AT = "kubectl.kubernetes.io/restartedAt";
+
+/** A `kubectl rollout restart`: the annotation itself, or annotations that gained or moved it. */
+export function isRestart(field: FieldChange): boolean {
+  if (field.path.includes(RESTARTED_AT)) return true;
+  const stamp = (value: unknown) => (value && typeof value === "object" ? (value as Record<string, unknown>)[RESTARTED_AT] : undefined);
+  return field.path[field.path.length - 1] === "annotations" && stamp(field.to) !== undefined && stamp(field.to) !== stamp(field.from);
+}
+
 /** One field change in words. */
 export function fieldPhrase(field: FieldChange): Phrase {
   const path = field.path;
   const { from, to } = field;
   const last = path[path.length - 1] ?? "";
 
-  if (path.includes("kubectl.kubernetes.io/restartedAt")) return phrase("restarted", "Restarted");
+  if (isRestart(field)) return phrase("restarted", "Restarted");
 
   const ci = path.findIndex((s) => s === "containers" || s === "initContainers" || s === "ephemeralContainers");
   if (ci >= 0 && path[ci + 1]) {
@@ -158,8 +167,13 @@ export function fieldPhrase(field: FieldChange): Phrase {
   if (last === "paused") return to === true ? phrase("rollout paused") : phrase("rollout resumed");
   if (last === "unschedulable") return to === true ? phrase("cordoned") : phrase("uncordoned");
   if (last === "taints") {
-    const added = taintKeys(to).filter((k) => !taintKeys(from).includes(k));
-    const removed = taintKeys(from).filter((k) => !taintKeys(to).includes(k));
+    // A cordon adds this taint itself: "cordoned" says it.
+    const cordon = (k: string) => k !== "node.kubernetes.io/unschedulable";
+    const added = taintKeys(to).filter((k) => !taintKeys(from).includes(k)).filter(cordon);
+    const removed = taintKeys(from).filter((k) => !taintKeys(to).includes(k)).filter(cordon);
+    if (!added.length && !removed.length && taintKeys(to).length !== taintKeys(from).length) {
+      return taintKeys(to).length > taintKeys(from).length ? phrase("cordoned") : phrase("uncordoned");
+    }
     if (added.length && !removed.length) return phrase(`taint ${listWords(added)} added`);
     if (removed.length && !added.length) return phrase(`taint ${listWords(removed)} removed`);
     return phrase("taints changed");
@@ -227,6 +241,8 @@ const MANAGERS: Record<string, string> = {
   "default-scheduler": "scheduler",
   "node-controller": "Kubernetes",
   "cluster-autoscaler": "cluster autoscaler",
+  "persistentvolume-controller": "volume controller",
+  "attachdetach-controller": "volume controller",
   "terraform-provider-kubernetes": "Terraform",
   "jet-pilot": "JET Pilot",
 };
@@ -315,7 +331,7 @@ export function eventWords(event: { type?: string; reason?: string; message?: st
   const message = event.message ?? "";
   const times = (event.count ?? 1) > 1 ? ` (${event.count} times)` : "";
   if (reason === "SuccessfulRescale") {
-    const match = /New size: (\d+); reason: (.*)$/i.exec(message);
+    const match = /New size: (\d+); reason: ([^;]*)/i.exec(message);
     if (match) {
       const why = match[2]
         .replace(/^(\w+) resource utilization \(percentage of request\) above target$/i, "$1 above target")
@@ -325,7 +341,22 @@ export function eventWords(event: { type?: string; reason?: string; message?: st
     }
     return phrase("rescaled");
   }
+  if (reason === "FailedRescale") {
+    const match = /New size: (\d+);.*capped at the maximum of (\d+)/i.exec(message);
+    if (match) return phrase(`wants ${match[1]} replicas, capped at ${match[2]}${times}`);
+  }
   if (PLAIN_EVENTS[reason]) return phrase(`${PLAIN_EVENTS[reason]}${times}`);
+  if (reason === "BackOff" && /restarting failed container/i.test(message)) return phrase(`keeps crashing${times}`);
+  const pull = /pull(?:ing)? image "?([^"\s]+)"?/i.exec(message);
+  if ((reason === "BackOff" || reason === "Failed") && pull) return phrase(`can't pull image ${shortImage(pull[1])}${times}`);
+  if (reason === "FailedScheduling") {
+    const match = /nodes are available: (.*?)(?:\. preemption|$)/i.exec(message);
+    const why = (match?.[1] ?? "")
+      .split(/,\s*/)
+      .map((part) => part.replace(/^\d+\s+/, "").replace(/\.$/, "").trim())
+      .filter((part, i, all) => part && all.indexOf(part) === i);
+    if (why.length) return phrase(`can't be scheduled: ${listWords(why).toLowerCase()}${times}`);
+  }
   if (reason === "TriggeredScaleUp") return phrase("triggered a cluster scale-up");
   if (reason === "ScaleDown") return phrase("removed by the cluster autoscaler");
   if (reason === "Evicted") return phrase(`evicted: ${firstLine(message, 100)}`);

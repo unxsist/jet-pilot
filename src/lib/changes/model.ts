@@ -76,6 +76,8 @@ export interface Change {
   recorded: boolean;
   /** Problems only (a warning, a crash, a node not ready). */
   tone?: StatusTone;
+  /** An event's reason ("BackOff", "OOMKilling"). */
+  reason?: string;
   diff?: ChangeDiff;
 }
 
@@ -88,6 +90,10 @@ const identity = (c: Change) =>
 
 /* The same moment, give or take: an RS's creation vs the manager's timestamp. */
 const SAME_MOMENT_MS = 2 * MINUTE;
+
+/* Events that only repeat what a container's restart says (see ./words). */
+const CRASH_EVENT_WORDS: Record<string, string> = { BackOff: "keeps crashing", OOMKilling: "ran out of memory" };
+const CRASH_REASONS = new Set(Object.keys(CRASH_EVENT_WORDS));
 
 /* What a reconstructed change may absorb: the same change seen another way. */
 const ABSORBS: Partial<Record<ChangeSource, ChangeKind[]>> = {
@@ -103,6 +109,10 @@ const ABSORBS: Partial<Record<ChangeSource, ChangeKind[]>> = {
  *   managedFields write of the same object at the same moment.
  * - A managedFields write next to any other change of the object only
  *   says who made it.
+ * - The same words for the same object at the same moment (a node
+ *   condition recorded live and read from the node) are one change.
+ * - A container's restart says why it crashed: its pod's "keeps
+ *   crashing" and "ran out of memory" events add nothing to it.
  */
 export function mergeChanges(changes: Change[]): Change[] {
   const byKey = new Map<string, Change>();
@@ -142,6 +152,24 @@ export function mergeChanges(changes: Change[]): Change[] {
       if (other) {
         other.by ??= write.by;
         dropped.add(write);
+      }
+    }
+    if (merged.some((c) => c.kind === "crash" && !dropped.has(c))) {
+      for (const event of merged) {
+        if (event.kind === "event" && CRASH_REASONS.has(event.reason ?? "") && event.summary.startsWith(CRASH_EVENT_WORDS[event.reason!])) {
+          dropped.add(event);
+        }
+      }
+    }
+    for (const twin of merged) {
+      if (dropped.has(twin)) continue;
+      const first = merged.find(
+        (c) => c !== twin && !dropped.has(c) && c.kind === twin.kind && c.summary === twin.summary && near(c, twin)
+      );
+      if (first && merged.indexOf(first) < merged.indexOf(twin)) {
+        first.by ??= twin.by;
+        first.recorded ||= twin.recorded;
+        dropped.add(twin);
       }
     }
     out.push(...merged.filter((c) => !dropped.has(c)));
@@ -188,9 +216,11 @@ export function groupByDay(changes: Change[], now = new Date()): DayGroup[] {
   return groups;
 }
 
-/** "14:02" in the user's clock. */
-export const timeOfDay = (at: string) =>
-  new Date(at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+/** "14:02" or "2:02 PM", in the user's clock. */
+export const timeOfDay = (at: string) => new Date(at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+/** What happened to an object (a crash, a warning, a condition) rather than a change made to it. */
+export const isSymptom = (change: Change) => change.kind === "crash" || change.kind === "condition" || change.kind === "event";
 
 /* ------------------------------------------------------------- search -- */
 
