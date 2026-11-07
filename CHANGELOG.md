@@ -13,6 +13,11 @@ How to write an entry (jet-pilot.app/changelog is generated from this file):
   `#### Upgrading`: lists of `**Lead.** Detail.` items, in plain words.
 -->
 
+## 2.3.1 (2026-11-07)
+
+#### Fixed
+- **JET Pilot no longer closes right after launch on Windows.** With a cluster selected, 2.3.0 could quit a second or two after starting, before showing anything. Your kubeconfig was fine; JET Pilot ran out of room on its main thread.
+
 ## 2.3.0 (2026-10-31)
 
 ### Health, split view and windows

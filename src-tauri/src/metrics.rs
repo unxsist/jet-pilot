@@ -588,6 +588,19 @@ pub fn release_owner(label: &str) -> usize {
 mod tests {
     use super::*;
 
+    /// See `watch::tests::command_futures_stay_small` (issue #132).
+    #[test]
+    fn subscribe_future_stays_small() {
+        let request = MetricsRequest {
+            kube_config: None,
+            context: "c".into(),
+            namespaces: vec![],
+        };
+        let sink: Sink = std::sync::Arc::new(|_| true);
+        let subscribe = std::mem::size_of_val(&subscribe_for("main", request, sink));
+        assert!(subscribe <= 16 * 1024, "metrics_subscribe: {subscribe} bytes");
+    }
+
     #[test]
     fn rings_keep_the_last_samples_and_drop_vanished_keys() {
         let mut rings = Rings::default();

@@ -440,6 +440,12 @@ enum NewSecret {
 /// a CLI must be installed (signed out is fine: sign in after).
 #[tauri::command]
 pub async fn connection_create(spec: ConnectionSpec) -> Result<CloudConnection, AppError> {
+    // Boxed: inline, the provider futures make this command's future
+    // ~180 KB, and Tauri builds it on the main thread (issue #132).
+    Box::pin(create_connection(spec)).await
+}
+
+async fn create_connection(spec: ConnectionSpec) -> Result<CloudConnection, AppError> {
     let ctx = aws::context();
     let existing = {
         let ctx = ctx.clone();

@@ -658,8 +658,11 @@ pub mod client {
         let cell = client_slot((kubeconfig_path.clone(), context.to_string()), stamp);
 
         // A failed build leaves the cell empty, so the next call retries.
+        // Boxed: minting credentials makes the build future ~27 KB, and every
+        // command would otherwise carry it inline (see
+        // `watch::tests::command_futures_stay_small`).
         let client = cell
-            .get_or_try_init(|| build_client(context, &kubeconfig_path))
+            .get_or_try_init(|| Box::pin(build_client(context, &kubeconfig_path)))
             .await?;
         Ok(client.clone())
     }

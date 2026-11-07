@@ -609,7 +609,7 @@ fn tool_of(provider: &str) -> Result<CliTool, AppError> {
 /// credential plugin (never prompts, never opens a browser).
 #[tauri::command]
 pub async fn cloud_cli_status(provider: String) -> Result<CliStatus, AppError> {
-    Ok(status(tool_of(&provider)?, Duration::ZERO).await)
+    Ok(Box::pin(status(tool_of(&provider)?, Duration::ZERO)).await)
 }
 
 /* ---------------------------------------------------------- sign-in */
