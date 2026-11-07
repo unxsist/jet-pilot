@@ -306,8 +306,11 @@ tokio::task_local! {
 
 /// Runs `fut` with `source` as the source of the issues detected inside it
 /// (by the client layers, which can't know who sent a request).
-pub async fn with_source<F: Future>(source: IssueSource, fut: F) -> F::Output {
-    SOURCE.scope(source, fut).await
+///
+/// A plain fn, not an `async fn`: an async wrapper would hold `fut` twice
+/// (the argument and the scope future), doubling every command it wraps.
+pub fn with_source<F: Future>(source: IssueSource, fut: F) -> impl Future<Output = F::Output> {
+    SOURCE.scope(source, fut)
 }
 
 /// The source of the current task (`Api` outside `with_source`).

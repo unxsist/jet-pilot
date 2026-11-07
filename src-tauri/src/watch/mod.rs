@@ -787,6 +787,31 @@ pub fn watch_stats() -> WatchStats {
 mod tests {
     use super::*;
 
+    /// Tauri builds a command's future on the main thread and wraps it about
+    /// six times over; Windows gives that thread 1 MB. A 59 KB subscribe
+    /// future became 362 KB and crashed 2.3.0 at launch (issue #132).
+    #[test]
+    fn command_futures_stay_small() {
+        const BUDGET: usize = 16 * 1024;
+        let request = WatchRequest {
+            kube_config: None,
+            context: "c".into(),
+            resource: "pods".into(),
+            kind: None,
+            namespaces: vec![],
+        };
+        let sink: Sink = Arc::new(|_| true);
+        let client = std::mem::size_of_val(&client_with_context("c", None));
+        assert!(client <= 1024, "client_with_context: {client} bytes");
+        let subscribe = std::mem::size_of_val(&center::with_source(
+            IssueSource::Watch,
+            subscribe_for(MAIN, request, sink),
+        ));
+        assert!(subscribe <= BUDGET, "watch_subscribe: {subscribe} bytes");
+        let restart = std::mem::size_of_val(&center::with_source(IssueSource::Watch, restart_subscription(0)));
+        assert!(restart <= BUDGET, "watch_restart: {restart} bytes");
+    }
+
     #[test]
     fn all_namespaces_and_cluster_scope_use_one_watcher() {
         assert_eq!(scopes_for(true, &[]), vec![None]);

@@ -1075,7 +1075,7 @@ pub async fn catalog_refresh(
     let sink: Arc<dyn Fn(CatalogEvent) + Send + Sync> = Arc::new(move |event| {
         let _ = on_event.send(event);
     });
-    refresh(connection_ids, sink).await
+    Box::pin(refresh(connection_ids, sink)).await
 }
 
 pub(crate) async fn refresh(

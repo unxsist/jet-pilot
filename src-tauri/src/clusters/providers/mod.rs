@@ -370,8 +370,8 @@ pub async fn connection_scopes(connection_id: String) -> Result<Vec<ConnectionSc
     })
     .await?;
     match (connection.provider.as_str(), connection.kind) {
-        (GCP, ConnectionKind::Cli) => gcp::projects(&connection).await,
-        (AZURE, ConnectionKind::Cli) => azure::subscriptions(&connection).await,
+        (GCP, ConnectionKind::Cli) => Box::pin(gcp::projects(&connection)).await,
+        (AZURE, ConnectionKind::Cli) => Box::pin(azure::subscriptions(&connection)).await,
         _ => Err(AppError::invalid(
             "connectionId",
             "Only Google Cloud and Azure connections have projects or subscriptions to choose.",

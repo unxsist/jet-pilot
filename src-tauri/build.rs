@@ -1,6 +1,22 @@
 fn main() {
     tauri_build::build();
     app_version_env();
+    windows_stack_reserve();
+}
+
+/// An 8 MB main-thread stack on Windows, like macOS and Linux (the MSVC
+/// default is 1 MB). Tauri builds async command futures on the main thread,
+/// so a large one overflowed it at launch (issue #132).
+fn windows_stack_reserve() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    let arg = if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        "/STACK:8388608"
+    } else {
+        "-Wl,--stack,8388608"
+    };
+    println!("cargo:rustc-link-arg-bin=jet_pilot={arg}");
 }
 
 /// `JET_PILOT_VERSION` = the app version from ../package.json (Cargo's own
