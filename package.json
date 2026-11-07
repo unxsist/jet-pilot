@@ -120,7 +120,10 @@
       [
         "@semantic-release/github",
         {
-          "successComment": ":rocket: This issue is resolved in version ${nextRelease.version} of JET Pilot!"
+          "draftRelease": true,
+          "successComment": false,
+          "failComment": false,
+          "releasedLabels": false
         }
       ]
     ]
