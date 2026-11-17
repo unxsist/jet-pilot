@@ -7,7 +7,8 @@
  * Errors stay inline, in a sentence.
  */
 import { KubernetesObject } from "@kubernetes/client-node";
-import { ChevronRight, Plus, X } from "lucide-vue-next";
+import { ChevronRight, Plus, Search, X } from "lucide-vue-next";
+import { matchesMetadataQuery } from "@/components/tables/metadataFilter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -51,9 +52,26 @@ const source = computed<Record<string, string>>(() => {
 
 const PREVIEW_COUNT = 6;
 const showAll = ref(false);
+const filterQuery = ref("");
 const entries = computed(() => Object.entries(source.value).sort(([a], [b]) => a.localeCompare(b)));
 const total = computed(() => entries.value.length);
-const shown = computed(() => (showAll.value ? entries.value : entries.value.slice(0, PREVIEW_COUNT)));
+const filteredEntries = computed(() => {
+  const q = filterQuery.value.trim();
+  if (!q) return entries.value;
+  return entries.value.filter(([k, v]) => matchesMetadataQuery({ [k]: v }, q));
+});
+const shown = computed(() =>
+  showAll.value || filterQuery.value.trim().length > 0
+    ? filteredEntries.value
+    : filteredEntries.value.slice(0, PREVIEW_COUNT)
+);
+
+watch(
+  () => props.object.metadata?.uid,
+  () => {
+    filterQuery.value = "";
+  }
+);
 
 /* Annotations: long, multi-line or JSON values fold. */
 const opened = reactive(new Set<string>());
@@ -324,32 +342,87 @@ const onKeydown = (event: KeyboardEvent) => {
   </div>
 
   <!-- Labels: compact key=value chips -->
-  <div v-else-if="type === 'labels'" class="flex flex-wrap gap-1.5">
-    <span
-      v-for="[key, value] in shown"
-      :key="key"
-      class="inline-flex h-6 max-w-full items-center overflow-hidden rounded-md bg-muted px-2 font-mono text-xs select-text"
-      :title="`${key}=${value}`"
-    >
-      <span class="truncate text-muted-foreground">{{ key }}</span>
-      <span class="text-muted-foreground/60">=</span>
-      <span class="truncate text-foreground">{{ value }}</span>
-    </span>
-    <Button
-      v-if="total > PREVIEW_COUNT"
-      size="xs"
-      variant="ghost"
-      class="text-muted-foreground"
-      @click="showAll = !showAll"
-    >
-      {{ showAll ? "Show less" : `+${total - PREVIEW_COUNT} more` }}
-    </Button>
-    <span v-if="total === 0" class="text-xs text-muted-foreground">No labels</span>
+  <div v-else-if="type === 'labels'" class="space-y-2.5">
+    <div v-if="total > 1" class="relative flex items-center">
+      <Search
+        class="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted-foreground"
+        aria-hidden="true"
+      />
+      <input
+        v-model="filterQuery"
+        type="text"
+        placeholder="Filter labels…"
+        aria-label="Filter labels"
+        spellcheck="false"
+        autocapitalize="off"
+        class="h-7 w-full rounded-md border border-transparent bg-muted/60 pl-8 pr-7 font-mono text-xs text-foreground transition-[border-color,box-shadow,background-color] duration-fast ease-out placeholder:font-sans placeholder:text-muted-foreground hover:bg-muted focus:border-ring focus:bg-background focus:outline-none focus:ring-[3px] focus:ring-ring/20"
+        @keydown.escape.stop="filterQuery = ''"
+      />
+      <button
+        v-if="filterQuery"
+        type="button"
+        class="absolute right-1.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-ring"
+        aria-label="Clear label filter"
+        @click="filterQuery = ''"
+      >
+        <X class="h-3 w-3" />
+      </button>
+    </div>
+    <div class="flex flex-wrap gap-1.5">
+      <span
+        v-for="[key, value] in shown"
+        :key="key"
+        class="inline-flex h-6 max-w-full items-center overflow-hidden rounded-md bg-muted px-2 font-mono text-xs select-text"
+        :title="`${key}=${value}`"
+      >
+        <span class="truncate text-muted-foreground">{{ key }}</span>
+        <span class="text-muted-foreground/60">=</span>
+        <span class="truncate text-foreground">{{ value }}</span>
+      </span>
+      <Button
+        v-if="!filterQuery.trim() && total > PREVIEW_COUNT"
+        size="xs"
+        variant="ghost"
+        class="text-muted-foreground"
+        @click="showAll = !showAll"
+      >
+        {{ showAll ? "Show less" : `+${total - PREVIEW_COUNT} more` }}
+      </Button>
+      <span v-if="total === 0" class="text-xs text-muted-foreground">No labels</span>
+      <span v-else-if="shown.length === 0" class="text-xs text-muted-foreground">
+        No matching labels
+      </span>
+    </div>
   </div>
 
   <!-- Annotations: values can be long (JSON, URLs): a list -->
-  <div v-else>
-    <dl class="divide-y divide-border-subtle">
+  <div v-else class="space-y-2">
+    <div v-if="total > 1" class="relative flex items-center">
+      <Search
+        class="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted-foreground"
+        aria-hidden="true"
+      />
+      <input
+        v-model="filterQuery"
+        type="text"
+        placeholder="Filter annotations…"
+        aria-label="Filter annotations"
+        spellcheck="false"
+        autocapitalize="off"
+        class="h-7 w-full rounded-md border border-transparent bg-muted/60 pl-8 pr-7 font-mono text-xs text-foreground transition-[border-color,box-shadow,background-color] duration-fast ease-out placeholder:font-sans placeholder:text-muted-foreground hover:bg-muted focus:border-ring focus:bg-background focus:outline-none focus:ring-[3px] focus:ring-ring/20"
+        @keydown.escape.stop="filterQuery = ''"
+      />
+      <button
+        v-if="filterQuery"
+        type="button"
+        class="absolute right-1.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-ring"
+        aria-label="Clear annotation filter"
+        @click="filterQuery = ''"
+      >
+        <X class="h-3 w-3" />
+      </button>
+    </div>
+    <dl v-if="shown.length > 0" class="divide-y divide-border-subtle">
       <div v-for="[key, value] in shown" :key="key" class="py-2 first:pt-0 last:pb-0">
         <dt class="truncate font-mono text-xs text-muted-foreground" :title="key">{{ key }}</dt>
         <dd v-if="!isLong(key, value)" class="break-all font-mono text-xs text-foreground select-text">
@@ -377,7 +450,7 @@ const onKeydown = (event: KeyboardEvent) => {
       </div>
     </dl>
     <Button
-      v-if="total > PREVIEW_COUNT"
+      v-if="!filterQuery.trim() && total > PREVIEW_COUNT"
       size="xs"
       variant="ghost"
       class="mt-1 -ml-2 text-muted-foreground"
@@ -386,5 +459,8 @@ const onKeydown = (event: KeyboardEvent) => {
       {{ showAll ? "Show less" : `+${total - PREVIEW_COUNT} more` }}
     </Button>
     <span v-if="total === 0" class="text-xs text-muted-foreground">No annotations</span>
+    <span v-else-if="shown.length === 0" class="text-xs text-muted-foreground">
+      No matching annotations
+    </span>
   </div>
 </template>

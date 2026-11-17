@@ -34,6 +34,8 @@ export interface TableModelOptions<TData> {
   /** Complete column list (incl. select / actions columns); keep it stable. */
   columns: () => ColumnDef<TData, any>[];
   query: () => string;
+  /** Optional row-level filter (e.g. namespace selector) applied before the text query. */
+  rowFilter?: (row: TData) => boolean;
   sorting: Ref<SortingState>;
   onSortingChange?: (sorting: SortingState) => void;
   initialVisibility?: VisibilityState;
@@ -99,10 +101,13 @@ export function useTableModel<TData>(options: TableModelOptions<TData>) {
   const searchColumns = computed(() => searchableColumns(table));
   const searchIndex = createSearchIndex<TData>();
 
-  /* Sorted rows passing the search query. */
-  const filteredRows = computed<Row<TData>[]>(() =>
-    searchIndex.filter(sortedRows.value, options.query(), searchColumns.value)
-  );
+  /* Sorted rows passing the row filter and search query. */
+  const filteredRows = computed<Row<TData>[]>(() => {
+    const base = options.rowFilter
+      ? sortedRows.value.filter((row) => options.rowFilter!(row.original))
+      : sortedRows.value;
+    return searchIndex.filter(base, options.query(), searchColumns.value);
+  });
 
   /* Selected rows that pass the current filter (mass actions apply to these). */
   const selectedRows = computed<Row<TData>[]>(() => {
