@@ -72,11 +72,13 @@ jobs:
             gir1.2-javascriptcoregtk-4.1 \
             gir1.2-webkit2-4.1;
 
+      # Test builds are never published, so they skip the updater artifacts
+      # and don't need the signing key. Pull requests from forks get no
+      # secrets: with the key, signing failed every build of theirs.
       - name: Build Vite + Tauri
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+        shell: bash
         run: |
-          npm run build
+          npm run build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       - name: Upload test build artifacts
         uses: actions/upload-artifact@v4

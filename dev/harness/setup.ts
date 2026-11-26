@@ -1667,7 +1667,10 @@ mockIPC(
         };
       case "list_namespaces":
         await sleep(150);
-        return (NAMESPACES[p.context] || []).map((name) => ({ metadata: { name } }));
+        // ?scenario=large-graph: the large cluster's own namespaces.
+        return scenario === "large-graph" && p.context === CONTEXTS[0].name
+          ? clusters[p.context].namespaces.map((ns: any) => ({ metadata: { name: ns.metadata.name } }))
+          : (NAMESPACES[p.context] || []).map((name) => ({ metadata: { name } }));
       case "get_context_auth_info":
         return { execCommand: null, awsProfile: null };
       case "get_core_api_versions":

@@ -56,6 +56,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { StatusDot } from "@/components/ui/status";
 import ContextAvatar from "@/components/ContextAvatar.vue";
+import NamespacePicker from "@/components/NamespacePicker.vue";
 import KindIcon from "@/components/KindIcon.vue";
 import ObjectNode from "@/components/vue-flow/ObjectNode.vue";
 import TopologyEdge from "@/components/vue-flow/TopologyEdge.vue";
@@ -1653,9 +1654,11 @@ const navigateTo = (x: number, y: number) =>
           graphContext
         }}</span>
       </div>
-      <span v-if="!narrow" class="shrink-0 text-xs text-muted-foreground">{{
-        scopeLabel
-      }}</span>
+      <NamespacePicker
+        v-if="!narrow && graphContext"
+        :context="graphContext"
+        :kube-config="graphKubeConfig"
+      />
 
       <span class="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
 

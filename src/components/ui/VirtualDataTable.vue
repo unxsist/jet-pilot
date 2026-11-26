@@ -9,7 +9,7 @@ import type {
   SortingState,
 } from "@tanstack/vue-table";
 import { FlexRender } from "@tanstack/vue-table";
-import { useVirtualizer } from "@tanstack/vue-virtual";
+import { observeElementRect, useVirtualizer } from "@tanstack/vue-virtual";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -65,6 +65,7 @@ import {
   Search,
   SearchX,
   SlidersHorizontal,
+  Tag,
   TriangleAlert,
   X,
 } from "lucide-vue-next";
@@ -110,7 +111,12 @@ import {
   printerColumnsSignature,
   type PrinterColumn,
 } from "../tables/printerColumns";
+import {
+  collectMetadataFacets,
+  matchesMetadataQuery,
+} from "../tables/metadataFilter";
 import TableShortcutsDialog from "../tables/TableShortcutsDialog.vue";
+import NamespacePicker from "../NamespacePicker.vue";
 import RowOptionPicker from "../tables/RowOptionPicker.vue";
 import type { ResourceListError } from "@/composables/useResourceList";
 
@@ -156,6 +162,11 @@ const props = withDefaults(
     keyboard?: boolean;
     /** Printer columns of the kind (a CRD's additionalPrinterColumns). */
     printerColumns?: PrinterColumn[];
+    /**
+     * Whether the kind is namespaced: the toolbar then offers the namespace
+     * picker. Unknown (undefined): judged by the rows.
+     */
+    namespaced?: boolean;
   }>(),
   // undefined (not false): the keyboard default depends on the other props
   { keyboard: undefined, persistKey: undefined }
@@ -175,6 +186,63 @@ const searchInput = ref<HTMLInputElement | null>(null);
 const searchQuery = ref<string>("");
 const root = ref<HTMLDivElement | null>(null);
 const tableContainer = ref<HTMLDivElement | null>(null);
+
+/* --------------------------------------------------- label filter -- */
+
+/* Rows by label: `key=value`, `key!=value`, `!key` (matchesMetadataQuery). */
+const labelQuery = ref<string>("");
+const labelMenuOpen = ref(false);
+const labelInput = ref<HTMLInputElement | null>(null);
+
+const rowLabels = (row: unknown) =>
+  (row as { metadata?: { labels?: Record<string, string> } })?.metadata
+    ?.labels;
+
+/* Only offered when the rows have labels (or a filter is set). */
+const showLabelFilter = computed(
+  () =>
+    !!props.allowFilter &&
+    (labelQuery.value.trim() !== "" ||
+      props.data.some((row) => {
+        const labels = rowLabels(row);
+        return !!labels && Object.keys(labels).length > 0;
+      }))
+);
+
+/* The rows' distinct labels with counts: only while the menu is open. */
+const labelFacets = computed(() =>
+  labelMenuOpen.value ? collectMetadataFacets(props.data, "labels") : []
+);
+const shownLabelFacets = computed(() => {
+  const needle = labelQuery.value.trim().toLowerCase();
+  const facets = needle
+    ? labelFacets.value.filter((facet) =>
+        facet.item.toLowerCase().includes(needle)
+      )
+    : labelFacets.value;
+  return facets.slice(0, 100);
+});
+
+const onLabelMenuOpenAutoFocus = (event: Event) => {
+  event.preventDefault();
+  nextTick(() => labelInput.value?.focus());
+};
+
+/* Typed keys stay out of the menu's typeahead; Enter applies and closes. */
+const onLabelInputKeydown = (event: KeyboardEvent) => {
+  if (event.key === "Escape") return;
+  event.stopPropagation();
+  if (event.key === "Enter") {
+    event.preventDefault();
+    labelMenuOpen.value = false;
+  } else if (event.key === "ArrowDown") {
+    event.preventDefault();
+    (event.target as HTMLElement)
+      .closest('[role="menu"]')
+      ?.querySelector<HTMLElement>('[role^="menuitem"]:not([data-disabled])')
+      ?.focus();
+  }
+};
 
 /* Context menu subject: never wrapped in a deep reactive proxy. */
 const contextMenuSubject = shallowRef<TData | null>(null);
@@ -359,6 +427,9 @@ const { table, filteredRows, sortedRows, selectedRows } = useTableModel<TData>({
   data: () => props.data,
   columns: () => allColumns.value,
   query: () => searchQuery.value,
+  rowFilter: (row) =>
+    !labelQuery.value.trim() ||
+    matchesMetadataQuery(rowLabels(row), labelQuery.value),
   sorting,
   onSortingChange: (value) => emit("sortingChange", value),
   initialVisibility: props.visibleColumns,
@@ -401,7 +472,7 @@ watch(
   { immediate: true }
 );
 
-const { contexts } = injectStrict(KubeContextStateKey);
+const { contexts, contextKubeConfigMapping } = injectStrict(KubeContextStateKey);
 
 /* Cluster-scoped kinds (nodes, persistent volumes, ...) have no namespace. */
 const hasNamespacedRows = computed(
@@ -412,6 +483,21 @@ const hasNamespacedRows = computed(
         !!(row as { metadata?: { namespace?: string } })?.metadata?.namespace
     )
 );
+
+/*
+ * The namespace picker's context: namespaced lists while one context is
+ * active (with several, the Context column and the sidebar scope them).
+ */
+const namespaceScope = computed(() => {
+  if (!props.allowFilter || props.namespaced === false) return null;
+  if (props.namespaced === undefined && !hasNamespacedRows.value) return null;
+  if (contexts.value.size !== 1) return null;
+  const [context] = contexts.value.keys();
+  return {
+    context,
+    kubeConfig: contextKubeConfigMapping.value.get(context) ?? "",
+  };
+});
 
 /*
  * Column visibility, in order of precedence:
@@ -749,9 +835,15 @@ const setAllGroupsCollapsed = (collapse: boolean) => {
 
 /* ---------------------------------------------------- virtualisation -- */
 
-const isFiltering = computed(() => searchQuery.value.length > 0);
+const isFiltering = computed(
+  () => searchQuery.value.length > 0 || labelQuery.value.trim().length > 0
+);
+const clearSearch = () => {
+  searchQuery.value = "";
+};
 const clearFilter = () => {
   searchQuery.value = "";
+  labelQuery.value = "";
 };
 
 const emptyResourceName = computed(() => props.resourceName || "results");
@@ -765,9 +857,21 @@ const HEADER_HEIGHT = 32;
 
 const skeletonWidths = ["w-3/4", "w-1/2", "w-2/3", "w-5/12"];
 
+/*
+ * Out of the page (a cached view while another shows) the container
+ * measures 0 high: keep the last size, so the rows are still there to
+ * scroll back to on return (see onActivated below).
+ */
+const observeRectWhileShown: typeof observeElementRect = (instance, cb) =>
+  observeElementRect(instance, (rect) => {
+    if (instance.scrollElement?.isConnected === false) return;
+    cb(rect);
+  });
+
 const virtualizerOptions = computed(() => ({
   count: displayItems.value.length,
   getScrollElement: () => tableContainer.value,
+  observeElementRect: observeRectWhileShown,
   estimateSize: () => rowHeight.value,
   overscan: 12,
   scrollMargin: HEADER_HEIGHT,
@@ -814,12 +918,32 @@ watch(
   }
 );
 
+/*
+ * A cached view (keep-alive) is taken out of the page while another one
+ * shows, and the browser puts its scroll back at the top on return, with
+ * no scroll event: the virtual rows stayed where the list had been
+ * scrolled to, out of sight, under a count that was right (#126). Back,
+ * the table returns to where it was and tells the virtualizer, also when
+ * the list got shorter meanwhile and the position is clamped.
+ */
+let scrollPosition = { top: 0, left: 0 };
+
 /* Horizontal scroll: shadow under the sticky first column. */
 const scrolledX = ref(false);
 const onContainerScroll = () => {
-  const scrolled = (tableContainer.value?.scrollLeft || 0) > 0;
+  const el = tableContainer.value;
+  if (el?.isConnected) scrollPosition = { top: el.scrollTop, left: el.scrollLeft };
+  const scrolled = (el?.scrollLeft || 0) > 0;
   if (scrolled !== scrolledX.value) scrolledX.value = scrolled;
 };
+
+onActivated(() => {
+  const el = tableContainer.value;
+  if (!el) return;
+  el.scrollTop = scrollPosition.top;
+  el.scrollLeft = scrollPosition.left;
+  el.dispatchEvent(new Event("scroll"));
+});
 
 /* Relative ages re-render every few seconds even when rows are unchanged. */
 const clock = ref(0);
@@ -1229,7 +1353,11 @@ const handleEscape = (): boolean => {
     return true;
   }
   if (searchQuery.value) {
-    clearFilter();
+    clearSearch();
+    return true;
+  }
+  if (labelQuery.value) {
+    labelQuery.value = "";
     return true;
   }
   return false;
@@ -1629,6 +1757,12 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
       v-if="allowFilter"
       class="flex h-11 shrink-0 items-center gap-2 border-b px-3"
     >
+      <NamespacePicker
+        v-if="namespaceScope"
+        :context="namespaceScope.context"
+        :kube-config="namespaceScope.kubeConfig"
+        class="-ml-1"
+      />
       <div class="relative flex w-full max-w-[18rem] items-center">
         <Search
           class="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted-foreground"
@@ -1650,18 +1784,90 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
         />
         <div class="absolute right-1.5 flex items-center">
           <button
-            v-if="isFiltering"
+            v-if="searchQuery.length > 0"
             type="button"
             class="flex h-5 items-center gap-1 rounded px-1 text-2xs text-muted-foreground hover:bg-accent hover:text-foreground focus-ring"
             aria-label="Clear filter"
             title="Clear filter (Esc)"
-            @click="clearFilter"
+            @click="clearSearch"
           >
             <X class="h-3 w-3" />
           </button>
           <Kbd v-else-if="keyboardEnabled" size="sm">/</Kbd>
           <Kbd v-else :keys="isMac ? ['⌘', 'F'] : ['Ctrl', 'F']" size="sm" />
         </div>
+      </div>
+      <div v-if="showLabelFilter" class="flex shrink-0 items-center">
+        <DropdownMenu v-model:open="labelMenuOpen">
+          <DropdownMenuTrigger
+            class="flex h-7 max-w-[14rem] items-center gap-1.5 rounded-md px-2 text-xs transition-colors duration-fast ease-out hover:bg-muted focus-ring data-[state=open]:bg-muted"
+            :class="
+              labelQuery.trim()
+                ? 'pr-7 font-medium text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            "
+            :aria-label="
+              labelQuery.trim()
+                ? `Filter by label: ${labelQuery.trim()}`
+                : 'Filter by label'
+            "
+          >
+            <Tag class="h-3 w-3 shrink-0" aria-hidden="true" />
+            <span class="truncate" :class="{ 'font-mono': labelQuery.trim() }">
+              {{ labelQuery.trim() || "Labels" }}
+            </span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            class="max-h-80 w-72 overflow-y-auto"
+            @open-auto-focus="onLabelMenuOpenAutoFocus"
+          >
+            <div class="-mx-1 -mt-1 mb-1 flex items-center gap-2 border-b px-3">
+              <Search class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <input
+                ref="labelInput"
+                v-model="labelQuery"
+                type="text"
+                placeholder="app=web, tier!=db, !canary"
+                aria-label="Filter by label"
+                spellcheck="false"
+                autocapitalize="off"
+                class="h-8 w-full bg-transparent font-mono text-xs placeholder:text-muted-foreground/80 focus:outline-none"
+                @keydown="onLabelInputKeydown"
+              />
+            </div>
+            <DropdownMenuRadioGroup v-model="labelQuery">
+              <DropdownMenuRadioItem
+                v-for="facet in shownLabelFacets"
+                :key="facet.item"
+                :value="facet.item"
+              >
+                <span class="truncate font-mono text-xs" :title="facet.item">
+                  <span class="text-muted-foreground">{{ facet.key }}=</span>{{ facet.value }}
+                </span>
+                <span class="ml-auto pl-3 text-xs tabular-nums text-muted-foreground">
+                  {{ facet.count }}
+                </span>
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+            <DropdownMenuLabel
+              v-if="shownLabelFacets.length === 0"
+              class="py-3 text-center text-xs font-normal text-muted-foreground"
+            >
+              {{ labelQuery.trim() ? "Press Enter to filter" : "No labels" }}
+            </DropdownMenuLabel>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <button
+          v-if="labelQuery.trim()"
+          type="button"
+          class="-ml-6 z-10 mr-1 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-ring"
+          aria-label="Clear label filter"
+          title="Clear label filter"
+          @click.stop="labelQuery = ''"
+        >
+          <X class="h-3 w-3" />
+        </button>
       </div>
       <span
         class="whitespace-nowrap text-xs tabular-nums text-muted-foreground"
@@ -2121,7 +2327,15 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
                       :icon="SearchX"
                       title="No matches"
                     >
-                      No {{ emptyResourceName }} match “{{ searchQuery }}”.
+                      <template v-if="searchQuery && !labelQuery.trim()">
+                        No {{ emptyResourceName }} match “{{ searchQuery }}”.
+                      </template>
+                      <template v-else-if="!searchQuery">
+                        No {{ emptyResourceName }} have labels matching “{{ labelQuery.trim() }}”.
+                      </template>
+                      <template v-else>
+                        No {{ emptyResourceName }} match “{{ searchQuery }}” with labels “{{ labelQuery.trim() }}”.
+                      </template>
                       <template #action>
                         <Button
                           variant="outline"

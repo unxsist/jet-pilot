@@ -13,6 +13,22 @@ How to write an entry (jet-pilot.app/changelog is generated from this file):
   `#### Upgrading`: lists of `**Lead.** Detail.` items, in plain words.
 -->
 
+## 2.4.0 (2026-11-26)
+
+### Namespaces where you look
+
+Switch namespaces from the list or graph you're looking at, and narrow a list down by label.
+
+#### New
+- **Namespace picker.** Pods, Deployments and every other namespaced list, plus the Resource Graph, have a namespace picker next to the filter. It changes the same selection as the sidebar, so every view follows, and picks the way you set in Settings › Clusters. Hold <kbd>⌘</kbd> / <kbd>Ctrl</kbd> to do the other.
+- **Filter by label.** Pick one of the labels the rows have, with how many rows have it, or type `app=web`, `tier!=db` or `!canary`. Separate terms with commas to combine them.
+
+#### Improved
+- **Find a label or annotation.** Objects with more than a handful of labels or annotations get a filter above them in the side panel.
+
+#### Fixed
+- **Lists no longer come back empty.** A list you had scrolled could show its count but no rows when you came back to it from another view, for example after switching namespaces. It now comes back where you left it.
+
 ## 2.3.1 (2026-11-07)
 
 #### Fixed

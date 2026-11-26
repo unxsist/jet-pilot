@@ -23,6 +23,13 @@ import {
 } from "@/components/tables/status";
 import { formatAge, toDate } from "@/components/tables/age";
 import { describeFailures } from "@/composables/useResourceList";
+import { ref } from "vue";
+import { useTableModel } from "@/components/tables/useTableModel";
+import {
+  collectMetadataFacets,
+  matchesMetadataQuery,
+} from "@/components/tables/metadataFilter";
+import type { ColumnDef, SortingState } from "@tanstack/vue-table";
 
 describe("row identity", () => {
   test("uses context + uid", () => {
@@ -352,5 +359,108 @@ describe("describeFailures", () => {
       fatal: false,
       message: "Failed to load from a: nope",
     });
+  });
+});
+
+describe("useTableModel rowFilter", () => {
+  interface Item {
+    metadata: { context: string; uid: string; name: string; namespace: string };
+  }
+
+  const columns: ColumnDef<Item, any>[] = [
+    { id: "name", accessorFn: (row) => row.metadata.name, header: "Name" },
+    { id: "namespace", accessorFn: (row) => row.metadata.namespace, header: "Namespace" },
+  ];
+
+  const items: Item[] = [
+    { metadata: { context: "c1", uid: "1", name: "api-0", namespace: "prod" } },
+    { metadata: { context: "c1", uid: "2", name: "api-1", namespace: "staging" } },
+    { metadata: { context: "c1", uid: "3", name: "web-0", namespace: "prod" } },
+  ];
+
+  test("filters by namespace and combines with search query", () => {
+    const query = ref("");
+    const ns = ref("all");
+    const sorting = ref<SortingState>([]);
+
+    const { filteredRows } = useTableModel({
+      data: () => items,
+      columns: () => columns,
+      query: () => query.value,
+      rowFilter: (row) => ns.value === "all" || row.metadata.namespace === ns.value,
+      sorting,
+    });
+
+    expect(filteredRows.value.map((r) => r.original.metadata.name)).toEqual([
+      "api-0",
+      "api-1",
+      "web-0",
+    ]);
+
+    ns.value = "prod";
+    expect(filteredRows.value.map((r) => r.original.metadata.name)).toEqual([
+      "api-0",
+      "web-0",
+    ]);
+
+    query.value = "web";
+    expect(filteredRows.value.map((r) => r.original.metadata.name)).toEqual([
+      "web-0",
+    ]);
+  });
+});
+
+describe("metadataFilter", () => {
+  test("matchesMetadataQuery supports key=value, key!=value, !key and substring", () => {
+    const labels = {
+      "kubernetes.io/arch": "amd64",
+      "node-role.kubernetes.io/worker": "",
+      "topology.kubernetes.io/zone": "eu-west-1a",
+    };
+
+    expect(matchesMetadataQuery(labels, "")).toBe(true);
+    expect(matchesMetadataQuery(labels, "amd64")).toBe(true);
+    expect(matchesMetadataQuery(labels, "arch=amd64")).toBe(true);
+    expect(matchesMetadataQuery(labels, "arch=arm64")).toBe(false);
+    expect(matchesMetadataQuery(labels, "kubernetes.io/arch!=arm64")).toBe(true);
+    expect(matchesMetadataQuery(labels, "kubernetes.io/arch!=amd64")).toBe(false);
+    expect(matchesMetadataQuery(labels, "!gpu")).toBe(true);
+    expect(matchesMetadataQuery(labels, "!worker")).toBe(false);
+    expect(matchesMetadataQuery(labels, "arch=amd64, zone=eu-west-1a")).toBe(true);
+    expect(matchesMetadataQuery(labels, "arch=amd64, zone=us-east-1a")).toBe(false);
+  });
+
+  test("matchesMetadataQuery: values match exactly, keys by name or last segment", () => {
+    const labels = { app: "web-v2", "app.kubernetes.io/name": "webhook", tier: "" };
+
+    // A picked facet must not match longer values or other keys.
+    expect(matchesMetadataQuery(labels, "app=web")).toBe(false);
+    expect(matchesMetadataQuery(labels, "app=web-v2")).toBe(true);
+    expect(matchesMetadataQuery(labels, "name=webhook")).toBe(true);
+    expect(matchesMetadataQuery(labels, "app.kubernetes.io/name==WEBHOOK")).toBe(true);
+    // `key=`: the key with an empty value.
+    expect(matchesMetadataQuery(labels, "tier=")).toBe(true);
+    expect(matchesMetadataQuery(labels, "app=")).toBe(false);
+    // `!key` is about keys, not substrings of them.
+    expect(matchesMetadataQuery(labels, "!ap")).toBe(true);
+    expect(matchesMetadataQuery(labels, "!app")).toBe(false);
+    expect(matchesMetadataQuery(labels, "app!=web")).toBe(true);
+    // Plain terms still search keys and values.
+    expect(matchesMetadataQuery(labels, "hook")).toBe(true);
+    expect(matchesMetadataQuery(null, "hook")).toBe(false);
+    expect(matchesMetadataQuery(null, "!app")).toBe(true);
+    expect(matchesMetadataQuery(labels, " , ")).toBe(true);
+  });
+
+  test("collectMetadataFacets counts and sorts key=value entries", () => {
+    const nodes = [
+      { metadata: { labels: { zone: "b", role: "worker" } } },
+      { metadata: { labels: { zone: "a", role: "worker" } } },
+    ];
+    expect(collectMetadataFacets(nodes, "labels")).toEqual([
+      { item: "role=worker", key: "role", value: "worker", count: 2 },
+      { item: "zone=a", key: "zone", value: "a", count: 1 },
+      { item: "zone=b", key: "zone", value: "b", count: 1 },
+    ]);
   });
 });

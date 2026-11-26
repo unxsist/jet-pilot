@@ -51,6 +51,7 @@ import { guardedCluster } from "@/lib/guardrails/backstop";
 import { readOnlyReason } from "@/lib/guardrails/policy";
 import { useCustomRowActions } from "@/lib/customActions/rowActions";
 import { usePrinterColumns } from "@/lib/crds";
+import { kindInfo } from "@/lib/resources/kinds";
 const setSidePanelComponent = injectStrict(
   PanelProviderSetSidePanelComponentKey
 );
@@ -251,6 +252,7 @@ onMounted(async () => {
     :persist-key="currentResource"
     :columns="tableColumns"
     :printer-columns="printerColumns"
+    :namespaced="kindInfo(currentKind)?.namespaced"
     :allow-filter="true"
     :sticky-headers="true"
     :row-actions="allRowActions"
