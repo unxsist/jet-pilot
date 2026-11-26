@@ -9,7 +9,7 @@ import type {
   SortingState,
 } from "@tanstack/vue-table";
 import { FlexRender } from "@tanstack/vue-table";
-import { useVirtualizer } from "@tanstack/vue-virtual";
+import { observeElementRect, useVirtualizer } from "@tanstack/vue-virtual";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -857,9 +857,21 @@ const HEADER_HEIGHT = 32;
 
 const skeletonWidths = ["w-3/4", "w-1/2", "w-2/3", "w-5/12"];
 
+/*
+ * Out of the page (a cached view while another shows) the container
+ * measures 0 high: keep the last size, so the rows are still there to
+ * scroll back to on return (see onActivated below).
+ */
+const observeRectWhileShown: typeof observeElementRect = (instance, cb) =>
+  observeElementRect(instance, (rect) => {
+    if (instance.scrollElement?.isConnected === false) return;
+    cb(rect);
+  });
+
 const virtualizerOptions = computed(() => ({
   count: displayItems.value.length,
   getScrollElement: () => tableContainer.value,
+  observeElementRect: observeRectWhileShown,
   estimateSize: () => rowHeight.value,
   overscan: 12,
   scrollMargin: HEADER_HEIGHT,
@@ -906,12 +918,32 @@ watch(
   }
 );
 
+/*
+ * A cached view (keep-alive) is taken out of the page while another one
+ * shows, and the browser puts its scroll back at the top on return, with
+ * no scroll event: the virtual rows stayed where the list had been
+ * scrolled to, out of sight, under a count that was right (#126). Back,
+ * the table returns to where it was and tells the virtualizer, also when
+ * the list got shorter meanwhile and the position is clamped.
+ */
+let scrollPosition = { top: 0, left: 0 };
+
 /* Horizontal scroll: shadow under the sticky first column. */
 const scrolledX = ref(false);
 const onContainerScroll = () => {
-  const scrolled = (tableContainer.value?.scrollLeft || 0) > 0;
+  const el = tableContainer.value;
+  if (el?.isConnected) scrollPosition = { top: el.scrollTop, left: el.scrollLeft };
+  const scrolled = (el?.scrollLeft || 0) > 0;
   if (scrolled !== scrolledX.value) scrolledX.value = scrolled;
 };
+
+onActivated(() => {
+  const el = tableContainer.value;
+  if (!el) return;
+  el.scrollTop = scrollPosition.top;
+  el.scrollLeft = scrollPosition.left;
+  el.dispatchEvent(new Event("scroll"));
+});
 
 /* Relative ages re-render every few seconds even when rows are unchanged. */
 const clock = ref(0);

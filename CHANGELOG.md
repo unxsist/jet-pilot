@@ -26,6 +26,9 @@ Switch namespaces from the list or graph you're looking at, and narrow a list do
 #### Improved
 - **Find a label or annotation.** Objects with more than a handful of labels or annotations get a filter above them in the side panel.
 
+#### Fixed
+- **Lists no longer come back empty.** A list you had scrolled could show its count but no rows when you came back to it from another view, for example after switching namespaces. It now comes back where you left it.
+
 ## 2.3.1 (2026-11-07)
 
 #### Fixed
