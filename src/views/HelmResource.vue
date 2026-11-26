@@ -110,6 +110,7 @@ const installChart = () => router.push({ name: "HelmChartsPage" });
     :error="loadError"
     :last-updated="lastUpdated"
     resource-name="releases"
+    :namespaced="true"
     :columns="tableColumns"
     :allow-filter="true"
     :sticky-headers="true"

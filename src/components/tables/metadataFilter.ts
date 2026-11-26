@@ -1,64 +1,55 @@
 /**
  * Matches a Kubernetes metadata map (labels or annotations) against a filter
- * query. Supports comma- or space-separated terms:
- * - `key=value` or `key==value` (exact match, or substring when not exact)
- * - `key!=value` (key absent or value differs)
- * - `!key` (key absent)
- * - `term` (substring match against `key=value`, `key`, or `value`, case-insensitive)
+ * query: comma-separated terms that must all match, case-insensitive.
+ *
+ * - `key=value` or `key==value`: the key has exactly that value (`key=`:
+ *   an empty value)
+ * - `key!=value`: the key is absent or has another value
+ * - `!key`: the key is absent
+ * - anything else: a substring of a key or a value
+ *
+ * A key matches by its full name or by its last segment, so `arch` finds
+ * `kubernetes.io/arch`.
  */
 export function matchesMetadataQuery(
   entries: Record<string, string> | undefined | null,
   query: string
 ): boolean {
-  const trimmed = query.trim();
-  if (!trimmed) return true;
-  const map = entries ?? {};
-  const pairs = Object.entries(map);
-
-  const terms = trimmed
-    .split(/[,]+/)
-    .map((t) => t.trim())
+  const terms = query
+    .split(",")
+    .map((term) => term.trim())
     .filter(Boolean);
-
   if (terms.length === 0) return true;
 
-  return terms.every((term) => {
-    const notEqIdx = term.indexOf("!=");
-    if (notEqIdx > 0) {
-      const k = term.slice(0, notEqIdx).trim().toLowerCase();
-      const v = term.slice(notEqIdx + 2).trim().toLowerCase();
-      return !pairs.some(
-        ([ek, ev]) => ek.toLowerCase() === k && ev.toLowerCase() === v
-      );
+  const pairs = Object.entries(entries ?? {}).map(
+    ([key, value]) => [key.toLowerCase(), String(value ?? "").toLowerCase()] as const
+  );
+  const keyMatches = (key: string, wanted: string) =>
+    key === wanted || key.slice(key.lastIndexOf("/") + 1) === wanted;
+
+  return terms.every((raw) => {
+    const term = raw.toLowerCase();
+
+    const notEqual = term.indexOf("!=");
+    if (notEqual > 0) {
+      const key = term.slice(0, notEqual).trim();
+      const value = term.slice(notEqual + 2).trim();
+      return !pairs.some(([k, v]) => keyMatches(k, key) && v === value);
     }
 
-    const eqMatch = term.match(/^([^=!]+)==?(.*)$/);
-    if (eqMatch) {
-      const k = eqMatch[1].trim().toLowerCase();
-      const v = eqMatch[2].trim().toLowerCase();
-      return pairs.some(([ek, ev]) => {
-        const keyMatches =
-          ek.toLowerCase() === k || ek.toLowerCase().includes(k);
-        if (!v) return keyMatches;
-        return (
-          keyMatches &&
-          (ev.toLowerCase() === v || ev.toLowerCase().includes(v))
-        );
-      });
+    if (term.startsWith("!") && !term.includes("=")) {
+      const key = term.slice(1).trim();
+      return !key || !pairs.some(([k]) => keyMatches(k, key));
     }
 
-    if (term.startsWith("!") && term.length > 1) {
-      const needle = term.slice(1).trim().toLowerCase();
-      return !pairs.some(([ek]) => ek.toLowerCase().includes(needle));
+    const equal = term.indexOf("=");
+    if (equal > 0) {
+      const key = term.slice(0, equal).trim();
+      const value = term.slice(term[equal + 1] === "=" ? equal + 2 : equal + 1).trim();
+      return pairs.some(([k, v]) => keyMatches(k, key) && v === value);
     }
 
-    const needle = term.toLowerCase();
-    return pairs.some(
-      ([ek, ev]) =>
-        ek.toLowerCase().includes(needle) ||
-        ev.toLowerCase().includes(needle) ||
-        `${ek}=${ev}`.toLowerCase().includes(needle)
-    );
+    return pairs.some(([k, v]) => k.includes(term) || v.includes(term));
   });
 }
 

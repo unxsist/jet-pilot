@@ -389,6 +389,7 @@ const rowClasses = (row: V1Pod) => {
     :error="loadError"
     :last-updated="lastUpdated"
     resource-name="pods"
+    :namespaced="true"
     :columns="tableColumns"
     :allow-filter="true"
     :sticky-headers="true"

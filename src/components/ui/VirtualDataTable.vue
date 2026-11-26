@@ -51,13 +51,11 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronRight,
-  ChevronsUpDown,
   CloudOff,
   Columns3,
   Copy,
   Keyboard,
   Link,
-  NotebookPen,
   Sheet,
   SquareTerminal,
   Loader2,
@@ -67,7 +65,7 @@ import {
   Search,
   SearchX,
   SlidersHorizontal,
-  Tags,
+  Tag,
   TriangleAlert,
   X,
 } from "lucide-vue-next";
@@ -118,6 +116,7 @@ import {
   matchesMetadataQuery,
 } from "../tables/metadataFilter";
 import TableShortcutsDialog from "../tables/TableShortcutsDialog.vue";
+import NamespacePicker from "../NamespacePicker.vue";
 import RowOptionPicker from "../tables/RowOptionPicker.vue";
 import type { ResourceListError } from "@/composables/useResourceList";
 
@@ -163,6 +162,11 @@ const props = withDefaults(
     keyboard?: boolean;
     /** Printer columns of the kind (a CRD's additionalPrinterColumns). */
     printerColumns?: PrinterColumn[];
+    /**
+     * Whether the kind is namespaced: the toolbar then offers the namespace
+     * picker. Unknown (undefined): judged by the rows.
+     */
+    namespaced?: boolean;
   }>(),
   // undefined (not false): the keyboard default depends on the other props
   { keyboard: undefined, persistKey: undefined }
@@ -180,158 +184,61 @@ const isMac = getOsType() === "macos";
 const sorting = ref<SortingState>([]);
 const searchInput = ref<HTMLInputElement | null>(null);
 const searchQuery = ref<string>("");
-const selectedNamespace = ref<string>("all");
-const namespaceSearchQuery = ref<string>("");
-const namespaceMenuOpen = ref(false);
-const namespaceSearchInput = ref<HTMLInputElement | null>(null);
 const root = ref<HTMLDivElement | null>(null);
 const tableContainer = ref<HTMLDivElement | null>(null);
 
-const rowNamespace = (row: unknown): string => {
-  const r = row as { metadata?: { namespace?: string }; namespace?: string };
-  return r?.metadata?.namespace ?? r?.namespace ?? "";
-};
+/* --------------------------------------------------- label filter -- */
 
-const availableNamespaces = computed(() => {
-  if (!props.allowFilter) return [];
-  const counts = new Map<string, number>();
-  for (const row of props.data) {
-    const ns = rowNamespace(row);
-    if (ns) counts.set(ns, (counts.get(ns) ?? 0) + 1);
-  }
-  const collator = new Intl.Collator(undefined, {
-    numeric: true,
-    sensitivity: "base",
-  });
-  return [...counts.entries()]
-    .sort((a, b) => collator.compare(a[0], b[0]))
-    .map(([name, count]) => ({ name, count }));
-});
-
-const showNamespaceFilter = computed(
-  () =>
-    availableNamespaces.value.length > 1 ||
-    (selectedNamespace.value !== "all" && availableNamespaces.value.length > 0)
-);
-
-const filteredNamespaceOptions = computed(() => {
-  const q = namespaceSearchQuery.value.trim().toLowerCase();
-  if (!q) return availableNamespaces.value;
-  return availableNamespaces.value.filter((ns) =>
-    ns.name.toLowerCase().includes(q)
-  );
-});
-
-watch(availableNamespaces, (list) => {
-  if (
-    selectedNamespace.value !== "all" &&
-    list.length > 0 &&
-    !list.some((ns) => ns.name === selectedNamespace.value)
-  ) {
-    selectedNamespace.value = "all";
-  }
-});
-
-watch(namespaceMenuOpen, (open) => {
-  if (!open) {
-    namespaceSearchQuery.value = "";
-  }
-});
-
-const onNamespaceMenuOpenAutoFocus = (event: Event) => {
-  if (availableNamespaces.value.length > 8) {
-    event.preventDefault();
-    nextTick(() => namespaceSearchInput.value?.focus());
-  }
-};
-
-const onNamespaceSearchKeydown = (event: KeyboardEvent) => {
-  if (event.key === "Escape") return;
-  event.stopPropagation();
-  if (event.key === "ArrowDown") {
-    event.preventDefault();
-    const menu = (event.target as HTMLElement).closest('[role="menu"]');
-    menu
-      ?.querySelector<HTMLElement>('[role^="menuitem"]:not([data-disabled])')
-      ?.focus();
-  }
-};
-
-const labelFilterQuery = ref<string>("");
-const annotationFilterQuery = ref<string>("");
+/* Rows by label: `key=value`, `key!=value`, `!key` (matchesMetadataQuery). */
+const labelQuery = ref<string>("");
 const labelMenuOpen = ref(false);
-const annotationMenuOpen = ref(false);
-const labelFilterInput = ref<HTMLInputElement | null>(null);
-const annotationFilterInput = ref<HTMLInputElement | null>(null);
+const labelInput = ref<HTMLInputElement | null>(null);
 
-const rowMetadata = (row: unknown, field: "labels" | "annotations") => {
-  const r = row as {
-    metadata?: {
-      labels?: Record<string, string>;
-      annotations?: Record<string, string>;
-    };
-  };
-  return r?.metadata?.[field];
-};
+const rowLabels = (row: unknown) =>
+  (row as { metadata?: { labels?: Record<string, string> } })?.metadata
+    ?.labels;
 
-const availableLabels = computed(() =>
-  props.allowFilter ? collectMetadataFacets(props.data, "labels") : []
-);
-const availableAnnotations = computed(() =>
-  props.allowFilter ? collectMetadataFacets(props.data, "annotations") : []
-);
-
-const showMetadataFilters = computed(
+/* Only offered when the rows have labels (or a filter is set). */
+const showLabelFilter = computed(
   () =>
-    props.allowFilter &&
-    (props.resourceName === "nodes" ||
-      availableLabels.value.length > 0 ||
-      availableAnnotations.value.length > 0 ||
-      labelFilterQuery.value.trim().length > 0 ||
-      annotationFilterQuery.value.trim().length > 0)
+    !!props.allowFilter &&
+    (labelQuery.value.trim() !== "" ||
+      props.data.some((row) => {
+        const labels = rowLabels(row);
+        return !!labels && Object.keys(labels).length > 0;
+      }))
 );
 
-const filteredLabelOptions = computed(() => {
-  const q = labelFilterQuery.value.trim().toLowerCase();
-  if (!q) return availableLabels.value.slice(0, 100);
-  return availableLabels.value
-    .filter((opt) => opt.item.toLowerCase().includes(q))
-    .slice(0, 100);
-});
-
-const filteredAnnotationOptions = computed(() => {
-  const q = annotationFilterQuery.value.trim().toLowerCase();
-  if (!q) return availableAnnotations.value.slice(0, 100);
-  return availableAnnotations.value
-    .filter((opt) => opt.item.toLowerCase().includes(q))
-    .slice(0, 100);
+/* The rows' distinct labels with counts: only while the menu is open. */
+const labelFacets = computed(() =>
+  labelMenuOpen.value ? collectMetadataFacets(props.data, "labels") : []
+);
+const shownLabelFacets = computed(() => {
+  const needle = labelQuery.value.trim().toLowerCase();
+  const facets = needle
+    ? labelFacets.value.filter((facet) =>
+        facet.item.toLowerCase().includes(needle)
+      )
+    : labelFacets.value;
+  return facets.slice(0, 100);
 });
 
 const onLabelMenuOpenAutoFocus = (event: Event) => {
   event.preventDefault();
-  nextTick(() => labelFilterInput.value?.focus());
+  nextTick(() => labelInput.value?.focus());
 };
 
-const onAnnotationMenuOpenAutoFocus = (event: Event) => {
-  event.preventDefault();
-  nextTick(() => annotationFilterInput.value?.focus());
-};
-
-const onMetadataInputKeydown = (
-  event: KeyboardEvent,
-  closeMenu: () => void
-) => {
+/* Typed keys stay out of the menu's typeahead; Enter applies and closes. */
+const onLabelInputKeydown = (event: KeyboardEvent) => {
   if (event.key === "Escape") return;
   event.stopPropagation();
   if (event.key === "Enter") {
     event.preventDefault();
-    closeMenu();
-    return;
-  }
-  if (event.key === "ArrowDown") {
+    labelMenuOpen.value = false;
+  } else if (event.key === "ArrowDown") {
     event.preventDefault();
-    const menu = (event.target as HTMLElement).closest('[role="menu"]');
-    menu
+    (event.target as HTMLElement)
+      .closest('[role="menu"]')
       ?.querySelector<HTMLElement>('[role^="menuitem"]:not([data-disabled])')
       ?.focus();
   }
@@ -520,30 +427,9 @@ const { table, filteredRows, sortedRows, selectedRows } = useTableModel<TData>({
   data: () => props.data,
   columns: () => allColumns.value,
   query: () => searchQuery.value,
-  rowFilter: (row) => {
-    if (
-      selectedNamespace.value !== "all" &&
-      rowNamespace(row) !== selectedNamespace.value
-    ) {
-      return false;
-    }
-    if (
-      labelFilterQuery.value.trim() &&
-      !matchesMetadataQuery(rowMetadata(row, "labels"), labelFilterQuery.value)
-    ) {
-      return false;
-    }
-    if (
-      annotationFilterQuery.value.trim() &&
-      !matchesMetadataQuery(
-        rowMetadata(row, "annotations"),
-        annotationFilterQuery.value
-      )
-    ) {
-      return false;
-    }
-    return true;
-  },
+  rowFilter: (row) =>
+    !labelQuery.value.trim() ||
+    matchesMetadataQuery(rowLabels(row), labelQuery.value),
   sorting,
   onSortingChange: (value) => emit("sortingChange", value),
   initialVisibility: props.visibleColumns,
@@ -586,7 +472,7 @@ watch(
   { immediate: true }
 );
 
-const { contexts } = injectStrict(KubeContextStateKey);
+const { contexts, contextKubeConfigMapping } = injectStrict(KubeContextStateKey);
 
 /* Cluster-scoped kinds (nodes, persistent volumes, ...) have no namespace. */
 const hasNamespacedRows = computed(
@@ -597,6 +483,21 @@ const hasNamespacedRows = computed(
         !!(row as { metadata?: { namespace?: string } })?.metadata?.namespace
     )
 );
+
+/*
+ * The namespace picker's context: namespaced lists while one context is
+ * active (with several, the Context column and the sidebar scope them).
+ */
+const namespaceScope = computed(() => {
+  if (!props.allowFilter || props.namespaced === false) return null;
+  if (props.namespaced === undefined && !hasNamespacedRows.value) return null;
+  if (contexts.value.size !== 1) return null;
+  const [context] = contexts.value.keys();
+  return {
+    context,
+    kubeConfig: contextKubeConfigMapping.value.get(context) ?? "",
+  };
+});
 
 /*
  * Column visibility, in order of precedence:
@@ -935,20 +836,14 @@ const setAllGroupsCollapsed = (collapse: boolean) => {
 /* ---------------------------------------------------- virtualisation -- */
 
 const isFiltering = computed(
-  () =>
-    searchQuery.value.length > 0 ||
-    selectedNamespace.value !== "all" ||
-    labelFilterQuery.value.trim().length > 0 ||
-    annotationFilterQuery.value.trim().length > 0
+  () => searchQuery.value.length > 0 || labelQuery.value.trim().length > 0
 );
 const clearSearch = () => {
   searchQuery.value = "";
 };
 const clearFilter = () => {
   searchQuery.value = "";
-  selectedNamespace.value = "all";
-  labelFilterQuery.value = "";
-  annotationFilterQuery.value = "";
+  labelQuery.value = "";
 };
 
 const emptyResourceName = computed(() => props.resourceName || "results");
@@ -1429,16 +1324,8 @@ const handleEscape = (): boolean => {
     clearSearch();
     return true;
   }
-  if (labelFilterQuery.value) {
-    labelFilterQuery.value = "";
-    return true;
-  }
-  if (annotationFilterQuery.value) {
-    annotationFilterQuery.value = "";
-    return true;
-  }
-  if (selectedNamespace.value !== "all") {
-    selectedNamespace.value = "all";
+  if (labelQuery.value) {
+    labelQuery.value = "";
     return true;
   }
   return false;
@@ -1838,6 +1725,12 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
       v-if="allowFilter"
       class="flex h-11 shrink-0 items-center gap-2 border-b px-3"
     >
+      <NamespacePicker
+        v-if="namespaceScope"
+        :context="namespaceScope.context"
+        :kube-config="namespaceScope.kubeConfig"
+        class="-ml-1"
+      />
       <div class="relative flex w-full max-w-[18rem] items-center">
         <Search
           class="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted-foreground"
@@ -1872,122 +1765,25 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
           <Kbd v-else :keys="isMac ? ['⌘', 'F'] : ['Ctrl', 'F']" size="sm" />
         </div>
       </div>
-      <div v-if="showNamespaceFilter" class="flex shrink-0 items-center">
-        <DropdownMenu v-model:open="namespaceMenuOpen">
-          <DropdownMenuTrigger as-child>
-            <button
-              type="button"
-              :aria-label="`Filter by namespace (${selectedNamespace === 'all' ? 'All namespaces' : selectedNamespace})`"
-              :class="[
-                'flex h-7 items-center gap-1.5 rounded-md border border-transparent bg-muted/60 px-2.5 text-xs transition-[border-color,box-shadow,background-color,color] duration-fast ease-out hover:bg-muted focus-ring',
-                selectedNamespace !== 'all'
-                  ? 'pr-6 font-medium text-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              ]"
-            >
-              <span class="max-w-[10rem] truncate">
-                {{
-                  selectedNamespace === "all"
-                    ? "All namespaces"
-                    : selectedNamespace
-                }}
-              </span>
-              <ChevronsUpDown
-                v-if="selectedNamespace === 'all'"
-                class="h-3 w-3 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            class="max-h-80 w-60 overflow-y-auto"
-            @open-auto-focus="onNamespaceMenuOpenAutoFocus"
-          >
-            <div
-              v-if="availableNamespaces.length > 8"
-              class="-mx-1 -mt-1 mb-1 flex items-center gap-2 border-b px-3"
-            >
-              <Search class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <input
-                ref="namespaceSearchInput"
-                v-model="namespaceSearchQuery"
-                type="text"
-                placeholder="Search namespaces…"
-                aria-label="Search namespaces"
-                class="h-8 w-full bg-transparent text-xs placeholder:text-muted-foreground/80 focus:outline-none"
-                @keydown="onNamespaceSearchKeydown"
-              />
-            </div>
-            <DropdownMenuRadioGroup v-model="selectedNamespace">
-              <DropdownMenuRadioItem value="all">
-                <span class="truncate">All namespaces</span>
-                <span class="ml-auto pl-3 text-xs tabular-nums text-muted-foreground">
-                  {{ data.length }}
-                </span>
-              </DropdownMenuRadioItem>
-              <DropdownMenuSeparator v-if="filteredNamespaceOptions.length > 0" />
-              <DropdownMenuRadioItem
-                v-for="ns in filteredNamespaceOptions"
-                :key="ns.name"
-                :value="ns.name"
-              >
-                <span class="truncate">{{ ns.name }}</span>
-                <span class="ml-auto pl-3 text-xs tabular-nums text-muted-foreground">
-                  {{ ns.count }}
-                </span>
-              </DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-            <DropdownMenuLabel
-              v-if="filteredNamespaceOptions.length === 0"
-              class="py-3 text-center text-xs font-normal text-muted-foreground"
-            >
-              No matching namespaces
-            </DropdownMenuLabel>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <button
-          v-if="selectedNamespace !== 'all'"
-          type="button"
-          class="-ml-5 z-10 mr-1 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-ring"
-          aria-label="Clear namespace filter"
-          title="Show all namespaces"
-          @click.stop="selectedNamespace = 'all'"
-        >
-          <X class="h-3 w-3" />
-        </button>
-      </div>
-      <div
-        v-if="
-          showMetadataFilters &&
-          (availableLabels.length > 0 ||
-            labelFilterQuery.trim() ||
-            resourceName === 'nodes')
-        "
-        class="flex shrink-0 items-center"
-      >
+      <div v-if="showLabelFilter" class="flex shrink-0 items-center">
         <DropdownMenu v-model:open="labelMenuOpen">
-          <DropdownMenuTrigger as-child>
-            <button
-              type="button"
-              :aria-label="`Filter by label${labelFilterQuery.trim() ? ` (${labelFilterQuery.trim()})` : ''}`"
-              :class="[
-                'flex h-7 items-center gap-1.5 rounded-md border border-transparent bg-muted/60 px-2.5 text-xs transition-[border-color,box-shadow,background-color,color] duration-fast ease-out hover:bg-muted focus-ring',
-                labelFilterQuery.trim()
-                  ? 'pr-6 font-medium text-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              ]"
-            >
-              <Tags class="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
-              <span class="max-w-[10rem] truncate">
-                {{ labelFilterQuery.trim() ? labelFilterQuery.trim() : "Labels" }}
-              </span>
-              <ChevronsUpDown
-                v-if="!labelFilterQuery.trim()"
-                class="h-3 w-3 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
-            </button>
+          <DropdownMenuTrigger
+            class="flex h-7 max-w-[14rem] items-center gap-1.5 rounded-md px-2 text-xs transition-colors duration-fast ease-out hover:bg-muted focus-ring data-[state=open]:bg-muted"
+            :class="
+              labelQuery.trim()
+                ? 'pr-7 font-medium text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            "
+            :aria-label="
+              labelQuery.trim()
+                ? `Filter by label: ${labelQuery.trim()}`
+                : 'Filter by label'
+            "
+          >
+            <Tag class="h-3 w-3 shrink-0" aria-hidden="true" />
+            <span class="truncate" :class="{ 'font-mono': labelQuery.trim() }">
+              {{ labelQuery.trim() || "Labels" }}
+            </span>
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="start"
@@ -1997,158 +1793,46 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
             <div class="-mx-1 -mt-1 mb-1 flex items-center gap-2 border-b px-3">
               <Search class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <input
-                ref="labelFilterInput"
-                v-model="labelFilterQuery"
+                ref="labelInput"
+                v-model="labelQuery"
                 type="text"
-                placeholder="Filter labels (e.g. key=value)…"
-                aria-label="Filter labels"
-                class="h-8 w-full bg-transparent font-mono text-xs placeholder:font-sans placeholder:text-muted-foreground/80 focus:outline-none"
-                @keydown="onMetadataInputKeydown($event, () => (labelMenuOpen = false))"
+                placeholder="app=web, tier!=db, !canary"
+                aria-label="Filter by label"
+                spellcheck="false"
+                autocapitalize="off"
+                class="h-8 w-full bg-transparent font-mono text-xs placeholder:text-muted-foreground/80 focus:outline-none"
+                @keydown="onLabelInputKeydown"
               />
-              <button
-                v-if="labelFilterQuery"
-                type="button"
-                class="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                aria-label="Clear label filter"
-                @click="labelFilterQuery = ''"
-              >
-                <X class="h-3 w-3" />
-              </button>
             </div>
-            <DropdownMenuRadioGroup v-model="labelFilterQuery">
-              <DropdownMenuRadioItem value="">
-                <span class="truncate">All labels</span>
-                <span class="ml-auto pl-3 text-xs tabular-nums text-muted-foreground">
-                  {{ availableLabels.length }}
-                </span>
-              </DropdownMenuRadioItem>
-              <DropdownMenuSeparator v-if="filteredLabelOptions.length > 0" />
+            <DropdownMenuRadioGroup v-model="labelQuery">
               <DropdownMenuRadioItem
-                v-for="opt in filteredLabelOptions"
-                :key="opt.item"
-                :value="opt.item"
+                v-for="facet in shownLabelFacets"
+                :key="facet.item"
+                :value="facet.item"
               >
-                <span class="truncate font-mono text-xs" :title="opt.item">
-                  <span class="text-muted-foreground">{{ opt.key }}=</span>{{ opt.value }}
+                <span class="truncate font-mono text-xs" :title="facet.item">
+                  <span class="text-muted-foreground">{{ facet.key }}=</span>{{ facet.value }}
                 </span>
                 <span class="ml-auto pl-3 text-xs tabular-nums text-muted-foreground">
-                  {{ opt.count }}
+                  {{ facet.count }}
                 </span>
               </DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
             <DropdownMenuLabel
-              v-if="filteredLabelOptions.length === 0 && availableLabels.length > 0"
+              v-if="shownLabelFacets.length === 0"
               class="py-3 text-center text-xs font-normal text-muted-foreground"
             >
-              Filtering by “{{ labelFilterQuery.trim() }}”
+              {{ labelQuery.trim() ? "Press Enter to filter" : "No labels" }}
             </DropdownMenuLabel>
           </DropdownMenuContent>
         </DropdownMenu>
         <button
-          v-if="labelFilterQuery.trim()"
+          v-if="labelQuery.trim()"
           type="button"
-          class="-ml-5 z-10 mr-1 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-ring"
+          class="-ml-6 z-10 mr-1 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-ring"
           aria-label="Clear label filter"
           title="Clear label filter"
-          @click.stop="labelFilterQuery = ''"
-        >
-          <X class="h-3 w-3" />
-        </button>
-      </div>
-      <div
-        v-if="
-          showMetadataFilters &&
-          (availableAnnotations.length > 0 ||
-            annotationFilterQuery.trim() ||
-            resourceName === 'nodes')
-        "
-        class="flex shrink-0 items-center"
-      >
-        <DropdownMenu v-model:open="annotationMenuOpen">
-          <DropdownMenuTrigger as-child>
-            <button
-              type="button"
-              :aria-label="`Filter by annotation${annotationFilterQuery.trim() ? ` (${annotationFilterQuery.trim()})` : ''}`"
-              :class="[
-                'flex h-7 items-center gap-1.5 rounded-md border border-transparent bg-muted/60 px-2.5 text-xs transition-[border-color,box-shadow,background-color,color] duration-fast ease-out hover:bg-muted focus-ring',
-                annotationFilterQuery.trim()
-                  ? 'pr-6 font-medium text-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              ]"
-            >
-              <NotebookPen class="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
-              <span class="max-w-[10rem] truncate">
-                {{ annotationFilterQuery.trim() ? annotationFilterQuery.trim() : "Annotations" }}
-              </span>
-              <ChevronsUpDown
-                v-if="!annotationFilterQuery.trim()"
-                class="h-3 w-3 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            class="max-h-80 w-72 overflow-y-auto"
-            @open-auto-focus="onAnnotationMenuOpenAutoFocus"
-          >
-            <div class="-mx-1 -mt-1 mb-1 flex items-center gap-2 border-b px-3">
-              <Search class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <input
-                ref="annotationFilterInput"
-                v-model="annotationFilterQuery"
-                type="text"
-                placeholder="Filter annotations (e.g. key=value)…"
-                aria-label="Filter annotations"
-                class="h-8 w-full bg-transparent font-mono text-xs placeholder:font-sans placeholder:text-muted-foreground/80 focus:outline-none"
-                @keydown="onMetadataInputKeydown($event, () => (annotationMenuOpen = false))"
-              />
-              <button
-                v-if="annotationFilterQuery"
-                type="button"
-                class="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                aria-label="Clear annotation filter"
-                @click="annotationFilterQuery = ''"
-              >
-                <X class="h-3 w-3" />
-              </button>
-            </div>
-            <DropdownMenuRadioGroup v-model="annotationFilterQuery">
-              <DropdownMenuRadioItem value="">
-                <span class="truncate">All annotations</span>
-                <span class="ml-auto pl-3 text-xs tabular-nums text-muted-foreground">
-                  {{ availableAnnotations.length }}
-                </span>
-              </DropdownMenuRadioItem>
-              <DropdownMenuSeparator v-if="filteredAnnotationOptions.length > 0" />
-              <DropdownMenuRadioItem
-                v-for="opt in filteredAnnotationOptions"
-                :key="opt.item"
-                :value="opt.item"
-              >
-                <span class="truncate font-mono text-xs" :title="opt.item">
-                  <span class="text-muted-foreground">{{ opt.key }}: </span>{{ opt.value }}
-                </span>
-                <span class="ml-auto pl-3 text-xs tabular-nums text-muted-foreground">
-                  {{ opt.count }}
-                </span>
-              </DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-            <DropdownMenuLabel
-              v-if="filteredAnnotationOptions.length === 0 && availableAnnotations.length > 0"
-              class="py-3 text-center text-xs font-normal text-muted-foreground"
-            >
-              Filtering by “{{ annotationFilterQuery.trim() }}”
-            </DropdownMenuLabel>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <button
-          v-if="annotationFilterQuery.trim()"
-          type="button"
-          class="-ml-5 z-10 mr-1 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-ring"
-          aria-label="Clear annotation filter"
-          title="Clear annotation filter"
-          @click.stop="annotationFilterQuery = ''"
+          @click.stop="labelQuery = ''"
         >
           <X class="h-3 w-3" />
         </button>
@@ -2611,17 +2295,14 @@ const searchPlaceholder = computed(() => `Filter ${emptyResourceName.value}…`)
                       :icon="SearchX"
                       title="No matches"
                     >
-                      <template v-if="searchQuery && selectedNamespace !== 'all'">
-                        No {{ emptyResourceName }} in {{ selectedNamespace }} match “{{ searchQuery }}”.
-                      </template>
-                      <template v-else-if="searchQuery">
+                      <template v-if="searchQuery && !labelQuery.trim()">
                         No {{ emptyResourceName }} match “{{ searchQuery }}”.
                       </template>
-                      <template v-else-if="selectedNamespace !== 'all' && !labelFilterQuery.trim() && !annotationFilterQuery.trim()">
-                        No {{ emptyResourceName }} in {{ selectedNamespace }}.
+                      <template v-else-if="!searchQuery">
+                        No {{ emptyResourceName }} have labels matching “{{ labelQuery.trim() }}”.
                       </template>
                       <template v-else>
-                        No {{ emptyResourceName }} match the active filters.
+                        No {{ emptyResourceName }} match “{{ searchQuery }}” with labels “{{ labelQuery.trim() }}”.
                       </template>
                       <template #action>
                         <Button

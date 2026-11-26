@@ -430,6 +430,28 @@ describe("metadataFilter", () => {
     expect(matchesMetadataQuery(labels, "arch=amd64, zone=us-east-1a")).toBe(false);
   });
 
+  test("matchesMetadataQuery: values match exactly, keys by name or last segment", () => {
+    const labels = { app: "web-v2", "app.kubernetes.io/name": "webhook", tier: "" };
+
+    // A picked facet must not match longer values or other keys.
+    expect(matchesMetadataQuery(labels, "app=web")).toBe(false);
+    expect(matchesMetadataQuery(labels, "app=web-v2")).toBe(true);
+    expect(matchesMetadataQuery(labels, "name=webhook")).toBe(true);
+    expect(matchesMetadataQuery(labels, "app.kubernetes.io/name==WEBHOOK")).toBe(true);
+    // `key=`: the key with an empty value.
+    expect(matchesMetadataQuery(labels, "tier=")).toBe(true);
+    expect(matchesMetadataQuery(labels, "app=")).toBe(false);
+    // `!key` is about keys, not substrings of them.
+    expect(matchesMetadataQuery(labels, "!ap")).toBe(true);
+    expect(matchesMetadataQuery(labels, "!app")).toBe(false);
+    expect(matchesMetadataQuery(labels, "app!=web")).toBe(true);
+    // Plain terms still search keys and values.
+    expect(matchesMetadataQuery(labels, "hook")).toBe(true);
+    expect(matchesMetadataQuery(null, "hook")).toBe(false);
+    expect(matchesMetadataQuery(null, "!app")).toBe(true);
+    expect(matchesMetadataQuery(labels, " , ")).toBe(true);
+  });
+
   test("collectMetadataFacets counts and sorts key=value entries", () => {
     const nodes = [
       { metadata: { labels: { zone: "b", role: "worker" } } },

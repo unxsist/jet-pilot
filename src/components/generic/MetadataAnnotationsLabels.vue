@@ -343,7 +343,7 @@ const onKeydown = (event: KeyboardEvent) => {
 
   <!-- Labels: compact key=value chips -->
   <div v-else-if="type === 'labels'" class="space-y-2.5">
-    <div v-if="total > 1" class="relative flex items-center">
+    <div v-if="total > PREVIEW_COUNT" class="relative flex items-center">
       <Search
         class="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted-foreground"
         aria-hidden="true"
@@ -397,7 +397,7 @@ const onKeydown = (event: KeyboardEvent) => {
 
   <!-- Annotations: values can be long (JSON, URLs): a list -->
   <div v-else class="space-y-2">
-    <div v-if="total > 1" class="relative flex items-center">
+    <div v-if="total > PREVIEW_COUNT" class="relative flex items-center">
       <Search
         class="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted-foreground"
         aria-hidden="true"
